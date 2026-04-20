@@ -478,7 +478,7 @@ function DashboardContent() {
       setSelectedMonth(month);
     } catch (err) {
       console.error(err);
-      setError('load_failed');
+      setError('load_failed: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }
@@ -501,6 +501,19 @@ function DashboardContent() {
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">No Statement Data</h1>
           <p className="text-gray-500">No statement periods have been created yet.</p>
+          <p className="text-gray-400 text-sm mt-4">Portal is connected and ready.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && error.startsWith('load_failed')) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Connection Error</h1>
+          <p className="text-gray-500">Could not connect to the database.</p>
+          <p className="text-gray-400 text-xs mt-2">{error}</p>
         </div>
       </div>
     );
@@ -517,7 +530,17 @@ function DashboardContent() {
     );
   }
 
-  if (!period) return null;
+  if (!period) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Statement Data</h1>
+          <p className="text-gray-500">No statement periods have been created yet.</p>
+          <p className="text-gray-400 text-sm mt-4">Portal is connected and ready.</p>
+        </div>
+      </div>
+    );
+  }
 
   const props = period.property_statements || [];
   const totalPayout = props.reduce((s, p) => s + p.owner_payout, 0);
