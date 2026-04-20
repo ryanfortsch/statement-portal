@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase, debugInfo } from '@/lib/supabase';
 import { Suspense } from 'react';
+import Link from 'next/link';
 
 type Reservation = {
   id: string;
@@ -72,323 +73,226 @@ type StatementPeriod = {
   property_statements?: PropertyStatement[];
 };
 
-function ConfidenceBadge({ level }: { level: string }) {
-  const colors: Record<string, string> = {
-    green: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    yellow: 'bg-amber-100 text-amber-800 border-amber-200',
-    red: 'bg-red-100 text-red-800 border-red-200',
-  };
-  const labels: Record<string, string> = {
-    green: 'Complete',
-    yellow: 'Review Needed',
-    red: 'Missing Data',
-  };
-  return (
-    <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${colors[level] || colors.red}`}>
-      {labels[level] || 'Unknown'}
-    </span>
-  );
-}
-
-function DataSourceCheck({ label, present }: { label: string; present: boolean }) {
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded ${present ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-      {present ? '\u2713' : '\u2717'} {label}
-    </span>
-  );
-}
-
-function formatCurrency(amount: number): string {
+function fmt(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-';
+function fmtDate(dateStr: string): string {
+  if (!dateStr) return '--';
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function PlatformBadge({ platform }: { platform: string }) {
+function monthLabel(m: string): string {
+  const d = new Date(m + '-01T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function ConfidenceDot({ level }: { level: string }) {
   const colors: Record<string, string> = {
-    Airbnb: 'bg-rose-50 text-rose-700',
-    HomeAway: 'bg-blue-50 text-blue-700',
-    Manual: 'bg-purple-50 text-purple-700',
-    'Booking.com': 'bg-indigo-50 text-indigo-700',
+    green: 'bg-emerald-500',
+    yellow: 'bg-amber-400',
+    red: 'bg-red-500',
   };
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded ${colors[platform] || 'bg-gray-50 text-gray-700'}`}>
-      {platform === 'HomeAway' ? 'VRBO' : platform}
-    </span>
-  );
+  return <span className={`inline-block w-2.5 h-2.5 rounded-full ${colors[level] || colors.red}`} />;
+}
+
+function PlatformPill({ platform }: { platform: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    'Airbnb': { label: 'Airbnb', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    'HomeAway': { label: 'VRBO', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    'Manual': { label: 'Direct', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+    'Booking.com': { label: 'Booking', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  };
+  const p = map[platform] || { label: platform, cls: 'bg-gray-50 text-gray-600 border-gray-200' };
+  return <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${p.cls}`}>{p.label}</span>;
 }
 
 function PropertyCard({ prop }: { prop: PropertyStatement }) {
   const [expanded, setExpanded] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
+  const reservations = prop.reservations || [];
+  const cleaning = prop.cleaning_events || [];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-      {/* Header */}
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Card Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        className="w-full px-6 py-5 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
       >
         <div className="flex items-center gap-4">
+          <ConfidenceDot level={prop.confidence} />
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">{prop.property_name}</h3>
-            <p className="text-sm text-gray-500">{prop.owner_name}</p>
+            <h3 className="text-base font-semibold text-gray-900">{prop.property_name}</h3>
+            <p className="text-sm text-gray-400">{prop.owner_name}</p>
           </div>
-          <ConfidenceBadge level={prop.confidence} />
           {gaps.length > 0 && (
-            <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            <span className="bg-red-100 text-red-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">
               {gaps.length} gap{gaps.length > 1 ? 's' : ''}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-6">
-          <div className="text-right">
-            <p className="text-sm text-gray-500">Owner Payout</p>
-            <p className="text-xl font-bold text-gray-900">{formatCurrency(prop.owner_payout)}</p>
+        <div className="flex items-center gap-8">
+          <div className="text-right hidden sm:block">
+            <p className="text-xs text-gray-400">Revenue</p>
+            <p className="text-sm font-semibold text-gray-700">{fmt(prop.rental_revenue)}</p>
           </div>
-          <svg className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-right">
+            <p className="text-xs text-gray-400">Owner Payout</p>
+            <p className="text-lg font-bold text-gray-900">{fmt(prop.owner_payout)}</p>
+          </div>
+          <svg className={`w-4 h-4 text-gray-300 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </div>
       </button>
 
       {expanded && (
-        <div className="px-6 pb-6 border-t border-gray-100">
-          {/* Data Sources */}
-          <div className="flex gap-2 mt-4 mb-4">
-            <DataSourceCheck label="Guesty Statement" present={prop.has_guesty_statement} />
-            <DataSourceCheck label="Platform CSV" present={prop.has_platform_csv} />
-            <DataSourceCheck label="Bank CSV" present={prop.has_bank_csv} />
+        <div className="border-t border-gray-100">
+          {/* Data source indicators */}
+          <div className="px-6 py-3 bg-gray-50/50 flex items-center gap-3 text-xs">
+            <span className={prop.has_guesty_statement ? 'text-emerald-600' : 'text-red-500'}>
+              {prop.has_guesty_statement ? '\u2713' : '\u2717'} Guesty
+            </span>
+            <span className={prop.has_platform_csv ? 'text-emerald-600' : 'text-red-500'}>
+              {prop.has_platform_csv ? '\u2713' : '\u2717'} Platform
+            </span>
+            <span className={prop.has_bank_csv ? 'text-emerald-600' : 'text-red-500'}>
+              {prop.has_bank_csv ? '\u2713' : '\u2717'} Bank
+            </span>
           </div>
 
-          {/* P&L Summary */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">Statement Summary</h4>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Rental Revenue ({prop.num_stays} stays, {prop.nights_booked} nights)</span>
-                <span className="font-medium">{formatCurrency(prop.rental_revenue)}</span>
-              </div>
-              <div className="flex justify-between text-red-600">
-                <span>Management Fee ({(prop.management_fee_pct * 100).toFixed(0)}%)</span>
-                <span>-{formatCurrency(prop.management_fee)}</span>
-              </div>
-              <div className="flex justify-between text-red-600">
-                <span>Cleaning</span>
-                <span>-{formatCurrency(prop.cleaning_total)}</span>
-              </div>
-              {prop.repairs_total > 0 && (
-                <div className="flex justify-between text-red-600">
-                  <span>Repairs & Maintenance</span>
-                  <span>-{formatCurrency(prop.repairs_total)}</span>
+          <div className="px-6 py-5 space-y-6">
+            {/* P&L Summary */}
+            <div className="max-w-md">
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Statement Summary</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Rental Revenue <span className="text-gray-400">({prop.num_stays} stays, {prop.nights_booked} nights)</span></span>
+                  <span className="font-medium text-gray-900">{fmt(prop.rental_revenue)}</span>
                 </div>
-              )}
-              {prop.tax_remittance > 0 && (
-                <div className="flex justify-between text-red-600">
-                  <span>Tax Remittance</span>
-                  <span>-{formatCurrency(prop.tax_remittance)}</span>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Management Fee ({prop.management_fee_pct}%)</span>
+                  <span className="text-red-600">-{fmt(prop.management_fee)}</span>
                 </div>
-              )}
-              <div className="border-t border-gray-300 pt-1 mt-1 flex justify-between font-bold">
-                <span>Owner Payout</span>
-                <span>{formatCurrency(prop.owner_payout)}</span>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Cleaning</span>
+                  <span className="text-red-600">-{fmt(prop.cleaning_total)}</span>
+                </div>
+                {prop.repairs_total > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Repairs</span>
+                    <span className="text-red-600">-{fmt(prop.repairs_total)}</span>
+                  </div>
+                )}
+                <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
+                  <span className="text-gray-900">Owner Payout</span>
+                  <span className="text-gray-900">{fmt(prop.owner_payout)}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Reservations */}
-          {prop.reservations && prop.reservations.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Reservations</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="pb-2 pr-4">Guest</th>
-                      <th className="pb-2 pr-4">Dates</th>
-                      <th className="pb-2 pr-4">Nights</th>
-                      <th className="pb-2 pr-4">Platform</th>
-                      <th className="pb-2 pr-4 text-right">Guesty Income</th>
-                      <th className="pb-2 pr-4 text-right">Stripe Fee</th>
-                      <th className="pb-2 text-right">Adj. Revenue</th>
-                      <th className="pb-2 text-right">Bank</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prop.reservations.map((r) => (
-                      <tr key={r.id} className="border-b border-gray-50">
-                        <td className="py-2 pr-4 font-medium">{r.guest_name}</td>
-                        <td className="py-2 pr-4 text-gray-600">{formatDate(r.check_in)} - {formatDate(r.check_out)}</td>
-                        <td className="py-2 pr-4">{r.nights}</td>
-                        <td className="py-2 pr-4"><PlatformBadge platform={r.platform} /></td>
-                        <td className="py-2 pr-4 text-right">{formatCurrency(r.guesty_rental_income)}</td>
-                        <td className="py-2 pr-4 text-right text-red-600">
-                          {r.stripe_fee > 0 ? `-${formatCurrency(r.stripe_fee)}` : '-'}
-                        </td>
-                        <td className="py-2 text-right font-medium">{formatCurrency(r.adjusted_revenue)}</td>
-                        <td className="py-2 text-right">
-                          {r.bank_match_status === 'matched' ? (
-                            <span className="text-emerald-600">{'\u2713'} {formatCurrency(r.bank_deposit_amount || 0)}</span>
-                          ) : (
-                            <span className="text-amber-500">pending</span>
-                          )}
+            {/* Reservations Table */}
+            {reservations.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Reservations</h4>
+                <div className="overflow-x-auto -mx-6">
+                  <table className="w-full text-sm min-w-[700px]">
+                    <thead>
+                      <tr className="text-[11px] text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                        <th className="text-left font-medium px-6 py-2">Guest</th>
+                        <th className="text-left font-medium px-3 py-2">Dates</th>
+                        <th className="text-center font-medium px-3 py-2">Nts</th>
+                        <th className="text-left font-medium px-3 py-2">Channel</th>
+                        <th className="text-right font-medium px-3 py-2">Guesty</th>
+                        <th className="text-right font-medium px-3 py-2">Stripe</th>
+                        <th className="text-right font-medium px-3 py-2">Net</th>
+                        <th className="text-center font-medium px-6 py-2">Bank</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {reservations.map((r) => (
+                        <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-2.5 font-medium text-gray-900">{r.guest_name}</td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs">{fmtDate(r.check_in)} - {fmtDate(r.check_out)}</td>
+                          <td className="px-3 py-2.5 text-center text-gray-500">{r.nights}</td>
+                          <td className="px-3 py-2.5"><PlatformPill platform={r.platform} /></td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{fmt(r.guesty_rental_income)}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-400">{r.stripe_fee > 0 ? `-${fmt(r.stripe_fee)}` : '--'}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-gray-900">{fmt(r.adjusted_revenue)}</td>
+                          <td className="px-6 py-2.5 text-center">
+                            {r.bank_match_status === 'matched' ? (
+                              <span className="text-emerald-500 text-xs">{'\u2713'}</span>
+                            ) : (
+                              <span className="text-amber-400 text-xs">--</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-gray-200 text-xs font-semibold text-gray-700">
+                        <td className="px-6 py-2" colSpan={4}>Totals</td>
+                        <td className="px-3 py-2 text-right">{fmt(reservations.reduce((s, r) => s + r.guesty_rental_income, 0))}</td>
+                        <td className="px-3 py-2 text-right text-red-500">{fmt(reservations.reduce((s, r) => s + r.stripe_fee, 0))}</td>
+                        <td className="px-3 py-2 text-right">{fmt(prop.rental_revenue)}</td>
+                        <td className="px-6 py-2 text-center text-gray-400">
+                          {reservations.filter(r => r.bank_match_status === 'matched').length}/{reservations.length}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="font-bold border-t border-gray-200">
-                      <td className="pt-2" colSpan={4}>Total</td>
-                      <td className="pt-2 text-right">
-                        {formatCurrency(prop.reservations.reduce((s, r) => s + r.guesty_rental_income, 0))}
-                      </td>
-                      <td className="pt-2 text-right text-red-600">
-                        {formatCurrency(prop.reservations.reduce((s, r) => s + r.stripe_fee, 0))}
-                      </td>
-                      <td className="pt-2 text-right">{formatCurrency(prop.rental_revenue)}</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Cleaning */}
-          {prop.cleaning_events && prop.cleaning_events.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Cleaning (Bank Total: {formatCurrency(prop.cleaning_total)})</h4>
-              <div className="space-y-2">
-                {prop.cleaning_events.map((ce) => (
-                  <div key={ce.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
-                    <div>
-                      <span className="font-medium">{ce.guest_name || 'Unmatched'}</span>
-                      {ce.checkout_date && <span className="text-gray-500 ml-2">checkout {formatDate(ce.checkout_date)}</span>}
+            {/* Cleaning */}
+            {cleaning.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                  Cleaning Charges <span className="text-gray-300 font-normal">({fmt(prop.cleaning_total)} total)</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {cleaning.map((ce) => (
+                    <div key={ce.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                      <span className="text-gray-500 text-xs">{ce.bank_charge_amount ? fmtDate(ce.checkout_date || '') : '--'}</span>
+                      <span className="font-medium text-gray-800">{fmt(ce.amount)}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {ce.invoice_no && (
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                          Inv #{ce.invoice_no} {ce.invoice_amount ? formatCurrency(ce.invoice_amount) : ''}
-                        </span>
-                      )}
-                      {ce.bank_charge_amount && (
-                        <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
-                          Bank {formatCurrency(ce.bank_charge_amount)}
-                        </span>
-                      )}
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        ce.source === 'invoice+bank' ? 'bg-emerald-50 text-emerald-700' :
-                        ce.source === 'invoice' ? 'bg-blue-50 text-blue-700' :
-                        ce.source === 'bank' ? 'bg-gray-100 text-gray-600' :
-                        ce.source === 'uploaded' ? 'bg-purple-50 text-purple-700' :
-                        'bg-red-50 text-red-600'
-                      }`}>
-                        {ce.source}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Data Gaps */}
-          {gaps.length > 0 && (
-            <div>
-              <h4 className="text-sm font-semibold text-red-700 mb-2">Missing Data</h4>
-              <div className="space-y-2">
-                {gaps.map((gap) => (
-                  <div key={gap.id} className={`flex items-center justify-between rounded px-3 py-2 text-sm border ${
-                    gap.severity === 'critical' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
-                  }`}>
-                    <div>
-                      <p className="font-medium">{gap.description}</p>
-                      {gap.expected_data && <p className="text-xs text-gray-500 mt-0.5">Needed: {gap.expected_data}</p>}
+            {/* Data Gaps */}
+            {gaps.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-3">Data Gaps</h4>
+                <div className="space-y-2">
+                  {gaps.map((gap) => (
+                    <div key={gap.id} className={`rounded-lg px-4 py-3 text-sm border ${
+                      gap.severity === 'critical' ? 'bg-red-50 border-red-200' :
+                      gap.severity === 'warning' ? 'bg-amber-50 border-amber-200' :
+                      'bg-gray-50 border-gray-200'
+                    }`}>
+                      <p className="text-gray-800">{gap.description}</p>
+                      {gap.expected_data && <p className="text-xs text-gray-400 mt-1">{gap.expected_data}</p>}
                     </div>
-                    <UploadButton gapId={gap.id} propertyStatementId={prop.id} />
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function UploadButton({ gapId, propertyStatementId }: { gapId: string; propertyStatementId: string }) {
-  const [uploading, setUploading] = useState(false);
-  const [uploaded, setUploaded] = useState(false);
-
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    try {
-      // Upload file to Supabase Storage
-      const filePath = `${propertyStatementId}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('statement-uploads')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Create upload record
-      const { data: uploadData, error: insertError } = await supabase
-        .from('statement_uploads')
-        .insert({
-          property_statement_id: propertyStatementId,
-          file_name: file.name,
-          file_type: 'invoice',
-          file_path: filePath,
-          file_size: file.size,
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      // Link upload to gap and mark resolved
-      await supabase
-        .from('data_gaps')
-        .update({
-          resolved: true,
-          resolved_at: new Date().toISOString(),
-          upload_id: uploadData.id,
-          resolution_note: `Uploaded: ${file.name}`,
-        })
-        .eq('id', gapId);
-
-      setUploaded(true);
-    } catch (err) {
-      console.error('Upload failed:', err);
-      alert('Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  if (uploaded) {
-    return <span className="text-xs text-emerald-600 font-medium">{'\u2713'} Uploaded</span>;
-  }
-
-  return (
-    <label className="cursor-pointer bg-white border border-gray-300 text-gray-700 text-xs font-medium px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
-      {uploading ? 'Uploading...' : 'Upload'}
-      <input type="file" className="hidden" onChange={handleUpload} accept=".pdf,.png,.jpg,.jpeg,.csv" disabled={uploading} />
-    </label>
-  );
-}
-
 function DashboardContent() {
   const searchParams = useSearchParams();
   const [period, setPeriod] = useState<StatementPeriod | null>(null);
+  const [periods, setPeriods] = useState<{ month: string; status: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState('');
@@ -400,45 +304,28 @@ function DashboardContent() {
   const urlToken = searchParams.get('key');
 
   useEffect(() => {
-    // Check URL param first
-    if (urlToken && urlToken === expectedToken) {
-      setAuthenticated(true);
-    }
-    // Check if no token is configured (dev mode)
-    if (!expectedToken) {
-      setAuthenticated(true);
-    }
+    if (urlToken && urlToken === expectedToken) setAuthenticated(true);
+    if (!expectedToken) setAuthenticated(true);
   }, [urlToken, expectedToken]);
 
   useEffect(() => {
-    if (authenticated) {
-      loadLatestPeriod();
-    } else {
-      setLoading(false);
-    }
+    if (authenticated) loadPeriods();
+    else setLoading(false);
   }, [authenticated]);
 
-  async function loadLatestPeriod() {
+  async function loadPeriods() {
     setLoading(true);
     try {
-      // Get available periods
-      const { data: periods, error: periodsError } = await supabase
+      const { data, error: err } = await supabase
         .from('statement_periods')
-        .select('*')
+        .select('month, status')
         .order('month', { ascending: false })
-        .limit(12);
-
-      if (periodsError) throw periodsError;
-      if (!periods || periods.length === 0) {
-        setError('no_data');
-        setLoading(false);
-        return;
-      }
-
-      const targetMonth = selectedMonth || periods[0].month;
-      await loadPeriod(targetMonth);
+        .limit(24);
+      if (err) throw err;
+      if (!data || data.length === 0) { setError('no_data'); setLoading(false); return; }
+      setPeriods(data);
+      await loadPeriod(selectedMonth || data[0].month);
     } catch (err) {
-      console.error(err);
       setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
@@ -448,87 +335,62 @@ function DashboardContent() {
   async function loadPeriod(month: string) {
     setLoading(true);
     try {
-      // Get the period
       const { data: periodData, error: periodError } = await supabase
-        .from('statement_periods')
-        .select('*')
-        .eq('month', month)
-        .single();
-
+        .from('statement_periods').select('*').eq('month', month).single();
       if (periodError) throw periodError;
 
-      // Get property statements
       const { data: props, error: propsError } = await supabase
-        .from('property_statements')
-        .select('*')
-        .eq('period_id', periodData.id)
-        .order('property_name');
-
+        .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
       if (propsError) throw propsError;
 
-      // Get reservations, cleaning, and gaps for each property
       const enrichedProps = await Promise.all(
         (props || []).map(async (prop: PropertyStatement) => {
           const [resResult, cleanResult, gapResult] = await Promise.all([
             supabase.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
-            supabase.from('cleaning_events').select('*').eq('property_statement_id', prop.id).order('checkout_date'),
-            supabase.from('data_gaps').select('*').eq('property_statement_id', prop.id).order('severity'),
+            supabase.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
+            supabase.from('data_gaps').select('*').eq('property_statement_id', prop.id),
           ]);
-          return {
-            ...prop,
-            reservations: resResult.data || [],
-            cleaning_events: cleanResult.data || [],
-            data_gaps: gapResult.data || [],
-          };
+          return { ...prop, reservations: resResult.data || [], cleaning_events: cleanResult.data || [], data_gaps: gapResult.data || [] };
         })
       );
 
-      setPeriod({
-        ...periodData,
-        property_statements: enrichedProps,
-      });
+      setPeriod({ ...periodData, property_statements: enrichedProps });
       setSelectedMonth(month);
     } catch (err) {
-      console.error(err);
       setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
   }
 
+  // Login screen
   if (!authenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
         <div className="w-full max-w-sm mx-auto px-6">
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-[#1E2E34] mb-1">Rising Tide</h1>
-            <p className="text-gray-500 text-sm">Owner Statement Portal</p>
+            <div className="w-12 h-12 bg-[#C9A84C] rounded-lg flex items-center justify-center mx-auto mb-4">
+              <span className="text-white font-bold text-lg">RT</span>
+            </div>
+            <h1 className="text-xl font-bold text-[#1E2E34]">Rising Tide</h1>
+            <p className="text-gray-400 text-sm mt-1">Owner Statement Portal</p>
           </div>
           <form onSubmit={(e) => {
             e.preventDefault();
-            if (inputCode === expectedToken) {
-              setAuthenticated(true);
-              setAuthError(false);
-            } else {
-              setAuthError(true);
-            }
+            if (inputCode === expectedToken) { setAuthenticated(true); setAuthError(false); }
+            else setAuthError(true);
           }}>
             <input
               type="password"
-              placeholder="Enter access code"
+              placeholder="Access code"
               value={inputCode}
               onChange={(e) => { setInputCode(e.target.value); setAuthError(false); }}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-[#1E2E34] focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-[#1E2E34] focus:border-transparent bg-white"
               autoFocus
             />
-            {authError && (
-              <p className="text-red-500 text-sm text-center mt-2">Invalid access code</p>
-            )}
-            <button
-              type="submit"
-              className="w-full mt-4 bg-[#1E2E34] text-white py-3 rounded-lg font-medium hover:bg-[#2a3f47] transition-colors"
-            >
-              Access Portal
+            {authError && <p className="text-red-500 text-sm text-center mt-2">Invalid code</p>}
+            <button type="submit" className="w-full mt-4 bg-[#1E2E34] text-white py-3 rounded-xl font-medium hover:bg-[#2a3f47] transition-colors">
+              Enter
             </button>
           </form>
         </div>
@@ -538,14 +400,16 @@ function DashboardContent() {
 
   if (error === 'no_data') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Statement Data</h1>
-          <p className="text-gray-500">No statement periods have been created yet.</p>
-          <p className="text-gray-400 text-sm mt-4">Portal is connected and ready.</p>
-          <a href="/upload" className="inline-block mt-6 px-6 py-3 bg-[#1E2E34] text-white rounded-lg font-medium hover:bg-[#2a3f47]">
+          <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl text-gray-300">0</span>
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 mb-1">No Statement Data</h1>
+          <p className="text-gray-400 text-sm">Upload your first owner statement to get started.</p>
+          <Link href="/upload" className="inline-block mt-6 px-6 py-3 bg-[#1E2E34] text-white rounded-xl font-medium hover:bg-[#2a3f47] transition-colors">
             Upload Statement Data
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -553,13 +417,12 @@ function DashboardContent() {
 
   if (error && error.startsWith('load_failed')) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
         <div className="text-center max-w-lg mx-auto px-4">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Connection Error</h1>
-          <p className="text-gray-500">Could not connect to the database.</p>
-          <p className="text-red-400 text-xs mt-4 break-all">{error}</p>
-          <p className="text-gray-300 text-xs mt-2">URL: {debugInfo.url || 'NOT SET'}</p>
-          <p className="text-gray-300 text-xs">Key: {debugInfo.keyPrefix}</p>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Connection Error</h1>
+          <p className="text-gray-400 text-sm">Could not reach the database.</p>
+          <p className="text-red-400 text-xs mt-4 break-all font-mono">{error}</p>
+          <p className="text-gray-300 text-xs mt-2">URL: {debugInfo.url || 'NOT SET'} | Key: {debugInfo.keyPrefix}</p>
         </div>
       </div>
     );
@@ -567,22 +430,18 @@ function DashboardContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#1E2E34] mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading statements...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
+        <div className="w-6 h-6 border-2 border-[#1E2E34] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (!period) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Statement Data</h1>
-          <p className="text-gray-500">No statement periods have been created yet.</p>
-          <p className="text-gray-400 text-sm mt-4">Portal is connected and ready.</p>
+          <h1 className="text-xl font-bold text-gray-900 mb-1">No Data</h1>
+          <p className="text-gray-400 text-sm">No statement periods found.</p>
         </div>
       </div>
     );
@@ -591,62 +450,100 @@ function DashboardContent() {
   const props = period.property_statements || [];
   const totalPayout = props.reduce((s, p) => s + p.owner_payout, 0);
   const totalRevenue = props.reduce((s, p) => s + p.rental_revenue, 0);
+  const totalMgmt = props.reduce((s, p) => s + p.management_fee, 0);
+  const totalCleaning = props.reduce((s, p) => s + p.cleaning_total, 0);
   const totalGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
-  const statusLabel: Record<string, string> = { draft: 'Mid-Month Draft', review: 'Under Review', final: 'Final' };
-
-  const monthLabel = new Date(period.month + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const totalStays = props.reduce((s, p) => s + p.num_stays, 0);
+  const totalNights = props.reduce((s, p) => s + p.nights_booked, 0);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#F7F8F9]">
       {/* Header */}
-      <header className="bg-[#1E2E34] text-white">
-        <div className="max-w-6xl mx-auto px-6 py-6">
+      <header className="bg-[#1E2E34]">
+        <div className="max-w-6xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Rising Tide Statements</h1>
-              <p className="text-gray-300 text-sm mt-1">{monthLabel}</p>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-[#C9A84C] rounded flex items-center justify-center">
+                <span className="text-white font-bold text-sm">RT</span>
+              </div>
+              <div>
+                <h1 className="text-white font-semibold text-lg leading-tight">Owner Statements</h1>
+                <div className="flex items-center gap-2 mt-0.5">
+                  {periods.length > 1 ? (
+                    <select
+                      value={selectedMonth}
+                      onChange={(e) => loadPeriod(e.target.value)}
+                      className="bg-transparent text-gray-400 text-sm border-none outline-none cursor-pointer appearance-none pr-4"
+                      style={{ backgroundImage: 'none' }}
+                    >
+                      {periods.map(p => (
+                        <option key={p.month} value={p.month} className="text-gray-900 bg-white">{monthLabel(p.month)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-gray-400 text-sm">{monthLabel(selectedMonth)}</span>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-4">
-              <a href="/upload" className="text-sm text-gray-300 hover:text-white underline">Upload Data</a>
-              <span className={`text-xs font-medium px-3 py-1 rounded-full ${
-                period.status === 'final' ? 'bg-emerald-500' :
-                period.status === 'review' ? 'bg-amber-500' :
-                'bg-gray-500'
-              }`}>
-                {statusLabel[period.status] || period.status}
-              </span>
-            </div>
-          </div>
-
-          {/* Summary bar */}
-          <div className="grid grid-cols-4 gap-6 mt-6">
-            <div>
-              <p className="text-gray-400 text-xs uppercase tracking-wide">Properties</p>
-              <p className="text-2xl font-bold">{props.length}</p>
-            </div>
-            <div>
-              <p className="text-gray-400 text-xs uppercase tracking-wide">Total Revenue</p>
-              <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
-            </div>
-            <div>
-              <p className="text-gray-400 text-xs uppercase tracking-wide">Total Payouts</p>
-              <p className="text-2xl font-bold">{formatCurrency(totalPayout)}</p>
-            </div>
-            <div>
-              <p className="text-gray-400 text-xs uppercase tracking-wide">Data Gaps</p>
-              <p className={`text-2xl font-bold ${totalGaps > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {totalGaps}
-              </p>
+              <Link href="/upload" className="px-4 py-2 bg-white/10 text-white text-sm rounded-lg hover:bg-white/20 transition-colors">
+                Upload Data
+              </Link>
             </div>
           </div>
         </div>
       </header>
 
+      {/* Stats bar */}
+      <div className="bg-[#1E2E34] border-t border-white/10 pb-6">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Properties</p>
+              <p className="text-white text-xl font-bold mt-0.5">{props.length}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Stays / Nights</p>
+              <p className="text-white text-xl font-bold mt-0.5">{totalStays} / {totalNights}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Revenue</p>
+              <p className="text-white text-xl font-bold mt-0.5">{fmt(totalRevenue)}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Mgmt Fees</p>
+              <p className="text-[#C9A84C] text-xl font-bold mt-0.5">{fmt(totalMgmt)}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Cleaning</p>
+              <p className="text-white text-xl font-bold mt-0.5">{fmt(totalCleaning)}</p>
+            </div>
+            <div className="bg-white/5 rounded-xl px-4 py-3">
+              <p className="text-gray-500 text-[11px] uppercase tracking-wider">Payouts</p>
+              <p className="text-emerald-400 text-xl font-bold mt-0.5">{fmt(totalPayout)}</p>
+            </div>
+          </div>
+          {totalGaps > 0 && (
+            <div className="mt-3 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-xs">
+              {totalGaps} data gap{totalGaps > 1 ? 's' : ''} need attention across {props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length} properties
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Property cards */}
-      <main className="max-w-6xl mx-auto px-6 py-6 space-y-4">
-        {props.map((prop) => (
-          <PropertyCard key={prop.id} prop={prop} />
-        ))}
+      <main className="max-w-6xl mx-auto px-6 py-6 space-y-3">
+        {props.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-gray-400 text-sm">No properties uploaded for this period yet.</p>
+            <Link href="/upload" className="inline-block mt-4 text-[#1E2E34] text-sm font-medium underline">
+              Upload statement data
+            </Link>
+          </div>
+        ) : (
+          props.map((prop) => <PropertyCard key={prop.id} prop={prop} />)
+        )}
       </main>
     </div>
   );
@@ -655,8 +552,8 @@ function DashboardContent() {
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#1E2E34]"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F8F9]">
+        <div className="w-6 h-6 border-2 border-[#1E2E34] border-t-transparent rounded-full animate-spin" />
       </div>
     }>
       <DashboardContent />
