@@ -41,7 +41,7 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
     const afterMatch = text.substring(match.index);
 
     // Find "Rental payment for XXXXX" and its amount
-    const rentalMatch = afterMatch.match(/Rental payment for\s+(\S+).*?Rental Income\s+\$?([\d,]+\.?\d*)/s);
+    const rentalMatch = afterMatch.match(/Rental payment for\s+(\S+)[\s\S]*?Rental Income\s+\$?([\d,]+\.?\d*)/);
 
     if (rentalMatch) {
       const confirmationCode = rentalMatch[1];
