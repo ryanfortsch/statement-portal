@@ -46,6 +46,17 @@ type IngestResult = {
   parsed_reservations: ParsedReservation[];
 };
 
+function PlatformPill({ platform }: { platform: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    'Airbnb': { label: 'Airbnb', cls: 'bg-rose-50 text-rose-600 ring-1 ring-rose-200' },
+    'HomeAway': { label: 'VRBO', cls: 'bg-sky-50 text-sky-600 ring-1 ring-sky-200' },
+    'Manual': { label: 'Direct', cls: 'bg-violet-50 text-violet-600 ring-1 ring-violet-200' },
+    'Booking.com': { label: 'Booking', cls: 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-200' },
+  };
+  const p = map[platform] || { label: platform, cls: 'bg-gray-50 text-gray-500 ring-1 ring-gray-200' };
+  return <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${p.cls}`}>{p.label}</span>;
+}
+
 export default function UploadPage() {
   const [month, setMonth] = useState('2026-04');
   const [propertyId, setPropertyId] = useState('');
@@ -105,10 +116,10 @@ export default function UploadPage() {
   const fmt = (n: number) => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtSigned = (n: number) => (n < 0 ? '-' : '') + fmt(n);
 
-  const confidenceLabel = (c: string) => {
-    if (c === 'green') return { text: 'High', color: 'bg-emerald-100 text-emerald-800' };
-    if (c === 'yellow') return { text: 'Medium', color: 'bg-amber-100 text-amber-800' };
-    return { text: 'Low', color: 'bg-red-100 text-red-800' };
+  const fmtDate = (dateStr: string) => {
+    if (!dateStr) return '--';
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const monthLabel = (m: string) => {
@@ -118,72 +129,83 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F8F9]">
+    <div className="min-h-screen bg-[#f8f9fa]">
       {/* Header */}
-      <header className="bg-[#1E2E34] border-b border-[#2a3f47]">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#C9A84C] rounded flex items-center justify-center">
-              <span className="text-white font-bold text-sm">RT</span>
+      <header className="bg-[#1E2E34] sticky top-0 z-50">
+        <div className="max-w-3xl mx-auto px-6">
+          <div className="flex items-center justify-between h-14">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-[#C9A84C]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 17l6-6 4 4 8-8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M17 7h4v4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="text-white/90 font-medium text-[14px]">Rising Tide</span>
+              <span className="text-white/30 mx-1">/</span>
+              <span className="text-white/70 text-[13px]">Upload</span>
             </div>
-            <div>
-              <h1 className="text-white font-semibold text-lg leading-tight">Statement Upload</h1>
-              <p className="text-gray-400 text-xs">Upload owner statement data for processing</p>
-            </div>
+            <Link href="/" className="text-[12px] text-white/50 hover:text-white/80 font-medium">
+              Dashboard
+            </Link>
           </div>
-          <Link href="/" className="text-sm text-gray-400 hover:text-white transition-colors">
-            Back to Dashboard
-          </Link>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-6 py-8">
 
         {/* SUCCESS VIEW */}
         {result && (
-          <div className="space-y-6">
-            {/* Summary Card */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="bg-emerald-600 px-6 py-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-white font-semibold text-lg">Upload Successful</h2>
-                  <p className="text-emerald-100 text-sm">{result.property} -- {monthLabel(result.month)}</p>
+          <div className="space-y-5">
+            {/* Success banner */}
+            <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+              <div className="bg-emerald-600 px-5 py-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                  <div>
+                    <p className="text-white font-medium text-[14px]">{result.property}</p>
+                    <p className="text-emerald-100 text-[12px]">{monthLabel(result.month)}</p>
+                  </div>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${confidenceLabel(result.summary.confidence).color}`}>
-                  {confidenceLabel(result.summary.confidence).text} Confidence
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                  result.summary.confidence === 'green' ? 'bg-white/20 text-white' :
+                  result.summary.confidence === 'yellow' ? 'bg-amber-100 text-amber-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {result.summary.confidence === 'green' ? 'High' : result.summary.confidence === 'yellow' ? 'Medium' : 'Low'} Confidence
                 </span>
               </div>
 
-              <div className="p-6">
-                <div className="grid grid-cols-3 gap-6">
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{result.summary.reservations}</p>
-                    <p className="text-xs text-gray-500 mt-1">Reservations</p>
+              <div className="p-5">
+                {/* Key numbers */}
+                <div className="grid grid-cols-3 gap-4 mb-5">
+                  <div className="text-center py-3 bg-gray-50 rounded-lg">
+                    <p className="text-[22px] font-bold text-[#1E2E34] tabular-nums">{result.summary.reservations}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Reservations</p>
                   </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{fmt(result.summary.total_revenue)}</p>
-                    <p className="text-xs text-gray-500 mt-1">Net Revenue</p>
+                  <div className="text-center py-3 bg-gray-50 rounded-lg">
+                    <p className="text-[22px] font-bold text-[#1E2E34] tabular-nums">{fmt(result.summary.total_revenue)}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Net Revenue</p>
                   </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{fmtSigned(result.summary.owner_payout)}</p>
-                    <p className="text-xs text-gray-500 mt-1">Owner Payout</p>
+                  <div className="text-center py-3 bg-gray-50 rounded-lg">
+                    <p className="text-[22px] font-bold text-emerald-600 tabular-nums">{fmtSigned(result.summary.owner_payout)}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Owner Payout</p>
                   </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+                {/* Line items */}
+                <div className="grid grid-cols-2 gap-x-6">
+                  <div className="flex justify-between py-2 border-b border-gray-50 text-[13px]">
                     <span className="text-gray-500">Management Fee</span>
-                    <span className="text-gray-900 font-medium">{fmt(result.summary.management_fee)}</span>
+                    <span className="text-gray-900 font-medium tabular-nums">{fmt(result.summary.management_fee)}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+                  <div className="flex justify-between py-2 border-b border-gray-50 text-[13px]">
                     <span className="text-gray-500">Stripe Fees</span>
-                    <span className="text-gray-900 font-medium">{fmt(result.summary.stripe_fees)}</span>
+                    <span className="text-gray-900 font-medium tabular-nums">{fmt(result.summary.stripe_fees)}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-500">Cleaning Total</span>
-                    <span className="text-gray-900 font-medium">{fmt(result.summary.cleaning_total)}</span>
+                  <div className="flex justify-between py-2 border-b border-gray-50 text-[13px]">
+                    <span className="text-gray-500">Cleaning</span>
+                    <span className="text-gray-900 font-medium tabular-nums">{fmt(result.summary.cleaning_total)}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+                  <div className="flex justify-between py-2 border-b border-gray-50 text-[13px]">
                     <span className="text-gray-500">Data Gaps</span>
                     <span className={`font-medium ${result.summary.data_gaps > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
                       {result.summary.data_gaps}
@@ -193,57 +215,47 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Reservation Details */}
+            {/* Reservation details */}
             {result.parsed_reservations.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <h3 className="font-semibold text-gray-900">Parsed Reservations</h3>
+              <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-50">
+                  <h3 className="text-[13px] font-semibold text-gray-900">Parsed Reservations</h3>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-[12px]">
                     <thead>
-                      <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-                        <th className="px-4 py-3 text-left font-medium">Guest</th>
-                        <th className="px-4 py-3 text-left font-medium">Code</th>
-                        <th className="px-4 py-3 text-left font-medium">Dates</th>
-                        <th className="px-4 py-3 text-center font-medium">Nights</th>
-                        <th className="px-4 py-3 text-left font-medium">Platform</th>
-                        <th className="px-4 py-3 text-right font-medium">Guesty</th>
-                        <th className="px-4 py-3 text-right font-medium">Stripe Fee</th>
-                        <th className="px-4 py-3 text-right font-medium">Net Revenue</th>
-                        <th className="px-4 py-3 text-center font-medium">Bank</th>
+                      <tr className="bg-gray-50/80 text-[10px] text-gray-400 uppercase tracking-wider">
+                        <th className="px-4 py-2.5 text-left font-medium">Guest</th>
+                        <th className="px-3 py-2.5 text-left font-medium">Dates</th>
+                        <th className="px-2 py-2.5 text-center font-medium">Nts</th>
+                        <th className="px-3 py-2.5 text-left font-medium">Channel</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Guesty</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Stripe</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Net</th>
+                        <th className="px-4 py-2.5 text-center font-medium">Bank</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                       {result.parsed_reservations.map((r, i) => (
-                        <tr key={i} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 text-gray-900 font-medium">{r.guest_name}</td>
-                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.confirmation_code}</td>
-                          <td className="px-4 py-3 text-gray-600 text-xs">
-                            {r.check_in} to {r.check_out}
+                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
+                          <td className="px-4 py-2.5 text-gray-900 font-medium">{r.guest_name}</td>
+                          <td className="px-3 py-2.5 text-gray-500">
+                            {fmtDate(r.check_in)} - {fmtDate(r.check_out)}
                           </td>
-                          <td className="px-4 py-3 text-center text-gray-600">{r.nights}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                              r.platform === 'Airbnb' ? 'bg-rose-50 text-rose-700' :
-                              r.platform === 'HomeAway' ? 'bg-blue-50 text-blue-700' :
-                              r.platform === 'Manual' ? 'bg-purple-50 text-purple-700' :
-                              r.platform === 'Booking.com' ? 'bg-indigo-50 text-indigo-700' :
-                              'bg-gray-100 text-gray-600'
-                            }`}>
-                              {r.platform}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right text-gray-600">{fmt(r.guesty_rental_income)}</td>
-                          <td className="px-4 py-3 text-right text-gray-400">
+                          <td className="px-2 py-2.5 text-center text-gray-500">{r.nights}</td>
+                          <td className="px-3 py-2.5"><PlatformPill platform={r.platform} /></td>
+                          <td className="px-3 py-2.5 text-right text-gray-600 tabular-nums">{fmt(r.guesty_rental_income)}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-400 tabular-nums">
                             {r.stripe_fee > 0 ? `-${fmt(r.stripe_fee)}` : '--'}
                           </td>
-                          <td className="px-4 py-3 text-right text-gray-900 font-medium">{fmt(r.adjusted_revenue)}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-3 py-2.5 text-right text-gray-900 font-medium tabular-nums">{fmt(r.adjusted_revenue)}</td>
+                          <td className="px-4 py-2.5 text-center">
                             {r.bank_match_status === 'matched' ? (
-                              <span className="inline-block w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full text-xs leading-5">&#10003;</span>
+                              <span className="text-emerald-500">
+                                <svg className="w-3.5 h-3.5 inline" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                              </span>
                             ) : (
-                              <span className="inline-block w-5 h-5 bg-amber-100 text-amber-600 rounded-full text-xs leading-5">?</span>
+                              <span className="text-gray-300">--</span>
                             )}
                           </td>
                         </tr>
@@ -256,10 +268,10 @@ export default function UploadPage() {
 
             {/* Actions */}
             <div className="flex gap-3">
-              <button onClick={resetForm} className="px-5 py-2.5 bg-[#1E2E34] text-white rounded-lg text-sm font-medium hover:bg-[#2a3f47] transition-colors">
-                Upload Another Property
+              <button onClick={resetForm} className="px-5 py-2.5 bg-[#1E2E34] text-white rounded-lg text-[13px] font-medium hover:bg-[#2a3f47]">
+                Upload Another
               </button>
-              <Link href="/" className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+              <Link href="/" className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-[13px] font-medium hover:bg-gray-50">
                 View Dashboard
               </Link>
             </div>
@@ -268,41 +280,37 @@ export default function UploadPage() {
 
         {/* UPLOAD FORM */}
         {!result && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Error */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 flex items-start gap-3">
-                <span className="text-red-500 text-lg leading-none mt-0.5">!</span>
-                <div>
-                  <p className="text-red-800 font-medium text-sm">Upload Error</p>
-                  <p className="text-red-600 text-sm mt-0.5">{error}</p>
-                </div>
+              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 flex items-center gap-2.5">
+                <svg className="w-4 h-4 text-red-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg>
+                <p className="text-red-700 text-[13px]">{error}</p>
               </div>
             )}
 
-            {/* Step 1: Period & Property */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-                <span className="w-6 h-6 bg-[#1E2E34] text-white rounded-full text-xs flex items-center justify-center font-medium">1</span>
-                <h2 className="font-semibold text-gray-900">Select Period & Property</h2>
+            {/* Period & Property */}
+            <div className="bg-white rounded-lg border border-gray-100">
+              <div className="px-5 py-3 border-b border-gray-50">
+                <h2 className="text-[13px] font-semibold text-gray-900">Period & Property</h2>
               </div>
-              <div className="p-6">
-                <div className="grid grid-cols-2 gap-6">
+              <div className="p-5">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Statement Month</label>
+                    <label className="block text-[12px] font-medium text-gray-500 mb-1.5">Month</label>
                     <input
                       type="month"
                       value={month}
                       onChange={(e) => setMonth(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1E2E34] focus:border-transparent transition-shadow"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] focus:border-[#1E2E34] bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Property</label>
+                    <label className="block text-[12px] font-medium text-gray-500 mb-1.5">Property</label>
                     <select
                       value={propertyId}
                       onChange={(e) => setPropertyId(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1E2E34] focus:border-transparent transition-shadow"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] focus:border-[#1E2E34] bg-white"
                     >
                       <option value="">Select property...</option>
                       {PROPERTIES.map(p => (
@@ -312,96 +320,100 @@ export default function UploadPage() {
                   </div>
                 </div>
                 {selectedProp && (
-                  <div className="mt-4 px-4 py-3 bg-[#F0F1EE] rounded-lg text-sm text-gray-600">
-                    Ready to upload for <span className="font-medium text-gray-900">{selectedProp.name}</span> ({selectedProp.owner}) -- {monthLabel(month)}
-                  </div>
+                  <p className="mt-3 text-[12px] text-gray-400">
+                    Uploading for <span className="text-gray-700 font-medium">{selectedProp.name}</span> ({selectedProp.owner}) - {monthLabel(month)}
+                  </p>
                 )}
               </div>
             </div>
 
-            {/* Step 2: File Uploads */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-                <span className="w-6 h-6 bg-[#1E2E34] text-white rounded-full text-xs flex items-center justify-center font-medium">2</span>
-                <h2 className="font-semibold text-gray-900">Upload Files</h2>
+            {/* Files */}
+            <div className="bg-white rounded-lg border border-gray-100">
+              <div className="px-5 py-3 border-b border-gray-50">
+                <h2 className="text-[13px] font-semibold text-gray-900">Files</h2>
               </div>
-              <div className="p-6 space-y-5">
+              <div className="p-5 space-y-3">
                 {/* Guesty PDF */}
-                <div className={`border-2 border-dashed rounded-xl p-5 transition-colors ${guestyPDF ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${guestyPDF ? 'bg-emerald-200' : 'bg-red-50'}`}>
-                        <span className="text-lg">{guestyPDF ? '\u2713' : '\u2191'}</span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          Guesty Owner Statement
-                          <span className="text-red-500 ml-1">*</span>
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {guestyPDF ? guestyPDF.name : 'PDF from Guesty -- reservations are extracted automatically'}
-                        </p>
-                      </div>
+                <div className={`flex items-center justify-between rounded-lg border px-4 py-3 ${guestyPDF ? 'border-emerald-200 bg-emerald-50/50' : 'border-gray-100 bg-gray-50/50'}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded flex items-center justify-center shrink-0 ${guestyPDF ? 'bg-emerald-100 text-emerald-600' : 'bg-red-50 text-red-400'}`}>
+                      {guestyPDF ? (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                      )}
                     </div>
-                    <label className="px-4 py-2 bg-[#1E2E34] text-white text-xs font-medium rounded-lg cursor-pointer hover:bg-[#2a3f47] transition-colors">
-                      {guestyPDF ? 'Replace' : 'Choose PDF'}
-                      <input ref={pdfRef} type="file" accept=".pdf" className="hidden" onChange={(e) => setGuestyPDF(e.target.files?.[0] || null)} />
-                    </label>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-gray-900">
+                        Guesty Owner Statement <span className="text-red-400">*</span>
+                      </p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {guestyPDF ? guestyPDF.name : 'PDF with reservation data'}
+                      </p>
+                    </div>
                   </div>
+                  <label className={`shrink-0 ml-3 px-3 py-1.5 text-[11px] font-medium rounded cursor-pointer ${guestyPDF ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-[#1E2E34] text-white hover:bg-[#2a3f47]'}`}>
+                    {guestyPDF ? 'Replace' : 'Choose'}
+                    <input ref={pdfRef} type="file" accept=".pdf" className="hidden" onChange={(e) => setGuestyPDF(e.target.files?.[0] || null)} />
+                  </label>
                 </div>
 
                 {/* Platform CSV */}
-                <div className={`border-2 border-dashed rounded-xl p-5 transition-colors ${platformCSV ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${platformCSV ? 'bg-emerald-200' : 'bg-gray-100'}`}>
-                        <span className="text-lg">{platformCSV ? '\u2713' : '\u2191'}</span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">Platform CSV</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {platformCSV ? platformCSV.name : 'From Guesty -- maps reservations to booking channels and guest names'}
-                        </p>
-                      </div>
+                <div className={`flex items-center justify-between rounded-lg border px-4 py-3 ${platformCSV ? 'border-emerald-200 bg-emerald-50/50' : 'border-gray-100 bg-gray-50/50'}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded flex items-center justify-center shrink-0 ${platformCSV ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                      {platformCSV ? (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                      )}
                     </div>
-                    <label className="px-4 py-2 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                      {platformCSV ? 'Replace' : 'Choose CSV'}
-                      <input ref={platRef} type="file" accept=".csv" className="hidden" onChange={(e) => setPlatformCSV(e.target.files?.[0] || null)} />
-                    </label>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-gray-900">Platform CSV</p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {platformCSV ? platformCSV.name : 'Maps reservations to channels & guest names'}
+                      </p>
+                    </div>
                   </div>
+                  <label className={`shrink-0 ml-3 px-3 py-1.5 text-[11px] font-medium rounded cursor-pointer ${platformCSV ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                    {platformCSV ? 'Replace' : 'Choose'}
+                    <input ref={platRef} type="file" accept=".csv" className="hidden" onChange={(e) => setPlatformCSV(e.target.files?.[0] || null)} />
+                  </label>
                 </div>
 
                 {/* Bank CSV */}
-                <div className={`border-2 border-dashed rounded-xl p-5 transition-colors ${bankCSV ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bankCSV ? 'bg-emerald-200' : 'bg-gray-100'}`}>
-                        <span className="text-lg">{bankCSV ? '\u2713' : '\u2191'}</span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">Chase Bank CSV</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {bankCSV ? bankCSV.name : 'Property bank account activity -- verifies deposits and cleaning charges'}
-                        </p>
-                      </div>
+                <div className={`flex items-center justify-between rounded-lg border px-4 py-3 ${bankCSV ? 'border-emerald-200 bg-emerald-50/50' : 'border-gray-100 bg-gray-50/50'}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded flex items-center justify-center shrink-0 ${bankCSV ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                      {bankCSV ? (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                      )}
                     </div>
-                    <label className="px-4 py-2 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                      {bankCSV ? 'Replace' : 'Choose CSV'}
-                      <input ref={bankRef} type="file" accept=".csv" className="hidden" onChange={(e) => setBankCSV(e.target.files?.[0] || null)} />
-                    </label>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-gray-900">Chase Bank CSV</p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {bankCSV ? bankCSV.name : 'Verifies deposits & cleaning charges'}
+                      </p>
+                    </div>
                   </div>
+                  <label className={`shrink-0 ml-3 px-3 py-1.5 text-[11px] font-medium rounded cursor-pointer ${bankCSV ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                    {bankCSV ? 'Replace' : 'Choose'}
+                    <input ref={bankRef} type="file" accept=".csv" className="hidden" onChange={(e) => setBankCSV(e.target.files?.[0] || null)} />
+                  </label>
                 </div>
 
-                {/* File status summary */}
-                <div className="flex items-center gap-4 pt-2 text-xs text-gray-500">
-                  <span className={guestyPDF ? 'text-emerald-600' : 'text-gray-400'}>
-                    {guestyPDF ? '\u2713' : '\u25CB'} Owner Statement
+                {/* File status */}
+                <div className="flex items-center gap-4 pt-1 text-[11px]">
+                  <span className={guestyPDF ? 'text-emerald-600' : 'text-gray-300'}>
+                    {guestyPDF ? '\u2713' : '\u25CB'} Statement
                   </span>
-                  <span className={platformCSV ? 'text-emerald-600' : 'text-gray-400'}>
-                    {platformCSV ? '\u2713' : '\u25CB'} Platform CSV
+                  <span className={platformCSV ? 'text-emerald-600' : 'text-gray-300'}>
+                    {platformCSV ? '\u2713' : '\u25CB'} Platform
                   </span>
-                  <span className={bankCSV ? 'text-emerald-600' : 'text-gray-400'}>
-                    {bankCSV ? '\u2713' : '\u25CB'} Bank CSV
+                  <span className={bankCSV ? 'text-emerald-600' : 'text-gray-300'}>
+                    {bankCSV ? '\u2713' : '\u25CB'} Bank
                   </span>
                 </div>
               </div>
@@ -409,17 +421,17 @@ export default function UploadPage() {
 
             {/* Submit */}
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-400">
-                Uploads can be re-run -- existing data for this property/month will be replaced.
+              <p className="text-[11px] text-gray-400">
+                Re-uploading replaces existing data for this property/month.
               </p>
               <button
                 onClick={handleSubmit}
                 disabled={submitting || !propertyId || !guestyPDF}
-                className="px-8 py-3 bg-[#1E2E34] text-white rounded-xl font-medium text-sm hover:bg-[#2a3f47] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
+                className="px-6 py-2.5 bg-[#1E2E34] text-white rounded-lg text-[13px] font-medium hover:bg-[#2a3f47] disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {submitting ? (
                   <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                     Processing...
                   </span>
                 ) : (
