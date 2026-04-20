@@ -157,8 +157,9 @@ export async function POST(request: NextRequest) {
 
     if (guestyPDFFile) {
       const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
+      // Use pdf-parse/lib/pdf-parse.js directly to avoid the test file ENOENT bug
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse');
+      const pdfParse = require('pdf-parse/lib/pdf-parse.js');
       const pdfData = await pdfParse(pdfBuffer);
       const pdfText: string = pdfData.text;
       pdfDebug = pdfText.substring(0, 500);
