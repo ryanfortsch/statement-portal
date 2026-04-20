@@ -203,6 +203,7 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
         });
       } else {
         res = await fetch(`/api/statement?id=${prop.id}&month=${month}`);
+      }
       if (!res.ok) throw new Error('Failed to generate');
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
