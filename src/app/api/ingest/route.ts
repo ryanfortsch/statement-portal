@@ -19,29 +19,30 @@ const PROPERTIES: Record<string, { name: string; owner: string; fee_pct: number;
 };
 
 // Parse Guesty Owner Statement PDF text into reservations
+// pdf-parse v1 concatenates fields without spaces, e.g.:
+// "Rental payment for HM33A9MBBRRental Income$1,338.48"
 function parseGuestyPDF(text: string): { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] {
   const reservations: { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] = [];
 
-  // Match date range blocks like "(Mar 30 - Apr 3, 2026) - 4 nights"
-  // Then find the rental payment line with confirmation code and amount
+  // Match date range blocks: "(Mar 30 - Apr 3, 2026) - 4 nights"
   const dateRangeRegex = /\((\w+ \d+)\s*-\s*(\w+ \d+),?\s*(\d{4})\)\s*-\s*(\d+)\s*nights?/g;
   let match;
 
   while ((match = dateRangeRegex.exec(text)) !== null) {
-    const startStr = match[1]; // "Mar 30"
-    const endStr = match[2];   // "Apr 3"
-    const year = match[3];     // "2026"
+    const startStr = match[1];
+    const endStr = match[2];
+    const year = match[3];
     const nights = parseInt(match[4]);
 
-    // Parse dates
     const checkIn = parseShortDate(startStr, year);
     const checkOut = parseShortDate(endStr, year);
 
-    // Look ahead in the text for the rental payment line after this date range
+    // Get text after this date range match to find the rental payment line
     const afterMatch = text.substring(match.index);
 
-    // Find "Rental payment for XXXXX" and its amount
-    const rentalMatch = afterMatch.match(/Rental payment for\s+(\S+)[\s\S]*?Rental Income\s+\$?([\d,]+\.?\d*)/);
+    // pdf-parse concatenates: "HM33A9MBBRRental Income$1,338.48"
+    // So we match the code as everything before "Rental Income"
+    const rentalMatch = afterMatch.match(/Rental payment for\s*(\S+?)Rental Income\$?([\d,]+\.?\d*)/);
 
     if (rentalMatch) {
       const confirmationCode = rentalMatch[1];
@@ -72,11 +73,13 @@ function parseShortDate(dateStr: string, year: string): string {
   return `${year}-${month}-${day}`;
 }
 
-// Parse CSV
+// Parse CSV with proper quote handling
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split('\n');
+  // Normalize line endings (Chase CSVs use CRLF)
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.trim().split('\n');
   if (lines.length < 2) return [];
-  const delimiter = lines[0].includes('\t') ? '\t' : ',';
+  const delimiter = ',';
   const headers = parseCSVLine(lines[0], delimiter);
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -111,6 +114,16 @@ function calcStripeFee(rentalIncome: number): number {
   return Math.round((rentalIncome * 0.039 + 0.40) * 100) / 100;
 }
 
+// Check if a date string (MM/DD/YYYY) falls within a given month (YYYY-MM)
+function isInMonth(dateStr: string, month: string): boolean {
+  // Chase format: MM/DD/YYYY
+  const parts = dateStr.split('/');
+  if (parts.length !== 3) return false;
+  const mm = parts[0].padStart(2, '0');
+  const yyyy = parts[2];
+  return `${yyyy}-${mm}` === month;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -119,7 +132,6 @@ export async function POST(request: NextRequest) {
     const platformCSVFile = formData.get('platform_csv') as File | null;
     const bankCSVFile = formData.get('bank_csv') as File | null;
     const guestyPDFFile = formData.get('guesty_pdf') as File | null;
-    const guestyJSON = formData.get('guesty_data') as string | null;
 
     if (!month || !propertyId) {
       return NextResponse.json({ error: 'month and property_id are required' }, { status: 400 });
@@ -130,7 +142,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unknown property: ' + propertyId }, { status: 400 });
     }
 
-    // 1. Parse Guesty PDF if provided
+    // 1. Parse Guesty PDF
     interface GuestyReservation {
       guest_name: string;
       confirmation_code: string;
@@ -141,20 +153,18 @@ export async function POST(request: NextRequest) {
     }
 
     let reservations: GuestyReservation[] = [];
+    let pdfDebug = '';
 
     if (guestyPDFFile) {
       const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pdfParse = require('pdf-parse');
       const pdfData = await pdfParse(pdfBuffer);
-      const pdfText = pdfData.text;
+      const pdfText: string = pdfData.text;
+      pdfDebug = pdfText.substring(0, 500);
 
       const parsed = parseGuestyPDF(pdfText);
       reservations = parsed.map(r => ({ ...r, guest_name: '' }));
-    } else if (guestyJSON) {
-      try { reservations = JSON.parse(guestyJSON); } catch {
-        return NextResponse.json({ error: 'Invalid guesty_data JSON' }, { status: 400 });
-      }
     }
 
     // 2. Parse platform CSV (maps confirmation codes to platforms + guest names)
@@ -179,11 +189,11 @@ export async function POST(request: NextRequest) {
         res.guest_name = platformInfo.guest;
       }
       if (!res.guest_name) {
-        res.guest_name = res.confirmation_code; // fallback to code
+        res.guest_name = res.confirmation_code;
       }
     }
 
-    // 3. Parse bank CSV
+    // 3. Parse bank CSV -- FILTER TO SELECTED MONTH ONLY
     let bankRows: Record<string, string>[] = [];
     if (bankCSVFile) {
       const bankText = await bankCSVFile.text();
@@ -191,7 +201,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cleaningCharges: { date: string; amount: number; description: string }[] = [];
-    const deposits: { date: string; amount: number; description: string }[] = [];
+    const deposits: { date: string; amount: number; description: string; source: string }[] = [];
 
     for (const row of bankRows) {
       const desc = row['Description'] || row['DESCRIPTION'] || '';
@@ -199,14 +209,23 @@ export async function POST(request: NextRequest) {
       const date = row['Posting Date'] || row['DATE'] || row['Post Date'] || '';
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
 
+      // Only include transactions from the selected month
+      if (!isInMonth(date, month)) continue;
+
       if (desc.toUpperCase().includes('CAPE ANN ELITE')) {
         cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
       } else if (amount > 0) {
-        deposits.push({ date, amount, description: desc });
+        // Categorize deposit source
+        let source = 'other';
+        const descUpper = desc.toUpperCase();
+        if (descUpper.includes('AIRBNB')) source = 'airbnb';
+        else if (descUpper.includes('STRIPE')) source = 'stripe';
+        else if (descUpper.includes('BOOKING.COM') || descUpper.includes('BOOKING COM')) source = 'booking';
+        deposits.push({ date, amount, description: desc, source });
       }
     }
 
-    const cleaningTotal = cleaningCharges.reduce((sum, c) => sum + c.amount, 0);
+    const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Process reservations with channel logic
     let totalRevenue = 0;
@@ -243,10 +262,15 @@ export async function POST(request: NextRequest) {
         adjustedRevenue = Math.round((res.rental_income - stripeFee) * 100) / 100;
       }
 
-      // Bank deposit matching
+      // Bank deposit matching (within $5 tolerance)
       let bankMatch: { amount: number; status: string } = { amount: 0, status: 'unmatched' };
       if (!isHomeownerStay && adjustedRevenue > 0) {
-        const matchIdx = deposits.findIndex(d => Math.abs(d.amount - adjustedRevenue) < 5);
+        // For Airbnb, match against Airbnb deposits; for Stripe channels, match Stripe deposits
+        const targetSource = isStripeChannel ? 'stripe' : 'airbnb';
+        const matchIdx = deposits.findIndex(d =>
+          Math.abs(d.amount - (isStripeChannel ? adjustedRevenue : res.rental_income)) < 5 &&
+          (d.source === targetSource || d.source === 'other')
+        );
         if (matchIdx >= 0) {
           bankMatch = { amount: deposits[matchIdx].amount, status: 'matched' };
           deposits.splice(matchIdx, 1);
@@ -274,6 +298,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Calculate totals
+    totalRevenue = Math.round(totalRevenue * 100) / 100;
     const managementFee = Math.round(totalRevenue * (propConfig.fee_pct / 100) * 100) / 100;
     const ownerPayout = Math.round((totalRevenue - managementFee - cleaningTotal) * 100) / 100;
 
@@ -369,7 +394,7 @@ export async function POST(request: NextRequest) {
     // 12. Data gap flags
     const gaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
     if (!hasGuesty) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
-    if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV - cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
+    if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV -- cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
     if (!hasBank) gaps.push({ gap_type: 'missing_bank_csv', description: 'No bank statement for deposit/cleaning verification', severity: 'warning', expected_data: `Chase bank CSV for ...${propConfig.bank_last4}` });
 
     const unmatched = processedReservations.filter(r => r.bank_match_status === 'unmatched' && r.adjusted_revenue > 0);
@@ -396,6 +421,7 @@ export async function POST(request: NextRequest) {
         data_gaps: gaps.length,
       },
       parsed_reservations: processedReservations,
+      debug: { pdf_text_preview: pdfDebug, bank_rows_in_month: bankRows.filter(r => isInMonth(r['Posting Date'] || '', month)).length },
     });
   } catch (err) {
     console.error('Ingest error:', err);
