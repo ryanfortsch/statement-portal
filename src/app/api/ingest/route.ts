@@ -144,8 +144,8 @@ export async function POST(request: NextRequest) {
 
     if (guestyPDFFile) {
       const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
-      // Dynamic import for pdf-parse (CommonJS module)
-      const pdfParse = (await import('pdf-parse')).default;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse');
       const pdfData = await pdfParse(pdfBuffer);
       const pdfText = pdfData.text;
 
