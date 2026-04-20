@@ -322,7 +322,7 @@ export async function GET(request: NextRequest) {
     const safeMonth = monthLabel(month).replace(/\s+/g, '_');
     const filename = `${safeName}_${safeMonth}.pdf`;
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,

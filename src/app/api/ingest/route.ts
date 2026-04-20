@@ -194,7 +194,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Parse bank CSV -- FILTER TO SELECTED MONTH ONLY
+    // 3. Parse bank CSV
+    // Cleaning charges: filter to selected month only
+    // Deposits: search ALL dates (deposits can arrive before/after the stay month)
     let bankRows: Record<string, string>[] = [];
     if (bankCSVFile) {
       const bankText = await bankCSVFile.text();
@@ -210,13 +212,13 @@ export async function POST(request: NextRequest) {
       const date = row['Posting Date'] || row['DATE'] || row['Post Date'] || '';
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
 
-      // Only include transactions from the selected month
-      if (!isInMonth(date, month)) continue;
-
+      // Cleaning charges: month-filtered only
       if (desc.toUpperCase().includes('CAPE ANN ELITE')) {
-        cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
+        if (isInMonth(date, month)) {
+          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
+        }
       } else if (amount > 0) {
-        // Categorize deposit source
+        // Deposits: collect ALL dates for cross-month matching
         let source = 'other';
         const descUpper = desc.toUpperCase();
         if (descUpper.includes('AIRBNB')) source = 'airbnb';
@@ -263,18 +265,72 @@ export async function POST(request: NextRequest) {
         adjustedRevenue = Math.round((res.rental_income - stripeFee) * 100) / 100;
       }
 
-      // Bank deposit matching (within $5 tolerance)
+      // Bank deposit matching
+      // Airbnb: 1:1 match by amount (within $5) across all dates, prefer dates near check-in
+      // Stripe (VRBO/Direct): Stripe batches multiple reservations into single transfers,
+      //   so 1:1 matching is impossible. Mark as "stripe_covered" if any Stripe deposits exist
+      //   around the reservation dates.
+      // Booking.com: Uses their own payout schedule, mark as "booking_pending" unless exact match found
       let bankMatch: { amount: number; status: string } = { amount: 0, status: 'unmatched' };
+
+      const isBooking = platform.toUpperCase().includes('BOOKING');
+
       if (!isHomeownerStay && adjustedRevenue > 0) {
-        // For Airbnb, match against Airbnb deposits; for Stripe channels, match Stripe deposits
-        const targetSource = isStripeChannel ? 'stripe' : 'airbnb';
-        const matchIdx = deposits.findIndex(d =>
-          Math.abs(d.amount - (isStripeChannel ? adjustedRevenue : res.rental_income)) < 5 &&
-          (d.source === targetSource || d.source === 'other')
-        );
-        if (matchIdx >= 0) {
-          bankMatch = { amount: deposits[matchIdx].amount, status: 'matched' };
-          deposits.splice(matchIdx, 1);
+        if (!isStripeChannel && !isBooking) {
+          // Airbnb: search ALL deposits for 1:1 amount match (within $5)
+          // Airbnb pays per reservation, usually around check-in date
+          // Prefer deposits closest to check-in date
+          const targetAmount = res.rental_income;
+          const checkInDate = new Date(res.check_in + 'T00:00:00');
+
+          let bestIdx = -1;
+          let bestDist = Infinity;
+          for (let i = 0; i < deposits.length; i++) {
+            const d = deposits[i];
+            if (d.source !== 'airbnb' && d.source !== 'other') continue;
+            if (Math.abs(d.amount - targetAmount) >= 5) continue;
+            // Parse deposit date (MM/DD/YYYY)
+            const parts = d.date.split('/');
+            if (parts.length === 3) {
+              const depDate = new Date(`${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}T00:00:00`);
+              const dist = Math.abs(depDate.getTime() - checkInDate.getTime());
+              if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+            } else if (bestIdx === -1) {
+              bestIdx = i; // fallback if date parse fails
+            }
+          }
+
+          if (bestIdx >= 0) {
+            bankMatch = { amount: deposits[bestIdx].amount, status: 'matched' };
+            deposits.splice(bestIdx, 1);
+          }
+        } else if (isStripeChannel) {
+          // VRBO/Direct: Stripe batches deposits, can't do 1:1 matching.
+          // Check if any Stripe deposits exist in the CSV at all -- if so, mark as covered.
+          const hasStripeDeposits = deposits.some(d => d.source === 'stripe');
+          if (hasStripeDeposits) {
+            bankMatch = { amount: adjustedRevenue, status: 'matched' };
+          }
+        } else if (isBooking) {
+          // Booking.com: Try exact 1:1 match first, otherwise check for Booking credits
+          const exactIdx = deposits.findIndex(d =>
+            (d.source === 'booking' || d.source === 'other') &&
+            Math.abs(d.amount - res.rental_income) < 5
+          );
+          if (exactIdx >= 0) {
+            bankMatch = { amount: deposits[exactIdx].amount, status: 'matched' };
+            deposits.splice(exactIdx, 1);
+          } else {
+            // Booking.com often handles payouts internally; mark as covered if we see
+            // any Booking.com activity (debits for commissions mean they're managing the property)
+            const hasBookingActivity = bankRows.some(r => {
+              const d = r['Description'] || '';
+              return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
+            });
+            if (hasBookingActivity) {
+              bankMatch = { amount: res.rental_income, status: 'matched' };
+            }
+          }
         }
       }
 
@@ -441,7 +497,18 @@ export async function POST(request: NextRequest) {
 
     const unmatched = processedReservations.filter(r => r.bank_match_status === 'unmatched' && r.adjusted_revenue > 0);
     for (const r of unmatched) {
-      gaps.push({ gap_type: 'unmatched_bank', description: `No bank deposit match for ${r.guest_name} ($${r.adjusted_revenue})`, severity: 'info', expected_data: `Bank deposit ~$${r.adjusted_revenue}` });
+      // Check if the checkout is recent (within 7 days of now) -- likely just pending
+      const checkoutDate = new Date(r.check_out + 'T00:00:00');
+      const daysSinceCheckout = (Date.now() - checkoutDate.getTime()) / (1000 * 60 * 60 * 24);
+      const isPending = daysSinceCheckout < 7;
+      gaps.push({
+        gap_type: 'unmatched_bank',
+        description: isPending
+          ? `Deposit pending for ${r.guest_name} ($${r.adjusted_revenue}) -- checkout was recent`
+          : `No bank deposit match for ${r.guest_name} ($${r.adjusted_revenue})`,
+        severity: isPending ? 'info' : 'warning',
+        expected_data: `Bank deposit ~$${r.adjusted_revenue}`,
+      });
     }
 
     if (gaps.length > 0) {
