@@ -263,11 +263,20 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
                   {cleaning.map((ce) => (
                     <div key={ce.id} className="flex items-center justify-between bg-gray-50/80 rounded px-4 py-2 text-[12px]">
                       <div className="flex items-center gap-3">
-                        <span className="text-gray-400 w-14 tabular-nums">{ce.bank_charge_date ? fmtDate(ce.bank_charge_date) : '--'}</span>
-                        <span className={ce.guest_name ? 'text-gray-700' : 'text-gray-400 italic'}>{ce.guest_name || 'Unmatched'}</span>
+                        <span className="text-gray-400 w-14 tabular-nums">{ce.bank_charge_date ? fmtDate(ce.bank_charge_date) : (ce.checkout_date ? fmtDate(ce.checkout_date) : '--')}</span>
+                        <span className={ce.guest_name ? 'text-gray-700' : 'text-gray-400 italic'}>{ce.guest_name || (ce.invoice_no ? `Inv ${ce.invoice_no}` : 'Unmatched')}</span>
                         {ce.checkout_date && <span className="text-gray-300 text-[11px]">out {fmtDate(ce.checkout_date)}</span>}
+                        {ce.source === 'corroborated' && (
+                          <span className="bg-emerald-50 text-emerald-600 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ring-emerald-200">Verified</span>
+                        )}
+                        {ce.source === 'invoice' && (
+                          <span className="bg-blue-50 text-blue-600 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ring-blue-200">Invoice only</span>
+                        )}
                       </div>
-                      <span className="font-medium text-gray-700 tabular-nums">{fmt(ce.amount)}</span>
+                      <div className="flex items-center gap-2">
+                        {ce.invoice_no && <span className="text-gray-300 text-[10px]">#{ce.invoice_no}</span>}
+                        <span className="font-medium text-gray-700 tabular-nums">{fmt(ce.amount)}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -351,6 +360,8 @@ function DashboardContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [authError, setAuthError] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ total: number; matched: number; inserted: number; skipped: number } | null>(null);
 
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
   const urlToken = searchParams.get('key');
@@ -420,6 +431,31 @@ function DashboardContent() {
       setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function syncInvoices() {
+    if (!selectedMonth) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/sync-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: selectedMonth }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSyncResult({ total: data.total_invoices_found, matched: data.matched, inserted: data.inserted, skipped: data.skipped });
+        // Reload period data to reflect updated cleaning events
+        await loadPeriod(selectedMonth);
+      } else {
+        setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
+      }
+    } catch {
+      setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -549,9 +585,28 @@ function DashboardContent() {
                 <span className="text-white/70 text-[13px]">{monthLabel(selectedMonth)}</span>
               )}
             </div>
-            <Link href="/upload" className="px-3.5 py-1.5 bg-white/10 text-white/80 text-[12px] font-medium rounded-md hover:bg-white/20 hover:text-white">
-              Upload
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={syncInvoices}
+                disabled={syncing}
+                className="px-3.5 py-1.5 bg-[#C9A84C]/20 text-[#C9A84C] text-[12px] font-medium rounded-md hover:bg-[#C9A84C]/30 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {syncing ? (
+                  <>
+                    <div className="w-3 h-3 border border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    Sync Invoices
+                  </>
+                )}
+              </button>
+              <Link href="/upload" className="px-3.5 py-1.5 bg-white/10 text-white/80 text-[12px] font-medium rounded-md hover:bg-white/20 hover:text-white">
+                Upload
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -598,6 +653,21 @@ function DashboardContent() {
           )}
         </div>
       </div>
+
+      {/* Sync result banner */}
+      {syncResult && (
+        <div className="max-w-5xl mx-auto px-6 pt-4">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[13px] text-emerald-700">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>
+              <span>
+                Invoice sync complete: {syncResult.total} found, {syncResult.matched} matched to bank charges, {syncResult.inserted} new, {syncResult.skipped} skipped
+              </span>
+            </div>
+            <button onClick={() => setSyncResult(null)} className="text-emerald-400 hover:text-emerald-600 text-lg leading-none">&times;</button>
+          </div>
+        </div>
+      )}
 
       {/* Property cards */}
       <main className="max-w-5xl mx-auto px-6 py-5 space-y-2">
