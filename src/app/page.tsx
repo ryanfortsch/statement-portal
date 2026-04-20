@@ -192,7 +192,8 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
 
   function downloadStatement(e: React.MouseEvent) {
     e.stopPropagation();
-    window.open(`/statement?id=${prop.id}&month=${month}`, '_blank');
+    const csvParam = reviewsCsv ? `&csv=${btoa(reviewsCsv)}` : '';
+    window.open(`/statement?id=${prop.id}&month=${month}${csvParam}`, '_blank');
   }
 
   return (
