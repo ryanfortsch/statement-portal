@@ -543,6 +543,9 @@ function DashboardContent() {
           <h1 className="text-2xl font-bold text-gray-900 mb-2">No Statement Data</h1>
           <p className="text-gray-500">No statement periods have been created yet.</p>
           <p className="text-gray-400 text-sm mt-4">Portal is connected and ready.</p>
+          <a href="/upload" className="inline-block mt-6 px-6 py-3 bg-[#1E2E34] text-white rounded-lg font-medium hover:bg-[#2a3f47]">
+            Upload Statement Data
+          </a>
         </div>
       </div>
     );
@@ -604,6 +607,7 @@ function DashboardContent() {
               <p className="text-gray-300 text-sm mt-1">{monthLabel}</p>
             </div>
             <div className="flex items-center gap-4">
+              <a href="/upload" className="text-sm text-gray-300 hover:text-white underline">Upload Data</a>
               <span className={`text-xs font-medium px-3 py-1 rounded-full ${
                 period.status === 'final' ? 'bg-emerald-500' :
                 period.status === 'review' ? 'bg-amber-500' :
