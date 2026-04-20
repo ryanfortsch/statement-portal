@@ -439,7 +439,7 @@ function DashboardContent() {
       await loadPeriod(targetMonth);
     } catch (err) {
       console.error(err);
-      setError('load_failed: ' + (err instanceof Error ? err.message : String(err)));
+      setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
@@ -490,7 +490,7 @@ function DashboardContent() {
       setSelectedMonth(month);
     } catch (err) {
       console.error(err);
-      setError('load_failed: ' + (err instanceof Error ? err.message : String(err)));
+      setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
