@@ -192,8 +192,15 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
 
   function downloadStatement(e: React.MouseEvent) {
     e.stopPropagation();
-    const csvParam = reviewsCsv ? `&csv=${btoa(reviewsCsv)}` : '';
-    window.open(`/statement?id=${prop.id}&month=${month}${csvParam}`, '_blank');
+    let url = `/statement?id=${prop.id}&month=${month}`;
+    if (reviewsCsv) {
+      try {
+        const bytes = new TextEncoder().encode(reviewsCsv);
+        const bin = Array.from(bytes, b => String.fromCodePoint(b)).join('');
+        url += `&csv=${encodeURIComponent(btoa(bin))}`;
+      } catch (err) { console.error('CSV encode error', err); }
+    }
+    window.open(url, '_blank');
   }
 
   return (
