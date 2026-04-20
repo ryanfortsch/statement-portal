@@ -181,7 +181,7 @@ function KPICard({ label, value, accent, sub }: { label: string; value: string; 
 }
 
 /* ─── Property Card ─── */
-function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string }) {
+function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; month: string; reviewsCsv?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
@@ -194,15 +194,23 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
     e.stopPropagation();
     setGenerating(true);
     try {
-      const res = await fetch(`/api/statement?id=${prop.id}&month=${month}`);
+      let res: Response;
+      if (reviewsCsv) {
+        res = await fetch(`/api/statement?id=${prop.id}&month=${month}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csv: reviewsCsv }),
+        });
+      } else {
+        res = await fetch(`/api/statement?id=${prop.id}&month=${month}`);
       if (!res.ok) throw new Error('Failed to generate');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
       a.download = `${prop.property_name.replace(/\s+/g, '_')}_${month}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
     } catch (err) {
       console.error(err);
     } finally {
@@ -497,6 +505,7 @@ function DashboardContent() {
   const [authError, setAuthError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; matched: number; inserted: number; skipped: number } | null>(null);
+  const [reviewsCsv, setReviewsCsv] = useState<string>('');
 
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
   const urlToken = searchParams.get('key');
@@ -750,6 +759,27 @@ function DashboardContent() {
                   </>
                 )}
               </button>
+              <label className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
+                reviewsCsv ? 'bg-emerald-500/15 text-emerald-400 border-emerald-400/20' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
+              }`}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                {reviewsCsv ? 'Reviews Loaded' : 'Reviews CSV'}
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = () => setReviewsCsv(reader.result as string);
+                      reader.readAsText(file);
+                    }
+                  }}
+                />
+              </label>
               <Link href="/upload" className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white/90 text-[12px] font-semibold rounded-lg hover:bg-white/20 transition-colors border border-white/10">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -818,7 +848,7 @@ function DashboardContent() {
             </Link>
           </div>
         ) : (
-          props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} />)
+          props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} reviewsCsv={reviewsCsv} />)
         )}
       </main>
 
