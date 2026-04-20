@@ -452,6 +452,7 @@ export async function POST(request: NextRequest) {
       success: true,
       property: propConfig.name,
       month,
+      property_statement_id: stmt.id,
       summary: {
         reservations: processedReservations.length,
         total_revenue: totalRevenue,
