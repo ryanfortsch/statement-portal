@@ -392,19 +392,31 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [authenticated, setAuthenticated] = useState(false);
+  const [inputCode, setInputCode] = useState('');
+  const [authError, setAuthError] = useState(false);
 
-  // Simple token auth
-  const token = searchParams.get('key');
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
+  const urlToken = searchParams.get('key');
 
   useEffect(() => {
-    if (expectedToken && token !== expectedToken) {
-      setError('unauthorized');
-      setLoading(false);
-      return;
+    // Check URL param first
+    if (urlToken && urlToken === expectedToken) {
+      setAuthenticated(true);
     }
-    loadLatestPeriod();
-  }, [token]);
+    // Check if no token is configured (dev mode)
+    if (!expectedToken) {
+      setAuthenticated(true);
+    }
+  }, [urlToken, expectedToken]);
+
+  useEffect(() => {
+    if (authenticated) {
+      loadLatestPeriod();
+    } else {
+      setLoading(false);
+    }
+  }, [authenticated]);
 
   async function loadLatestPeriod() {
     setLoading(true);
@@ -484,12 +496,41 @@ function DashboardContent() {
     }
   }
 
-  if (error === 'unauthorized') {
+  if (!authenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Required</h1>
-          <p className="text-gray-500">Please use the link provided by Rising Tide.</p>
+        <div className="w-full max-w-sm mx-auto px-6">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-[#1E2E34] mb-1">Rising Tide</h1>
+            <p className="text-gray-500 text-sm">Owner Statement Portal</p>
+          </div>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (inputCode === expectedToken) {
+              setAuthenticated(true);
+              setAuthError(false);
+            } else {
+              setAuthError(true);
+            }
+          }}>
+            <input
+              type="password"
+              placeholder="Enter access code"
+              value={inputCode}
+              onChange={(e) => { setInputCode(e.target.value); setAuthError(false); }}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-[#1E2E34] focus:border-transparent"
+              autoFocus
+            />
+            {authError && (
+              <p className="text-red-500 text-sm text-center mt-2">Invalid access code</p>
+            )}
+            <button
+              type="submit"
+              className="w-full mt-4 bg-[#1E2E34] text-white py-3 rounded-lg font-medium hover:bg-[#2a3f47] transition-colors"
+            >
+              Access Portal
+            </button>
+          </form>
         </div>
       </div>
     );
