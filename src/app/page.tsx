@@ -242,6 +242,10 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
             <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Stays</p>
             <p className="text-[14px] font-semibold text-gray-700 tabular-nums mt-0.5">{prop.num_stays}</p>
           </div>
+          <div className="text-right hidden md:block">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Cleaning</p>
+            <p className="text-[14px] font-semibold text-gray-700 tabular-nums mt-0.5">{fmt(prop.cleaning_total)}</p>
+          </div>
           <div className="text-right">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Owner Payout</p>
             <p className="text-[17px] font-bold text-[#1E2E34] tabular-nums mt-0.5">{fmt(prop.owner_payout)}</p>
