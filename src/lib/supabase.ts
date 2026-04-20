@@ -9,3 +9,4 @@ export const supabase: SupabaseClient = createClient(
 );
 
 export const isConfigured = !!supabaseUrl && !!supabaseAnonKey;
+export const debugInfo = { url: supabaseUrl, keyPrefix: supabaseAnonKey?.substring(0, 10) || 'empty' };

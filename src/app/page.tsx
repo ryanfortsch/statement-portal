@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabase, debugInfo } from '@/lib/supabase';
 import { Suspense } from 'react';
 
 type Reservation = {
@@ -439,7 +439,7 @@ function DashboardContent() {
       await loadPeriod(targetMonth);
     } catch (err) {
       console.error(err);
-      setError('load_failed');
+      setError('load_failed: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }
@@ -551,10 +551,12 @@ function DashboardContent() {
   if (error && error.startsWith('load_failed')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+        <div className="text-center max-w-lg mx-auto px-4">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Connection Error</h1>
           <p className="text-gray-500">Could not connect to the database.</p>
-          <p className="text-gray-400 text-xs mt-2">{error}</p>
+          <p className="text-red-400 text-xs mt-4 break-all">{error}</p>
+          <p className="text-gray-300 text-xs mt-2">URL: {debugInfo.url || 'NOT SET'}</p>
+          <p className="text-gray-300 text-xs">Key: {debugInfo.keyPrefix}</p>
         </div>
       </div>
     );
