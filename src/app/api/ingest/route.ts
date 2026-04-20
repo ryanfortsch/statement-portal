@@ -5,7 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Property config: property_id -> { name, owner, fee_pct, bank_last4 }
+// Property config
 const PROPERTIES: Record<string, { name: string; owner: string; fee_pct: number; bank_last4: string }> = {
   '3_south_st': { name: '3 South St', owner: 'Bailey', fee_pct: 25, bank_last4: '5622' },
   '21_horton': { name: '21 Horton St', owner: 'Kittredge', fee_pct: 22, bank_last4: '1323' },
@@ -18,25 +18,72 @@ const PROPERTIES: Record<string, { name: string; owner: string; fee_pct: number;
   '17_beach_rd': { name: '17 Beach Rd', owner: 'Nolan', fee_pct: 22, bank_last4: '5621' },
 };
 
-// Parse CSV text into array of objects
+// Parse Guesty Owner Statement PDF text into reservations
+function parseGuestyPDF(text: string): { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] {
+  const reservations: { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] = [];
+
+  // Match date range blocks like "(Mar 30 - Apr 3, 2026) - 4 nights"
+  // Then find the rental payment line with confirmation code and amount
+  const dateRangeRegex = /\((\w+ \d+)\s*-\s*(\w+ \d+),?\s*(\d{4})\)\s*-\s*(\d+)\s*nights?/g;
+  let match;
+
+  while ((match = dateRangeRegex.exec(text)) !== null) {
+    const startStr = match[1]; // "Mar 30"
+    const endStr = match[2];   // "Apr 3"
+    const year = match[3];     // "2026"
+    const nights = parseInt(match[4]);
+
+    // Parse dates
+    const checkIn = parseShortDate(startStr, year);
+    const checkOut = parseShortDate(endStr, year);
+
+    // Look ahead in the text for the rental payment line after this date range
+    const afterMatch = text.substring(match.index);
+
+    // Find "Rental payment for XXXXX" and its amount
+    const rentalMatch = afterMatch.match(/Rental payment for\s+(\S+).*?Rental Income\s+\$?([\d,]+\.?\d*)/s);
+
+    if (rentalMatch) {
+      const confirmationCode = rentalMatch[1];
+      const rentalIncome = parseFloat(rentalMatch[2].replace(/,/g, ''));
+
+      reservations.push({
+        confirmation_code: confirmationCode,
+        check_in: checkIn,
+        check_out: checkOut,
+        nights,
+        rental_income: rentalIncome,
+      });
+    }
+  }
+
+  return reservations;
+}
+
+function parseShortDate(dateStr: string, year: string): string {
+  const months: Record<string, string> = {
+    'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+    'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+    'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12',
+  };
+  const parts = dateStr.trim().split(' ');
+  const month = months[parts[0]] || '01';
+  const day = parts[1].padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Parse CSV
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
-
-  // Handle both comma and tab delimited
   const delimiter = lines[0].includes('\t') ? '\t' : ',';
-
-  // Parse header
   const headers = parseCSVLine(lines[0], delimiter);
   const rows: Record<string, string>[] = [];
-
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i], delimiter);
     if (values.length === 0) continue;
     const row: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      row[h.trim()] = (values[idx] || '').trim();
-    });
+    headers.forEach((h, idx) => { row[h.trim()] = (values[idx] || '').trim(); });
     rows.push(row);
   }
   return rows;
@@ -46,44 +93,33 @@ function parseCSVLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
-
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
     if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
     } else if (char === delimiter && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
+      result.push(current); current = '';
+    } else { current += char; }
   }
   result.push(current);
   return result;
 }
 
-// Calculate Stripe fee for VRBO/Manual bookings
-// 3.9% of transaction value + $0.20 per transaction, 2 transactions per reservation
+// Stripe fee: 3.9% + $0.20/txn, 2 txns per reservation = $0.40
 function calcStripeFee(rentalIncome: number): number {
-  // Rental income is gross before Stripe. Stripe fee = 3.9% * income + 2 * $0.20
-  const fee = rentalIncome * 0.039 + 0.40;
-  return Math.round(fee * 100) / 100;
+  return Math.round((rentalIncome * 0.039 + 0.40) * 100) / 100;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-
-    const month = formData.get('month') as string; // "2026-04"
+    const month = formData.get('month') as string;
     const propertyId = formData.get('property_id') as string;
     const platformCSVFile = formData.get('platform_csv') as File | null;
     const bankCSVFile = formData.get('bank_csv') as File | null;
-    const guestyJSON = formData.get('guesty_data') as string | null; // JSON string of reservation data
+    const guestyPDFFile = formData.get('guesty_pdf') as File | null;
+    const guestyJSON = formData.get('guesty_data') as string | null;
 
     if (!month || !propertyId) {
       return NextResponse.json({ error: 'month and property_id are required' }, { status: 400 });
@@ -94,45 +130,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unknown property: ' + propertyId }, { status: 400 });
     }
 
-    // 1. Create or get statement period
-    let { data: period } = await supabase
-      .from('statement_periods')
-      .select('*')
-      .eq('month', month)
-      .single();
-
-    if (!period) {
-      const { data: newPeriod, error: periodErr } = await supabase
-        .from('statement_periods')
-        .insert({ month, status: 'draft' })
-        .select()
-        .single();
-      if (periodErr) throw periodErr;
-      period = newPeriod;
+    // 1. Parse Guesty PDF if provided
+    interface GuestyReservation {
+      guest_name: string;
+      confirmation_code: string;
+      check_in: string;
+      check_out: string;
+      nights: number;
+      rental_income: number;
     }
 
-    // 2. Parse platform CSV (maps confirmation codes to platforms)
-    const platformMap: Record<string, string> = {};
+    let reservations: GuestyReservation[] = [];
+
+    if (guestyPDFFile) {
+      const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
+      // Dynamic import for pdf-parse (CommonJS module)
+      const pdfParse = (await import('pdf-parse')).default;
+      const pdfData = await pdfParse(pdfBuffer);
+      const pdfText = pdfData.text;
+
+      const parsed = parseGuestyPDF(pdfText);
+      reservations = parsed.map(r => ({ ...r, guest_name: '' }));
+    } else if (guestyJSON) {
+      try { reservations = JSON.parse(guestyJSON); } catch {
+        return NextResponse.json({ error: 'Invalid guesty_data JSON' }, { status: 400 });
+      }
+    }
+
+    // 2. Parse platform CSV (maps confirmation codes to platforms + guest names)
+    const platformMap: Record<string, { platform: string; guest: string }> = {};
     if (platformCSVFile) {
       const platformText = await platformCSVFile.text();
       const platformRows = parseCSV(platformText);
       for (const row of platformRows) {
         const code = row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '';
         const platform = row['PLATFORM'] || row['Platform'] || row['platform'] || '';
-        if (code && platform) {
-          platformMap[code.trim()] = platform.trim();
+        const guest = row['GUEST'] || row['Guest'] || row['guest'] || '';
+        if (code) {
+          platformMap[code.trim()] = { platform: platform.trim(), guest: guest.trim() };
         }
       }
     }
 
-    // 3. Parse bank CSV (Chase format)
+    // Fill in guest names from platform CSV
+    for (const res of reservations) {
+      const platformInfo = platformMap[res.confirmation_code];
+      if (platformInfo && platformInfo.guest && !res.guest_name) {
+        res.guest_name = platformInfo.guest;
+      }
+      if (!res.guest_name) {
+        res.guest_name = res.confirmation_code; // fallback to code
+      }
+    }
+
+    // 3. Parse bank CSV
     let bankRows: Record<string, string>[] = [];
     if (bankCSVFile) {
       const bankText = await bankCSVFile.text();
       bankRows = parseCSV(bankText);
     }
 
-    // Separate bank data: cleaning charges and deposits
     const cleaningCharges: { date: string; amount: number; description: string }[] = [];
     const deposits: { date: string; amount: number; description: string }[] = [];
 
@@ -151,26 +208,7 @@ export async function POST(request: NextRequest) {
 
     const cleaningTotal = cleaningCharges.reduce((sum, c) => sum + c.amount, 0);
 
-    // 4. Parse Guesty reservation data (JSON from manual entry or PDF extraction)
-    interface GuestyReservation {
-      guest_name: string;
-      confirmation_code: string;
-      check_in: string;
-      check_out: string;
-      nights: number;
-      rental_income: number;
-    }
-
-    let reservations: GuestyReservation[] = [];
-    if (guestyJSON) {
-      try {
-        reservations = JSON.parse(guestyJSON);
-      } catch {
-        return NextResponse.json({ error: 'Invalid guesty_data JSON' }, { status: 400 });
-      }
-    }
-
-    // 5. Process reservations: apply channel logic
+    // 4. Process reservations with channel logic
     let totalRevenue = 0;
     let totalStripeFees = 0;
     const processedReservations: {
@@ -188,12 +226,11 @@ export async function POST(request: NextRequest) {
     }[] = [];
 
     for (const res of reservations) {
-      const platform = platformMap[res.confirmation_code] || 'Unknown';
+      const platformInfo = platformMap[res.confirmation_code];
+      const platform = platformInfo?.platform || 'Unknown';
       const isStripeChannel = platform.toUpperCase().includes('HOMEAWAY') ||
                                platform.toUpperCase().includes('VRBO') ||
                                platform.toUpperCase() === 'MANUAL';
-
-      // Check if homeowner stay (Manual with no/zero revenue)
       const isHomeownerStay = platform.toUpperCase() === 'MANUAL' && (!res.rental_income || res.rental_income === 0);
 
       let stripeFee = 0;
@@ -206,16 +243,13 @@ export async function POST(request: NextRequest) {
         adjustedRevenue = Math.round((res.rental_income - stripeFee) * 100) / 100;
       }
 
-      // Try to match with bank deposit
+      // Bank deposit matching
       let bankMatch: { amount: number; status: string } = { amount: 0, status: 'unmatched' };
-      if (!isHomeownerStay) {
-        // Simple matching: find a deposit close to the adjusted revenue
-        const matchIdx = deposits.findIndex(d =>
-          Math.abs(d.amount - adjustedRevenue) < 5 // within $5
-        );
+      if (!isHomeownerStay && adjustedRevenue > 0) {
+        const matchIdx = deposits.findIndex(d => Math.abs(d.amount - adjustedRevenue) < 5);
         if (matchIdx >= 0) {
           bankMatch = { amount: deposits[matchIdx].amount, status: 'matched' };
-          deposits.splice(matchIdx, 1); // remove so we don't double-match
+          deposits.splice(matchIdx, 1);
         }
       }
 
@@ -239,11 +273,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 6. Calculate management fee and owner payout
+    // 5. Calculate totals
     const managementFee = Math.round(totalRevenue * (propConfig.fee_pct / 100) * 100) / 100;
     const ownerPayout = Math.round((totalRevenue - managementFee - cleaningTotal) * 100) / 100;
 
-    // 7. Determine confidence level
+    // 6. Confidence
     const hasGuesty = reservations.length > 0;
     const hasPlatform = Object.keys(platformMap).length > 0;
     const hasBank = bankRows.length > 0;
@@ -251,8 +285,24 @@ export async function POST(request: NextRequest) {
     if (hasGuesty && hasPlatform && hasBank) confidence = 'green';
     else if (hasGuesty && (hasPlatform || hasBank)) confidence = 'yellow';
 
-    // 8. Upsert property statement
-    // Delete existing data for this property/period if re-uploading
+    // 7. Create or get period
+    let { data: period } = await supabase
+      .from('statement_periods')
+      .select('*')
+      .eq('month', month)
+      .single();
+
+    if (!period) {
+      const { data: newPeriod, error: periodErr } = await supabase
+        .from('statement_periods')
+        .insert({ month, status: 'draft' })
+        .select()
+        .single();
+      if (periodErr) throw periodErr;
+      period = newPeriod;
+    }
+
+    // 8. Delete existing data for this property/period (re-upload support)
     const { data: existingStmt } = await supabase
       .from('property_statements')
       .select('id')
@@ -267,6 +317,7 @@ export async function POST(request: NextRequest) {
       await supabase.from('property_statements').delete().eq('id', existingStmt.id);
     }
 
+    // 9. Insert property statement
     const { data: stmt, error: stmtErr } = await supabase
       .from('property_statements')
       .insert({
@@ -293,18 +344,15 @@ export async function POST(request: NextRequest) {
 
     if (stmtErr) throw stmtErr;
 
-    // 9. Insert reservations
+    // 10. Insert reservations
     if (processedReservations.length > 0) {
       const { error: resErr } = await supabase
         .from('reservations')
-        .insert(processedReservations.map(r => ({
-          property_statement_id: stmt.id,
-          ...r,
-        })));
+        .insert(processedReservations.map(r => ({ property_statement_id: stmt.id, ...r })));
       if (resErr) throw resErr;
     }
 
-    // 10. Insert cleaning events
+    // 11. Insert cleaning events
     if (cleaningCharges.length > 0) {
       const { error: cleanErr } = await supabase
         .from('cleaning_events')
@@ -318,49 +366,19 @@ export async function POST(request: NextRequest) {
       if (cleanErr) throw cleanErr;
     }
 
-    // 11. Create data gap flags
+    // 12. Data gap flags
     const gaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
+    if (!hasGuesty) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
+    if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV - cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
+    if (!hasBank) gaps.push({ gap_type: 'missing_bank_csv', description: 'No bank statement for deposit/cleaning verification', severity: 'warning', expected_data: `Chase bank CSV for ...${propConfig.bank_last4}` });
 
-    if (!hasGuesty) {
-      gaps.push({
-        gap_type: 'missing_guesty',
-        description: 'No Guesty owner statement data provided',
-        severity: 'critical',
-        expected_data: `Guesty owner statement PDF for ${propConfig.name} - ${month}`,
-      });
-    }
-    if (!hasPlatform) {
-      gaps.push({
-        gap_type: 'no_platform_match',
-        description: 'No platform CSV provided - cannot determine booking channels',
-        severity: 'warning',
-        expected_data: `Platform CSV from Guesty for ${month}`,
-      });
-    }
-    if (!hasBank) {
-      gaps.push({
-        gap_type: 'missing_bank_csv',
-        description: 'No bank statement provided - cannot verify deposits or cleaning charges',
-        severity: 'warning',
-        expected_data: `Chase bank CSV for account ...${propConfig.bank_last4}`,
-      });
-    }
-
-    // Check for unmatched reservations (no bank deposit match)
     const unmatched = processedReservations.filter(r => r.bank_match_status === 'unmatched' && r.adjusted_revenue > 0);
     for (const r of unmatched) {
-      gaps.push({
-        gap_type: 'unmatched_bank',
-        description: `No bank deposit match for ${r.guest_name} ($${r.adjusted_revenue})`,
-        severity: 'info',
-        expected_data: `Bank deposit around $${r.adjusted_revenue} for ${r.guest_name}`,
-      });
+      gaps.push({ gap_type: 'unmatched_bank', description: `No bank deposit match for ${r.guest_name} ($${r.adjusted_revenue})`, severity: 'info', expected_data: `Bank deposit ~$${r.adjusted_revenue}` });
     }
 
     if (gaps.length > 0) {
-      await supabase
-        .from('data_gaps')
-        .insert(gaps.map(g => ({ property_statement_id: stmt.id, ...g })));
+      await supabase.from('data_gaps').insert(gaps.map(g => ({ property_statement_id: stmt.id, ...g })));
     }
 
     return NextResponse.json({
@@ -370,18 +388,17 @@ export async function POST(request: NextRequest) {
       summary: {
         reservations: processedReservations.length,
         total_revenue: totalRevenue,
+        stripe_fees: totalStripeFees,
         management_fee: managementFee,
         cleaning_total: cleaningTotal,
         owner_payout: ownerPayout,
         confidence,
         data_gaps: gaps.length,
       },
+      parsed_reservations: processedReservations,
     });
   } catch (err) {
     console.error('Ingest error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : JSON.stringify(err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err instanceof Error ? err.message : JSON.stringify(err) }, { status: 500 });
   }
 }

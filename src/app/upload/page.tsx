@@ -15,15 +15,6 @@ const PROPERTIES = [
   { id: '17_beach_rd', name: '17 Beach Rd (Nolan)' },
 ];
 
-type ReservationEntry = {
-  guest_name: string;
-  confirmation_code: string;
-  check_in: string;
-  check_out: string;
-  nights: number;
-  rental_income: number;
-};
-
 type IngestResult = {
   success: boolean;
   property: string;
@@ -42,46 +33,20 @@ type IngestResult = {
 export default function UploadPage() {
   const [month, setMonth] = useState('2026-04');
   const [propertyId, setPropertyId] = useState('');
+  const [guestyPDF, setGuestyPDF] = useState<File | null>(null);
   const [platformCSV, setPlatformCSV] = useState<File | null>(null);
   const [bankCSV, setBankCSV] = useState<File | null>(null);
-  const [reservations, setReservations] = useState<ReservationEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  function addReservation() {
-    setReservations([...reservations, {
-      guest_name: '',
-      confirmation_code: '',
-      check_in: '',
-      check_out: '',
-      nights: 0,
-      rental_income: 0,
-    }]);
-  }
-
-  function updateReservation(index: number, field: keyof ReservationEntry, value: string | number) {
-    const updated = [...reservations];
-    (updated[index] as Record<string, string | number>)[field] = value;
-    // Auto-calculate nights
-    if (field === 'check_in' || field === 'check_out') {
-      const ci = field === 'check_in' ? value as string : updated[index].check_in;
-      const co = field === 'check_out' ? value as string : updated[index].check_out;
-      if (ci && co) {
-        const diff = (new Date(co).getTime() - new Date(ci).getTime()) / (1000 * 60 * 60 * 24);
-        if (diff > 0) updated[index].nights = Math.round(diff);
-      }
-    }
-    setReservations(updated);
-  }
-
-  function removeReservation(index: number) {
-    setReservations(reservations.filter((_, i) => i !== index));
-  }
-
   async function handleSubmit() {
     if (!propertyId) {
       setError('Please select a property');
+      return;
+    }
+    if (!guestyPDF) {
+      setError('Please upload the Guesty owner statement PDF');
       return;
     }
     setSubmitting(true);
@@ -92,11 +57,9 @@ export default function UploadPage() {
       const formData = new FormData();
       formData.append('month', month);
       formData.append('property_id', propertyId);
+      if (guestyPDF) formData.append('guesty_pdf', guestyPDF);
       if (platformCSV) formData.append('platform_csv', platformCSV);
       if (bankCSV) formData.append('bank_csv', bankCSV);
-      if (reservations.length > 0) {
-        formData.append('guesty_data', JSON.stringify(reservations));
-      }
 
       const res = await fetch('/api/ingest', { method: 'POST', body: formData });
       const data = await res.json();
@@ -146,7 +109,7 @@ export default function UploadPage() {
             </div>
             <div className="mt-4 flex gap-4">
               <button
-                onClick={() => { setResult(null); setReservations([]); setPlatformCSV(null); setBankCSV(null); }}
+                onClick={() => { setResult(null); setGuestyPDF(null); setPlatformCSV(null); setBankCSV(null); }}
                 className="text-sm text-emerald-700 underline"
               >
                 Upload another property
@@ -202,7 +165,20 @@ export default function UploadPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Platform CSV <span className="text-gray-400">(from Guesty - maps reservations to channels)</span>
+                    Guesty Owner Statement PDF <span className="text-red-400">*</span>
+                    <span className="text-gray-400 ml-1">(reservations are extracted automatically)</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => setGuestyPDF(e.target.files?.[0] || null)}
+                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-[#1E2E34] file:text-white hover:file:bg-[#2a3f47] file:cursor-pointer"
+                  />
+                  {guestyPDF && <p className="text-xs text-gray-400 mt-1">{guestyPDF.name}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Platform CSV <span className="text-gray-400">(from Guesty -- maps reservations to channels)</span>
                   </label>
                   <input
                     type="file"
@@ -227,103 +203,11 @@ export default function UploadPage() {
               </div>
             </section>
 
-            {/* Reservation Entry (from Guesty Owner Statement) */}
-            <section className="bg-white rounded-lg border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Reservations</h2>
-                  <p className="text-sm text-gray-500">Enter from the Guesty Owner Statement PDF</p>
-                </div>
-                <button
-                  onClick={addReservation}
-                  className="px-4 py-2 bg-[#1E2E34] text-white text-sm rounded-lg hover:bg-[#2a3f47]"
-                >
-                  + Add Reservation
-                </button>
-              </div>
-
-              {reservations.length === 0 && (
-                <p className="text-gray-400 text-sm text-center py-8">
-                  No reservations added yet. Click &quot;Add Reservation&quot; to enter data from the Guesty owner statement.
-                </p>
-              )}
-
-              {reservations.map((res, i) => (
-                <div key={i} className="border border-gray-100 rounded-lg p-4 mb-3 bg-gray-50">
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-xs font-medium text-gray-400">Reservation {i + 1}</span>
-                    <button onClick={() => removeReservation(i)} className="text-red-400 text-xs hover:text-red-600">Remove</button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Guest Name</label>
-                      <input
-                        type="text"
-                        value={res.guest_name}
-                        onChange={(e) => updateReservation(i, 'guest_name', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                        placeholder="e.g. Smith"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Confirmation Code</label>
-                      <input
-                        type="text"
-                        value={res.confirmation_code}
-                        onChange={(e) => updateReservation(i, 'confirmation_code', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                        placeholder="e.g. HMXXXXXXXX"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Rental Income ($)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={res.rental_income || ''}
-                        onChange={(e) => updateReservation(i, 'rental_income', parseFloat(e.target.value) || 0)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Check In</label>
-                      <input
-                        type="date"
-                        value={res.check_in}
-                        onChange={(e) => updateReservation(i, 'check_in', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Check Out</label>
-                      <input
-                        type="date"
-                        value={res.check_out}
-                        onChange={(e) => updateReservation(i, 'check_out', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Nights</label>
-                      <input
-                        type="number"
-                        value={res.nights || ''}
-                        onChange={(e) => updateReservation(i, 'nights', parseInt(e.target.value) || 0)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-gray-100"
-                        readOnly
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </section>
-
             {/* Submit */}
             <div className="flex justify-end">
               <button
                 onClick={handleSubmit}
-                disabled={submitting || !propertyId}
+                disabled={submitting || !propertyId || !guestyPDF}
                 className="px-8 py-3 bg-[#1E2E34] text-white rounded-lg font-medium hover:bg-[#2a3f47] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? 'Processing...' : 'Process & Upload'}
