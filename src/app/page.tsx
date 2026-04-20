@@ -28,6 +28,7 @@ type CleaningEvent = {
   invoice_no: string | null;
   invoice_amount: number | null;
   bank_charge_amount: number | null;
+  bank_charge_date: string | null;
   amount: number;
   source: string;
 };
@@ -251,12 +252,16 @@ function PropertyCard({ prop }: { prop: PropertyStatement }) {
             {cleaning.length > 0 && (
               <div>
                 <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                  Cleaning Charges <span className="text-gray-300 font-normal">({fmt(prop.cleaning_total)} total)</span>
+                  Cleaning <span className="text-gray-300 font-normal">({fmt(prop.cleaning_total)})</span>
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="space-y-1.5">
                   {cleaning.map((ce) => (
-                    <div key={ce.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
-                      <span className="text-gray-500 text-xs">{ce.bank_charge_amount ? fmtDate(ce.checkout_date || '') : '--'}</span>
+                    <div key={ce.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2.5 text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-xs w-16">{ce.bank_charge_date ? fmtDate(ce.bank_charge_date) : '--'}</span>
+                        <span className={ce.guest_name ? 'text-gray-800' : 'text-gray-400 italic'}>{ce.guest_name || 'Unmatched'}</span>
+                        {ce.checkout_date && <span className="text-gray-300 text-xs">checkout {fmtDate(ce.checkout_date)}</span>}
+                      </div>
                       <span className="font-medium text-gray-800">{fmt(ce.amount)}</span>
                     </div>
                   ))}
@@ -304,7 +309,16 @@ function DashboardContent() {
   const urlToken = searchParams.get('key');
 
   useEffect(() => {
-    if (urlToken && urlToken === expectedToken) setAuthenticated(true);
+    // Check cookie first
+    const cookie = document.cookie.split('; ').find(c => c.startsWith('rt_auth='));
+    if (cookie && cookie.split('=')[1] === '1') {
+      setAuthenticated(true);
+      return;
+    }
+    if (urlToken && urlToken === expectedToken) {
+      setAuthenticated(true);
+      document.cookie = 'rt_auth=1; path=/; max-age=86400; SameSite=Lax';
+    }
     if (!expectedToken) setAuthenticated(true);
   }, [urlToken, expectedToken]);
 
@@ -377,8 +391,13 @@ function DashboardContent() {
           </div>
           <form onSubmit={(e) => {
             e.preventDefault();
-            if (inputCode === expectedToken) { setAuthenticated(true); setAuthError(false); }
-            else setAuthError(true);
+            if (inputCode === expectedToken) {
+              setAuthenticated(true);
+              setAuthError(false);
+              document.cookie = 'rt_auth=1; path=/; max-age=86400; SameSite=Lax';
+            } else {
+              setAuthError(true);
+            }
           }}>
             <input
               type="password"

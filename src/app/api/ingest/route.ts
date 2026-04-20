@@ -377,17 +377,58 @@ export async function POST(request: NextRequest) {
       if (resErr) throw resErr;
     }
 
-    // 11. Insert cleaning events
+    // 11. Insert cleaning events -- match to reservation checkouts
     if (cleaningCharges.length > 0) {
+      // Sort reservations by checkout date for matching
+      const sortedRes = [...processedReservations].sort((a, b) => a.check_out.localeCompare(b.check_out));
+
+      const cleaningInserts = cleaningCharges.map(c => {
+        // Parse bank charge date (MM/DD/YYYY) to YYYY-MM-DD
+        let chargeDateISO = '';
+        if (c.date) {
+          const parts = c.date.split('/');
+          if (parts.length === 3) {
+            chargeDateISO = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+          }
+        }
+
+        // Find the reservation whose checkout is on or just before this cleaning charge
+        // Cleaning typically happens on checkout day or the day after
+        let matchedGuest = '';
+        let matchedCheckout = '';
+        if (chargeDateISO && sortedRes.length > 0) {
+          let bestMatch = sortedRes[0];
+          let bestDiff = Infinity;
+          for (const r of sortedRes) {
+            const checkoutDate = new Date(r.check_out + 'T00:00:00');
+            const chargeDate = new Date(chargeDateISO + 'T00:00:00');
+            const diffDays = (chargeDate.getTime() - checkoutDate.getTime()) / (1000 * 60 * 60 * 24);
+            // Cleaning charge should be 0-3 days after checkout
+            if (diffDays >= 0 && diffDays <= 3 && diffDays < bestDiff) {
+              bestDiff = diffDays;
+              bestMatch = r;
+            }
+          }
+          if (bestDiff <= 3) {
+            matchedGuest = bestMatch.guest_name;
+            matchedCheckout = bestMatch.check_out;
+          }
+        }
+
+        return {
+          property_statement_id: stmt.id,
+          guest_name: matchedGuest || null,
+          checkout_date: matchedCheckout || null,
+          bank_charge_amount: c.amount,
+          bank_charge_date: chargeDateISO || null,
+          amount: c.amount,
+          source: matchedGuest ? 'matched' : 'bank',
+        };
+      });
+
       const { error: cleanErr } = await supabase
         .from('cleaning_events')
-        .insert(cleaningCharges.map(c => ({
-          property_statement_id: stmt.id,
-          bank_charge_amount: c.amount,
-          bank_charge_date: c.date || null,
-          amount: c.amount,
-          source: 'bank',
-        })));
+        .insert(cleaningInserts);
       if (cleanErr) throw cleanErr;
     }
 
