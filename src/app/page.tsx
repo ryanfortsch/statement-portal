@@ -190,33 +190,9 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
   const bankMatched = reservations.filter(r => r.bank_match_status === 'matched').length;
   const pctMatched = reservations.length > 0 ? Math.round((bankMatched / reservations.length) * 100) : 0;
 
-  async function downloadStatement(e: React.MouseEvent) {
+  function downloadStatement(e: React.MouseEvent) {
     e.stopPropagation();
-    setGenerating(true);
-    try {
-      let res: Response;
-      if (reviewsCsv) {
-        res = await fetch(`/api/statement?id=${prop.id}&month=${month}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: reviewsCsv }),
-        });
-      } else {
-        res = await fetch(`/api/statement?id=${prop.id}&month=${month}`);
-      }
-      if (!res.ok) throw new Error('Failed to generate');
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${prop.property_name.replace(/\s+/g, '_')}_${month}.pdf`;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setGenerating(false);
-    }
+    window.open(`/statement?id=${prop.id}&month=${month}`, '_blank');
   }
 
   return (
@@ -464,20 +440,10 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
             <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
               <button
                 onClick={downloadStatement}
-                disabled={generating}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1E2E34] text-white text-[12px] font-medium rounded-lg hover:bg-[#2a3f47] disabled:opacity-40 transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1E2E34] text-white text-[12px] font-medium rounded-lg hover:bg-[#2a3f47] transition-colors shadow-sm"
               >
-                {generating ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <IconDownload className="w-3.5 h-3.5" />
-                    Download Statement
-                  </>
-                )}
+                <IconDownload className="w-3.5 h-3.5" />
+                View Statement
               </button>
               <Link
                 href="/upload"
