@@ -107,38 +107,46 @@ export async function GET(request: NextRequest) {
     });
 
     // Draw pennant flag logo
+    // The RT logo is a pennant (triangle flag) pointing right with
+    // "RISING" on top line, "TIDE" below, and a diagonal wave line
     const flagCx = SIDEBAR_W / 2;
-    const flagTop = H - 60;
-    const flagSize = 50;
+    const flagTop = H - 55;
 
-    // White triangle pennant pointing right
-    // Draw as a filled triangle using lines
-    const triLeft = flagCx - flagSize * 0.45;
-    const triRight = flagCx + flagSize * 0.5;
-    const triTop = flagTop + flagSize * 0.35;
-    const triBottom = flagTop - flagSize * 0.35;
-    const triMidY = flagTop;
+    // Pennant dimensions - wider and taller for proper proportions
+    const pLeft = flagCx - 38;
+    const pRight = flagCx + 42;
+    const pTop = flagTop + 30;
+    const pBottom = flagTop - 30;
+    const pTip = pRight;
+    const pMidY = (pTop + pBottom) / 2;
 
-    // Draw triangle outline with thick white strokes
-    page.drawLine({ start: { x: triLeft, y: triTop }, end: { x: triRight, y: triMidY }, thickness: 2.5, color: WHITE });
-    page.drawLine({ start: { x: triRight, y: triMidY }, end: { x: triLeft, y: triBottom }, thickness: 2.5, color: WHITE });
-    page.drawLine({ start: { x: triLeft, y: triBottom }, end: { x: triLeft, y: triTop }, thickness: 2.5, color: WHITE });
+    // Draw pennant outline (triangle: left-top -> right-tip -> left-bottom -> close)
+    page.drawLine({ start: { x: pLeft, y: pTop }, end: { x: pTip, y: pMidY }, thickness: 2, color: WHITE });
+    page.drawLine({ start: { x: pTip, y: pMidY }, end: { x: pLeft, y: pBottom }, thickness: 2, color: WHITE });
+    page.drawLine({ start: { x: pLeft, y: pBottom }, end: { x: pLeft, y: pTop }, thickness: 2, color: WHITE });
 
-    // "RISING" and "TIDE" inside flag
-    page.drawText('RISING', {
-      x: flagCx - 24, y: flagTop + 4,
-      size: 11, font: helveticaBold, color: WHITE,
-    });
-    page.drawText('TIDE', {
-      x: flagCx - 17, y: flagTop - 11,
-      size: 11, font: helveticaBold, color: WHITE,
-    });
-
-    // Diagonal line through pennant (like original logo)
+    // Diagonal wave/swoosh line across the flag (from upper-left area to lower-right area)
     page.drawLine({
-      start: { x: triLeft + 5, y: triTop - 8 },
-      end: { x: triRight - 5, y: triBottom + 8 },
+      start: { x: pLeft, y: pMidY + 2 },
+      end: { x: pTip - 8, y: pBottom + 10 },
       thickness: 1.5, color: WHITE,
+    });
+
+    // "RISING" text - positioned in upper half of pennant
+    const risingText = 'RISING';
+    const risingSize = 13;
+    const risingW = helveticaBold.widthOfTextAtSize(risingText, risingSize);
+    page.drawText(risingText, {
+      x: pLeft + 8, y: pMidY + 7,
+      size: risingSize, font: helveticaBold, color: WHITE,
+    });
+
+    // "TIDE" text - positioned in lower half, slightly indented
+    const tideText = 'TIDE';
+    const tideSize = 13;
+    page.drawText(tideText, {
+      x: pLeft + 14, y: pMidY - 16,
+      size: tideSize, font: helveticaBold, color: WHITE,
     });
 
     // Company name below logo
@@ -148,11 +156,11 @@ export async function GET(request: NextRequest) {
       page.drawText(text, { x: sidebarTextX - textWidth / 2, y, size, font, color });
     };
 
-    drawCenteredText('RISING TIDE', flagTop - flagSize - 15, 12, helveticaBold, WHITE);
+    drawCenteredText('RISING TIDE', pBottom - 20, 12, helveticaBold, WHITE);
 
     // Address lines
-    const addrY = flagTop - flagSize - 45;
-    drawCenteredText('3 Locust Lane', addrY, 8, helvetica, rgb(0.7, 0.7, 0.7));
+    const addrY = pBottom - 50;
+    drawCenteredText('85 Eastern Ave', addrY, 8, helvetica, rgb(0.7, 0.7, 0.7));
     drawCenteredText('Gloucester, MA 01930', addrY - 13, 8, helvetica, rgb(0.7, 0.7, 0.7));
     drawCenteredText('allie@risingtidestr.com', addrY - 26, 8, helvetica, rgb(0.7, 0.7, 0.7));
 
