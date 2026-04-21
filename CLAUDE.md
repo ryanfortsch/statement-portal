@@ -28,9 +28,10 @@ src/
     statement/page.tsx    # Statement renderer (server component) - the editorial HTML page
     upload/page.tsx       # Data upload page per property
     api/
-      ingest/route.ts     # POST: parses Guesty PDF + platform CSV + bank CSV, writes to Supabase
-      statement/route.ts  # Legacy pdf-lib generator (superseded by /statement page, still exists)
-      sync-invoices/route.ts  # Gmail sync for Cape Ann Elite cleaning invoices
+      ingest/route.ts              # POST: parses Guesty PDF + platform CSV + bank CSV, writes to Supabase
+      ingest-guesty-csv/route.ts   # POST: ingests Guesty reservations CSV as a fallback when API is unavailable
+      sync-guesty/route.ts         # POST: pulls reviews + reservations + listing map from Guesty API
+      sync-invoices/route.ts       # POST: Gmail sync for Cape Ann Elite cleaning invoices
     layout.tsx
   lib/
     supabase.ts           # Supabase client init
@@ -188,7 +189,7 @@ Three-file upload form: Guesty PDF, Platform CSV, Bank CSV. POSTs to /api/ingest
 
 1. **NFS/iCloud mount issues**: The repo lives in an iCloud-synced folder. Git and node_modules sometimes get "Resource deadlock avoided" errors in a sandbox. Build and push must happen from the user's own terminal.
 
-2. **Legacy /api/statement route**: 857 lines of pdf-lib code that still exists but is superseded by the HTML statement page. Could be cleaned up or removed.
+2. ~~Legacy /api/statement route~~ — deleted. All statement rendering goes through the HTML page at `/statement?id=...&month=...`.
 
 3. **Stripe fee approximation**: Uses rental_income as the base, but Stripe technically charges on the total transaction value (including taxes and VRBO fees). The current calculation slightly underestimates the fee.
 

@@ -384,14 +384,15 @@ export default function UploadPage() {
             {/* Action Bar */}
             <div className="flex items-center gap-3">
               <a
-                href={`/api/statement?id=${result.property_statement_id}&month=${result.month}`}
+                href={`/statement?id=${result.property_statement_id}&month=${result.month}`}
+                target="_blank"
+                rel="noopener"
                 className="inline-flex items-center gap-2 px-6 py-3 bg-[#1E2E34] text-white rounded-xl text-[13px] font-semibold hover:bg-[#2a3f47] transition-colors shadow-lg shadow-[#1E2E34]/10"
-                download
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Download Statement
+                View Statement
               </a>
               <button onClick={resetForm} className="inline-flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl text-[13px] font-semibold hover:bg-gray-50 transition-colors">
                 Upload Another
