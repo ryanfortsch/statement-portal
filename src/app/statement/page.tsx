@@ -418,8 +418,8 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
             {/* ── FOOTER ── */}
             <footer className="footer">
-              <div>Rising Tide STR &middot; Gloucester, MA</div>
-              <div className="center">&ldquo;A rising tide lifts all boats.&rdquo;</div>
+              <div>Rising Tide &middot; Gloucester, MA</div>
+              <div className="center">&ldquo;We care for your home as if it were our own.&rdquo;</div>
               <div className="right">Statement {moStr}&middot;{yr} &middot; pg 1/1</div>
             </footer>
 
