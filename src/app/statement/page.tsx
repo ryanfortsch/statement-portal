@@ -11,7 +11,7 @@ const PROPERTY_DETAILS: Record<string, { name: string; address: string; city: st
   '4_brier_neck':  { name: '4 Brier Neck Rd',    address: '4 Brier Neck Road',    city: 'Gloucester, MA',  owner_full: 'The Armstrong Family', fee_pct: 20, listing_match: '4 brier neck' },
   '30_woodward':   { name: '30 Woodward Ave',    address: '30 Woodward Avenue',   city: 'Gloucester, MA',  owner_full: 'The McWethy Family', fee_pct: 25, listing_match: '30 woodward' },
   '20_hammond':    { name: '20 Hammond St',      address: '20 Hammond Street',    city: 'Gloucester, MA',  owner_full: 'The Ramsey Family', fee_pct: 25, listing_match: '20 hammond' },
-  '20_enon':       { name: '20 Enon Rd',         address: '20 Enon Road',         city: 'Gloucester, MA',  owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
+  '20_enon':       { name: '20 Enon Rd',         address: '20 Enon Road',         city: 'Beverly, MA',     owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
   '73_rocky_neck': { name: '73 Rocky Neck Ave',  address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'The Moynahan Family', fee_pct: 25, listing_match: '73 rocky neck' },
   '17_beach_rd':   { name: '17 Beach Rd',        address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'The Nolan Family', fee_pct: 22, listing_match: '17 beach' },
   '65_calderwood': { name: '65 Calderwood Ln',   address: '65 Calderwood Lane',   city: 'Fairfield, CT',   owner_full: 'The Liu Family', fee_pct: 25, listing_match: '65 calderwood' },
@@ -25,6 +25,30 @@ function shortDate(d: string) { return new Date(d + 'T00:00:00').toLocaleDateStr
 function monthName(m: string) { return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long' }); }
 function daysInMonth(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); }
 function chLabel(p: string) { return ({ HomeAway: 'VRBO', Manual: 'Direct', 'Booking.com': 'Booking' } as Record<string, string>)[p] || p; }
+
+// Normalize guest names: "julie polvinen" -> "Julie Polvinen". Preserves
+// common connectors lowercase ("Mary Van Der Berg" stays as-is after title-casing).
+function titleCase(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.replace(/\b[\p{L}'’-]+/gu, w =>
+    w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase()
+  );
+}
+
+// Nights a reservation occupies inside [monthStart, monthEnd_exclusive).
+// Using hotel convention: night is counted by check-in date, so the range
+// of occupied nights is [check_in, check_out).
+function nightsInMonth(checkIn: string, checkOut: string, month: string): number {
+  const [y, mo] = month.split('-').map(Number);
+  const ms = Date.UTC(y, mo - 1, 1);
+  const me = Date.UTC(y, mo, 1);
+  const ci = Date.parse(checkIn + 'T00:00:00Z');
+  const co = Date.parse(checkOut + 'T00:00:00Z');
+  if (isNaN(ci) || isNaN(co)) return 0;
+  const start = Math.max(ci, ms);
+  const end = Math.min(co, me);
+  return Math.max(0, Math.round((end - start) / 86400_000));
+}
 
 function getBestReview(reviews: { guest: string; review: string }[]): { guest: string; snippet: string } | null {
   if (!reviews.length) return null;
@@ -77,41 +101,46 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const numStays = prop.num_stays || (reservations?.length || 0);
   const nightsBooked = prop.nights_booked || 0;
   const totalDays = daysInMonth(month);
-  const occupancy = totalDays > 0 ? Math.round((nightsBooked / totalDays) * 100) : 0;
+  // Occupancy uses nights that actually fall inside the statement month.
+  // A guest who checks in Mar 2 and out Apr 2 contributes 1 April night,
+  // not 31. (nightsBooked keeps the accounting-total for revenue math.)
+  const occupiedNights = (reservations || []).reduce(
+    (sum, r) => sum + nightsInMonth(r.check_in, r.check_out, month), 0,
+  );
+  const occupancy = totalDays > 0 ? Math.round((occupiedNights / totalDays) * 100) : 0;
   const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
   const cleans = cleaningEvents?.length || numStays;
 
-  // Compute Guest Rating from real Guesty data. Prefer month-scoped, fall back to lifetime.
+  // Guest Rating: month-scoped only. Historical averages are misleading on a
+  // monthly statement (we don't want a January review padding April's numbers).
   const monthStart = `${month}-01T00:00:00Z`;
   const monthEndIso = new Date(Date.UTC(parseInt(yr), parseInt(moStr), 1)).toISOString();
-  const reviewsList = allReviews || [];
-  const monthReviews = reviewsList.filter(r => {
+  const monthReviews = (allReviews || []).filter(r => {
     const t = r.review_created_at;
-    return t >= monthStart && t < monthEndIso && r.overall_rating != null;
+    return t >= monthStart && t < monthEndIso;
   });
-  const ratedLifetime = reviewsList.filter(r => r.overall_rating != null);
-  const avg = (arr: { overall_rating: number | null }[]) =>
-    arr.length ? arr.reduce((s, r) => s + (r.overall_rating ?? 0), 0) / arr.length : null;
-  const rating = monthReviews.length > 0
-    ? { value: avg(monthReviews)!, count: monthReviews.length, scope: 'month' as const }
-    : ratedLifetime.length > 0
-    ? { value: avg(ratedLifetime)!, count: ratedLifetime.length, scope: 'lifetime' as const }
+  const monthRatedReviews = monthReviews.filter(r => r.overall_rating != null);
+  const rating = monthRatedReviews.length > 0
+    ? {
+        value: monthRatedReviews.reduce((s, r) => s + (r.overall_rating ?? 0), 0) / monthRatedReviews.length,
+        count: monthRatedReviews.length,
+      }
     : null;
 
-  // Best review snippet: pull longest public_review from Supabase.
-  const reviewPool = (monthReviews.length > 0 ? monthReviews : reviewsList)
-    .filter(r => r.public_review && r.public_review.trim().length > 15);
+  // Review snippet: only show if we have a review from THIS month. Otherwise
+  // fall back to Allie's note (handled in the JSX).
+  const reviewPool = monthReviews.filter(r => r.public_review && r.public_review.trim().length > 15);
   const bestReview = reviewPool.length > 0
-    ? getBestReview(reviewPool.map(r => ({ guest: r.guest_name || 'Guest', review: r.public_review! })))
+    ? getBestReview(reviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })))
     : null;
 
   // Upcoming bookings from Supabase (guesty_reservations). Populated by either
   // /api/sync-guesty (API path) or /api/ingest-guesty-csv (manual fallback).
   type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
   const upcoming: UpcomingItem[] = (upcomingDb || []).slice(0, 4).map(r => ({
-    guest: r.guest_name || 'Guest',
+    guest: titleCase(r.guest_name) || 'Guest',
     checkIn: r.check_in,
     nights: r.nights ?? 0,
     platform: r.guesty_channel_id || r.channel || 'Direct',
@@ -212,7 +241,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 </div>
                 <div className="mini">
                   <div className="mini-label">Nights</div>
-                  <div className="mini-value">{nightsBooked}<span className="u"> / {totalDays}</span></div>
+                  <div className="mini-value">{occupiedNights}<span className="u"> / {totalDays}</span></div>
                   <div className="mini-sub">{occupancy}% occupancy</div>
                 </div>
                 <div className="mini">
@@ -236,7 +265,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                     {rows.map((r, i) => (
                       <tr key={i}>
                         <td>
-                          <div className="guest">{r.guest_name}</div>
+                          <div className="guest">{titleCase(r.guest_name)}</div>
                           <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
                         </td>
                         <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
@@ -293,14 +322,12 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 {rating ? (
                   <>
                     <div className="insight-value">{rating.value.toFixed(1)}<span className="u">/5</span></div>
-                    <div className="insight-sub">
-                      {rating.count} review{rating.count === 1 ? '' : 's'} {rating.scope === 'month' ? 'this month' : 'to date'}
-                    </div>
+                    <div className="insight-sub">{rating.count} review{rating.count === 1 ? '' : 's'} this month</div>
                   </>
                 ) : (
                   <>
                     <div className="insight-value">&mdash;</div>
-                    <div className="insight-sub">No reviews yet</div>
+                    <div className="insight-sub">No reviews this month</div>
                   </>
                 )}
               </div>
@@ -312,7 +339,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="insight">
                 <div className="insight-label">Occupancy</div>
                 <div className="insight-value">{occupancy}<span className="u">%</span></div>
-                <div className="insight-sub">{nightsBooked} of {totalDays} nights</div>
+                <div className="insight-sub">{occupiedNights} of {totalDays} nights</div>
               </div>
             </section>
 
@@ -322,7 +349,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">03</span>
                   <h2 className="sec-title">On the horizon</h2>
-                  <span className="sec-meta">Next 60d</span>
+                  <span className="sec-meta">Upcoming reservations</span>
                 </div>
                 <div className="upcoming-list">
                   {upcoming.length > 0 ? upcoming.map((b, i) => {
