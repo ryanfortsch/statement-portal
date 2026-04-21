@@ -87,7 +87,14 @@ async function fetchNewGuestyToken(): Promise<{ token: string; expiresAt: number
       },
       body: new URLSearchParams({ grant_type: 'client_credentials', scope: 'open-api' }),
     });
-    if (res.status === 429) { lastErr = 'oauth2/token 429'; continue; }
+    if (res.status === 429) {
+      const retryAfter = res.headers.get('Retry-After');
+      lastErr = `oauth2/token 429 Retry-After=${retryAfter ?? 'n/a'}`;
+      // Honor Retry-After if it's a reasonable (<=60s) hint.
+      const hint = retryAfter ? parseInt(retryAfter, 10) : NaN;
+      if (!Number.isNaN(hint) && hint > 0 && hint <= 60) await sleep(hint * 1000);
+      continue;
+    }
     if (!res.ok) throw new Error(`Guesty auth failed: ${res.status} ${await res.text()}`);
     const data = await res.json();
     const token = data.access_token as string;
