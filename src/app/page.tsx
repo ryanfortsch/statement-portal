@@ -80,6 +80,11 @@ function fmt(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
+function fmtCompact(amount: number): string {
+  // "$3,978.00" -> "$3,978" for the insights strip
+  return '$' + Math.round(amount).toLocaleString('en-US');
+}
+
 function fmtDate(dateStr: string): string {
   if (!dateStr) return '--';
   const d = new Date(dateStr + 'T00:00:00');
@@ -89,6 +94,11 @@ function fmtDate(dateStr: string): string {
 function monthLabel(m: string): string {
   const d = new Date(m + '-01T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function monthLong(m: string): string {
+  const d = new Date(m + '-01T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'long' });
 }
 
 function monthShort(m: string): string {
@@ -182,13 +192,74 @@ function DataSourceChip({ active, label }: { active: boolean; label: string }) {
   );
 }
 
-function KPICard({ label, value, accent, sub }: { label: string; value: string; accent?: string; sub?: string }) {
+function Insight({ label, value, sub, accent, last }: { label: string; value: string; sub?: string; accent?: boolean; last?: boolean }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-sm transition-shadow">
-      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{label}</p>
-      <p className={`text-xl font-bold tabular-nums mt-1 ${accent || 'text-[#1E2E34]'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+    <div style={{
+      padding: '14px 16px',
+      borderRight: last ? 'none' : '1px solid var(--rule)',
+    }}>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
+      <div
+        className="font-serif tabular-nums"
+        style={{
+          fontSize: 22,
+          lineHeight: 1,
+          fontWeight: 400,
+          color: accent ? 'var(--signal)' : 'var(--ink)',
+        }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 5 }}>{sub}</div>
+      )}
     </div>
+  );
+}
+
+function EditorialButton({
+  onClick, disabled, busy, label, meta, icon,
+}: {
+  onClick?: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  label: string;
+  meta?: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        border: '1px solid var(--rule)',
+        background: busy ? 'var(--paper-2)' : 'transparent',
+        color: 'var(--ink-3)',
+        fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
+        padding: '6px 12px',
+        cursor: disabled ? (busy ? 'wait' : 'not-allowed') : 'pointer',
+        opacity: disabled && !busy ? 0.5 : 1,
+        transition: 'background .15s, border-color .15s',
+      }}
+    >
+      {busy ? (
+        <span
+          aria-hidden
+          style={{
+            width: 10, height: 10, borderRadius: '50%',
+            border: '1.5px solid var(--ink-3)', borderTopColor: 'transparent',
+            animation: 'spin 0.8s linear infinite',
+          }}
+        />
+      ) : icon}
+      {label}
+      {meta && (
+        <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>
+          &middot; {meta}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -737,96 +808,91 @@ function DashboardContent() {
   const totalNights = props.reduce((s, p) => s + p.nights_booked, 0);
 
   return (
-    <div className="min-h-screen bg-[#fafbfc]">
-      {/* ─── Top Navigation ─── */}
-      <header className="bg-[#1E2E34] sticky top-0 z-50 shadow-lg shadow-[#1E2E34]/10">
-        <div className="max-w-6xl mx-auto px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Left: Brand + Period */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-gradient-to-br from-[#C9A84C] to-[#B8953D] rounded-lg flex items-center justify-center shadow-sm">
-                  <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M3 17l6-6 4 4 8-8" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M17 7h4v4" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <span className="text-white font-semibold text-[15px] tracking-tight">Rising Tide</span>
+    <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      {/* ─── MASTHEAD ─── */}
+      <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
+        <div className="max-w-[1100px] mx-auto px-10">
+          {/* Top strip: brand + period */}
+          <div className="flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
+              <div className="flex items-baseline gap-3">
+                <span className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Rising Tide</span>
+                <span style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 500 }}>Owner Statement Portal</span>
               </div>
-              <div className="w-px h-6 bg-white/10" />
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="eyebrow">Period</div>
               {periods.length > 1 ? (
                 <select
                   value={selectedMonth}
                   onChange={(e) => loadPeriod(e.target.value)}
-                  className="bg-white/[0.06] text-white/90 text-[13px] font-medium border border-white/10 rounded-lg px-3 py-1.5 outline-none cursor-pointer hover:bg-white/[0.10] transition-colors appearance-none"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='rgba(255,255,255,0.4)' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '16px', paddingRight: '28px' }}
+                  className="font-serif"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--rule)',
+                    color: 'var(--ink)',
+                    fontSize: 15,
+                    fontWeight: 500,
+                    padding: '4px 24px 4px 10px',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    appearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 6px center',
+                    backgroundSize: '14px',
+                  }}
                 >
                   {periods.map(p => (
-                    <option key={p.month} value={p.month} className="text-gray-900 bg-white">{monthLabel(p.month)}</option>
+                    <option key={p.month} value={p.month}>{monthLabel(p.month)}</option>
                   ))}
                 </select>
               ) : (
-                <span className="text-white/70 text-[13px] font-medium">{monthLabel(selectedMonth)}</span>
+                <span className="font-serif" style={{ fontSize: 15, fontWeight: 500 }}>{monthLabel(selectedMonth)}</span>
               )}
             </div>
+          </div>
 
-            {/* Right: Actions */}
+          {/* Actions strip */}
+          <div className="flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
             <div className="flex items-center gap-2">
-              <button
+              <EditorialButton
                 onClick={syncInvoices}
                 disabled={syncing}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[#C9A84C]/15 text-[#C9A84C] text-[12px] font-semibold rounded-lg hover:bg-[#C9A84C]/25 disabled:opacity-50 transition-colors border border-[#C9A84C]/20"
-              >
-                {syncing ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
-                    Syncing...
-                  </>
-                ) : (
-                  <>
-                    <IconSync className="w-3.5 h-3.5" />
-                    Sync Invoices
-                  </>
-                )}
-              </button>
-              <button
+                busy={syncing}
+                label={syncing ? 'Syncing…' : 'Sync Invoices'}
+                meta={lastSync['gmail-invoices'] ? relativeTime(lastSync['gmail-invoices']) : undefined}
+                icon={<IconSync className="w-3 h-3" />}
+              />
+              <EditorialButton
                 onClick={syncGuesty}
                 disabled={syncingGuesty}
-                title={lastSync['guesty-reviews'] ? `Last synced ${relativeTime(lastSync['guesty-reviews'])}` : 'Never synced'}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[#4b8a9e]/15 text-[#8fb3c0] text-[12px] font-semibold rounded-lg hover:bg-[#4b8a9e]/25 disabled:opacity-50 transition-colors border border-[#4b8a9e]/20"
-              >
-                {syncingGuesty ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-[#8fb3c0] border-t-transparent rounded-full animate-spin" />
-                    Syncing...
-                  </>
-                ) : (
-                  <>
-                    <IconSync className="w-3.5 h-3.5" />
-                    Sync Bookings
-                    {lastSync['guesty-reviews'] && (
-                      <span className="text-[10px] font-normal opacity-70 ml-1">
-                        &middot; {relativeTime(lastSync['guesty-reviews'])}
-                      </span>
-                    )}
-                  </>
-                )}
-              </button>
+                busy={syncingGuesty}
+                label={syncingGuesty ? 'Syncing…' : 'Sync Bookings'}
+                meta={lastSync['guesty-reviews'] ? relativeTime(lastSync['guesty-reviews']) : undefined}
+                icon={<IconSync className="w-3 h-3" />}
+              />
               <label
                 title={lastSync['csv-fallback'] ? `CSV uploaded ${relativeTime(lastSync['csv-fallback'])}` : 'Upload Guesty reservations CSV (fallback if API is unavailable)'}
-                className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
-                  uploadingCsv
-                    ? 'bg-white/10 text-white/70 border-white/10 cursor-wait'
-                    : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
-                }`}>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  border: '1px solid var(--rule)',
+                  background: uploadingCsv ? 'var(--paper-2)' : 'transparent',
+                  color: 'var(--ink-3)',
+                  fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
+                  padding: '6px 12px',
+                  cursor: uploadingCsv ? 'wait' : 'pointer',
+                  transition: 'background .15s',
+                }}
+              >
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {uploadingCsv ? 'Uploading...' : 'Upload Guesty CSV'}
+                {uploadingCsv ? 'Uploading' : 'Upload CSV'}
                 {lastSync['csv-fallback'] && !uploadingCsv && (
-                  <span className="text-[10px] font-normal opacity-70 ml-1">
-                    &middot; {relativeTime(lastSync['csv-fallback'])}
-                  </span>
+                  <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>&middot; {relativeTime(lastSync['csv-fallback'])}</span>
                 )}
                 <input
                   type="file"
@@ -866,42 +932,65 @@ function DashboardContent() {
                   }}
                 />
               </label>
-              <Link href="/upload" className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white/90 text-[12px] font-semibold rounded-lg hover:bg-white/20 transition-colors border border-white/10">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Upload
-              </Link>
             </div>
+            <Link href="/upload" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--ink)', color: 'var(--paper)',
+              fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+              padding: '7px 14px',
+            }}>
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Upload Month
+            </Link>
           </div>
         </div>
       </header>
 
-      {/* ─── KPI Cards ─── */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-8 py-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KPICard label="Properties" value={String(props.length)} sub={`${totalNights} total nights`} />
-            <KPICard label="Stays" value={String(totalStays)} sub={`${props.length > 0 ? (totalStays / props.length).toFixed(1) : 0} avg/property`} />
-            <KPICard label="Revenue" value={fmt(totalRevenue)} sub={totalNights > 0 ? `${fmt(totalRevenue / totalNights)}/night avg` : undefined} />
-            <KPICard label="Mgmt Fees" value={fmt(totalMgmt)} accent="text-[#C9A84C]" sub={`${totalRevenue > 0 ? ((totalMgmt / totalRevenue) * 100).toFixed(1) : 0}% effective rate`} />
-            <KPICard label="Cleaning" value={fmt(totalCleaning)} sub={`${fmt(totalStays > 0 ? totalCleaning / totalStays : 0)} avg/stay`} />
-            <KPICard label="Owner Payouts" value={fmt(totalPayout)} accent="text-emerald-600" sub={`${totalRevenue > 0 ? ((totalPayout / totalRevenue) * 100).toFixed(0) : 0}% of revenue`} />
+      {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="eyebrow">Month at a glance</div>
+            <h1 className="font-serif" style={{ fontSize: 38, lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', marginTop: 8 }}>
+              {monthLong(selectedMonth)} <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Statements</em>
+            </h1>
           </div>
-
-          {/* Gaps Alert */}
-          {totalGaps > 0 && (
-            <div className="mt-4 flex items-center gap-2 text-[12px] text-amber-600 bg-amber-50 rounded-lg px-4 py-2.5 border border-amber-100">
-              <IconWarning className="w-4 h-4 shrink-0" />
-              <span>{totalGaps} data gap{totalGaps > 1 ? 's' : ''} across {props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length} propert{props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length === 1 ? 'y' : 'ies'} requiring attention</span>
+          <div style={{ textAlign: 'right' }}>
+            <div className="eyebrow">Total Owner Payout</div>
+            <div className="font-serif tabular-nums" style={{ fontSize: 32, fontWeight: 400, color: 'var(--ink)', marginTop: 6 }}>
+              {fmtCompact(totalPayout)}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+
+        <div className="rule-top rule-bottom" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, 1fr)',
+        }}>
+          <Insight label="Properties" value={String(props.length)} sub={`${totalNights} nights booked`} />
+          <Insight label="Stays" value={String(totalStays)} sub={props.length > 0 ? `${(totalStays / props.length).toFixed(1)} avg/property` : undefined} />
+          <Insight label="Revenue" value={fmtCompact(totalRevenue)} sub={totalNights > 0 ? `${fmtCompact(totalRevenue / totalNights)}/night` : undefined} />
+          <Insight label="Mgmt Fees" value={fmtCompact(totalMgmt)} sub={totalRevenue > 0 ? `${((totalMgmt / totalRevenue) * 100).toFixed(1)}% eff.` : undefined} accent />
+          <Insight label="Cleaning" value={fmtCompact(totalCleaning)} sub={totalStays > 0 ? `${fmtCompact(totalCleaning / totalStays)} avg/stay` : undefined} />
+          <Insight label="Owner Payouts" value={fmtCompact(totalPayout)} sub={totalRevenue > 0 ? `${((totalPayout / totalRevenue) * 100).toFixed(0)}% of revenue` : undefined} last />
+        </div>
+
+        {/* Gaps line */}
+        {totalGaps > 0 && (
+          <div className="flex items-center gap-2" style={{ marginTop: 14, fontSize: 11, color: 'var(--signal)' }}>
+            <IconWarning className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              <strong style={{ fontWeight: 600 }}>{totalGaps}</strong> data gap{totalGaps > 1 ? 's' : ''} across <strong style={{ fontWeight: 600 }}>{props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length}</strong> propert{props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length === 1 ? 'y' : 'ies'} requiring attention
+            </span>
+          </div>
+        )}
+      </section>
 
       {/* ─── Sync Result Toast ─── */}
       {syncResult && (
-        <div className="max-w-6xl mx-auto px-8 pt-5">
+        <div className="max-w-[1100px] mx-auto px-10 pt-5">
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-2.5 text-[13px] text-emerald-700">
               <span className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center shrink-0">
@@ -919,7 +1008,7 @@ function DashboardContent() {
       )}
 
       {guestySyncResult && (
-        <div className="max-w-6xl mx-auto px-8 pt-5">
+        <div className="max-w-[1100px] mx-auto px-10 pt-5">
           {typeof guestySyncResult === 'string' ? (
             <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-2.5 text-[13px] text-red-700">
@@ -961,7 +1050,7 @@ function DashboardContent() {
       )}
 
       {csvResult && (
-        <div className="max-w-6xl mx-auto px-8 pt-5">
+        <div className="max-w-[1100px] mx-auto px-10 pt-5">
           <div className={`rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm border ${
             typeof csvResult === 'string' ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'
           }`}>
@@ -992,7 +1081,7 @@ function DashboardContent() {
       )}
 
       {/* ─── Property Cards ─── */}
-      <main className="max-w-6xl mx-auto px-8 py-6 space-y-3">
+      <main className="max-w-[1100px] mx-auto px-10 py-6 space-y-3">
         {props.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -1013,7 +1102,7 @@ function DashboardContent() {
 
       {/* ─── Footer ─── */}
       <footer className="border-t border-gray-100 mt-8">
-        <div className="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between">
+        <div className="max-w-[1100px] mx-auto px-10 py-4 flex items-center justify-between">
           <p className="text-[11px] text-gray-400">Rising Tide STR &middot; 85 Eastern Ave, Gloucester, MA 01930</p>
           <p className="text-[11px] text-gray-300">Cape Ann MA</p>
         </div>
