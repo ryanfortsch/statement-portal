@@ -1,26 +1,68 @@
 @import "tailwindcss";
 
+/* ─── Editorial design tokens (shared with the statement page) ─── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ink: #1e2e34;
+  --ink-2: #2a3d45;
+  --ink-3: #506068;
+  --ink-4: #8a969c;
+
+  --paper: #faf7f1;
+  --paper-2: #f3ede1;
+  --paper-3: #e8dfcc;
+
+  --rule: #d9cfb8;
+  --rule-soft: #ece3cf;
+
+  --tide: #4b8a9e;
+  --tide-deep: #2e5c6e;
+
+  --signal: #c85a3a;
+  --signal-soft: #e8b8a5;
+
+  --positive: #3a6b4a;
+  --negative: #8a3a2e;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-ink: var(--ink);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+  --color-tide: var(--tide);
+  --color-tide-deep: var(--tide-deep);
+  --color-signal: var(--signal);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), "Times New Roman", serif;
+  --font-mono: var(--font-mono-dash), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html, body { background: var(--paper); color: var(--ink); }
+body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Editorial helpers used across the dashboard */
+.font-serif { font-family: var(--font-fraunces), "Times New Roman", serif; }
+.font-mono  { font-family: var(--font-mono-dash), ui-monospace, monospace; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 500;
 }
+.rule-top { border-top: 1px solid var(--ink); }
+.rule-bottom { border-bottom: 1px solid var(--ink); }
+.rule-soft-bottom { border-bottom: 1px solid var(--rule); }
+.rule-dotted-bottom { border-bottom: 1px dotted var(--rule); }
+
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
