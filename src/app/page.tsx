@@ -96,6 +96,18 @@ function monthShort(m: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const secs = Math.round((Date.now() - then) / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
+}
+
 /* ─── Icons (inline SVGs) ─── */
 function IconCheck({ className = 'w-4 h-4' }: { className?: string }) {
   return <svg className={className} fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>;
@@ -480,8 +492,17 @@ function DashboardContent() {
   const [authError, setAuthError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; matched: number; inserted: number; skipped: number } | null>(null);
-  const [syncingReviews, setSyncingReviews] = useState(false);
-  const [reviewsSyncResult, setReviewsSyncResult] = useState<{ fetched: number; upserted: number; listings: number; skipped: number } | string | null>(null);
+  const [syncingGuesty, setSyncingGuesty] = useState(false);
+  const [guestySyncResult, setGuestySyncResult] = useState<
+    | {
+        listings: number;
+        reviews?: { fetched: number; upserted: number; skipped: number; error?: string };
+        reservations?: { fetched: number; upserted: number; skipped: number; error?: string };
+      }
+    | string
+    | null
+  >(null);
+  const [lastSync, setLastSync] = useState<Record<string, string>>({});
   const [reviewsCsv, setReviewsCsv] = useState<string>('');
 
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
@@ -545,13 +566,14 @@ function DashboardContent() {
         if (!data || data.length === 0) { setError('no_data'); setLoading(false); return; }
         setPeriods(data);
         await loadPeriod(selectedMonth || data[0].month);
+        await loadLastSync();
       } catch (err) {
         setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [authenticated]);
+  }, [authenticated, loadLastSync]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -577,32 +599,39 @@ function DashboardContent() {
     }
   }
 
-  async function syncReviews() {
-    setSyncingReviews(true);
-    setReviewsSyncResult(null);
+  async function syncGuesty() {
+    setSyncingGuesty(true);
+    setGuestySyncResult(null);
     try {
-      const res = await fetch('/api/sync-reviews', {
+      const res = await fetch('/api/sync-guesty', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const data = await res.json();
       if (data.success) {
-        setReviewsSyncResult({
-          fetched: data.reviews_fetched,
-          upserted: data.reviews_upserted,
+        setGuestySyncResult({
           listings: data.listings_mapped,
-          skipped: data.skipped_no_property,
+          reviews: data.reviews,
+          reservations: data.reservations,
         });
+        await loadLastSync();
       } else {
-        setReviewsSyncResult(data.error || 'Sync failed');
+        setGuestySyncResult(data.error || 'Sync failed');
       }
     } catch (err) {
-      setReviewsSyncResult(err instanceof Error ? err.message : 'Sync failed');
+      setGuestySyncResult(err instanceof Error ? err.message : 'Sync failed');
     } finally {
-      setSyncingReviews(false);
+      setSyncingGuesty(false);
     }
   }
+
+  const loadLastSync = useCallback(async () => {
+    const { data } = await supabase.from('sync_status').select('source, last_synced_at');
+    const map: Record<string, string> = {};
+    (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
+    setLastSync(map);
+  }, []);
 
   /* ─── Login Screen ─── */
   if (!authenticated) {
@@ -764,11 +793,12 @@ function DashboardContent() {
                 )}
               </button>
               <button
-                onClick={syncReviews}
-                disabled={syncingReviews}
+                onClick={syncGuesty}
+                disabled={syncingGuesty}
+                title={lastSync['guesty-reviews'] ? `Last synced ${relativeTime(lastSync['guesty-reviews'])}` : 'Never synced'}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-[#4b8a9e]/15 text-[#8fb3c0] text-[12px] font-semibold rounded-lg hover:bg-[#4b8a9e]/25 disabled:opacity-50 transition-colors border border-[#4b8a9e]/20"
               >
-                {syncingReviews ? (
+                {syncingGuesty ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-[#8fb3c0] border-t-transparent rounded-full animate-spin" />
                     Syncing...
@@ -776,17 +806,24 @@ function DashboardContent() {
                 ) : (
                   <>
                     <IconSync className="w-3.5 h-3.5" />
-                    Sync Reviews
+                    Sync Bookings
+                    {lastSync['guesty-reviews'] && (
+                      <span className="text-[10px] font-normal opacity-70 ml-1">
+                        &middot; {relativeTime(lastSync['guesty-reviews'])}
+                      </span>
+                    )}
                   </>
                 )}
               </button>
-              <label className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
-                reviewsCsv ? 'bg-emerald-500/15 text-emerald-400 border-emerald-400/20' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
-              }`}>
+              <label
+                title="Manual fallback for when Guesty sync is unavailable. Normally not needed."
+                className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
+                  reviewsCsv ? 'bg-emerald-500/15 text-emerald-400 border-emerald-400/20' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
+                }`}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {reviewsCsv ? 'Reviews Loaded' : 'Reviews CSV'}
+                {reviewsCsv ? 'Fallback CSV Loaded' : 'Fallback CSV'}
                 <input
                   type="file"
                   accept=".csv"
@@ -853,35 +890,45 @@ function DashboardContent() {
         </div>
       )}
 
-      {reviewsSyncResult && (
+      {guestySyncResult && (
         <div className="max-w-6xl mx-auto px-8 pt-5">
-          <div className={`rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm border ${
-            typeof reviewsSyncResult === 'string'
-              ? 'bg-red-50 border-red-200'
-              : 'bg-sky-50 border-sky-200'
-          }`}>
-            <div className={`flex items-center gap-2.5 text-[13px] ${
-              typeof reviewsSyncResult === 'string' ? 'text-red-700' : 'text-sky-700'
-            }`}>
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                typeof reviewsSyncResult === 'string' ? 'bg-red-100' : 'bg-sky-100'
-              }`}>
-                {typeof reviewsSyncResult === 'string' ? <IconWarning className="w-3.5 h-3.5 text-red-600" /> : <IconCheck className="w-3.5 h-3.5 text-sky-600" />}
-              </span>
-              {typeof reviewsSyncResult === 'string' ? (
-                <span>Review sync failed: {reviewsSyncResult}</span>
-              ) : (
-                <span>
-                  Review sync complete: <strong>{reviewsSyncResult.fetched}</strong> fetched, <strong>{reviewsSyncResult.upserted}</strong> saved across <strong>{reviewsSyncResult.listings}</strong> mapped listings, <strong>{reviewsSyncResult.skipped}</strong> skipped (no listing match)
+          {typeof guestySyncResult === 'string' ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-2.5 text-[13px] text-red-700">
+                <span className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                  <IconWarning className="w-3.5 h-3.5 text-red-600" />
                 </span>
-              )}
+                <span>
+                  Guesty sync failed: {guestySyncResult}. If urgent, use the <strong>Fallback CSV</strong> upload.
+                </span>
+              </div>
+              <button onClick={() => setGuestySyncResult(null)} className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-100 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
-            <button onClick={() => setReviewsSyncResult(null)} className={`p-1 rounded-lg transition-colors ${
-              typeof reviewsSyncResult === 'string' ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-sky-400 hover:text-sky-600 hover:bg-sky-100'
-            }`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
+          ) : (
+            <div className="bg-sky-50 border border-sky-200 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-2.5 text-[13px] text-sky-700">
+                <span className="w-6 h-6 bg-sky-100 rounded-full flex items-center justify-center shrink-0">
+                  <IconCheck className="w-3.5 h-3.5 text-sky-600" />
+                </span>
+                <span>
+                  Synced from Guesty: <strong>{guestySyncResult.listings}</strong> listings,{' '}
+                  {guestySyncResult.reviews?.error
+                    ? <span className="text-amber-700">reviews failed ({guestySyncResult.reviews.error})</span>
+                    : <><strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews</>
+                  },{' '}
+                  {guestySyncResult.reservations?.error
+                    ? <span className="text-amber-700">reservations failed ({guestySyncResult.reservations.error})</span>
+                    : <><strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings</>
+                  }
+                </span>
+              </div>
+              <button onClick={() => setGuestySyncResult(null)} className="text-sky-400 hover:text-sky-600 p-1 rounded-lg hover:bg-sky-100 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
