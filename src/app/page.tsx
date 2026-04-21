@@ -193,7 +193,7 @@ function KPICard({ label, value, accent, sub }: { label: string; value: string; 
 }
 
 /* ─── Property Card ─── */
-function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; month: string; reviewsCsv?: string }) {
+function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
@@ -204,15 +204,7 @@ function PropertyCard({ prop, month, reviewsCsv }: { prop: PropertyStatement; mo
 
   function downloadStatement(e: React.MouseEvent) {
     e.stopPropagation();
-    let url = `/statement?id=${prop.id}&month=${month}`;
-    if (reviewsCsv) {
-      try {
-        const bytes = new TextEncoder().encode(reviewsCsv);
-        const bin = Array.from(bytes, b => String.fromCodePoint(b)).join('');
-        url += `&csv=${encodeURIComponent(btoa(bin))}`;
-      } catch (err) { console.error('CSV encode error', err); }
-    }
-    window.open(url, '_blank');
+    window.open(`/statement?id=${prop.id}&month=${month}`, '_blank');
   }
 
   return (
@@ -503,7 +495,12 @@ function DashboardContent() {
     | null
   >(null);
   const [lastSync, setLastSync] = useState<Record<string, string>>({});
-  const [reviewsCsv, setReviewsCsv] = useState<string>('');
+  const [uploadingCsv, setUploadingCsv] = useState(false);
+  const [csvResult, setCsvResult] = useState<
+    | { parsed: number; reservations: number; reviews: number; unmatched: number }
+    | string
+    | null
+  >(null);
 
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
   const urlToken = searchParams.get('key');
@@ -816,24 +813,55 @@ function DashboardContent() {
                 )}
               </button>
               <label
-                title="Manual fallback for when Guesty sync is unavailable. Normally not needed."
+                title={lastSync['csv-fallback'] ? `CSV uploaded ${relativeTime(lastSync['csv-fallback'])}` : 'Upload Guesty reservations CSV (fallback if API is unavailable)'}
                 className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
-                  reviewsCsv ? 'bg-emerald-500/15 text-emerald-400 border-emerald-400/20' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
+                  uploadingCsv
+                    ? 'bg-white/10 text-white/70 border-white/10 cursor-wait'
+                    : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
                 }`}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {reviewsCsv ? 'Fallback CSV Loaded' : 'Fallback CSV'}
+                {uploadingCsv ? 'Uploading...' : 'Upload Guesty CSV'}
+                {lastSync['csv-fallback'] && !uploadingCsv && (
+                  <span className="text-[10px] font-normal opacity-70 ml-1">
+                    &middot; {relativeTime(lastSync['csv-fallback'])}
+                  </span>
+                )}
                 <input
                   type="file"
                   accept=".csv"
                   className="hidden"
-                  onChange={(e) => {
+                  disabled={uploadingCsv}
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = () => setReviewsCsv(reader.result as string);
-                      reader.readAsText(file);
+                    if (!file) return;
+                    setUploadingCsv(true);
+                    setCsvResult(null);
+                    try {
+                      const text = await file.text();
+                      const res = await fetch('/api/ingest-guesty-csv', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csv: text }),
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setCsvResult({
+                          parsed: data.parsed,
+                          reservations: data.reservations_upserted,
+                          reviews: data.reviews_upserted,
+                          unmatched: data.unmatched_listings,
+                        });
+                        await loadLastSync();
+                      } else {
+                        setCsvResult(data.error || 'Upload failed');
+                      }
+                    } catch (err) {
+                      setCsvResult(err instanceof Error ? err.message : 'Upload failed');
+                    } finally {
+                      setUploadingCsv(false);
+                      e.target.value = '';
                     }
                   }}
                 />
@@ -899,7 +927,7 @@ function DashboardContent() {
                   <IconWarning className="w-3.5 h-3.5 text-red-600" />
                 </span>
                 <span>
-                  Guesty sync failed: {guestySyncResult}. If urgent, use the <strong>Fallback CSV</strong> upload.
+                  Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload Guesty CSV</strong>.
                 </span>
               </div>
               <button onClick={() => setGuestySyncResult(null)} className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-100 transition-colors">
@@ -932,6 +960,37 @@ function DashboardContent() {
         </div>
       )}
 
+      {csvResult && (
+        <div className="max-w-6xl mx-auto px-8 pt-5">
+          <div className={`rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm border ${
+            typeof csvResult === 'string' ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'
+          }`}>
+            <div className={`flex items-center gap-2.5 text-[13px] ${
+              typeof csvResult === 'string' ? 'text-red-700' : 'text-emerald-700'
+            }`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                typeof csvResult === 'string' ? 'bg-red-100' : 'bg-emerald-100'
+              }`}>
+                {typeof csvResult === 'string' ? <IconWarning className="w-3.5 h-3.5 text-red-600" /> : <IconCheck className="w-3.5 h-3.5 text-emerald-600" />}
+              </span>
+              {typeof csvResult === 'string' ? (
+                <span>CSV upload failed: {csvResult}</span>
+              ) : (
+                <span>
+                  CSV ingested: <strong>{csvResult.parsed}</strong> rows, <strong>{csvResult.reservations}</strong> reservations, <strong>{csvResult.reviews}</strong> reviews
+                  {csvResult.unmatched > 0 && <span className="text-amber-700"> ({csvResult.unmatched} rows unmatched to a property)</span>}
+                </span>
+              )}
+            </div>
+            <button onClick={() => setCsvResult(null)} className={`p-1 rounded-lg transition-colors ${
+              typeof csvResult === 'string' ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-emerald-400 hover:text-emerald-600 hover:bg-emerald-100'
+            }`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─── Property Cards ─── */}
       <main className="max-w-6xl mx-auto px-8 py-6 space-y-3">
         {props.length === 0 ? (
@@ -948,7 +1007,7 @@ function DashboardContent() {
             </Link>
           </div>
         ) : (
-          props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} reviewsCsv={reviewsCsv} />)
+          props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} />)
         )}
       </main>
 

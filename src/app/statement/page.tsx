@@ -26,63 +26,6 @@ function monthName(m: string) { return new Date(m + '-01T00:00:00').toLocaleDate
 function daysInMonth(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); }
 function chLabel(p: string) { return ({ HomeAway: 'VRBO', Manual: 'Direct', 'Booking.com': 'Booking' } as Record<string, string>)[p] || p; }
 
-function parseCSVLine(line: string): string[] {
-  const fields: string[] = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') { if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
-    else if (c === ',' && !inQ) { fields.push(cur); cur = ''; }
-    else cur += c;
-  }
-  fields.push(cur); return fields;
-}
-
-function parseCSV(text: string, propertyId: string, month: string) {
-  const details = PROPERTY_DETAILS[propertyId];
-  if (!details) return { reviews: [] as { guest: string; review: string }[], upcoming: [] as { guest: string; checkIn: string; nights: number; platform: string }[] };
-
-  const lines = text.split('\n');
-  const reviews: { guest: string; review: string }[] = [];
-  const upcoming: { guest: string; checkIn: string; nights: number; platform: string }[] = [];
-  const [yr, mo] = month.split('-');
-  const lastDay = daysInMonth(month);
-  const monthEnd = `${yr}-${mo}-${String(lastDay).padStart(2, '0')}`;
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const f = parseCSVLine(line);
-    if (f.length < 7) continue;
-
-    const listing = f[3].toLowerCase();
-    if (!listing.includes(details.listing_match)) continue;
-
-    const checkIn = f[0].split(' ')[0];
-    const checkOut = f[1].split(' ')[0];
-    const guest = f[4];
-    const platform = f[5];
-    const review = f[6].trim();
-
-    // Reviews: past stays with review text
-    if (review && review !== ' ' && review.length > 15) {
-      reviews.push({ guest, review });
-    }
-
-    // Upcoming: check-in after this month
-    if (checkIn > monthEnd) {
-      const d1 = new Date(checkIn + 'T00:00:00');
-      const d2 = new Date(checkOut + 'T00:00:00');
-      const nights = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-      upcoming.push({ guest, checkIn, nights, platform });
-    }
-  }
-
-  return {
-    reviews,
-    upcoming: upcoming.sort((a, b) => a.checkIn.localeCompare(b.checkIn)).slice(0, 4),
-  };
-}
-
 function getBestReview(reviews: { guest: string; review: string }[]): { guest: string; snippet: string } | null {
   if (!reviews.length) return null;
   const best = [...reviews].sort((a, b) => b.review.length - a.review.length)[0];
@@ -96,9 +39,9 @@ function getBestReview(reviews: { guest: string; review: string }[]): { guest: s
 }
 
 // ---- page ----
-export default async function StatementPage({ searchParams }: { searchParams: Promise<{ id?: string; month?: string; csv?: string }> }) {
+export default async function StatementPage({ searchParams }: { searchParams: Promise<{ id?: string; month?: string }> }) {
   const params = await searchParams;
-  const { id, month, csv: csvB64 } = params;
+  const { id, month } = params;
 
   if (!id || !month) {
     return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Missing ?id=...&amp;month=YYYY-MM</div>;
@@ -118,8 +61,8 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .eq('property_id', prop.property_id)
     .order('review_created_at', { ascending: false });
 
-  // Upcoming reservations from Guesty (populated via /api/sync-guesty).
-  // Drives the "On the horizon" block. Falls back to CSV-parsed data below.
+  // Upcoming reservations from Guesty. Populated by /api/sync-guesty (API
+  // sync) or /api/ingest-guesty-csv (manual CSV upload fallback).
   const monthEndStr = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`;
   const { data: upcomingDb } = await supabase
     .from('guesty_reservations')
@@ -140,11 +83,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const mo = monthName(month);
   const cleans = cleaningEvents?.length || numStays;
 
-  // CSV data (still drives "On the horizon" upcoming bookings)
-  let csvText = '';
-  if (csvB64) { try { csvText = Buffer.from(csvB64, 'base64').toString('utf-8'); } catch {} }
-  const csvData = csvText ? parseCSV(csvText, prop.property_id, month) : { reviews: [], upcoming: [] };
-
   // Compute Guest Rating from real Guesty data. Prefer month-scoped, fall back to lifetime.
   const monthStart = `${month}-01T00:00:00Z`;
   const monthEndIso = new Date(Date.UTC(parseInt(yr), parseInt(moStr), 1)).toISOString();
@@ -162,24 +100,22 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     ? { value: avg(ratedLifetime)!, count: ratedLifetime.length, scope: 'lifetime' as const }
     : null;
 
-  // Best review snippet: prefer Supabase (real reviews), fall back to CSV.
-  const supabaseReviewPool = (monthReviews.length > 0 ? monthReviews : reviewsList)
+  // Best review snippet: pull longest public_review from Supabase.
+  const reviewPool = (monthReviews.length > 0 ? monthReviews : reviewsList)
     .filter(r => r.public_review && r.public_review.trim().length > 15);
-  const bestSupabaseReview = supabaseReviewPool.length > 0
-    ? getBestReview(supabaseReviewPool.map(r => ({ guest: r.guest_name || 'Guest', review: r.public_review! })))
+  const bestReview = reviewPool.length > 0
+    ? getBestReview(reviewPool.map(r => ({ guest: r.guest_name || 'Guest', review: r.public_review! })))
     : null;
-  const bestReview = bestSupabaseReview || getBestReview(csvData.reviews);
 
-  // Upcoming bookings: prefer Supabase (Guesty sync), fall back to CSV.
+  // Upcoming bookings from Supabase (guesty_reservations). Populated by either
+  // /api/sync-guesty (API path) or /api/ingest-guesty-csv (manual fallback).
   type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
-  const upcoming: UpcomingItem[] = (upcomingDb && upcomingDb.length > 0)
-    ? upcomingDb.slice(0, 4).map(r => ({
-        guest: r.guest_name || 'Guest',
-        checkIn: r.check_in,
-        nights: r.nights ?? 0,
-        platform: r.guesty_channel_id || r.channel || 'Direct',
-      }))
-    : csvData.upcoming;
+  const upcoming: UpcomingItem[] = (upcomingDb || []).slice(0, 4).map(r => ({
+    guest: r.guest_name || 'Guest',
+    checkIn: r.check_in,
+    nights: r.nights ?? 0,
+    platform: r.guesty_channel_id || r.channel || 'Direct',
+  }));
 
   // Channel mix
   const chRev: Record<string, number> = {};
