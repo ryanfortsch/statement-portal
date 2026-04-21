@@ -110,13 +110,25 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
   const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
-  // Reviews from Guesty (populated via /api/sync-reviews). Query all for this property
+  // Reviews from Guesty (populated via /api/sync-guesty). Query all for this property
   // so we can fall back to lifetime averages when the statement month has none.
   const { data: allReviews } = await supabase
     .from('reviews')
     .select('overall_rating, public_review, guest_name, review_created_at')
     .eq('property_id', prop.property_id)
     .order('review_created_at', { ascending: false });
+
+  // Upcoming reservations from Guesty (populated via /api/sync-guesty).
+  // Drives the "On the horizon" block. Falls back to CSV-parsed data below.
+  const monthEndStr = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`;
+  const { data: upcomingDb } = await supabase
+    .from('guesty_reservations')
+    .select('guest_name, check_in, nights, channel, guesty_channel_id, status')
+    .eq('property_id', prop.property_id)
+    .gt('check_in', monthEndStr)
+    .in('status', ['confirmed', 'reserved'])
+    .order('check_in', { ascending: true })
+    .limit(6);
 
   const d = PROPERTY_DETAILS[prop.property_id] || { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
   const numStays = prop.num_stays || (reservations?.length || 0);
@@ -157,6 +169,17 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     ? getBestReview(supabaseReviewPool.map(r => ({ guest: r.guest_name || 'Guest', review: r.public_review! })))
     : null;
   const bestReview = bestSupabaseReview || getBestReview(csvData.reviews);
+
+  // Upcoming bookings: prefer Supabase (Guesty sync), fall back to CSV.
+  type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
+  const upcoming: UpcomingItem[] = (upcomingDb && upcomingDb.length > 0)
+    ? upcomingDb.slice(0, 4).map(r => ({
+        guest: r.guest_name || 'Guest',
+        checkIn: r.check_in,
+        nights: r.nights ?? 0,
+        platform: r.guesty_channel_id || r.channel || 'Direct',
+      }))
+    : csvData.upcoming;
 
   // Channel mix
   const chRev: Record<string, number> = {};
@@ -366,7 +389,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <span className="sec-meta">Next 60d</span>
                 </div>
                 <div className="upcoming-list">
-                  {csvData.upcoming.length > 0 ? csvData.upcoming.map((b, i) => {
+                  {upcoming.length > 0 ? upcoming.map((b, i) => {
                     const bd = new Date(b.checkIn + 'T00:00:00');
                     return (
                       <div key={i} className="upcoming-item">
@@ -381,7 +404,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       </div>
                     );
                   }) : (
-                    <div style={{ fontSize: 11, color: 'var(--ink-4)', padding: '6px 0' }}>Upload reviews CSV for upcoming data</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-4)', padding: '6px 0' }}>No upcoming bookings on file</div>
                   )}
                 </div>
               </section>
