@@ -77,6 +77,25 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
   const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
+  // The monthly ingest sometimes stores the confirmation code as the guest_name
+  // when the Guesty PDF doesn't surface a real name. If the user has uploaded
+  // a Guesty reservations CSV (or synced via API), the real guest name and
+  // channel live in guesty_reservations -- look them up by confirmation_code.
+  const confirmationCodes = (reservations || []).map(r => r.confirmation_code).filter(Boolean) as string[];
+  const { data: guestyLookups } = confirmationCodes.length > 0
+    ? await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id')
+        .in('confirmation_code', confirmationCodes)
+    : { data: [] as { confirmation_code: string | null; guest_name: string | null; channel: string | null; guesty_channel_id: string | null }[] };
+  const guestyByCode = new Map<string, { guest_name: string | null; channel: string | null; guesty_channel_id: string | null }>();
+  (guestyLookups || []).forEach(r => { if (r.confirmation_code) guestyByCode.set(r.confirmation_code, r); });
+
+  // A guest_name that looks like a Guesty/VRBO/Airbnb confirmation code is
+  // almost certainly a fallback, not a real name. Prefer the CSV-sourced one.
+  const looksLikeConfirmationCode = (s: string | null | undefined) =>
+    !!s && (/^(GY|HM)[- ]?[A-Za-z0-9]{6,}$/i.test(s.trim()) || s.trim() === '' );
+
   // Reviews from Guesty (populated via /api/sync-guesty). Query all for this property
   // so we can fall back to lifetime averages when the statement month has none.
   const { data: allReviews } = await supabase
@@ -146,9 +165,24 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     platform: r.guesty_channel_id || r.channel || 'Direct',
   }));
 
-  // Channel mix
+  // Reservation rows -- enriched from guesty_reservations if the ingest
+  // stored a placeholder guest_name or platform.
+  const rows = (reservations || []).map(r => {
+    const d1 = new Date(r.check_in + 'T00:00:00'), d2 = new Date(r.check_out + 'T00:00:00');
+    const nts = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+    const lookup = r.confirmation_code ? guestyByCode.get(r.confirmation_code) : undefined;
+    const displayName = (looksLikeConfirmationCode(r.guest_name) || !r.guest_name)
+      ? (lookup?.guest_name || r.guest_name || 'Guest')
+      : r.guest_name;
+    const displayPlatform = (!r.platform || r.platform.toLowerCase() === 'unknown')
+      ? (lookup?.guesty_channel_id || lookup?.channel || r.platform || 'Direct')
+      : r.platform;
+    return { ...r, guest_name: displayName, platform: displayPlatform, nts, perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0 };
+  });
+
+  // Channel mix (uses enriched platform values from rows)
   const chRev: Record<string, number> = {};
-  (reservations || []).forEach(r => { const c = chLabel(r.platform); chRev[c] = (chRev[c] || 0) + (r.adjusted_revenue || r.rental_income || 0); });
+  rows.forEach(r => { const c = chLabel(r.platform); chRev[c] = (chRev[c] || 0) + (r.adjusted_revenue || r.rental_income || 0); });
   const totRev = Object.values(chRev).reduce((a, b) => a + b, 0);
   const mix = Object.entries(chRev).map(([c, v]) => ({ ch: c, pct: totRev > 0 ? (v / totRev) * 100 : 0 })).sort((a, b) => b.pct - a.pct);
 
@@ -157,13 +191,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Donut arcs
   let offset = 25;
   const arcs = mix.map(m => { const a = { ...m, da: `${m.pct} ${100 - m.pct}`, off: offset }; offset -= m.pct; return a; });
-
-  // Reservation rows
-  const rows = (reservations || []).map(r => {
-    const d1 = new Date(r.check_in + 'T00:00:00'), d2 = new Date(r.check_out + 'T00:00:00');
-    const nts = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-    return { ...r, nts, perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0 };
-  });
 
   // Issue date
   const nxMo = parseInt(moStr) === 12 ? 1 : parseInt(moStr) + 1;
@@ -372,37 +399,21 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 </div>
               </section>
 
-              <section className="note">
-                {bestReview ? (
-                  <>
-                    <div className="note-kicker">Guest Review</div>
-                    <div className="note-body">
-                      <p>&ldquo;{bestReview.snippet}&rdquo;</p>
+              {bestReview && (
+                <section className="note">
+                  <div className="note-kicker">Guest Review</div>
+                  <div className="note-body">
+                    <p>&ldquo;{bestReview.snippet}&rdquo;</p>
+                  </div>
+                  <div className="note-sig">
+                    <div className="avatar">{bestReview.guest.charAt(0)}</div>
+                    <div>
+                      <div className="note-sig-name">{bestReview.guest}</div>
+                      <div className="note-sig-title">5-star guest</div>
                     </div>
-                    <div className="note-sig">
-                      <div className="avatar">{bestReview.guest.charAt(0)}</div>
-                      <div>
-                        <div className="note-sig-name">{bestReview.guest}</div>
-                        <div className="note-sig-title">5-star guest</div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="note-kicker">A note from Allie</div>
-                    <div className="note-body">
-                      <p>Thank you for another great month at {d.name}. Your guests loved their stays and we look forward to continued success.</p>
-                    </div>
-                    <div className="note-sig">
-                      <div className="avatar">AM</div>
-                      <div>
-                        <div className="note-sig-name">Allie Marsden</div>
-                        <div className="note-sig-title">Property Manager &middot; Rising Tide STR</div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </section>
+                  </div>
+                </section>
+              )}
             </div>
 
             {/* ── FOOTER ── */}
