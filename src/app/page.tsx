@@ -480,6 +480,8 @@ function DashboardContent() {
   const [authError, setAuthError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; matched: number; inserted: number; skipped: number } | null>(null);
+  const [syncingReviews, setSyncingReviews] = useState(false);
+  const [reviewsSyncResult, setReviewsSyncResult] = useState<{ fetched: number; upserted: number; listings: number; skipped: number } | string | null>(null);
   const [reviewsCsv, setReviewsCsv] = useState<string>('');
 
   const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
@@ -572,6 +574,33 @@ function DashboardContent() {
       setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncReviews() {
+    setSyncingReviews(true);
+    setReviewsSyncResult(null);
+    try {
+      const res = await fetch('/api/sync-reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReviewsSyncResult({
+          fetched: data.reviews_fetched,
+          upserted: data.reviews_upserted,
+          listings: data.listings_mapped,
+          skipped: data.skipped_no_property,
+        });
+      } else {
+        setReviewsSyncResult(data.error || 'Sync failed');
+      }
+    } catch (err) {
+      setReviewsSyncResult(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setSyncingReviews(false);
     }
   }
 
@@ -734,6 +763,23 @@ function DashboardContent() {
                   </>
                 )}
               </button>
+              <button
+                onClick={syncReviews}
+                disabled={syncingReviews}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#4b8a9e]/15 text-[#8fb3c0] text-[12px] font-semibold rounded-lg hover:bg-[#4b8a9e]/25 disabled:opacity-50 transition-colors border border-[#4b8a9e]/20"
+              >
+                {syncingReviews ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-[#8fb3c0] border-t-transparent rounded-full animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <IconSync className="w-3.5 h-3.5" />
+                    Sync Reviews
+                  </>
+                )}
+              </button>
               <label className={`inline-flex items-center gap-2 px-4 py-2 text-[12px] font-semibold rounded-lg transition-colors border cursor-pointer ${
                 reviewsCsv ? 'bg-emerald-500/15 text-emerald-400 border-emerald-400/20' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
               }`}>
@@ -801,6 +847,38 @@ function DashboardContent() {
               </span>
             </div>
             <button onClick={() => setSyncResult(null)} className="text-emerald-400 hover:text-emerald-600 p-1 rounded-lg hover:bg-emerald-100 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reviewsSyncResult && (
+        <div className="max-w-6xl mx-auto px-8 pt-5">
+          <div className={`rounded-xl px-5 py-3.5 flex items-center justify-between shadow-sm border ${
+            typeof reviewsSyncResult === 'string'
+              ? 'bg-red-50 border-red-200'
+              : 'bg-sky-50 border-sky-200'
+          }`}>
+            <div className={`flex items-center gap-2.5 text-[13px] ${
+              typeof reviewsSyncResult === 'string' ? 'text-red-700' : 'text-sky-700'
+            }`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                typeof reviewsSyncResult === 'string' ? 'bg-red-100' : 'bg-sky-100'
+              }`}>
+                {typeof reviewsSyncResult === 'string' ? <IconWarning className="w-3.5 h-3.5 text-red-600" /> : <IconCheck className="w-3.5 h-3.5 text-sky-600" />}
+              </span>
+              {typeof reviewsSyncResult === 'string' ? (
+                <span>Review sync failed: {reviewsSyncResult}</span>
+              ) : (
+                <span>
+                  Review sync complete: <strong>{reviewsSyncResult.fetched}</strong> fetched, <strong>{reviewsSyncResult.upserted}</strong> saved across <strong>{reviewsSyncResult.listings}</strong> mapped listings, <strong>{reviewsSyncResult.skipped}</strong> skipped (no listing match)
+                </span>
+              )}
+            </div>
+            <button onClick={() => setReviewsSyncResult(null)} className={`p-1 rounded-lg transition-colors ${
+              typeof reviewsSyncResult === 'string' ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-sky-400 hover:text-sky-600 hover:bg-sky-100'
+            }`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>

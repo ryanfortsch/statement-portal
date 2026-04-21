@@ -110,22 +110,53 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
   const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
+  // Reviews from Guesty (populated via /api/sync-reviews). Query all for this property
+  // so we can fall back to lifetime averages when the statement month has none.
+  const { data: allReviews } = await supabase
+    .from('reviews')
+    .select('overall_rating, public_review, guest_name, review_created_at')
+    .eq('property_id', prop.property_id)
+    .order('review_created_at', { ascending: false });
+
   const d = PROPERTY_DETAILS[prop.property_id] || { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
   const numStays = prop.num_stays || (reservations?.length || 0);
   const nightsBooked = prop.nights_booked || 0;
   const totalDays = daysInMonth(month);
   const occupancy = totalDays > 0 ? Math.round((nightsBooked / totalDays) * 100) : 0;
   const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
-  const revPAN = totalDays > 0 ? prop.rental_revenue / totalDays : 0;
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
   const cleans = cleaningEvents?.length || numStays;
 
-  // CSV data
+  // CSV data (still drives "On the horizon" upcoming bookings)
   let csvText = '';
   if (csvB64) { try { csvText = Buffer.from(csvB64, 'base64').toString('utf-8'); } catch {} }
   const csvData = csvText ? parseCSV(csvText, prop.property_id, month) : { reviews: [], upcoming: [] };
-  const bestReview = getBestReview(csvData.reviews);
+
+  // Compute Guest Rating from real Guesty data. Prefer month-scoped, fall back to lifetime.
+  const monthStart = `${month}-01T00:00:00Z`;
+  const monthEndIso = new Date(Date.UTC(parseInt(yr), parseInt(moStr), 1)).toISOString();
+  const reviewsList = allReviews || [];
+  const monthReviews = reviewsList.filter(r => {
+    const t = r.review_created_at;
+    return t >= monthStart && t < monthEndIso && r.overall_rating != null;
+  });
+  const ratedLifetime = reviewsList.filter(r => r.overall_rating != null);
+  const avg = (arr: { overall_rating: number | null }[]) =>
+    arr.length ? arr.reduce((s, r) => s + (r.overall_rating ?? 0), 0) / arr.length : null;
+  const rating = monthReviews.length > 0
+    ? { value: avg(monthReviews)!, count: monthReviews.length, scope: 'month' as const }
+    : ratedLifetime.length > 0
+    ? { value: avg(ratedLifetime)!, count: ratedLifetime.length, scope: 'lifetime' as const }
+    : null;
+
+  // Best review snippet: prefer Supabase (real reviews), fall back to CSV.
+  const supabaseReviewPool = (monthReviews.length > 0 ? monthReviews : reviewsList)
+    .filter(r => r.public_review && r.public_review.trim().length > 15);
+  const bestSupabaseReview = supabaseReviewPool.length > 0
+    ? getBestReview(supabaseReviewPool.map(r => ({ guest: r.guest_name || 'Guest', review: r.public_review! })))
+    : null;
+  const bestReview = bestSupabaseReview || getBestReview(csvData.reviews);
 
   // Channel mix
   const chRev: Record<string, number> = {};
@@ -299,14 +330,20 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
             {/* ── INSIGHTS ── */}
             <section className="insights">
               <div className="insight">
-                <div className="insight-label">RevPAN</div>
-                <div className="insight-value">${Math.round(revPAN)}<span className="u">.{fmt(revPAN).split('.')[1].substring(0, 2)}</span></div>
-                <div className="insight-sub">Market avg $241</div>
-              </div>
-              <div className="insight">
                 <div className="insight-label">Guest Rating</div>
-                <div className="insight-value">5.0<span className="u">/5</span></div>
-                <div className="insight-sub">{numStays} reviews this month</div>
+                {rating ? (
+                  <>
+                    <div className="insight-value">{rating.value.toFixed(1)}<span className="u">/5</span></div>
+                    <div className="insight-sub">
+                      {rating.count} review{rating.count === 1 ? '' : 's'} {rating.scope === 'month' ? 'this month' : 'to date'}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="insight-value">&mdash;</div>
+                    <div className="insight-sub">No reviews yet</div>
+                  </>
+                )}
               </div>
               <div className="insight">
                 <div className="insight-label">ADR</div>
@@ -515,7 +552,7 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .legend-row .pct { font-family:var(--mono); font-size:10px; color:var(--ink-3); }
 
 /* INSIGHTS */
-.insights { display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--ink); border-bottom:1px solid var(--ink); margin-top:14px; }
+.insights { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--ink); border-bottom:1px solid var(--ink); margin-top:14px; }
 .insight { padding:12px 14px; border-right:1px solid var(--rule); }
 .insight:last-child { border-right:none; }
 .insight-label { font-size:9px; text-transform:uppercase; letter-spacing:.18em; color:var(--ink-3); margin-bottom:6px; }
