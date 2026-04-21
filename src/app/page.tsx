@@ -552,6 +552,13 @@ function DashboardContent() {
     }
   }, []);
 
+  const loadLastSync = useCallback(async () => {
+    const { data } = await supabase.from('sync_status').select('source, last_synced_at');
+    const map: Record<string, string> = {};
+    (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
+    setLastSync(map);
+  }, []);
+
   useEffect(() => {
     if (!authenticated) { setLoading(false); return; }
     (async () => {
@@ -625,13 +632,6 @@ function DashboardContent() {
       setSyncingGuesty(false);
     }
   }
-
-  const loadLastSync = useCallback(async () => {
-    const { data } = await supabase.from('sync_status').select('source, last_synced_at');
-    const map: Record<string, string> = {};
-    (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
-    setLastSync(map);
-  }, []);
 
   /* ─── Login Screen ─── */
   if (!authenticated) {
