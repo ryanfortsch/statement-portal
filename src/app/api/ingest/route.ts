@@ -114,6 +114,37 @@ function calcStripeFee(rentalIncome: number): number {
   return Math.round((rentalIncome * 0.039 + 0.40) * 100) / 100;
 }
 
+// Title-case a guest name: "julie polvinen" -> "Julie Polvinen"
+function titleCase(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.replace(/\b[\p{L}'’-]+/gu, w =>
+    w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase()
+  );
+}
+
+// Anything starting with GY-/HM followed by a string of letters+digits is a
+// Guesty / Airbnb reservation code, not a real name.
+function looksLikeConfirmationCode(s: string | null | undefined): boolean {
+  if (!s) return false;
+  return /^(GY|HM)[- ]?[A-Za-z0-9]{6,}$/i.test(s.trim());
+}
+
+// Normalize platform strings coming from the Guesty Platform CSV ("Airbnb",
+// "HomeAway", "Manual", "Booking.com") vs. sync-API ("airbnb2", "homeaway2",
+// "bookingCom", "manual").
+function normalizePlatform(raw?: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.trim();
+  if (!s) return null;
+  const l = s.toLowerCase();
+  if (l.startsWith('airbnb')) return 'Airbnb';
+  if (l.startsWith('homeaway') || l === 'vrbo') return 'HomeAway';
+  if (l === 'bookingcom' || l.startsWith('booking')) return 'Booking.com';
+  if (l === 'direct' || l === 'manual') return 'Manual';
+  if (l === 'unknown') return null;
+  return s;
+}
+
 // Check if a date string (MM/DD/YYYY) falls within a given month (YYYY-MM)
 function isInMonth(dateStr: string, month: string): boolean {
   // Chase format: MM/DD/YYYY
@@ -170,27 +201,97 @@ export async function POST(request: NextRequest) {
 
     // 2. Parse platform CSV (maps confirmation codes to platforms + guest names)
     const platformMap: Record<string, { platform: string; guest: string }> = {};
+    const guestyReservationUpserts: Record<string, string | number | null>[] = [];
     if (platformCSVFile) {
       const platformText = await platformCSVFile.text();
       const platformRows = parseCSV(platformText);
       for (const row of platformRows) {
-        const code = row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '';
-        const platform = row['PLATFORM'] || row['Platform'] || row['platform'] || '';
-        const guest = row['GUEST'] || row['Guest'] || row['guest'] || '';
-        if (code) {
-          platformMap[code.trim()] = { platform: platform.trim(), guest: guest.trim() };
+        const code = (row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '').trim();
+        const platform = (row['PLATFORM'] || row['Platform'] || row['platform'] || '').trim();
+        const guest = (row['GUEST'] || row['Guest'] || row['guest'] || '').trim();
+        const checkInRaw = (row['CHECK-IN'] || row['Check-In'] || row['check_in'] || '').trim();
+        const checkOutRaw = (row['CHECK-OUT'] || row['Check-Out'] || row['check_out'] || '').trim();
+        if (!code) continue;
+
+        platformMap[code] = { platform, guest };
+
+        // Also queue a guesty_reservations upsert so the reservations feed
+        // stays populated from whichever entry path the user chose.
+        const checkIn = checkInRaw.split(' ')[0];
+        const checkOut = checkOutRaw.split(' ')[0];
+        if (!checkIn || !checkOut) continue;
+        const d1 = new Date(checkIn + 'T00:00:00');
+        const d2 = new Date(checkOut + 'T00:00:00');
+        const nights = Math.max(0, Math.round((d2.getTime() - d1.getTime()) / 86400_000));
+        const normalizedChannel = normalizePlatform(platform);
+        const cleanedGuest = guest && !looksLikeConfirmationCode(guest) ? titleCase(guest) : null;
+
+        guestyReservationUpserts.push({
+          guesty_reservation_id: `csv:${code}`,
+          property_id: propertyId,
+          confirmation_code: code,
+          guest_name: cleanedGuest,
+          check_in: checkIn,
+          check_out: checkOut,
+          nights,
+          channel: normalizedChannel,
+          guesty_channel_id: platform || null,
+          status: 'confirmed',
+          source: 'csv-fallback',
+          synced_at: new Date().toISOString(),
+        });
+      }
+
+      // Persist guesty_reservations upserts (don't stomp on rows that came
+      // from /v1/reservations API sync, which is authoritative).
+      if (guestyReservationUpserts.length > 0) {
+        const codesToCheck = guestyReservationUpserts
+          .map(r => r.confirmation_code)
+          .filter(Boolean) as string[];
+        const { data: apiRows } = await supabase
+          .from('guesty_reservations')
+          .select('confirmation_code')
+          .eq('source', 'guesty-api')
+          .in('confirmation_code', codesToCheck);
+        const apiSet = new Set((apiRows || []).map(r => r.confirmation_code));
+        const filtered = guestyReservationUpserts.filter(
+          r => typeof r.confirmation_code === 'string' && !apiSet.has(r.confirmation_code as string),
+        );
+        if (filtered.length > 0) {
+          await supabase
+            .from('guesty_reservations')
+            .upsert(filtered, { onConflict: 'guesty_reservation_id' });
         }
       }
     }
 
-    // Fill in guest names from platform CSV
+    // Redundant guest-name + platform resolution. Waterfall through:
+    //   1. Platform CSV (uploaded this request)
+    //   2. guesty_reservations table (populated by Upload Guesty CSV or API sync)
+    //   3. Leave null -- statement page will try to enrich at render time.
+    //      NEVER use confirmation_code as a pseudo-name.
+    const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
+    const guestyLookupMap = new Map<string, { guest_name: string | null; channel: string | null; guesty_channel_id: string | null }>();
+    if (codes.length > 0) {
+      const { data: guestyRows } = await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id')
+        .in('confirmation_code', codes);
+      (guestyRows || []).forEach(r => {
+        if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
+      });
+    }
+
+    const unresolvedNameCodes: string[] = [];
     for (const res of reservations) {
       const platformInfo = platformMap[res.confirmation_code];
-      if (platformInfo && platformInfo.guest && !res.guest_name) {
-        res.guest_name = platformInfo.guest;
-      }
-      if (!res.guest_name) {
-        res.guest_name = res.confirmation_code;
+      const guestyInfo = guestyLookupMap.get(res.confirmation_code);
+      const rawName = (platformInfo?.guest?.trim() || guestyInfo?.guest_name?.trim() || '');
+      if (rawName && !looksLikeConfirmationCode(rawName)) {
+        res.guest_name = titleCase(rawName);
+      } else {
+        res.guest_name = '';
+        unresolvedNameCodes.push(res.confirmation_code);
       }
     }
 
@@ -249,7 +350,13 @@ export async function POST(request: NextRequest) {
 
     for (const res of reservations) {
       const platformInfo = platformMap[res.confirmation_code];
-      const platform = platformInfo?.platform || 'Unknown';
+      const guestyInfo = guestyLookupMap.get(res.confirmation_code);
+      // Platform waterfall: platform CSV -> guesty_reservations -> 'Unknown'
+      const platform =
+        normalizePlatform(platformInfo?.platform) ||
+        normalizePlatform(guestyInfo?.guesty_channel_id) ||
+        normalizePlatform(guestyInfo?.channel) ||
+        'Unknown';
       const isStripeChannel = platform.toUpperCase().includes('HOMEAWAY') ||
                                platform.toUpperCase().includes('VRBO') ||
                                platform.toUpperCase() === 'MANUAL';
@@ -494,6 +601,15 @@ export async function POST(request: NextRequest) {
     if (!hasGuesty) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
     if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV -- cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
     if (!hasBank) gaps.push({ gap_type: 'missing_bank_csv', description: 'No bank statement for deposit/cleaning verification', severity: 'warning', expected_data: `Chase bank CSV for ...${propConfig.bank_last4}` });
+
+    if (unresolvedNameCodes.length > 0) {
+      gaps.push({
+        gap_type: 'unresolved_guest_names',
+        description: `${unresolvedNameCodes.length} reservation${unresolvedNameCodes.length === 1 ? '' : 's'} couldn't resolve a guest name from the platform CSV or guesty_reservations table`,
+        severity: 'warning',
+        expected_data: `Upload the Guesty reservations CSV (covers ${unresolvedNameCodes.join(', ')})`,
+      });
+    }
 
     const unmatched = processedReservations.filter(r => r.bank_match_status === 'unmatched' && r.adjusted_revenue > 0);
     for (const r of unmatched) {
