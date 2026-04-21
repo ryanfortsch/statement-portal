@@ -1,12 +1,18 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, serviceRoleKey);
+// Lazy Supabase client so build-time page-data collection doesn't fail
+// when SUPABASE_SERVICE_ROLE_KEY isn't set in the build environment.
+let _supabase: SupabaseClient | null = null;
+function getSupabase(): SupabaseClient {
+  if (_supabase) return _supabase;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('Supabase URL / service role key not configured');
+  _supabase = createClient(url, key);
+  return _supabase;
+}
 
-const GUESTY_CLIENT_ID = process.env.GUESTY_CLIENT_ID || '';
-const GUESTY_CLIENT_SECRET = process.env.GUESTY_CLIENT_SECRET || '';
 const GUESTY_API = 'https://open-api.guesty.com';
 
 // Same mapping the statement page uses. Nickname matches are lowercase substring.
@@ -59,7 +65,10 @@ async function getGuestyToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
     return cachedToken.token;
   }
-  const basic = Buffer.from(`${GUESTY_CLIENT_ID}:${GUESTY_CLIENT_SECRET}`).toString('base64');
+  const clientId = process.env.GUESTY_CLIENT_ID || '';
+  const clientSecret = process.env.GUESTY_CLIENT_SECRET || '';
+  if (!clientId || !clientSecret) throw new Error('Guesty credentials not configured');
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   const res = await fetch(`${GUESTY_API}/oauth2/token`, {
     method: 'POST',
     headers: {
@@ -131,7 +140,7 @@ async function refreshListingMap(token: string): Promise<ListingRow[]> {
   }
 
   if (rows.length > 0) {
-    const { error } = await supabase.from('guesty_listings').upsert(
+    const { error } = await getSupabase().from('guesty_listings').upsert(
       rows.map(r => ({ ...r, updated_at: new Date().toISOString() })),
       { onConflict: 'listing_id' },
     );
@@ -141,7 +150,7 @@ async function refreshListingMap(token: string): Promise<ListingRow[]> {
 }
 
 async function loadListingMap(): Promise<Record<string, string>> {
-  const { data } = await supabase.from('guesty_listings').select('listing_id, property_id');
+  const { data } = await getSupabase().from('guesty_listings').select('listing_id, property_id');
   const map: Record<string, string> = {};
   (data || []).forEach(r => { map[r.listing_id] = r.property_id; });
   return map;
@@ -216,10 +225,10 @@ function toNumber(n: unknown): number | null {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!supabaseUrl || !serviceRoleKey) {
-      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY not configured' }, { status: 500 });
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: 'Supabase URL / SUPABASE_SERVICE_ROLE_KEY not configured' }, { status: 500 });
     }
-    if (!GUESTY_CLIENT_ID || !GUESTY_CLIENT_SECRET) {
+    if (!process.env.GUESTY_CLIENT_ID || !process.env.GUESTY_CLIENT_SECRET) {
       return NextResponse.json({ error: 'GUESTY_CLIENT_ID / GUESTY_CLIENT_SECRET not configured' }, { status: 500 });
     }
 
@@ -278,7 +287,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (rows.length > 0) {
-      const { error } = await supabase.from('reviews').upsert(rows, { onConflict: 'guesty_review_id' });
+      const { error } = await getSupabase().from('reviews').upsert(rows, { onConflict: 'guesty_review_id' });
       if (error) throw new Error(`reviews upsert failed: ${error.message}`);
     }
 
