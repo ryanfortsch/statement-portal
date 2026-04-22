@@ -103,9 +103,9 @@ export const SEND_FROM = {
   // on whose Gmail OAuth token created the draft. If that mailbox has
   // `statements@risingtidestr.com` configured as a "Send mail as" alias,
   // Gmail will honor this header when the owner sends.
-  name: 'Rising Tide Statements',
+  name: 'Rising Tide',
   email: 'statements@risingtidestr.com',
-  signoff_default: 'Allie',
+  signoff_default: 'Allie & Ryan',
   signoff_year_end: 'Allie & Ryan',
 };
 

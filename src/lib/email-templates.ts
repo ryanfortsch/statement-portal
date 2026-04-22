@@ -42,7 +42,7 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
     const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;
     return {
       subject,
-      body: `${greetingLine}\n\n${statementLine}\n\n${touchBase}\n\nThanks so much,\nAllie`,
+      body: `${greetingLine}\n\n${statementLine}\n\n${touchBase}\n\nThanks so much,\nAllie & Ryan`,
     };
   }
 
@@ -56,6 +56,6 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
   // Default: monthly
   return {
     subject,
-    body: `${greetingLine}\n\n${statementLine}\n\nThanks!\nAllie`,
+    body: `${greetingLine}\n\n${statementLine}\n\nThanks!\nAllie & Ryan`,
   };
 }
