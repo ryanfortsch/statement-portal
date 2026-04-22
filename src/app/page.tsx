@@ -301,7 +301,23 @@ function FillGapModal(props: {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<{ summary: { cleaning_total: number; reservations_matched: number; reservations_unmatched: number; confidence: string } } | null>(null);
+
+  // Accept a dropped-in file. Tolerates anything that ends in .csv or has
+  // a text/* mime type -- Chrome downloads sometimes report
+  // "application/octet-stream" for exported CSVs, so we don't require a
+  // strict text/csv match.
+  function acceptFile(f: File | null | undefined) {
+    if (!f) return;
+    const looksLikeCsv = /\.csv$/i.test(f.name) || f.type.startsWith('text/') || f.type === 'application/vnd.ms-excel';
+    if (!looksLikeCsv) {
+      setErr(`"${f.name}" doesn't look like a CSV. Export from Chase as CSV and try again.`);
+      return;
+    }
+    setFile(f);
+    setErr(null);
+  }
 
   if (!fileType) return null;
   const title = fileType === 'bank_csv' ? 'Upload Chase Bank CSV' : 'Upload File';
@@ -340,18 +356,30 @@ function FillGapModal(props: {
             <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginTop: 10 }}>{hint}</p>
 
             <div
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!busy) setDragging(true); }}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); if (!busy) setDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragging(false);
+                if (busy) return;
+                const dropped = e.dataTransfer.files?.[0];
+                acceptFile(dropped);
+              }}
               style={{
                 marginTop: 18, padding: 18,
-                border: '1px dashed var(--ink-4)',
-                background: file ? 'var(--paper-2)' : 'transparent',
+                border: `${dragging ? '2px' : '1px'} dashed ${dragging ? 'var(--ink)' : 'var(--ink-4)'}`,
+                background: dragging ? 'var(--paper-2)' : (file ? 'var(--paper-2)' : 'transparent'),
+                transition: 'background .12s, border-color .12s',
               }}
             >
               <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,text/csv,application/vnd.ms-excel"
                   disabled={busy}
-                  onChange={(e) => { setFile(e.target.files?.[0] || null); setErr(null); }}
+                  onChange={(e) => acceptFile(e.target.files?.[0])}
                   style={{ display: 'none' }}
                 />
                 <span
@@ -366,7 +394,7 @@ function FillGapModal(props: {
                   Choose CSV
                 </span>
                 <span style={{ fontSize: 12, color: file ? 'var(--ink)' : 'var(--ink-4)' }}>
-                  {file ? file.name : 'No file selected'}
+                  {file ? file.name : (dragging ? 'Release to upload' : 'or drag from Finder / Downloads')}
                 </span>
               </label>
             </div>
