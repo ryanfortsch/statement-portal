@@ -49,16 +49,55 @@ function nightsInMonth(checkIn: string, checkOut: string, month: string): number
   return Math.max(0, Math.round((end - start) / 86400_000));
 }
 
-function getBestReview(reviews: { guest: string; review: string }[]): { guest: string; snippet: string } | null {
-  if (!reviews.length) return null;
-  const best = [...reviews].sort((a, b) => b.review.length - a.review.length)[0];
-  let snippet = best.review;
-  if (snippet.length > 180) {
-    const sentences = snippet.split(/(?<=[.!])/).filter(s => s.trim().length > 15);
-    snippet = sentences.length > 0 ? sentences[0].trim() : snippet.substring(0, 177) + '...';
-    if (snippet.length > 180) snippet = snippet.substring(0, 177) + '...';
+function trimToSnippet(text: string, maxLen: number): string {
+  const cleaned = text.trim();
+  if (cleaned.length <= maxLen) return cleaned;
+  // Prefer a clean sentence boundary
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 10);
+  let acc = '';
+  for (const s of sentences) {
+    if ((acc + (acc ? ' ' : '') + s).length <= maxLen) {
+      acc = acc ? acc + ' ' + s : s;
+    } else {
+      break;
+    }
   }
-  return { guest: best.guest, snippet };
+  if (acc.length >= 30) return acc.trim();
+  // Fallback: hard truncate on a word boundary with an ellipsis
+  return cleaned.substring(0, maxLen - 1).replace(/\s+\S*$/, '') + '…';
+}
+
+type ReviewSnippet = { guest: string; snippet: string };
+
+/**
+ * Pick 1–3 review snippets for the statement:
+ *   - 1 review available: show it in long form (up to 180 chars)
+ *   - Multiple reviews: stack short quotes (up to 100 chars each), capped
+ *     at 3 or ~320 total chars so the Note block doesn't overflow
+ */
+function pickReviews(reviews: { guest: string; review: string }[]): ReviewSnippet[] {
+  if (!reviews.length) return [];
+  if (reviews.length === 1) {
+    return [{ guest: reviews[0].guest, snippet: trimToSnippet(reviews[0].review, 180) }];
+  }
+
+  // Multi-review case: trim each to a short form, rank by quality proxy
+  // (longer = more substantive, but capped so visual balance is preserved)
+  const trimmed = reviews
+    .map(r => ({ guest: r.guest, snippet: trimToSnippet(r.review, 110) }))
+    .filter(r => r.snippet.length >= 25)
+    // Prefer the more substantive / closer-to-cap snippets first
+    .sort((a, b) => b.snippet.length - a.snippet.length);
+
+  const picks: ReviewSnippet[] = [];
+  let total = 0;
+  for (const r of trimmed) {
+    if (picks.length >= 3) break;
+    if (picks.length >= 1 && total + r.snippet.length > 320) break;
+    picks.push(r);
+    total += r.snippet.length;
+  }
+  return picks;
 }
 
 // ---- page ----
@@ -149,12 +188,12 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
       }
     : null;
 
-  // Review snippet: only show if we have a review from THIS month. Otherwise
-  // fall back to Allie's note (handled in the JSX).
+  // Review snippets: only show reviews from THIS month. 1 review renders
+  // long-form; multiple renders as stacked short quotes ("Guest Reviews").
   const reviewPool = monthReviews.filter(r => r.public_review && r.public_review.trim().length > 15);
-  const bestReview = reviewPool.length > 0
-    ? getBestReview(reviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })))
-    : null;
+  const selectedReviews = pickReviews(
+    reviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })),
+  );
 
   // Upcoming bookings from Supabase (guesty_reservations). Populated by either
   // /api/sync-guesty (API path) or /api/ingest-guesty-csv (manual fallback).
@@ -426,19 +465,32 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 </div>
               </section>
 
-              {bestReview && (
+              {selectedReviews.length > 0 && (
                 <section className="note">
-                  <div className="note-kicker">Guest Review</div>
+                  <div className="note-kicker">
+                    {selectedReviews.length === 1 ? 'Guest Review' : 'Guest Reviews'}
+                  </div>
                   <div className="note-body">
-                    <p>&ldquo;{bestReview.snippet}&rdquo;</p>
+                    {selectedReviews.length === 1 ? (
+                      <p>&ldquo;{selectedReviews[0].snippet}&rdquo;</p>
+                    ) : (
+                      selectedReviews.map((r, i) => (
+                        <p key={i} className="note-quote">
+                          &ldquo;{r.snippet}&rdquo;
+                          <span className="note-quote-attr"> &mdash; {r.guest}</span>
+                        </p>
+                      ))
+                    )}
                   </div>
-                  <div className="note-sig">
-                    <div className="avatar">{bestReview.guest.charAt(0)}</div>
-                    <div>
-                      <div className="note-sig-name">{bestReview.guest}</div>
-                      <div className="note-sig-title">5-star guest</div>
+                  {selectedReviews.length === 1 && (
+                    <div className="note-sig">
+                      <div className="avatar">{selectedReviews[0].guest.charAt(0)}</div>
+                      <div>
+                        <div className="note-sig-name">{selectedReviews[0].guest}</div>
+                        <div className="note-sig-title">5-star guest</div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </section>
               )}
             </div>
@@ -601,6 +653,9 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .note-kicker { font-size:9px; text-transform:uppercase; letter-spacing:.22em; color:var(--signal); margin-bottom:6px; }
 .note-body { font-family:var(--serif); font-size:12px; line-height:1.5; color:var(--ink); }
 .note-body p { margin:0 0 5px; }
+.note-quote { margin:0 0 8px !important; padding-left:10px; border-left:2px solid var(--rule); font-size:11.5px; line-height:1.45; }
+.note-quote:last-child { margin-bottom:0 !important; }
+.note-quote-attr { color:var(--ink-4); font-size:10px; font-style:italic; font-family:var(--sans); letter-spacing:.02em; }
 .note-sig { margin-top:6px; display:flex; align-items:center; gap:8px; padding-top:6px; border-top:1px dotted var(--rule); }
 .note-sig .avatar { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,var(--tide),var(--tide-deep)); color:var(--paper); display:flex; align-items:center; justify-content:center; font-family:var(--serif); font-size:11px; font-weight:500; }
 .note-sig-name { font-family:var(--serif); font-size:12px; font-weight:500; }
