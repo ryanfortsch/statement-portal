@@ -23,7 +23,29 @@ function fmt(n: number) { return n.toLocaleString('en-US', { minimumFractionDigi
 function shortDate(d: string) { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
 function monthName(m: string) { return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long' }); }
 function daysInMonth(m: string) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); }
-function chLabel(p: string) { return ({ HomeAway: 'VRBO', Manual: 'Direct', 'Booking.com': 'Booking' } as Record<string, string>)[p] || p; }
+// Maps both normalized platform values (Airbnb, HomeAway, Manual, Booking.com,
+// the shape /api/ingest writes into the reservations table) and raw Guesty
+// API identifiers (airbnb2, homeaway2, manual, bookingcom, the shape that
+// guesty_reservations.guesty_channel_id stores) to the owner-facing label.
+// "Stay Collections" is Rising Tide's direct-booking brand; manual / direct
+// always means a booking taken off-platform through Stay Collections.
+function chLabel(p: string) {
+  const key = (p || '').toLowerCase().trim();
+  if (key === 'airbnb' || key === 'airbnb2') return 'Airbnb';
+  if (key === 'homeaway' || key === 'homeaway2' || key === 'vrbo') return 'VRBO';
+  if (key === 'manual' || key === 'direct') return 'Stay Collections';
+  if (key === 'booking' || key === 'booking.com' || key === 'bookingcom') return 'Booking.com';
+  return p;
+}
+
+// Trip length in nights from check-in / check-out (full stay, unlike
+// nightsInMonth which truncates to the statement month).
+function tripNights(checkIn: string, checkOut: string): number {
+  const d1 = Date.parse(checkIn + 'T00:00:00Z');
+  const d2 = Date.parse(checkOut + 'T00:00:00Z');
+  if (isNaN(d1) || isNaN(d2)) return 0;
+  return Math.max(0, Math.round((d2 - d1) / 86400_000));
+}
 
 // Normalize guest names: "julie polvinen" -> "Julie Polvinen". Preserves
 // common connectors lowercase ("Mary Van Der Berg" stays as-is after title-casing).
@@ -145,9 +167,18 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Upcoming reservations from Guesty. Populated by /api/sync-guesty (API
   // sync) or /api/ingest-guesty-csv (manual CSV upload fallback).
   const monthEndStr = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`;
+  // Recency horizon: 90 days past the statement month end. Bookings that
+  // fall beyond this are "far-horizon" and only get shown if there's
+  // nothing closer (see near/far split below). Avoids a March statement
+  // headlining a booking from September.
+  const horizonDate = new Date(Date.UTC(
+    parseInt(month.split('-')[0]), parseInt(month.split('-')[1]) - 1,
+    daysInMonth(month) + 90,
+  ));
+  const horizonStr = horizonDate.toISOString().slice(0, 10);
   const { data: upcomingDb } = await supabase
     .from('guesty_reservations')
-    .select('guest_name, check_in, nights, channel, guesty_channel_id, status')
+    .select('guest_name, check_in, check_out, nights, channel, guesty_channel_id, status')
     .eq('property_id', prop.property_id)
     .gt('check_in', monthEndStr)
     // Accept confirmed / reserved / null. Guesty-API-sourced rows often
@@ -157,7 +188,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .order('check_in', { ascending: true })
     // Fetch extra so that after filtering out owner stays we still have
     // 4 real guest bookings to show.
-    .limit(20);
+    .limit(30);
 
   const d = PROPERTY_DETAILS[prop.property_id] || { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
   const numStays = prop.num_stays || (reservations?.length || 0);
@@ -236,21 +267,38 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Dedupe: API-source and CSV-source can both land rows for the same
   // reservation. Key on (check_in, guest lowercased) so duplicates collapse.
   const upcomingSeen = new Set<string>();
-  const upcoming: UpcomingItem[] = (upcomingDb || [])
+  const upcomingFiltered = (upcomingDb || [])
     .filter(r => !looksLikeOwnerStay(r))
     .filter(r => {
       const key = `${r.check_in}|${(r.guest_name || '').trim().toLowerCase()}`;
       if (upcomingSeen.has(key)) return false;
       upcomingSeen.add(key);
       return true;
-    })
+    });
+
+  // Recency preference: prefer bookings within 90 days of the statement
+  // month end. If we have any near-term bookings, only show those; if the
+  // calendar is empty in that window, fall back to whatever's scheduled
+  // further out so the panel isn't empty.
+  const nearUpcoming = upcomingFiltered.filter(r => r.check_in <= horizonStr);
+  const selectedUpcoming = nearUpcoming.length > 0 ? nearUpcoming : upcomingFiltered;
+
+  const upcoming: UpcomingItem[] = selectedUpcoming
     .slice(0, 4)
-    .map(r => ({
-      guest: titleCase(r.guest_name) || 'Guest',
-      checkIn: r.check_in,
-      nights: r.nights ?? 0,
-      platform: r.guesty_channel_id || r.channel || 'Direct',
-    }));
+    .map(r => {
+      // Guesty API sometimes returns nightsCount=null on upcoming rows.
+      // Compute from check-in / check-out when missing so the subtext
+      // doesn't read "0 nights".
+      const n = (r.nights && r.nights > 0)
+        ? r.nights
+        : tripNights(r.check_in, r.check_out || r.check_in);
+      return {
+        guest: titleCase(r.guest_name) || 'Guest',
+        checkIn: r.check_in,
+        nights: n,
+        platform: r.guesty_channel_id || r.channel || 'Direct',
+      };
+    });
 
   // Reservation rows -- enriched from guesty_reservations if the ingest
   // stored a placeholder guest_name or platform.
@@ -273,7 +321,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const totRev = Object.values(chRev).reduce((a, b) => a + b, 0);
   const mix = Object.entries(chRev).map(([c, v]) => ({ ch: c, pct: totRev > 0 ? (v / totRev) * 100 : 0 })).sort((a, b) => b.pct - a.pct);
 
-  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', Booking: '#003580', Direct: '#4a6b3a' };
+  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', 'Booking.com': '#003580', 'Stay Collections': '#4a6b3a' };
 
   // Donut arcs
   let offset = 25;
@@ -478,7 +526,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                         </div>
                         <div>
                           <div className="up-guest">{b.guest}</div>
-                          <div className="up-sub">{b.nights} nights &middot; {chLabel(b.platform)}</div>
+                          <div className="up-sub">{b.nights} {b.nights === 1 ? 'night' : 'nights'} &middot; {chLabel(b.platform)}</div>
                         </div>
                       </div>
                     );
@@ -626,8 +674,8 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .channel .dot { width:6px; height:6px; border-radius:50%; }
 .channel[data-ch="Airbnb"] .dot { background:#ff5a5f; }
 .channel[data-ch="VRBO"] .dot { background:#245abc; }
-.channel[data-ch="Booking"] .dot { background:#003580; }
-.channel[data-ch="Direct"] .dot { background:#4a6b3a; }
+.channel[data-ch="Booking.com"] .dot { background:#003580; }
+.channel[data-ch="Stay Collections"] .dot { background:#4a6b3a; }
 
 /* FINANCIALS */
 .fin-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
