@@ -98,9 +98,13 @@ export const ALWAYS_CC = [
 
 /** Sender identity used in drafts. */
 export const SEND_FROM = {
-  name: 'Allie Fortsch',
-  email: 'allie@risingtidestr.com',          // current mailbox the OAuth token authenticates
-  reply_to: 'statements@risingtidestr.com',  // group address once it's receiving mail
+  // Drafts appear to come from the Rising Tide Statements group mailbox.
+  // This is a label-only field; the actual MIME sender/mailbox depends
+  // on whose Gmail OAuth token created the draft. If that mailbox has
+  // `statements@risingtidestr.com` configured as a "Send mail as" alias,
+  // Gmail will honor this header when the owner sends.
+  name: 'Rising Tide Statements',
+  email: 'statements@risingtidestr.com',
   signoff_default: 'Allie',
   signoff_year_end: 'Allie & Ryan',
 };
