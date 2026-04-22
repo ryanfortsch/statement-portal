@@ -287,6 +287,7 @@ function PreviewModal({ onClose, children }: { onClose: () => void; children: Re
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="rt-modal"
         style={{
           background: 'var(--paper)',
           border: '1px solid var(--ink)',
@@ -515,7 +516,7 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
         onClick={() => setExpanded(!expanded)}
         style={{ width: '100%', textAlign: 'left', padding: '16px 0', background: 'transparent', cursor: 'pointer' }}
       >
-        <div className="flex items-center justify-between gap-4">
+        <div className="rt-prop-head flex items-center justify-between gap-4">
           <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
             <ConfidenceIndicator level={prop.confidence} />
             <div>
@@ -547,7 +548,7 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
                 {fmtCompact(prop.owner_payout)}
               </div>
             </div>
-            <IconChevron open={expanded} className="w-4 h-4" />
+            <IconChevron open={expanded} className="rt-chevron w-4 h-4" />
           </div>
         </div>
       </button>
@@ -577,7 +578,7 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
           </div>
 
           {/* Financial summary + performance */}
-          <div style={{
+          <div className="rt-two-col" style={{
             display: 'grid',
             gridTemplateColumns: '1.15fr 1fr',
             gap: 40,
@@ -617,6 +618,7 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
           {reservations.length > 0 && (
             <div style={{ marginTop: 28 }}>
               <SectionHead num="03" title="Reservations" meta={`${reservations.length} stays`} />
+              <div className="rt-scroll-x">
               <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
@@ -662,6 +664,7 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -1165,7 +1168,7 @@ function DashboardContent() {
       <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10">
           {/* Top strip: brand + period */}
-          <div className="flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
+          <div className="rt-masthead-top flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
@@ -1208,7 +1211,7 @@ function DashboardContent() {
           </div>
 
           {/* Actions strip */}
-          <div className="flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
+          <div className="rt-masthead-actions flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
             <div className="flex items-center gap-2">
               <EditorialButton
                 onClick={syncInvoices}
@@ -1302,10 +1305,10 @@ function DashboardContent() {
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <div className="rt-period-head flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <div>
             <div className="eyebrow">Month at a glance</div>
-            <h1 className="font-serif" style={{ fontSize: 38, lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', marginTop: 8 }}>
+            <h1 className="rt-display-h1 font-serif" style={{ fontSize: 38, lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', marginTop: 8 }}>
               {monthLong(selectedMonth)} <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Statements</em>
             </h1>
           </div>
@@ -1317,7 +1320,7 @@ function DashboardContent() {
           </div>
         </div>
 
-        <div className="rule-top rule-bottom" style={{
+        <div className="rt-insights-6 rule-top rule-bottom" style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(6, 1fr)',
         }}>
@@ -1361,7 +1364,7 @@ function DashboardContent() {
             </div>
 
             {/* Top strip: funds sent date + totals + actions */}
-            <div style={{
+            <div className="rt-closeout-top" style={{
               display: 'grid',
               gridTemplateColumns: 'auto 1fr auto auto',
               gap: 20,
@@ -1415,7 +1418,7 @@ function DashboardContent() {
                 const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
                 const emailsMissing = !cfg || cfg.owner_emails.length === 0;
                 return (
-                  <div key={p.id} style={{
+                  <div key={p.id} className="rt-closeout-row" style={{
                     display: 'grid',
                     gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto',
                     gap: 16,
@@ -1744,7 +1747,7 @@ function DashboardContent() {
 
       {/* ─── Footer ─── */}
       <footer style={{ borderTop: '1px solid var(--ink)', marginTop: 24 }}>
-        <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{ padding: '14px 40px', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+        <div className="rt-footer max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{ padding: '14px 40px', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
           <span>Rising Tide &middot; 85 Eastern Ave &middot; Gloucester, MA 01930</span>
           <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>&ldquo;We care for your home as if it were our own.&rdquo;</span>
         </div>
