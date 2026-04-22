@@ -425,7 +425,7 @@ export default function UploadPage() {
             )}
 
             {/* Actions */}
-            <div className="flex items-center gap-3" style={{ marginTop: 32 }}>
+            <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 32 }}>
               <a
                 href={`/statement?id=${result.property_statement_id}&month=${result.month}`}
                 target="_blank"
@@ -438,9 +438,26 @@ export default function UploadPage() {
                 }}
               >
                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 View Statement
+              </a>
+              <a
+                href={`/api/statement-pdf?id=${result.property_statement_id}&month=${result.month}`}
+                download
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: 'transparent', color: 'var(--ink-2)',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                  padding: '10px 18px',
+                  border: '1px solid var(--ink)',
+                }}
+              >
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download PDF
               </a>
               <button onClick={resetForm} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,

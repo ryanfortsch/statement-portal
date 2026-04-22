@@ -206,6 +206,18 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
       </head>
       <body data-variant="editorial">
+        {/* Floating download chip -- screen only, hidden when printing. */}
+        <a
+          className="download-chip"
+          href={`/api/statement-pdf?id=${id}&month=${month}`}
+          download
+          aria-label="Download statement as PDF"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <span>Download PDF</span>
+        </a>
         <div className="canvas">
           <main className="sheet">
 
@@ -581,11 +593,26 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .footer .center { text-align:center; font-family:var(--serif); font-style:italic; font-size:12px; color:var(--ink); text-transform:none; letter-spacing:0; }
 .footer .right { text-align:right; }
 
+/* Floating download chip (screen only) */
+.download-chip {
+  position:fixed; top:20px; right:20px; z-index:20;
+  display:inline-flex; align-items:center; gap:8px;
+  background:var(--ink); color:var(--paper);
+  padding:9px 14px;
+  font-family:var(--sans); font-size:11px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase;
+  text-decoration:none;
+  box-shadow:0 10px 24px -8px rgba(30,46,52,.3);
+  transition:transform .15s, box-shadow .15s;
+}
+.download-chip:hover { transform:translateY(-1px); box-shadow:0 14px 30px -8px rgba(30,46,52,.35); }
+
 /* PRINT */
 @media print {
   body { background:white; }
   .canvas { margin:0; max-width:none; padding:0; }
   .sheet { box-shadow:none; border:none; width:100%; min-height:auto; padding:.35in .4in; }
+  .download-chip { display:none; }
   @page { size:letter; margin:0; }
 }
 `;

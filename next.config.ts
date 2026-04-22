@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   // to "no PDF attached". Force-include the whole package.
   outputFileTracingIncludes: {
     '/api/draft-email': ['./node_modules/@sparticuz/chromium/**/*'],
+    '/api/statement-pdf': ['./node_modules/@sparticuz/chromium/**/*'],
   },
 };
 
