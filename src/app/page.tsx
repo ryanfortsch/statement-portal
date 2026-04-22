@@ -274,6 +274,173 @@ function CheckTask({ label, done, onToggle }: { label: string; done: boolean; on
   );
 }
 
+/**
+ * Which file type fills a given data-gap type? Returns null for gaps that
+ * aren't user-fillable (those need a full re-upload or a Gmail sync).
+ */
+function gapFillType(gapType: string): 'bank_csv' | null {
+  if (gapType === 'missing_bank_csv' || gapType === 'unmatched_bank') return 'bank_csv';
+  return null;
+}
+
+/**
+ * Small modal that lets the user patch a single missing-file gap on an
+ * existing statement without re-uploading everything else. Calls
+ * /api/fill-gap with the one file and reloads the dashboard on success.
+ */
+function FillGapModal(props: {
+  gap: DataGap;
+  propertyId: string;
+  propertyName: string;
+  month: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { gap, propertyId, propertyName, month, onClose, onSuccess } = props;
+  const fileType = gapFillType(gap.gap_type);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ summary: { cleaning_total: number; reservations_matched: number; reservations_unmatched: number; confidence: string } } | null>(null);
+
+  if (!fileType) return null;
+  const title = fileType === 'bank_csv' ? 'Upload Chase Bank CSV' : 'Upload File';
+  const hint = fileType === 'bank_csv'
+    ? 'Export the month\'s transactions from your Chase account as CSV. We\'ll re-run cleaning + deposit matching against the existing reservations. Nothing else on the statement gets touched.'
+    : '';
+
+  async function submit() {
+    if (!file || !fileType) return;
+    setBusy(true); setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('month', month);
+      fd.append('property_id', propertyId);
+      fd.append('file_type', fileType);
+      fd.append('file', file);
+      const res = await fetch('/api/fill-gap', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error || 'Upload failed'); return; }
+      setResult(data);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <PreviewModal onClose={busy ? () => {} : onClose}>
+      <div style={{ fontFamily: 'var(--sans)' }}>
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+          Fill Data Gap &middot; {propertyName} &middot; {month}
+        </div>
+        <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 500, marginTop: 6, letterSpacing: '-0.01em' }}>{title}</h2>
+
+        {!result && (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginTop: 10 }}>{hint}</p>
+
+            <div
+              style={{
+                marginTop: 18, padding: 18,
+                border: '1px dashed var(--ink-4)',
+                background: file ? 'var(--paper-2)' : 'transparent',
+              }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                <input
+                  type="file"
+                  accept=".csv"
+                  disabled={busy}
+                  onChange={(e) => { setFile(e.target.files?.[0] || null); setErr(null); }}
+                  style={{ display: 'none' }}
+                />
+                <span
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    border: '1px solid var(--ink)',
+                    padding: '8px 14px',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                    color: 'var(--ink)',
+                  }}
+                >
+                  Choose CSV
+                </span>
+                <span style={{ fontSize: 12, color: file ? 'var(--ink)' : 'var(--ink-4)' }}>
+                  {file ? file.name : 'No file selected'}
+                </span>
+              </label>
+            </div>
+
+            {err && (
+              <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(200,90,58,.08)', border: '1px solid var(--signal)', fontSize: 12, color: 'var(--signal)' }}>
+                {err}
+              </div>
+            )}
+
+            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  background: 'transparent', border: '1px solid var(--rule)',
+                  padding: '10px 16px',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                  color: 'var(--ink-3)',
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submit}
+                disabled={!file || busy}
+                style={{
+                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+                  padding: '10px 18px',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                  cursor: (!file || busy) ? 'not-allowed' : 'pointer',
+                  opacity: (!file || busy) ? 0.4 : 1,
+                }}
+              >
+                {busy ? 'Processing…' : 'Patch Statement'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {result && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ padding: 16, background: 'var(--paper-2)', borderLeft: '3px solid #4a6b3a' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a6b3a' }}>Success</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
+                Cleaning total: <strong>${result.summary.cleaning_total.toFixed(2)}</strong>
+                {' · '}
+                {result.summary.reservations_matched} reservation{result.summary.reservations_matched === 1 ? '' : 's'} matched
+                {result.summary.reservations_unmatched > 0 && ` · ${result.summary.reservations_unmatched} still unmatched`}
+                {' · '}
+                confidence <strong>{result.summary.confidence}</strong>
+              </div>
+            </div>
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={onSuccess}
+                style={{
+                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+                  padding: '10px 18px',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                  cursor: 'pointer',
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </PreviewModal>
+  );
+}
+
 function PreviewModal({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div
@@ -487,11 +654,12 @@ function EditorialButton({
 }
 
 /* ─── Property Card ─── */
-function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string }) {
+function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; month: string; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
@@ -716,21 +884,57 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
             <div style={{ marginTop: 28 }}>
               <SectionHead num="05" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
               <div>
-                {gaps.map((gap) => (
-                  <div key={gap.id} style={{
-                    padding: '12px 14px',
-                    marginBottom: 8,
-                    background: 'var(--paper-2)',
-                    borderLeft: `3px solid ${gap.severity === 'critical' ? 'var(--negative)' : gap.severity === 'warning' ? 'var(--signal)' : 'var(--ink-4)'}`,
-                    fontSize: 12,
-                    color: 'var(--ink-2)',
-                  }}>
-                    <div style={{ fontWeight: 500, color: 'var(--ink)' }}>{gap.description}</div>
-                    {gap.expected_data && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>{gap.expected_data}</div>}
-                  </div>
-                ))}
+                {gaps.map((gap) => {
+                  const fillable = gapFillType(gap.gap_type) !== null;
+                  return (
+                    <div
+                      key={gap.id}
+                      style={{
+                        padding: '12px 14px',
+                        marginBottom: 8,
+                        background: 'var(--paper-2)',
+                        borderLeft: `3px solid ${gap.severity === 'critical' ? 'var(--negative)' : gap.severity === 'warning' ? 'var(--signal)' : 'var(--ink-4)'}`,
+                        fontSize: 12,
+                        color: 'var(--ink-2)',
+                        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, color: 'var(--ink)' }}>{gap.description}</div>
+                        {gap.expected_data && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>{gap.expected_data}</div>}
+                      </div>
+                      {fillable && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}
+                          style={{
+                            flexShrink: 0,
+                            border: '1px solid var(--ink)',
+                            background: 'transparent',
+                            color: 'var(--ink)',
+                            fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                            padding: '6px 10px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Fill Gap
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
+          )}
+
+          {fillingGap && (
+            <FillGapModal
+              gap={fillingGap}
+              propertyId={prop.property_id}
+              propertyName={prop.property_name}
+              month={month}
+              onClose={() => setFillingGap(null)}
+              onSuccess={() => { setFillingGap(null); onRefresh(); }}
+            />
           )}
 
           {/* Actions */}
@@ -1281,7 +1485,9 @@ function DashboardContent() {
                 icon={<IconSync className="w-3 h-3" />}
               />
               <label
-                title={lastSync['csv-fallback'] ? `CSV uploaded ${relativeTime(lastSync['csv-fallback'])}` : 'Upload Guesty reservations CSV (fallback if API is unavailable)'}
+                title={lastSync['csv-fallback']
+                  ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'])}`
+                  : 'Guesty reservations CSV (upcoming bookings + reviews). Fallback for when the API sync is down. Not for monthly statements.'}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                   border: '1px solid var(--rule)',
@@ -1296,7 +1502,7 @@ function DashboardContent() {
                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {uploadingCsv ? 'Uploading' : 'Upload CSV'}
+                {uploadingCsv ? 'Uploading' : 'Upload Reservations CSV'}
                 {lastSync['csv-fallback'] && !uploadingCsv && (
                   <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>&middot; {relativeTime(lastSync['csv-fallback'])}</span>
                 )}
@@ -1724,7 +1930,7 @@ function DashboardContent() {
       {guestySyncResult && (
         typeof guestySyncResult === 'string' ? (
           <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
-            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload CSV</strong> instead.
+            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload Reservations CSV</strong> instead.
           </Toast>
         ) : (
           <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
@@ -1787,7 +1993,7 @@ function DashboardContent() {
           </div>
         ) : (
           <div>
-            {props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} />)}
+            {props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} onRefresh={() => loadPeriod(selectedMonth)} />)}
             <div style={{ borderTop: '1px solid var(--ink)' }} />
           </div>
         )}
