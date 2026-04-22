@@ -134,6 +134,16 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const { data: prop } = await supabase.from('property_statements').select('*').eq('id', id).single();
   if (!prop) return <div style={{ padding: 40 }}>Not found</div>;
 
+  // Pull the statement period so we can surface the operator-chosen
+  // funds_sent_date as the Issued/Payout line, instead of a hard-coded
+  // "1st of next month" that doesn't reflect the actual transfer date
+  // the dashboard is scheduling against.
+  const { data: period } = await supabase
+    .from('statement_periods')
+    .select('funds_sent_date')
+    .eq('id', prop.period_id)
+    .single();
+
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
   const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
@@ -348,10 +358,27 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   let offset = 25;
   const arcs = mix.map(m => { const a = { ...m, da: `${m.pct} ${100 - m.pct}`, off: offset }; offset -= m.pct; return a; });
 
-  // Issue date
-  const nxMo = parseInt(moStr) === 12 ? 1 : parseInt(moStr) + 1;
-  const nxYr = parseInt(moStr) === 12 ? parseInt(yr) + 1 : parseInt(yr);
-  const issued = new Date(nxYr, nxMo - 1, 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Issue / Payout date shown in the addressee block.
+  //
+  // Prefers the funds_sent_date the operator chose on the dashboard (stored
+  // on statement_periods.funds_sent_date). Falls back to the same default
+  // the dashboard uses: the first Monday of the month AFTER the statement
+  // month -- payouts go out on a Monday, not on a Saturday/Sunday.
+  //
+  // Historically this line rendered as "the 1st of next month", which
+  // disagreed with the dashboard whenever the 1st wasn't a Monday.
+  function firstMondayOfNextMonth(ym: string): string {
+    const [y, m] = ym.split('-').map(Number);
+    const first = new Date(Date.UTC(y, m, 1)); // first day of next month (UTC)
+    const offsetToMonday = (8 - first.getUTCDay()) % 7;
+    const mon = new Date(first);
+    mon.setUTCDate(first.getUTCDate() + offsetToMonday);
+    return mon.toISOString().slice(0, 10);
+  }
+  const issuedIso = period?.funds_sent_date || firstMondayOfNextMonth(month);
+  const issued = new Date(issuedIso + 'T00:00:00').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
 
   return (
     <html lang="en">
