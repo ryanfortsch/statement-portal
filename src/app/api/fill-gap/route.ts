@@ -4,7 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 /**
  * Fill a data gap on an existing property_statement without running the full
  * ingest. Unlike /api/ingest, this does NOT delete + rebuild the statement.
- * It patches specific fields derived from the one file being uploaded:
+ * It patches specific fields derived from the one file being uploaded.
+ *
+ * Supported file_type values:
  *
  *   bank_csv:
  *     - re-parses cleaning charges + deposits for the statement month
@@ -14,11 +16,21 @@ import { NextRequest, NextResponse } from 'next/server';
  *     - removes the 'missing_bank_csv' gap and re-emits 'unmatched_bank'
  *       gaps with fresh status
  *
- * This is the endpoint hit by the "Upload Bank CSV" action on a data-gap
- * chip. Guesty PDF is NOT required; reservations are left untouched.
+ *   platform_csv:
+ *     - re-parses the platform CSV (confirmation code -> platform + guest)
+ *     - for each existing reservation matched by confirmation_code:
+ *         fills in guest_name when it was a placeholder,
+ *         sets the correct platform, and
+ *         recomputes stripe_fee + adjusted_revenue
+ *     - recomputes rental_revenue, management_fee, owner_payout on the
+ *       property_statement
+ *     - updates has_platform_csv, confidence
+ *     - removes 'no_platform_match' and 'unresolved_guest_names' gaps
+ *     - upserts guesty_reservations rows so the CSV feeds the upcoming
+ *       bookings panel as well (same shape /api/ingest writes)
  *
- * More file types (platform_csv, etc.) can be added as additional switch
- * branches.
+ * Guesty PDF is never required -- the reservations that were parsed from
+ * it on the first ingest stay as-is.
  */
 
 // Service role: this route needs to UPDATE reservations.bank_match_status /
@@ -80,6 +92,42 @@ function isoFromMMDDYYYY(dateStr: string): string {
   return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// Stripe fee: 3.9% + $0.20/txn, 2 txns per reservation = $0.40
+function calcStripeFee(rentalIncome: number): number {
+  return round2(rentalIncome * 0.039 + 0.40);
+}
+
+function titleCase(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.replace(/\b[\p{L}'’-]+/gu, w =>
+    w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase()
+  );
+}
+
+function looksLikeConfirmationCode(s: string | null | undefined): boolean {
+  if (!s) return false;
+  return /^(GY|HM)[- ]?[A-Za-z0-9]{6,}$/i.test(s.trim());
+}
+
+// Normalize platform: "airbnb2" -> "Airbnb", "HomeAway" -> "HomeAway",
+// "bookingCom" -> "Booking.com", "direct"/"manual" -> "Manual".
+function normalizePlatform(raw?: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.trim();
+  if (!s) return null;
+  const l = s.toLowerCase();
+  if (l.startsWith('airbnb')) return 'Airbnb';
+  if (l.startsWith('homeaway') || l === 'vrbo') return 'HomeAway';
+  if (l === 'bookingcom' || l.startsWith('booking')) return 'Booking.com';
+  if (l === 'direct' || l === 'manual') return 'Manual';
+  if (l === 'unknown') return null;
+  return s;
+}
+
 /**
  * Assign bank cleaning charges to reservations 1:1 so no single stay
  * ever claims multiple Cape Ann Elite charges. Walk reservations in
@@ -128,6 +176,242 @@ function matchCleaningsToReservations<R extends { check_out: string; guest_name:
   });
 }
 
+// ── platform_csv handler ────────────────────────────────────────────────────
+
+type ExistingStmt = {
+  id: string;
+  property_id: string;
+  property_name: string;
+  rental_revenue: number;
+  management_fee: number;
+  management_fee_pct: number;
+  cleaning_total: number;
+  repairs_total: number;
+  has_guesty_statement: boolean;
+  has_platform_csv: boolean;
+  has_bank_csv: boolean;
+};
+
+type ExistingReservation = {
+  id: string;
+  guest_name: string | null;
+  confirmation_code: string;
+  check_in: string;
+  check_out: string;
+  nights: number;
+  platform: string | null;
+  guesty_rental_income: number;
+  stripe_fee: number | null;
+  adjusted_revenue: number | null;
+  bank_match_status: string | null;
+  bank_deposit_amount: number | null;
+};
+
+async function fillPlatformGap(args: {
+  stmt: ExistingStmt;
+  reservations: ExistingReservation[];
+  propertyId: string;
+  file: File;
+}) {
+  const { stmt, reservations, propertyId, file } = args;
+
+  // 1. Parse the platform CSV into a map keyed by confirmation code, and
+  //    build the guesty_reservations upsert set (mirroring the shape
+  //    /api/ingest writes so the upcoming-bookings panel benefits too).
+  const text = await file.text();
+  const rows = parseCSV(text);
+  if (rows.length === 0) {
+    return NextResponse.json({ error: 'Platform CSV appears empty or malformed' }, { status: 400 });
+  }
+
+  const platformMap = new Map<string, { platform: string; guest: string }>();
+  const guestyResUpserts: Record<string, string | number | null>[] = [];
+
+  for (const row of rows) {
+    const code = (row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '').trim();
+    const platform = (row['PLATFORM'] || row['Platform'] || row['platform'] || '').trim();
+    const guest = (row['GUEST'] || row['Guest'] || row['guest'] || '').trim();
+    const checkInRaw = (row['CHECK-IN'] || row['Check-In'] || row['check_in'] || '').trim();
+    const checkOutRaw = (row['CHECK-OUT'] || row['Check-Out'] || row['check_out'] || '').trim();
+    if (!code) continue;
+
+    platformMap.set(code, { platform, guest });
+
+    const checkIn = checkInRaw.split(' ')[0];
+    const checkOut = checkOutRaw.split(' ')[0];
+    if (!checkIn || !checkOut) continue;
+    const d1 = Date.parse(checkIn + 'T00:00:00');
+    const d2 = Date.parse(checkOut + 'T00:00:00');
+    if (isNaN(d1) || isNaN(d2)) continue;
+    const nights = Math.max(0, Math.round((d2 - d1) / 86400_000));
+    const normalizedChannel = normalizePlatform(platform);
+    const cleanedGuest = guest && !looksLikeConfirmationCode(guest) ? titleCase(guest) : null;
+
+    guestyResUpserts.push({
+      guesty_reservation_id: `csv:${code}`,
+      property_id: propertyId,
+      confirmation_code: code,
+      guest_name: cleanedGuest,
+      check_in: checkIn,
+      check_out: checkOut,
+      nights,
+      channel: normalizedChannel,
+      guesty_channel_id: platform || null,
+      status: 'confirmed',
+      source: 'csv-fallback',
+      synced_at: new Date().toISOString(),
+    });
+  }
+
+  // 2. For each existing reservation: if the CSV has a row for its
+  //    confirmation code, recompute platform + stripe fee + adjusted
+  //    revenue and (when the stored name was a placeholder) fill in the
+  //    real guest name. Reservations without a CSV match are left alone
+  //    so we never regress a row the platform CSV doesn't mention.
+  type ResChange = {
+    id: string;
+    prev: { guest: string | null; platform: string | null; adjusted: number | null };
+    next: { guest: string; platform: string; stripe_fee: number; adjusted_revenue: number };
+  };
+  const changes: ResChange[] = [];
+  let totalRevenue = 0;
+  let stripeFeeTotal = 0;
+  let matchedCount = 0;
+
+  for (const res of reservations) {
+    const match = platformMap.get(res.confirmation_code);
+    if (!match) {
+      // No CSV row for this reservation; keep its current adjusted revenue
+      // in the running total so the statement math stays right.
+      totalRevenue += res.adjusted_revenue || 0;
+      stripeFeeTotal += res.stripe_fee || 0;
+      continue;
+    }
+    matchedCount++;
+    const normalizedPlatform = normalizePlatform(match.platform) || 'Unknown';
+    const platformUpper = normalizedPlatform.toUpperCase();
+    const isStripeChannel = platformUpper.includes('HOMEAWAY') || platformUpper === 'VRBO' || platformUpper === 'MANUAL';
+    const isHomeownerStay = platformUpper === 'MANUAL' && (!res.guesty_rental_income || res.guesty_rental_income === 0);
+
+    let stripeFee = 0;
+    let adjustedRevenue = res.guesty_rental_income || 0;
+    if (isHomeownerStay) {
+      adjustedRevenue = 0;
+    } else if (isStripeChannel) {
+      stripeFee = calcStripeFee(res.guesty_rental_income || 0);
+      adjustedRevenue = round2((res.guesty_rental_income || 0) - stripeFee);
+    }
+
+    // Only overwrite guest_name when the stored value is a placeholder
+    // (empty, confirmation code, or missing). If we already have a real
+    // name from a prior sync, keep it.
+    const priorName = (res.guest_name || '').trim();
+    const priorIsPlaceholder = !priorName || looksLikeConfirmationCode(priorName);
+    const csvName = titleCase(match.guest);
+    const nextName = priorIsPlaceholder && csvName ? csvName : (priorName || csvName || 'Guest');
+
+    changes.push({
+      id: res.id,
+      prev: { guest: res.guest_name, platform: res.platform, adjusted: res.adjusted_revenue },
+      next: { guest: nextName, platform: normalizedPlatform, stripe_fee: stripeFee, adjusted_revenue: adjustedRevenue },
+    });
+    totalRevenue += adjustedRevenue;
+    stripeFeeTotal += stripeFee;
+  }
+
+  totalRevenue = round2(totalRevenue);
+  stripeFeeTotal = round2(stripeFeeTotal);
+
+  // 3. Apply reservation updates one by one (PostgREST can't do per-row
+  //    UPDATEs with different values in a single call, and writing to
+  //    service role makes the UPDATE actually land).
+  for (const c of changes) {
+    await supabase
+      .from('reservations')
+      .update({
+        guest_name: c.next.guest,
+        platform: c.next.platform,
+        stripe_fee: c.next.stripe_fee,
+        adjusted_revenue: c.next.adjusted_revenue,
+      })
+      .eq('id', c.id);
+  }
+
+  // 4. Upsert the guesty_reservations rows so the upcoming-bookings panel
+  //    has this CSV's future stays too. Don't stomp on rows that came
+  //    from the Guesty API (those are authoritative); the upsert keys on
+  //    guesty_reservation_id, and our CSV rows use a "csv:<code>" id so
+  //    they never collide with API-sourced "<guesty_id>" rows for the
+  //    same confirmation code.
+  if (guestyResUpserts.length > 0) {
+    await supabase
+      .from('guesty_reservations')
+      .upsert(guestyResUpserts, { onConflict: 'guesty_reservation_id' });
+  }
+
+  // 5. Recompute the statement totals. Management fee follows whatever
+  //    totalRevenue now is; owner payout nets out cleaning + repairs
+  //    (unchanged from the prior run, since platform CSV doesn't touch
+  //    bank-sourced cleaning).
+  const managementFee = round2(totalRevenue * (stmt.management_fee_pct / 100));
+  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+  const numStays = reservations.filter(r => {
+    const ch = changes.find(c => c.id === r.id);
+    const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
+    return adjusted > 0;
+  }).length;
+
+  let confidence: 'red' | 'yellow' | 'green' = 'red';
+  const hasGuesty = !!stmt.has_guesty_statement;
+  const hasBank = !!stmt.has_bank_csv;
+  if (hasGuesty && hasBank) confidence = 'green';
+  else if (hasGuesty) confidence = 'yellow';
+
+  await supabase
+    .from('property_statements')
+    .update({
+      rental_revenue: totalRevenue,
+      management_fee: managementFee,
+      owner_payout: ownerPayout,
+      num_stays: numStays,
+      has_platform_csv: true,
+      confidence,
+    })
+    .eq('id', stmt.id);
+
+  // 6. Clear the gaps platform CSV resolves.
+  await supabase
+    .from('data_gaps')
+    .delete()
+    .eq('property_statement_id', stmt.id)
+    .in('gap_type', ['no_platform_match', 'unresolved_guest_names']);
+
+  return NextResponse.json({
+    success: true,
+    file_type: 'platform_csv',
+    property: stmt.property_name,
+    property_statement_id: stmt.id,
+    summary: {
+      rental_revenue: totalRevenue,
+      management_fee: managementFee,
+      owner_payout: ownerPayout,
+      stripe_fee_total: stripeFeeTotal,
+      reservations_total: reservations.length,
+      reservations_matched_by_csv: matchedCount,
+      confidence,
+    },
+    changes: changes.map(c => ({
+      id: c.id,
+      guest_before: c.prev.guest,
+      guest_after: c.next.guest,
+      platform_before: c.prev.platform,
+      platform_after: c.next.platform,
+      adjusted_revenue_before: c.prev.adjusted,
+      adjusted_revenue_after: c.next.adjusted_revenue,
+    })),
+  });
+}
+
 // ── endpoint ─────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -144,9 +428,9 @@ export async function POST(request: NextRequest) {
     if (!file) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
     }
-    if (fileType !== 'bank_csv') {
+    if (fileType !== 'bank_csv' && fileType !== 'platform_csv') {
       return NextResponse.json(
-        { error: `file_type '${fileType}' not supported yet. Currently only 'bank_csv' is handled.` },
+        { error: `file_type '${fileType}' not supported. Accepted: 'bank_csv' or 'platform_csv'.` },
         { status: 400 },
       );
     }
@@ -168,7 +452,7 @@ export async function POST(request: NextRequest) {
 
     const { data: stmt } = await supabase
       .from('property_statements')
-      .select('id, property_id, property_name, rental_revenue, management_fee, repairs_total')
+      .select('id, property_id, property_name, rental_revenue, management_fee, management_fee_pct, cleaning_total, repairs_total, has_guesty_statement, has_platform_csv, has_bank_csv')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
@@ -179,12 +463,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Pull existing reservations so we can re-match them against the new
-    //    bank deposits and rebuild cleaning_events.
+    // 2. Pull existing reservations so we can patch them in place.
     const { data: reservations } = await supabase
       .from('reservations')
-      .select('id, guest_name, confirmation_code, check_in, check_out, nights, platform, guesty_rental_income, stripe_fee, adjusted_revenue')
+      .select('id, guest_name, confirmation_code, check_in, check_out, nights, platform, guesty_rental_income, stripe_fee, adjusted_revenue, bank_match_status, bank_deposit_amount')
       .eq('property_statement_id', stmt.id);
+
+    // Dispatch to the per-file-type handler.
+    if (fileType === 'platform_csv') {
+      return await fillPlatformGap({ stmt, reservations: reservations || [], propertyId, file });
+    }
+    // else bank_csv -- continues below with existing logic.
 
     // 3. Parse the bank CSV (same shape the main ingest expects).
     const bankText = await file.text();
@@ -377,8 +666,28 @@ export async function POST(request: NextRequest) {
         .insert(newGaps.map(g => ({ property_statement_id: stmt.id, ...g })));
     }
 
+    // Capture per-reservation changes so the client can show "Svetlana
+    // Dukhon: unmatched -> matched ($859.36)" instead of opaque counts.
+    const resChanges = resUpdates
+      .map(u => {
+        const res = (reservations || []).find(r => r.id === u.id);
+        if (!res) return null;
+        const prev = res.bank_match_status || 'unmatched';
+        const next = u.bank_match_status;
+        return {
+          guest: res.guest_name || 'Guest',
+          status_before: prev,
+          status_after: next,
+          deposit_amount: u.bank_deposit_amount,
+          adjusted_revenue: res.adjusted_revenue,
+          changed: prev !== next,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+
     return NextResponse.json({
       success: true,
+      file_type: 'bank_csv',
       property: stmt.property_name,
       month,
       property_statement_id: stmt.id,
@@ -391,6 +700,7 @@ export async function POST(request: NextRequest) {
         new_gaps: newGaps.length,
         confidence,
       },
+      changes: resChanges,
     });
   } catch (err) {
     console.error('fill-gap error:', err);
