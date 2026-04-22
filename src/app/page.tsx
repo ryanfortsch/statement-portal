@@ -1718,24 +1718,20 @@ function DashboardContent() {
       {/* ─── Sync toasts ─── */}
       {syncResult && (
         <Toast tone="positive" onDismiss={() => setSyncResult(null)}>
-          Invoice sync complete: <strong>{syncResult.total}</strong> found, <strong>{syncResult.matched}</strong> matched, <strong>{syncResult.inserted}</strong> new, <strong>{syncResult.skipped}</strong> skipped
+          Matched <strong>{syncResult.matched}</strong> of <strong>{syncResult.total}</strong> cleaning invoices to bank charges (<strong>{syncResult.inserted}</strong> new, <strong>{syncResult.skipped}</strong> skipped). The dashboard has refreshed automatically.
         </Toast>
       )}
       {guestySyncResult && (
         typeof guestySyncResult === 'string' ? (
           <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
-            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload CSV</strong>.
+            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload CSV</strong> instead.
           </Toast>
         ) : (
           <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
-            Synced from Guesty: <strong>{guestySyncResult.listings}</strong> listings,{' '}
-            {guestySyncResult.reviews?.error
-              ? <span style={{ color: 'var(--signal)' }}>reviews failed ({guestySyncResult.reviews.error})</span>
-              : <><strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews</>}
-            ,{' '}
-            {guestySyncResult.reservations?.error
-              ? <span style={{ color: 'var(--signal)' }}>reservations failed ({guestySyncResult.reservations.error})</span>
-              : <><strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings</>}
+            <strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
+            {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
+            {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
+            {'. '}These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
           </Toast>
         )
       )}
@@ -1744,8 +1740,9 @@ function DashboardContent() {
           <Toast tone="negative" onDismiss={() => setCsvResult(null)}>CSV upload failed: {csvResult}</Toast>
         ) : (
           <Toast tone="positive" onDismiss={() => setCsvResult(null)}>
-            CSV ingested: <strong>{csvResult.parsed}</strong> rows, <strong>{csvResult.reservations}</strong> reservations, <strong>{csvResult.reviews}</strong> reviews
-            {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} unmatched)</span>}
+            <strong>{csvResult.reservations}</strong> reservations and <strong>{csvResult.reviews}</strong> reviews saved from your Guesty CSV
+            {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} rows didn&apos;t match a property)</span>}
+            {'. '}Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
           </Toast>
         )
       )}
