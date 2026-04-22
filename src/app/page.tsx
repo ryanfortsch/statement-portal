@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
 import { Suspense } from 'react';
 import Link from 'next/link';
 
@@ -129,53 +130,6 @@ function defaultFundsSentDate(statementMonth: string): string {
   const mon = new Date(first);
   mon.setUTCDate(first.getUTCDate() + offsetToMonday);
   return mon.toISOString().slice(0, 10);
-}
-
-function fmtFundsSentDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso + 'T00:00:00');
-  const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
-  const mmdd = d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
-  return `${weekday} ${mmdd}`;
-}
-
-type EmailTemplate = 'monthly' | 'touch_base' | 'year_end';
-
-function renderEmail(args: {
-  greeting: string;
-  monthName: string;
-  propertyShort: string;
-  fundsSentIso: string;
-  template: EmailTemplate;
-}): { subject: string; body: string } {
-  const { greeting, monthName, propertyShort, fundsSentIso, template } = args;
-  const fundsSent = fmtFundsSentDate(fundsSentIso);
-  const monthYear = monthName;
-
-  const subject = `${monthYear} Owner Statement, ${propertyShort}`;
-
-  const greetingLine = `Hi ${greeting},`;
-  const statementLine = `Please see attached ${monthName.split(' ')[0]} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
-
-  if (template === 'touch_base') {
-    const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;
-    return {
-      subject,
-      body: `${greetingLine}\n\n${statementLine}\n\n${touchBase}\n\nThanks so much,\nAllie`,
-    };
-  }
-
-  if (template === 'year_end') {
-    return {
-      subject: `${monthYear} Owner Statement, ${propertyShort}`,
-      body: `${greetingLine}\n\n[Year-end recap template — YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${monthName.split(' ')[0]} statement. Funds will be sent on ${fundsSent}.\n\nHappy New Year!\nAllie & Ryan`,
-    };
-  }
-
-  return {
-    subject,
-    body: `${greetingLine}\n\n${statementLine}\n\nThanks!\nAllie`,
-  };
 }
 
 function buildTransferList(args: {
@@ -835,6 +789,8 @@ function DashboardContent() {
   const [fundsSentDate, setFundsSentDate] = useState<string>('');
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
+  const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
+  const [draftResult, setDraftResult] = useState<{ url: string; property: string } | string | null>(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [uploadingCsv, setUploadingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<
@@ -914,6 +870,55 @@ function DashboardContent() {
     setFundsSentDate(iso);
     if (!period) return;
     await supabase.from('statement_periods').update({ funds_sent_date: iso }).eq('id', period.id);
+  }
+
+  async function createGmailDraft(propertyId: string) {
+    if (!period) return;
+    setDraftingProperty(propertyId);
+    setDraftResult(null);
+    try {
+      const tmpl = closeTasks[propertyId]?.email_template || 'monthly';
+      const res = await fetch('/api/draft-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: propertyId,
+          month: selectedMonth,
+          template: tmpl,
+          funds_sent_date: fundsSentDate,
+          period_id: period.id,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setDraftResult(data.error || 'Draft creation failed');
+      } else {
+        const propName = PROPERTIES[propertyId]?.name || propertyId;
+        setDraftResult({ url: data.draft_url, property: propName });
+        // Reflect the server-side stamp locally so the checkbox updates without a reload.
+        setCloseTasks(prev => {
+          const existing = prev[propertyId];
+          return {
+            ...prev,
+            [propertyId]: {
+              period_id: period.id,
+              property_id: propertyId,
+              email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+              email_drafted_at: new Date().toISOString(),
+              email_sent_at: existing?.email_sent_at || null,
+              owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+              mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+              notes: existing?.notes || null,
+            },
+          };
+        });
+        setPreviewPropertyId(null);
+      }
+    } catch (err) {
+      setDraftResult(err instanceof Error ? err.message : 'Draft creation failed');
+    } finally {
+      setDraftingProperty(null);
+    }
   }
 
   async function saveCloseTaskField(propertyId: string, patch: Partial<CloseTask>) {
@@ -1524,7 +1529,37 @@ function DashboardContent() {
               }}>{body}</pre>
             </div>
 
-            <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+            <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={() => createGmailDraft(previewPropertyId)}
+                disabled={draftingProperty === previewPropertyId || cfg.owner_emails.length === 0}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: 'var(--ink)', color: 'var(--paper)',
+                  fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                  padding: '10px 18px', border: 'none',
+                  cursor: (draftingProperty === previewPropertyId || cfg.owner_emails.length === 0) ? 'not-allowed' : 'pointer',
+                  opacity: (draftingProperty === previewPropertyId || cfg.owner_emails.length === 0) ? 0.4 : 1,
+                }}
+              >
+                {draftingProperty === previewPropertyId ? (
+                  <>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      border: '1.5px solid var(--paper)', borderTopColor: 'transparent',
+                      animation: 'spin 0.8s linear infinite',
+                    }} />
+                    Drafting
+                  </>
+                ) : (
+                  <>
+                    <svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 9v.906a2.25 2.25 0 01-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 001.183 1.981l6.478 3.488m8.839 2.51l-4.66-2.51m0 0l-1.023-.55a2.25 2.25 0 00-2.134 0l-1.022.55m0 0l-4.661 2.51m16.5 1.615a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75a2.25 2.25 0 012.25-2.25h15a2.25 2.25 0 012.25 2.25v10.875z" />
+                    </svg>
+                    Create Gmail Draft
+                  </>
+                )}
+              </button>
               <button
                 onClick={async () => {
                   try {
@@ -1532,12 +1567,12 @@ function DashboardContent() {
                   } catch {}
                 }}
                 style={{
-                  background: 'var(--ink)', color: 'var(--paper)',
-                  fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                  padding: '9px 16px', border: 'none', cursor: 'pointer',
+                  background: 'transparent', color: 'var(--ink-3)',
+                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
+                  padding: '10px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
                 }}
               >
-                Copy Subject + Body
+                Copy Instead
               </button>
               <button
                 onClick={() => {
@@ -1545,13 +1580,18 @@ function DashboardContent() {
                   setPreviewPropertyId(null);
                 }}
                 style={{
-                  background: 'transparent', color: 'var(--ink-3)',
+                  background: 'transparent', color: 'var(--ink-4)',
                   fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                  padding: '9px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
+                  padding: '10px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
                 }}
               >
-                Mark Drafted
+                Mark Drafted (manual)
               </button>
+              {cfg.owner_emails.length === 0 && (
+                <span style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                  No owner email on file
+                </span>
+              )}
             </div>
           </PreviewModal>
         );
@@ -1643,6 +1683,19 @@ function DashboardContent() {
           <Toast tone="positive" onDismiss={() => setCsvResult(null)}>
             CSV ingested: <strong>{csvResult.parsed}</strong> rows, <strong>{csvResult.reservations}</strong> reservations, <strong>{csvResult.reviews}</strong> reviews
             {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} unmatched)</span>}
+          </Toast>
+        )
+      )}
+      {draftResult && (
+        typeof draftResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setDraftResult(null)}>Gmail draft failed: {draftResult}</Toast>
+        ) : (
+          <Toast tone="positive" onDismiss={() => setDraftResult(null)}>
+            Gmail draft created for <strong>{draftResult.property}</strong>.{' '}
+            <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
+              Open in Gmail →
+            </a>{' '}
+            Review, attach the statement PDF, and send.
           </Toast>
         )
       )}
