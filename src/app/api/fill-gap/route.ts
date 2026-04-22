@@ -21,8 +21,12 @@ import { NextRequest, NextResponse } from 'next/server';
  * branches.
  */
 
+// Service role: this route needs to UPDATE reservations.bank_match_status /
+// bank_deposit_amount, and the anon key's RLS policy silently no-ops UPDATEs
+// (returns 200 with zero rows changed, no error). Service role bypasses RLS.
+// This is safe on a server route -- the key never reaches the client.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ── shared helpers (duplicated from /api/ingest so a refactor of the ingest
