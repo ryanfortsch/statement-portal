@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { supabase, debugInfo } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { Suspense } from 'react';
 import Link from 'next/link';
 
@@ -72,7 +73,19 @@ type StatementPeriod = {
   id: string;
   month: string;
   status: string;
+  funds_sent_date?: string | null;
   property_statements?: PropertyStatement[];
+};
+
+type CloseTask = {
+  period_id: string;
+  property_id: string;
+  email_template: 'monthly' | 'touch_base' | 'year_end';
+  email_drafted_at: string | null;
+  email_sent_at: string | null;
+  owner_transfer_done_at: string | null;
+  mgmt_sweep_done_at: string | null;
+  notes: string | null;
 };
 
 /* ─── Formatters ─── */
@@ -104,6 +117,98 @@ function monthLong(m: string): string {
 function monthShort(m: string): string {
   const d = new Date(m + '-01T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+// Default suggestion: first Monday of the month AFTER the statement month.
+// Rendered as "Monday 5/4" -- operator can still override via the date picker.
+function defaultFundsSentDate(statementMonth: string): string {
+  const [y, m] = statementMonth.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m, 1));  // first day of next month (UTC)
+  const day = first.getUTCDay();  // 0 = Sun
+  const offsetToMonday = (8 - day) % 7;
+  const mon = new Date(first);
+  mon.setUTCDate(first.getUTCDate() + offsetToMonday);
+  return mon.toISOString().slice(0, 10);
+}
+
+function fmtFundsSentDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+  const mmdd = d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  return `${weekday} ${mmdd}`;
+}
+
+type EmailTemplate = 'monthly' | 'touch_base' | 'year_end';
+
+function renderEmail(args: {
+  greeting: string;
+  monthName: string;
+  propertyShort: string;
+  fundsSentIso: string;
+  template: EmailTemplate;
+}): { subject: string; body: string } {
+  const { greeting, monthName, propertyShort, fundsSentIso, template } = args;
+  const fundsSent = fmtFundsSentDate(fundsSentIso);
+  const monthYear = monthName;
+
+  const subject = `${monthYear} Owner Statement, ${propertyShort}`;
+
+  const greetingLine = `Hi ${greeting},`;
+  const statementLine = `Please see attached ${monthName.split(' ')[0]} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
+
+  if (template === 'touch_base') {
+    const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;
+    return {
+      subject,
+      body: `${greetingLine}\n\n${statementLine}\n\n${touchBase}\n\nThanks so much,\nAllie`,
+    };
+  }
+
+  if (template === 'year_end') {
+    return {
+      subject: `${monthYear} Owner Statement, ${propertyShort}`,
+      body: `${greetingLine}\n\n[Year-end recap template — YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${monthName.split(' ')[0]} statement. Funds will be sent on ${fundsSent}.\n\nHappy New Year!\nAllie & Ryan`,
+    };
+  }
+
+  return {
+    subject,
+    body: `${greetingLine}\n\n${statementLine}\n\nThanks!\nAllie`,
+  };
+}
+
+function buildTransferList(args: {
+  monthName: string;
+  fundsSentIso: string;
+  rows: Array<{ property: string; owner: string; payout: number; mgmtFee: number }>;
+}): string {
+  const { monthName, fundsSentIso, rows } = args;
+  const totalPayout = rows.reduce((s, r) => s + r.payout, 0);
+  const totalMgmt = rows.reduce((s, r) => s + r.mgmtFee, 0);
+  const fs = fmtFundsSentDate(fundsSentIso);
+  const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  const lines: string[] = [];
+  lines.push(`${monthName} TRANSFERS`);
+  lines.push(`Funds sent ${fs}`);
+  lines.push('');
+  lines.push('OWNER PAYOUTS (ACH to owner bank account)');
+  lines.push('-'.repeat(60));
+  rows.forEach(r => {
+    lines.push(`  ${r.owner.padEnd(28)} ${dollars(r.payout).padStart(12)}   (${r.property})`);
+  });
+  lines.push('-'.repeat(60));
+  lines.push(`  ${'TOTAL OWNER PAYOUTS'.padEnd(28)} ${dollars(totalPayout).padStart(12)}`);
+  lines.push('');
+  lines.push('MANAGEMENT SWEEP (to Rising Tide operating account)');
+  lines.push('-'.repeat(60));
+  rows.forEach(r => {
+    lines.push(`  ${r.owner.padEnd(28)} ${dollars(r.mgmtFee).padStart(12)}   (${r.property})`);
+  });
+  lines.push('-'.repeat(60));
+  lines.push(`  ${'TOTAL MGMT SWEEP'.padEnd(28)} ${dollars(totalMgmt).padStart(12)}`);
+  return lines.join('\n');
 }
 
 function relativeTime(iso: string): string {
@@ -181,6 +286,76 @@ function PlatformBadge({ platform }: { platform: string }) {
 function ConfidenceIndicator({ level }: { level: string }) {
   const color = level === 'green' ? 'var(--positive)' : level === 'yellow' ? 'var(--signal)' : 'var(--negative)';
   return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />;
+}
+
+function CheckTask({ label, done, onToggle }: { label: string; done: boolean; onToggle: (next: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onToggle(!done)}
+      title={label}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        background: 'transparent', border: 'none', cursor: 'pointer',
+        fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
+        color: done ? 'var(--positive)' : 'var(--ink-4)',
+        padding: 4,
+      }}
+    >
+      <span style={{
+        width: 14, height: 14,
+        border: `1px solid ${done ? 'var(--positive)' : 'var(--rule)'}`,
+        background: done ? 'var(--positive)' : 'transparent',
+        color: 'var(--paper)',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {done && (
+          <svg width="9" height="9" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+        )}
+      </span>
+      {label}
+    </button>
+  );
+}
+
+function PreviewModal({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(30, 46, 52, 0.35)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        paddingTop: 80, paddingBottom: 40,
+        overflow: 'auto',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--paper)',
+          border: '1px solid var(--ink)',
+          width: '100%', maxWidth: 640,
+          padding: 28,
+          boxShadow: '0 30px 80px -20px rgba(30,46,52,.25), 0 8px 24px -8px rgba(30,46,52,.1)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button
+            onClick={onClose}
+            style={{ background: 'transparent', border: 'none', color: 'var(--ink-4)', cursor: 'pointer' }}
+            aria-label="close"
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function Toast({ tone, onDismiss, children }: { tone: 'positive' | 'tide' | 'negative'; onDismiss: () => void; children: React.ReactNode }) {
@@ -657,6 +832,10 @@ function DashboardContent() {
     | null
   >(null);
   const [lastSync, setLastSync] = useState<Record<string, string>>({});
+  const [fundsSentDate, setFundsSentDate] = useState<string>('');
+  const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
+  const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
+  const [transferListOpen, setTransferListOpen] = useState(false);
   const [uploadingCsv, setUploadingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<
     | { parsed: number; reservations: number; reviews: number; unmatched: number }
@@ -704,11 +883,13 @@ function DashboardContent() {
 
       setPeriod({ ...periodData, property_statements: enrichedProps });
       setSelectedMonth(month);
+      await loadCloseState(periodData.id, month);
     } catch (err) {
       setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadLastSync = useCallback(async () => {
@@ -717,6 +898,41 @@ function DashboardContent() {
     (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
     setLastSync(map);
   }, []);
+
+  const loadCloseState = useCallback(async (periodId: string, month: string) => {
+    const [{ data: tasks }, { data: periodRow }] = await Promise.all([
+      supabase.from('close_tasks').select('*').eq('period_id', periodId),
+      supabase.from('statement_periods').select('funds_sent_date').eq('id', periodId).single(),
+    ]);
+    const map: Record<string, CloseTask> = {};
+    (tasks || []).forEach((t: CloseTask) => { map[t.property_id] = t; });
+    setCloseTasks(map);
+    setFundsSentDate(periodRow?.funds_sent_date || defaultFundsSentDate(month));
+  }, []);
+
+  async function saveFundsSentDate(iso: string) {
+    setFundsSentDate(iso);
+    if (!period) return;
+    await supabase.from('statement_periods').update({ funds_sent_date: iso }).eq('id', period.id);
+  }
+
+  async function saveCloseTaskField(propertyId: string, patch: Partial<CloseTask>) {
+    if (!period) return;
+    const existing = closeTasks[propertyId];
+    const merged: CloseTask = {
+      period_id: period.id,
+      property_id: propertyId,
+      email_template: existing?.email_template || 'monthly',
+      email_drafted_at: existing?.email_drafted_at || null,
+      email_sent_at: existing?.email_sent_at || null,
+      owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+      mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+      notes: existing?.notes || null,
+      ...patch,
+    };
+    setCloseTasks(prev => ({ ...prev, [propertyId]: merged }));
+    await supabase.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });
+  }
 
   useEffect(() => {
     if (!authenticated) { setLoading(false); return; }
@@ -1109,6 +1325,292 @@ function DashboardContent() {
           </div>
         )}
       </section>
+
+      {/* ─── CLOSE-OUT PANEL ─── */}
+      {props.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32 }}>
+          <div className="rule-top" style={{ paddingTop: 20 }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto',
+              gap: 14,
+              alignItems: 'baseline',
+              paddingBottom: 14,
+            }}>
+              <span className="font-mono" style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.08em' }}>06</span>
+              <h2 className="font-serif" style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
+                Close out <em style={{ color: 'var(--tide-deep)' }}>{monthLong(selectedMonth)}</em>
+              </h2>
+              <span style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.14em' }}>
+                Execution
+              </span>
+            </div>
+
+            {/* Top strip: funds sent date + totals + actions */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto auto',
+              gap: 20,
+              alignItems: 'center',
+              padding: '10px 0',
+              borderBottom: '1px dotted var(--rule)',
+              marginBottom: 12,
+            }}>
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Funds sent</div>
+                <input
+                  type="date"
+                  value={fundsSentDate}
+                  onChange={(e) => saveFundsSentDate(e.target.value)}
+                  className="font-serif tabular-nums"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: '1px solid var(--ink)',
+                    padding: '4px 0',
+                    fontSize: 15, fontWeight: 500, color: 'var(--ink)',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+              <div />
+              <div style={{ textAlign: 'right' }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Total to Rising Tide</div>
+                <div className="font-serif tabular-nums" style={{ fontSize: 20, fontWeight: 500, color: 'var(--signal)' }}>
+                  {fmtCompact(totalMgmt)}
+                </div>
+              </div>
+              <button
+                onClick={() => setTransferListOpen(true)}
+                style={{
+                  border: '1px solid var(--ink)',
+                  background: 'transparent', color: 'var(--ink)',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                  padding: '8px 14px', cursor: 'pointer',
+                }}
+              >
+                Transfer List
+              </button>
+            </div>
+
+            {/* Per-property rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {props.map((p) => {
+                const cfg = PROPERTIES[p.property_id];
+                const task = closeTasks[p.property_id];
+                const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
+                const emailsMissing = !cfg || cfg.owner_emails.length === 0;
+                return (
+                  <div key={p.id} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto',
+                    gap: 16,
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    borderBottom: '1px dotted var(--rule)',
+                    fontSize: 12,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{p.property_name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 2 }}>
+                        {cfg?.owner_greeting || p.owner_name}
+                        {emailsMissing && (
+                          <span style={{ color: 'var(--signal)', marginLeft: 6, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 9 }}>
+                            &middot; no email
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="tabular-nums font-serif" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtCompact(p.owner_payout)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--signal)' }}>+ {fmtCompact(p.management_fee)} mgmt</div>
+                    </div>
+                    <select
+                      value={tmpl}
+                      onChange={(e) => saveCloseTaskField(p.property_id, { email_template: e.target.value as EmailTemplate })}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid var(--rule)',
+                        fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        padding: '5px 20px 5px 8px',
+                        appearance: 'none',
+                        cursor: 'pointer',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 4px center',
+                        backgroundSize: '12px',
+                      }}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="touch_base">Touch-base</option>
+                      <option value="year_end">Year-end</option>
+                    </select>
+                    <button
+                      onClick={() => setPreviewPropertyId(p.property_id)}
+                      style={{
+                        border: '1px solid var(--rule)',
+                        background: 'transparent', color: 'var(--ink-3)',
+                        fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
+                        padding: '5px 12px', cursor: 'pointer',
+                      }}
+                    >
+                      Preview
+                    </button>
+                    <CheckTask
+                      label="Drafted"
+                      done={!!task?.email_drafted_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_drafted_at: next ? new Date().toISOString() : null })}
+                    />
+                    <CheckTask
+                      label="Owner sent"
+                      done={!!task?.owner_transfer_done_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { owner_transfer_done_at: next ? new Date().toISOString() : null })}
+                    />
+                    <CheckTask
+                      label="Mgmt swept"
+                      done={!!task?.mgmt_sweep_done_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { mgmt_sweep_done_at: next ? new Date().toISOString() : null })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Email preview modal */}
+      {previewPropertyId && (() => {
+        const prop = props.find(p => p.property_id === previewPropertyId);
+        const cfg = PROPERTIES[previewPropertyId];
+        if (!prop || !cfg) return null;
+        const task = closeTasks[previewPropertyId];
+        const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
+        const { subject, body } = renderEmail({
+          greeting: cfg.owner_greeting,
+          monthName: monthLabel(selectedMonth),
+          propertyShort: cfg.name,
+          fundsSentIso: fundsSentDate,
+          template: tmpl,
+        });
+        return (
+          <PreviewModal onClose={() => setPreviewPropertyId(null)}>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>Email preview · {tmpl.replace('_', '-')}</div>
+            <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>{cfg.owner_full}</h3>
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
+              To: {cfg.owner_emails.length > 0 ? cfg.owner_emails.join(', ') : <em style={{ color: 'var(--signal)' }}>no email on file</em>}
+              <br />
+              Cc: {ALWAYS_CC.join(', ')}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>From: {SEND_FROM.name} &lt;{SEND_FROM.email}&gt;</div>
+
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--ink)' }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Subject</div>
+              <div className="font-serif" style={{ fontSize: 16, color: 'var(--ink)' }}>{subject}</div>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Body</div>
+              <pre className="font-serif" style={{
+                whiteSpace: 'pre-wrap',
+                fontSize: 13, lineHeight: 1.55,
+                color: 'var(--ink)',
+                background: 'var(--paper-2)',
+                padding: '14px 16px',
+                borderLeft: '3px solid var(--tide)',
+                margin: 0,
+                fontFamily: 'var(--font-fraunces)',
+              }}>{body}</pre>
+            </div>
+
+            <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+                  } catch {}
+                }}
+                style={{
+                  background: 'var(--ink)', color: 'var(--paper)',
+                  fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                  padding: '9px 16px', border: 'none', cursor: 'pointer',
+                }}
+              >
+                Copy Subject + Body
+              </button>
+              <button
+                onClick={() => {
+                  saveCloseTaskField(previewPropertyId, { email_drafted_at: new Date().toISOString() });
+                  setPreviewPropertyId(null);
+                }}
+                style={{
+                  background: 'transparent', color: 'var(--ink-3)',
+                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
+                  padding: '9px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
+                }}
+              >
+                Mark Drafted
+              </button>
+            </div>
+          </PreviewModal>
+        );
+      })()}
+
+      {/* Transfer list modal */}
+      {transferListOpen && (
+        <PreviewModal onClose={() => setTransferListOpen(false)}>
+          {(() => {
+            const rows = props
+              .filter(p => p.owner_payout > 0)
+              .map(p => ({
+                property: p.property_name,
+                owner: PROPERTIES[p.property_id]?.owner_full || p.owner_name,
+                payout: p.owner_payout,
+                mgmtFee: p.management_fee,
+              }));
+            const text = buildTransferList({
+              monthName: monthLabel(selectedMonth).toUpperCase(),
+              fundsSentIso: fundsSentDate,
+              rows,
+            });
+            return (
+              <>
+                <div className="eyebrow" style={{ marginBottom: 6 }}>Transfer list</div>
+                <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>
+                  {monthLabel(selectedMonth)} &middot; {rows.length} owners
+                </h3>
+                <pre className="font-mono" style={{
+                  marginTop: 18,
+                  whiteSpace: 'pre',
+                  fontSize: 11, lineHeight: 1.55,
+                  color: 'var(--ink-2)',
+                  background: 'var(--paper-2)',
+                  padding: '16px 18px',
+                  borderLeft: '3px solid var(--tide)',
+                  overflowX: 'auto',
+                }}>{text}</pre>
+                <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(text);
+                      } catch {}
+                    }}
+                    style={{
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    Copy to Clipboard
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </PreviewModal>
+      )}
 
       {/* ─── Sync toasts ─── */}
       {syncResult && (
