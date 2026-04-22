@@ -1,8 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
+// Service role so future UPDATEs don't silently no-op. Anon has
+// INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
+// no UPDATE policy -- the current code only inserts-and-deletes so anon
+// works today, but a future maintainer adding an UPDATE call would hit
+// the same PostgREST-200-with-zero-rows-changed silent failure we saw
+// in /api/fill-gap.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Property config

@@ -274,14 +274,32 @@ function CheckTask({ label, done, onToggle }: { label: string; done: boolean; on
   );
 }
 
+type FillGapType = 'bank_csv' | 'platform_csv';
+
 /**
  * Which file type fills a given data-gap type? Returns null for gaps that
  * aren't user-fillable (those need a full re-upload or a Gmail sync).
  */
-function gapFillType(gapType: string): 'bank_csv' | null {
+function gapFillType(gapType: string): FillGapType | null {
   if (gapType === 'missing_bank_csv' || gapType === 'unmatched_bank') return 'bank_csv';
+  if (gapType === 'no_platform_match' || gapType === 'unresolved_guest_names') return 'platform_csv';
   return null;
 }
+
+// Response shapes returned by /api/fill-gap -- discriminated by file_type.
+type BankChange = { guest: string; status_before: string; status_after: string; deposit_amount: number | null; adjusted_revenue: number | null; changed: boolean };
+type PlatformChange = { id: string; guest_before: string | null; guest_after: string; platform_before: string | null; platform_after: string; adjusted_revenue_before: number | null; adjusted_revenue_after: number };
+type FillGapResult =
+  | {
+      file_type: 'bank_csv';
+      summary: { cleaning_total: number; owner_payout: number; reservations_matched: number; reservations_unmatched: number; confidence: string };
+      changes: BankChange[];
+    }
+  | {
+      file_type: 'platform_csv';
+      summary: { rental_revenue: number; management_fee: number; owner_payout: number; reservations_matched_by_csv: number; reservations_total: number; confidence: string };
+      changes: PlatformChange[];
+    };
 
 /**
  * Small modal that lets the user patch a single missing-file gap on an
@@ -302,7 +320,7 @@ function FillGapModal(props: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [result, setResult] = useState<{ summary: { cleaning_total: number; reservations_matched: number; reservations_unmatched: number; confidence: string } } | null>(null);
+  const [result, setResult] = useState<FillGapResult | null>(null);
 
   // Accept a dropped-in file. Tolerates anything that ends in .csv or has
   // a text/* mime type -- Chrome downloads sometimes report
@@ -312,7 +330,7 @@ function FillGapModal(props: {
     if (!f) return;
     const looksLikeCsv = /\.csv$/i.test(f.name) || f.type.startsWith('text/') || f.type === 'application/vnd.ms-excel';
     if (!looksLikeCsv) {
-      setErr(`"${f.name}" doesn't look like a CSV. Export from Chase as CSV and try again.`);
+      setErr(`"${f.name}" doesn't look like a CSV.`);
       return;
     }
     setFile(f);
@@ -320,10 +338,10 @@ function FillGapModal(props: {
   }
 
   if (!fileType) return null;
-  const title = fileType === 'bank_csv' ? 'Upload Chase Bank CSV' : 'Upload File';
+  const title = fileType === 'bank_csv' ? 'Upload Chase Bank CSV' : 'Upload Platform CSV';
   const hint = fileType === 'bank_csv'
     ? 'Export the month\'s transactions from your Chase account as CSV. We\'ll re-run cleaning + deposit matching against the existing reservations. Nothing else on the statement gets touched.'
-    : '';
+    : 'Export the reservations table from Guesty as CSV. We\'ll use it to fill in booking channels and guest names on the existing reservations, and recompute Stripe fees + owner payout. Bank-sourced cleaning data stays as-is.';
 
   async function submit() {
     if (!file || !fileType) return;
@@ -441,14 +459,60 @@ function FillGapModal(props: {
             <div style={{ padding: 16, background: 'var(--paper-2)', borderLeft: '3px solid #4a6b3a' }}>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: '#4a6b3a' }}>Success</div>
               <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
-                Cleaning total: <strong>${result.summary.cleaning_total.toFixed(2)}</strong>
-                {' · '}
-                {result.summary.reservations_matched} reservation{result.summary.reservations_matched === 1 ? '' : 's'} matched
-                {result.summary.reservations_unmatched > 0 && ` · ${result.summary.reservations_unmatched} still unmatched`}
-                {' · '}
-                confidence <strong>{result.summary.confidence}</strong>
+                {result.file_type === 'bank_csv' ? (
+                  <>
+                    Cleaning total: <strong>${result.summary.cleaning_total.toFixed(2)}</strong>
+                    {' · '}owner payout <strong>${result.summary.owner_payout.toFixed(2)}</strong>
+                    {' · '}{result.summary.reservations_matched} of {result.summary.reservations_matched + result.summary.reservations_unmatched} reservations matched
+                    {' · '}confidence <strong>{result.summary.confidence}</strong>
+                  </>
+                ) : (
+                  <>
+                    Rental revenue: <strong>${result.summary.rental_revenue.toFixed(2)}</strong>
+                    {' · '}owner payout <strong>${result.summary.owner_payout.toFixed(2)}</strong>
+                    {' · '}{result.summary.reservations_matched_by_csv} of {result.summary.reservations_total} reservations filled in from CSV
+                    {' · '}confidence <strong>{result.summary.confidence}</strong>
+                  </>
+                )}
               </div>
             </div>
+
+            {/* Per-guest change list so the operator can verify which
+                reservations actually flipped, rather than trusting raw counts. */}
+            {result.file_type === 'bank_csv' && result.changes.some(c => c.changed) && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>Bank match changes</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: 12, color: 'var(--ink-2)' }}>
+                  {result.changes.filter(c => c.changed).map((c, i) => (
+                    <li key={i} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <span><strong style={{ color: 'var(--ink)' }}>{c.guest}</strong>: {c.status_before} &rarr; <strong>{c.status_after}</strong></span>
+                      {c.deposit_amount != null && <span className="tabular-nums" style={{ color: 'var(--ink-3)' }}>${c.deposit_amount.toFixed(2)}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.file_type === 'platform_csv' && result.changes.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>Reservation updates</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: 12, color: 'var(--ink-2)' }}>
+                  {result.changes.map((c, i) => {
+                    const nameChanged = (c.guest_before || '').trim() !== c.guest_after.trim();
+                    const platChanged = (c.platform_before || '') !== c.platform_after;
+                    return (
+                      <li key={i} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)' }}>
+                        <div><strong style={{ color: 'var(--ink)' }}>{c.guest_after}</strong>{nameChanged && c.guest_before && <span style={{ color: 'var(--ink-4)' }}> (was &ldquo;{c.guest_before}&rdquo;)</span>}</div>
+                        {platChanged && <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>Platform: {c.platform_before || '(unknown)'} &rarr; <strong>{c.platform_after}</strong></div>}
+                        {c.adjusted_revenue_before !== c.adjusted_revenue_after && (
+                          <div style={{ color: 'var(--ink-3)', marginTop: 2 }} className="tabular-nums">Net revenue: ${(c.adjusted_revenue_before ?? 0).toFixed(2)} &rarr; <strong>${c.adjusted_revenue_after.toFixed(2)}</strong></div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
             <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={onSuccess}

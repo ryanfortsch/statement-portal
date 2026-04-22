@@ -1,8 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
+// Service role: this route UPDATEs cleaning_events when an invoice matches
+// an existing bank-sourced row. The anon key's RLS silently no-ops UPDATE
+// (returns 200 with 0 rows changed), so before this fix the invoice-to-bank
+// corroboration path was quietly doing nothing while the no-match path
+// (insert as orphan) worked. Service role bypasses RLS.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Gmail API config (optional -- if not set, route accepts pre-parsed invoices)
