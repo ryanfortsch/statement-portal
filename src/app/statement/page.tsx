@@ -194,9 +194,15 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const numStays = prop.num_stays || (reservations?.length || 0);
   const nightsBooked = prop.nights_booked || 0;
   const totalDays = daysInMonth(month);
-  // Occupancy uses nights that actually fall inside the statement month.
-  // A guest who checks in Mar 2 and out Apr 2 contributes 1 April night,
-  // not 31. (nightsBooked keeps the accounting-total for revenue math.)
+  // occupiedNights = nights that actually fall inside the statement month.
+  // A guest who checks in Mar 2 and out Apr 2 contributes zero April nights
+  // (all 31 nights were slept in March) but one April check-out. Used for
+  // the "N nights booked" display under the Period cell and for occupancy.
+  //
+  // nightsBooked (from prop.nights_booked) = full accounting-nights total
+  // attributed to this month by check-out date -- includes nights from
+  // prior-month stays that checked out this month. Used only for ADR so
+  // the per-night rate matches what guests actually paid.
   const occupiedNights = (reservations || []).reduce(
     (sum, r) => sum + nightsInMonth(r.check_in, r.check_out, month), 0,
   );
@@ -214,7 +220,31 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     const t = r.review_created_at;
     return t >= monthStart && t < monthEndIso;
   });
-  const monthRatedReviews = monthReviews.filter(r => r.overall_rating != null);
+
+  // Dedupe by normalized review text up front: the same review can land in
+  // the DB twice when it was fetched from both the Guesty API
+  // (source=guesty-api) and the manual CSV upload (source=csv-fallback)
+  // with different synthetic IDs. Collapsing here means both the rating
+  // count and the snippet pool see distinct reviews only; otherwise we'd
+  // show "2 reviews this month" when there's really just one.
+  const seenReviewText = new Set<string>();
+  const uniqueMonthReviews = monthReviews.filter(r => {
+    const body = (r.public_review || '').trim();
+    if (!body) {
+      // Reviews without public text -- dedupe by (guest + rating + created
+      // date) so a duplicate rating-only row doesn't inflate the count.
+      const key = `nobody|${(r.guest_name || '').trim().toLowerCase()}|${r.overall_rating ?? ''}|${(r.review_created_at || '').slice(0, 10)}`;
+      if (seenReviewText.has(key)) return false;
+      seenReviewText.add(key);
+      return true;
+    }
+    const key = body.toLowerCase().replace(/\s+/g, ' ').slice(0, 160);
+    if (seenReviewText.has(key)) return false;
+    seenReviewText.add(key);
+    return true;
+  });
+
+  const monthRatedReviews = uniqueMonthReviews.filter(r => r.overall_rating != null);
   const rating = monthRatedReviews.length > 0
     ? {
         value: monthRatedReviews.reduce((s, r) => s + (r.overall_rating ?? 0), 0) / monthRatedReviews.length,
@@ -224,18 +254,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   // Review snippets: only show reviews from THIS month. 1 review renders
   // long-form; multiple renders as stacked short quotes ("Guest Reviews").
-  // Dedupe by normalized review text -- the same review can land in the
-  // DB twice when it was fetched from both the Guesty API (source=guesty-api)
-  // and the manual CSV upload (source=csv-fallback) with different
-  // synthetic IDs. The visible content is identical, so collapse them.
-  const reviewPool = monthReviews.filter(r => r.public_review && r.public_review.trim().length > 15);
-  const seenReviewText = new Set<string>();
-  const uniqueReviewPool = reviewPool.filter(r => {
-    const key = (r.public_review || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 160);
-    if (seenReviewText.has(key)) return false;
-    seenReviewText.add(key);
-    return true;
-  });
+  const uniqueReviewPool = uniqueMonthReviews.filter(
+    r => r.public_review && r.public_review.trim().length > 15,
+  );
   const selectedReviews = pickReviews(
     uniqueReviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })),
   );
@@ -379,7 +400,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="cell">
                 <div className="label">Period</div>
                 <div className="val">{mo.substring(0, 3)} 1 &mdash; {mo.substring(0, 3)} {totalDays}, {yr}</div>
-                <div className="sub">{totalDays} days &middot; {nightsBooked} nights booked</div>
+                <div className="sub">{totalDays} days &middot; {occupiedNights} nights booked</div>
               </div>
               <div className="cell">
                 <div className="label">Issued &middot; Payout</div>
