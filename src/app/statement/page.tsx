@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
+import { PROPERTIES } from '@/lib/properties';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -112,7 +113,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .gt('check_in', monthEndStr)
     .in('status', ['confirmed', 'reserved'])
     .order('check_in', { ascending: true })
-    .limit(6);
+    // Fetch extra so that after filtering out owner stays we still have
+    // 4 real guest bookings to show.
+    .limit(20);
 
   const d = PROPERTY_DETAILS[prop.property_id] || { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
   const numStays = prop.num_stays || (reservations?.length || 0);
@@ -155,13 +158,37 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   // Upcoming bookings from Supabase (guesty_reservations). Populated by either
   // /api/sync-guesty (API path) or /api/ingest-guesty-csv (manual fallback).
+  //
+  // Owner stays are filtered out: a booking on the Direct/Manual channel
+  // whose guest name contains the owner's last name is an owner blocking
+  // their own property, not a real rental. Those shouldn't appear in the
+  // "On the horizon" display.
+  const ownerLast = (PROPERTIES[prop.property_id]?.owner_last || '').toLowerCase();
+  const looksLikeOwnerStay = (r: {
+    guest_name?: string | null;
+    channel?: string | null;
+    guesty_channel_id?: string | null;
+  }): boolean => {
+    if (!ownerLast) return false;
+    const ch = (r.guesty_channel_id || r.channel || '').toLowerCase();
+    const isDirect = ch.includes('manual') || ch === 'direct';
+    if (!isDirect) return false;
+    const guest = (r.guest_name || '').toLowerCase();
+    // match as a whole-word-ish token so "Bailey" hits "Paul Bailey"
+    // but not something like "Baileys Inc" by accident.
+    return new RegExp(`\\b${ownerLast}\\b`, 'i').test(guest);
+  };
+
   type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
-  const upcoming: UpcomingItem[] = (upcomingDb || []).slice(0, 4).map(r => ({
-    guest: titleCase(r.guest_name) || 'Guest',
-    checkIn: r.check_in,
-    nights: r.nights ?? 0,
-    platform: r.guesty_channel_id || r.channel || 'Direct',
-  }));
+  const upcoming: UpcomingItem[] = (upcomingDb || [])
+    .filter(r => !looksLikeOwnerStay(r))
+    .slice(0, 4)
+    .map(r => ({
+      guest: titleCase(r.guest_name) || 'Guest',
+      checkIn: r.check_in,
+      nights: r.nights ?? 0,
+      platform: r.guesty_channel_id || r.channel || 'Direct',
+    }));
 
   // Reservation rows -- enriched from guesty_reservations if the ingest
   // stored a placeholder guest_name or platform.
