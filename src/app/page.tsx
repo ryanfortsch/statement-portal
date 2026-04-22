@@ -790,7 +790,11 @@ function DashboardContent() {
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
   const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
-  const [draftResult, setDraftResult] = useState<{ url: string; property: string } | string | null>(null);
+  const [draftResult, setDraftResult] = useState<
+    | { url: string; property: string; attachedPdf: boolean; warnings: string[] }
+    | string
+    | null
+  >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [uploadingCsv, setUploadingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<
@@ -894,7 +898,12 @@ function DashboardContent() {
         setDraftResult(data.error || 'Draft creation failed');
       } else {
         const propName = PROPERTIES[propertyId]?.name || propertyId;
-        setDraftResult({ url: data.draft_url, property: propName });
+        setDraftResult({
+          url: data.draft_url,
+          property: propName,
+          attachedPdf: !!data.attached_pdf,
+          warnings: Array.isArray(data.warnings) ? data.warnings : [],
+        });
         // Reflect the server-side stamp locally so the checkbox updates without a reload.
         setCloseTasks(prev => {
           const existing = prev[propertyId];
@@ -1690,12 +1699,19 @@ function DashboardContent() {
         typeof draftResult === 'string' ? (
           <Toast tone="negative" onDismiss={() => setDraftResult(null)}>Gmail draft failed: {draftResult}</Toast>
         ) : (
-          <Toast tone="positive" onDismiss={() => setDraftResult(null)}>
-            Gmail draft created for <strong>{draftResult.property}</strong>.{' '}
+          <Toast tone={draftResult.warnings.length > 0 ? 'tide' : 'positive'} onDismiss={() => setDraftResult(null)}>
+            Gmail draft created for <strong>{draftResult.property}</strong>
+            {draftResult.attachedPdf
+              ? <> with the statement PDF attached. </>
+              : <> (no PDF attached — see warnings). </>}
             <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
               Open in Gmail →
-            </a>{' '}
-            Review, attach the statement PDF, and send.
+            </a>
+            {draftResult.warnings.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {draftResult.warnings.join(' · ')}
+              </span>
+            )}
           </Toast>
         )
       )}
