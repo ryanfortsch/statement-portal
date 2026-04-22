@@ -66,3 +66,79 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rule-dotted-bottom { border-bottom: 1px dotted var(--rule); }
 
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* ─── Responsive (mobile first pass) ────────────────────────────────── */
+
+/* Phones (≤640px): stack everything, let rules breathe, reduce container padding */
+@media (max-width: 640px) {
+  .max-w-\[1100px\] { padding-left: 16px !important; padding-right: 16px !important; }
+
+  /* Masthead: stack brand + period selector */
+  .rt-masthead-top { flex-direction: column; align-items: flex-start !important; gap: 10px; }
+  .rt-masthead-top > div:last-child { align-self: stretch; justify-content: space-between; }
+
+  /* Actions strip: wrap + shrink buttons */
+  .rt-masthead-actions { flex-wrap: wrap; gap: 6px; }
+  .rt-masthead-actions button,
+  .rt-masthead-actions label,
+  .rt-masthead-actions a { font-size: 10px !important; padding: 6px 10px !important; }
+
+  /* Month-at-a-glance heading row: stack */
+  .rt-period-head { flex-direction: column; align-items: flex-start !important; gap: 14px; }
+  .rt-period-head > div:last-child { text-align: left !important; }
+  .rt-display-h1 { font-size: 30px !important; }
+
+  /* Insights bar: 6 cols → 2 cols */
+  .rt-insights-6 { grid-template-columns: repeat(2, 1fr) !important; }
+  .rt-insights-6 > div { border-right: none !important; border-bottom: 1px solid var(--rule); }
+  .rt-insights-6 > div:nth-child(odd) { border-right: 1px solid var(--rule) !important; }
+  .rt-insights-6 > div:nth-last-child(-n+2) { border-bottom: none; }
+
+  /* Close-out top strip: stack date + total + button */
+  .rt-closeout-top { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .rt-closeout-top > div:nth-child(2) { display: none; }
+
+  /* Close-out per-property row: stack into a card */
+  .rt-closeout-row {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 14px 0 !important;
+  }
+  .rt-closeout-row > div:nth-child(2) { text-align: left !important; }
+  .rt-closeout-row > select,
+  .rt-closeout-row > button { align-self: flex-start; }
+
+  /* Property card: collapsed row -> stack the metric cluster below the name */
+  .rt-prop-head { flex-direction: column; align-items: flex-start !important; gap: 12px; }
+  .rt-prop-head > div:last-child { align-self: stretch; justify-content: space-between; gap: 16px !important; }
+  .rt-prop-head .rt-chevron { margin-left: auto; }
+
+  /* Property card expanded: financials + performance grid → stack */
+  .rt-two-col { grid-template-columns: 1fr !important; gap: 24px !important; }
+  .rt-insights-2 { grid-template-columns: 1fr 1fr !important; }
+
+  /* Reservations + cleaning tables -> horizontal scroll */
+  .rt-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .rt-scroll-x table { min-width: 600px; }
+
+  /* Footer: stack */
+  .rt-footer { flex-direction: column; gap: 6px; padding: 14px 16px !important; align-items: flex-start !important; }
+
+  /* Modals: full-width-ish */
+  .rt-modal { max-width: calc(100vw - 24px) !important; margin: 12px; padding: 18px !important; }
+
+  /* Upload page form: month + property stack */
+  .rt-upload-form-grid { grid-template-columns: 1fr !important; gap: 20px !important; }
+  /* File drop zone: stack icon/label/button */
+  .rt-dropzone > label { flex-wrap: wrap; gap: 12px !important; }
+  .rt-dropzone > label > :last-child { margin-left: auto; }
+}
+
+/* Tablets (641-1024px): keep 6-col insights but tighten padding */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .rt-insights-6 { grid-template-columns: repeat(3, 1fr); }
+  .rt-insights-6 > div:nth-child(3) { border-right: none; }
+  .rt-insights-6 > div:nth-child(n+4) { border-top: 1px solid var(--rule); }
+}

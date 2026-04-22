@@ -132,6 +132,7 @@ function FileDropZone({
 
   return (
     <div
+      className="rt-dropzone"
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
@@ -296,7 +297,7 @@ export default function UploadPage() {
       {/* ─── MASTHEAD ─── */}
       <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10">
-          <div className="flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
+          <div className="rt-masthead-top flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
             <Link href="/" className="flex items-center gap-3" style={{ textDecoration: 'none' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
@@ -489,7 +490,7 @@ export default function UploadPage() {
             {/* Step 1: Period & Property */}
             <div style={{ marginBottom: 36 }}>
               <SectionHead num="01" title="Select Period & Property" />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, paddingTop: 6 }}>
+              <div className="rt-upload-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, paddingTop: 6 }}>
                 <div>
                   <div className="eyebrow" style={{ marginBottom: 6 }}>Month</div>
                   <input
@@ -634,7 +635,7 @@ export default function UploadPage() {
 
       {/* Footer */}
       <footer style={{ borderTop: '1px solid var(--ink)', marginTop: 24 }}>
-        <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{ padding: '14px 40px', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+        <div className="rt-footer max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{ padding: '14px 40px', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
           <span>Rising Tide &middot; 85 Eastern Ave &middot; Gloucester, MA 01930</span>
           <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>&ldquo;We care for your home as if it were our own.&rdquo;</span>
         </div>
