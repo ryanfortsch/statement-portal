@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderEmail, type EmailTemplate } from '@/lib/email-templates';
+import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
+
+// Puppeteer + Chromium cold start can take 3-5s; give the handler plenty of
+// headroom. Vercel Pro supports up to 300s.
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 /**
  * POST /api/draft-email
@@ -73,14 +79,22 @@ function encodeHeader(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, 'utf-8').toString('base64')}?=`;
 }
 
+/** Chunk a base64 string into 76-char lines per RFC 2045. */
+function wrapBase64(s: string, width = 76): string {
+  const lines: string[] = [];
+  for (let i = 0; i < s.length; i += width) lines.push(s.slice(i, i + width));
+  return lines.join('\r\n');
+}
+
 function buildMimeMessage(args: {
-  from: string;       // "Allie Marsden <allie@risingtidestr.com>"
+  from: string;
   to: string[];
   cc?: string[];
   subject: string;
   body: string;
+  attachment?: { filename: string; contentType: string; content: Buffer };
 }): string {
-  const { from, to, cc, subject, body } = args;
+  const { from, to, cc, subject, body, attachment } = args;
   const headers = [
     `From: ${from}`,
     `To: ${to.join(', ')}`,
@@ -88,9 +102,43 @@ function buildMimeMessage(args: {
   if (cc && cc.length > 0) headers.push(`Cc: ${cc.join(', ')}`);
   headers.push(`Subject: ${encodeHeader(subject)}`);
   headers.push('MIME-Version: 1.0');
-  headers.push('Content-Type: text/plain; charset=UTF-8');
-  headers.push('Content-Transfer-Encoding: 8bit');
-  return headers.join('\r\n') + '\r\n\r\n' + body;
+
+  if (!attachment) {
+    headers.push('Content-Type: text/plain; charset=UTF-8');
+    headers.push('Content-Transfer-Encoding: 8bit');
+    return headers.join('\r\n') + '\r\n\r\n' + body;
+  }
+
+  // Multipart message: body + one attachment.
+  const boundary = `rt_boundary_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+  const bodyPart = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    body,
+  ].join('\r\n');
+
+  const attachmentB64 = wrapBase64(attachment.content.toString('base64'));
+  const attachmentPart = [
+    `--${boundary}`,
+    `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${attachment.filename}"`,
+    '',
+    attachmentB64,
+  ].join('\r\n');
+
+  return [
+    headers.join('\r\n'),
+    '',
+    bodyPart,
+    attachmentPart,
+    `--${boundary}--`,
+    '',
+  ].join('\r\n');
 }
 
 export async function POST(request: NextRequest) {
@@ -124,12 +172,44 @@ export async function POST(request: NextRequest) {
       template,
     });
 
+    // Render the statement PDF via headless Chromium so the draft lands in
+    // Gmail with the owner statement already attached. If PDF generation
+    // fails we still create the draft (no attachment) -- operator can
+    // attach manually -- and report the render failure in a `warnings` field.
+    const warnings: string[] = [];
+    let pdfAttachment: { filename: string; contentType: string; content: Buffer } | undefined;
+
+    try {
+      const sb = getSupabase();
+      const { data: stmt } = await sb
+        .from('property_statements')
+        .select('id, period_id')
+        .eq('property_id', propertyId)
+        .eq('period_id', periodId)
+        .maybeSingle();
+
+      if (stmt?.id) {
+        const origin = request.nextUrl.origin;
+        const pdf = await renderStatementPdf({ statementId: stmt.id, month, origin });
+        pdfAttachment = {
+          filename: statementPdfFilename(prop.name, month),
+          contentType: 'application/pdf',
+          content: pdf,
+        };
+      } else {
+        warnings.push('No property_statement found for this month; draft created without PDF attachment.');
+      }
+    } catch (pdfErr) {
+      warnings.push(`PDF render failed: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}. Draft created without attachment.`);
+    }
+
     const mime = buildMimeMessage({
       from: `${SEND_FROM.name} <${SEND_FROM.email}>`,
       to: prop.owner_emails,
       cc: ALWAYS_CC,
       subject,
       body: emailBody,
+      attachment: pdfAttachment,
     });
 
     const accessToken = await getGmailAccessToken();
@@ -197,6 +277,8 @@ export async function POST(request: NextRequest) {
       draft_url: draftUrl,
       subject,
       recipients: prop.owner_emails,
+      attached_pdf: !!pdfAttachment,
+      warnings,
     });
   } catch (err) {
     console.error('draft-email error:', err);
