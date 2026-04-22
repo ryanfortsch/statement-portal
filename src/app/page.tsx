@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
+import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
 
@@ -489,6 +490,8 @@ function EditorialButton({
 function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
@@ -749,22 +752,51 @@ function PropertyCard({ prop, month }: { prop: PropertyStatement; month: string 
               </svg>
               View Statement
             </button>
-            <a
-              href={`/api/statement-pdf?id=${prop.id}&month=${month}`}
-              download
-              onClick={(e) => e.stopPropagation()}
+            <button
+              disabled={downloadingPdf}
+              onClick={async (e) => {
+                e.stopPropagation();
+                setDownloadingPdf(true);
+                setPdfError(null);
+                try {
+                  await downloadStatementPdf(prop.id, month);
+                } catch (err) {
+                  setPdfError(err instanceof Error ? err.message : 'Download failed');
+                } finally {
+                  setDownloadingPdf(false);
+                }
+              }}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: 'var(--ink-2)',
+                background: downloadingPdf ? 'var(--paper-2)' : 'transparent',
+                color: 'var(--ink-2)',
                 fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
                 padding: '10px 18px',
                 border: '1px solid var(--ink)',
-                cursor: 'pointer',
+                cursor: downloadingPdf ? 'wait' : 'pointer',
+                minWidth: 170,
+                justifyContent: 'center',
               }}
             >
-              <IconDownload className="w-3 h-3" />
-              Download PDF
-            </a>
+              {downloadingPdf ? (
+                <>
+                  <span style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    border: '1.5px solid var(--ink-3)', borderTopColor: 'transparent',
+                    animation: 'spin 0.8s linear infinite',
+                  }} />
+                  Preparing PDF…
+                </>
+              ) : (
+                <>
+                  <IconDownload className="w-3 h-3" />
+                  Download PDF
+                </>
+              )}
+            </button>
+            {pdfError && (
+              <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
+            )}
             <Link
               href="/upload"
               style={{

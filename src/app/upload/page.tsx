@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { downloadStatementPdf } from '@/lib/download-pdf';
 
 const PROPERTIES = [
   { id: '3_south_st', name: '3 South St', owner: 'Bailey', location: 'Rockport' },
@@ -223,6 +224,8 @@ export default function UploadPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const pdfRef = useRef<HTMLInputElement>(null);
   const platRef = useRef<HTMLInputElement>(null);
@@ -443,22 +446,52 @@ export default function UploadPage() {
                 </svg>
                 View Statement
               </a>
-              <a
-                href={`/api/statement-pdf?id=${result.property_statement_id}&month=${result.month}`}
-                download
+              <button
+                disabled={downloadingPdf}
+                onClick={async () => {
+                  setDownloadingPdf(true);
+                  setPdfError(null);
+                  try {
+                    await downloadStatementPdf(result.property_statement_id, result.month);
+                  } catch (err) {
+                    setPdfError(err instanceof Error ? err.message : 'Download failed');
+                  } finally {
+                    setDownloadingPdf(false);
+                  }
+                }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 8,
-                  background: 'transparent', color: 'var(--ink-2)',
+                  background: downloadingPdf ? 'var(--paper-2)' : 'transparent',
+                  color: 'var(--ink-2)',
                   fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
                   padding: '10px 18px',
                   border: '1px solid var(--ink)',
+                  cursor: downloadingPdf ? 'wait' : 'pointer',
+                  minWidth: 180,
+                  justifyContent: 'center',
                 }}
               >
-                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Download PDF
-              </a>
+                {downloadingPdf ? (
+                  <>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      border: '1.5px solid var(--ink-3)', borderTopColor: 'transparent',
+                      animation: 'spin 0.8s linear infinite',
+                    }} />
+                    Preparing PDF…
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Download PDF
+                  </>
+                )}
+              </button>
+              {pdfError && (
+                <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
+              )}
               <button onClick={resetForm} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: 'var(--ink-3)',
