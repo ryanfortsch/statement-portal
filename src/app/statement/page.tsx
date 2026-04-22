@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -207,17 +208,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
       </head>
       <body data-variant="editorial">
         {/* Floating download chip -- screen only, hidden when printing. */}
-        <a
-          className="download-chip"
-          href={`/api/statement-pdf?id=${id}&month=${month}`}
-          download
-          aria-label="Download statement as PDF"
-        >
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <span>Download PDF</span>
-        </a>
+        <DownloadPdfChip id={id} month={month} />
         <div className="canvas">
           <main className="sheet">
 
@@ -607,12 +598,54 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 }
 .download-chip:hover { transform:translateY(-1px); box-shadow:0 14px 30px -8px rgba(30,46,52,.35); }
 
-/* PRINT */
+/* PRINT — compact the layout so dense statements (many reservations or
+   cleaning events) still land on one page. Adjustments only trigger in
+   print/PDF output; the on-screen editorial feel stays unchanged. */
 @media print {
   body { background:white; }
   .canvas { margin:0; max-width:none; padding:0; }
-  .sheet { box-shadow:none; border:none; width:100%; min-height:auto; padding:.35in .4in; }
+  .sheet {
+    box-shadow:none; border:none; width:100%; min-height:auto;
+    padding:.3in .35in .22in; /* tightened from .35in .4in */
+  }
   .download-chip { display:none; }
   @page { size:letter; margin:0; }
+
+  /* Masthead + header: drop the vertical airiness */
+  .masthead { padding-bottom:8px; }
+  .header-row { padding:12px 0 10px; }
+  .display { font-size:42px; } /* was 50px */
+
+  /* Addressee + hero: tighter verticals */
+  .addressee { padding:10px 0; }
+  .hero { padding:12px 0 10px; }
+  .payout-amount { font-size:46px; } /* was 54px */
+
+  /* Section heads: tighter */
+  .sec-head { padding:10px 0 6px; }
+
+  /* Reservations + cleaning tables: compact rows so ~12 rows still fit */
+  .res-table thead th { padding:5px; }
+  .res-table tbody td { padding:5px 5px; font-size:11px; }
+  .res-table tbody td.num { font-size:12px; }
+  .guest { font-size:12px; }
+  .stay-dates { font-size:11px; }
+
+  /* Financials: tighter row padding */
+  .fin-table td { padding:5px 0 4px; font-size:11px; }
+  .fin-table td.amt { font-size:12px; }
+  .fin-table tr.total td { padding:6px 0 4px; font-size:12px; }
+  .fin-table tr.total td.amt { font-size:14px; }
+
+  /* Insights + bottom: small reclaim */
+  .insights .insight { padding:9px 12px; }
+  .insight-value { font-size:17px; }
+  .bottom-two { padding:12px 0 8px; }
+  .upcoming-item { padding:4px 0; }
+  .note { padding:10px 12px; }
+  .note-body { font-size:11px; line-height:1.4; }
+
+  /* Keep tables from splitting rows across pages if by chance two pages render */
+  .res-table tr, .upcoming-item, .fin-table tr { page-break-inside:avoid; }
 }
 `;

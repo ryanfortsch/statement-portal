@@ -61,6 +61,13 @@ export async function renderStatementPdf(args: {
       printBackground: true,
       preferCSSPageSize: true,  // honor the @page { size:letter; margin:0; } rule
       margin: { top: '0', bottom: '0', left: '0', right: '0' },
+      // Statements are designed to be a single editorial page. If dense
+      // content (many reservations or cleaning events) pushes anything
+      // past page 1, the page-break-inside rules in the statement CSS
+      // should prevent that -- but as a hard guarantee we limit output
+      // to page 1 here too. See also the @media print rules in
+      // statement/page.tsx that compact tables / hero spacing.
+      pageRanges: '1',
     });
 
     return Buffer.from(pdf);
