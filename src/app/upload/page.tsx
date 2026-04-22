@@ -13,9 +13,6 @@ const PROPERTIES = [
   { id: '20_enon', name: '20 Enon Rd', owner: 'Snyder', location: 'Beverly' },
   { id: '73_rocky_neck', name: '73 Rocky Neck Ave', owner: 'Moynahan', location: 'Gloucester' },
   { id: '17_beach_rd', name: '17 Beach Rd', owner: 'Nolan', location: 'Gloucester' },
-  { id: '65_calderwood', name: '65 Calderwood Ln', owner: 'Liu', location: 'Fairfield' },
-  { id: '3_locust', name: '3 Locust St', owner: 'Lucas', location: 'Gloucester' },
-  { id: '3246_ne_27th', name: '3246 NE 27th Ave', owner: 'Enriquez', location: 'Lighthouse Point' },
 ];
 
 type ParsedReservation = {
