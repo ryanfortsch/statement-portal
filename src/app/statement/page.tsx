@@ -150,7 +150,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .select('guest_name, check_in, nights, channel, guesty_channel_id, status')
     .eq('property_id', prop.property_id)
     .gt('check_in', monthEndStr)
-    .in('status', ['confirmed', 'reserved'])
+    // Accept confirmed / reserved / null. Guesty-API-sourced rows often
+    // have status=null (the API response doesn't always include it), and
+    // those are still real upcoming bookings.
+    .or('status.is.null,status.in.(confirmed,reserved)')
     .order('check_in', { ascending: true })
     // Fetch extra so that after filtering out owner stays we still have
     // 4 real guest bookings to show.
@@ -190,9 +193,20 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   // Review snippets: only show reviews from THIS month. 1 review renders
   // long-form; multiple renders as stacked short quotes ("Guest Reviews").
+  // Dedupe by normalized review text -- the same review can land in the
+  // DB twice when it was fetched from both the Guesty API (source=guesty-api)
+  // and the manual CSV upload (source=csv-fallback) with different
+  // synthetic IDs. The visible content is identical, so collapse them.
   const reviewPool = monthReviews.filter(r => r.public_review && r.public_review.trim().length > 15);
+  const seenReviewText = new Set<string>();
+  const uniqueReviewPool = reviewPool.filter(r => {
+    const key = (r.public_review || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 160);
+    if (seenReviewText.has(key)) return false;
+    seenReviewText.add(key);
+    return true;
+  });
   const selectedReviews = pickReviews(
-    reviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })),
+    uniqueReviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })),
   );
 
   // Upcoming bookings from Supabase (guesty_reservations). Populated by either
@@ -219,8 +233,17 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   };
 
   type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
+  // Dedupe: API-source and CSV-source can both land rows for the same
+  // reservation. Key on (check_in, guest lowercased) so duplicates collapse.
+  const upcomingSeen = new Set<string>();
   const upcoming: UpcomingItem[] = (upcomingDb || [])
     .filter(r => !looksLikeOwnerStay(r))
+    .filter(r => {
+      const key = `${r.check_in}|${(r.guest_name || '').trim().toLowerCase()}`;
+      if (upcomingSeen.has(key)) return false;
+      upcomingSeen.add(key);
+      return true;
+    })
     .slice(0, 4)
     .map(r => ({
       guest: titleCase(r.guest_name) || 'Guest',
