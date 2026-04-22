@@ -13,10 +13,7 @@ const PROPERTY_DETAILS: Record<string, { name: string; address: string; city: st
   '20_hammond':    { name: '20 Hammond St',      address: '20 Hammond Street',    city: 'Gloucester, MA',  owner_full: 'The Ramsey Family', fee_pct: 25, listing_match: '20 hammond' },
   '20_enon':       { name: '20 Enon Rd',         address: '20 Enon Road',         city: 'Beverly, MA',     owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
   '73_rocky_neck': { name: '73 Rocky Neck Ave',  address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'The Moynahan Family', fee_pct: 25, listing_match: '73 rocky neck' },
-  '17_beach_rd':   { name: '17 Beach Rd',        address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'The Nolan Family', fee_pct: 22, listing_match: '17 beach' },
-  '65_calderwood': { name: '65 Calderwood Ln',   address: '65 Calderwood Lane',   city: 'Fairfield, CT',   owner_full: 'The Liu Family', fee_pct: 25, listing_match: '65 calderwood' },
-  '3_locust':      { name: '3 Locust St',        address: '3 Locust Street',      city: 'Gloucester, MA',  owner_full: 'The Lucas Family', fee_pct: 25, listing_match: '3 locust' },
-  '3246_ne_27th':  { name: '3246 NE 27th Ave',   address: '3246 NE 27th Avenue',  city: 'Lighthouse Point, FL', owner_full: 'The Enriquez Family', fee_pct: 25, listing_match: '3246 ne 27th' },
+  '17_beach_rd':   { name: '17 Beach Rd',        address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'Susan & London Nolan', fee_pct: 22, listing_match: '17 beach' },
 };
 
 // ---- helpers ----

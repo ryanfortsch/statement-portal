@@ -75,29 +75,14 @@ export const PROPERTIES: Record<string, Property> = {
   },
   '17_beach_rd': {
     id: '17_beach_rd', name: '17 Beach Rd', address: '17 Beach Road', city: 'Gloucester, MA',
-    owner_last: 'Nolan', owner_full: 'The Nolan Family', owner_greeting: 'The Nolans',
+    owner_last: 'Nolan', owner_full: 'Susan & London Nolan', owner_greeting: 'Susan and London',
     owner_emails: [], // TODO: need from Ryan
     fee_pct: 22, bank_last4: '5621', listing_match: '17 beach',
   },
-  '65_calderwood': {
-    id: '65_calderwood', name: '65 Calderwood Ln', address: '65 Calderwood Lane', city: 'Fairfield, CT',
-    owner_last: 'Liu', owner_full: 'The Liu Family', owner_greeting: 'The Lius',
-    owner_emails: [], // TODO: need from Ryan
-    fee_pct: 25, bank_last4: null, listing_match: '65 calderwood',
-  },
-  '3_locust': {
-    id: '3_locust', name: '3 Locust St', address: '3 Locust Street', city: 'Gloucester, MA',
-    owner_last: 'Lucas', owner_full: 'The Lucas Family', owner_greeting: 'The Lucas Family',
-    owner_emails: [], // TODO: need from Ryan
-    fee_pct: 25, bank_last4: null, listing_match: '3 locust',
-  },
-  '3246_ne_27th': {
-    id: '3246_ne_27th', name: '3246 NE 27th Ave', address: '3246 NE 27th Avenue', city: 'Lighthouse Point, FL',
-    owner_last: 'Enriquez', owner_full: 'The Enriquez Family', owner_greeting: 'The Enriquez Family',
-    owner_emails: [], // TODO: need from Ryan
-    fee_pct: 25, bank_last4: null, listing_match: '3246 ne 27th',
-  },
 };
+
+// 65 Calderwood Ln, 3 Locust St, and 3246 NE 27th Ave are Ryan's personal
+// properties and intentionally excluded from the portal.
 
 export const PROPERTY_IDS = Object.keys(PROPERTIES);
 
@@ -107,14 +92,15 @@ export function getProperty(id: string): Property | undefined {
 
 /** Emails always CC'd when a statement is sent out from the portal. */
 export const ALWAYS_CC = [
-  'RTC@ssh.myworkplace.co',      // Supporting Strategies accounting
-  'ryan@risingtidestr.com',      // Ryan
+  'allie@risingtidestr.com',
+  'ryan@risingtidestr.com',
 ];
 
 /** Sender identity used in drafts. */
 export const SEND_FROM = {
-  name: 'Allie Marsden',
-  email: 'allie@risingtidestr.com',
+  name: 'Allie Fortsch',
+  email: 'allie@risingtidestr.com',          // current mailbox the OAuth token authenticates
+  reply_to: 'statements@risingtidestr.com',  // group address once it's receiving mail
   signoff_default: 'Allie',
   signoff_year_end: 'Allie & Ryan',
 };
