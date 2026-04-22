@@ -76,7 +76,8 @@ export const PROPERTIES: Record<string, Property> = {
   '17_beach_rd': {
     id: '17_beach_rd', name: '17 Beach Rd', address: '17 Beach Road', city: 'Gloucester, MA',
     owner_last: 'Nolan', owner_full: 'Susan & London Nolan', owner_greeting: 'Susan and London',
-    owner_emails: [], // TODO: need from Ryan
+    // London's email still pending; using Susan's until we have both.
+    owner_emails: ['jupitersusan153@gmail.com'],
     fee_pct: 22, bank_last4: '5621', listing_match: '17 beach',
   },
 };
