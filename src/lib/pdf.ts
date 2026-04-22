@@ -36,6 +36,20 @@ export async function renderStatementPdf(args: {
     });
 
     const page = await browser.newPage();
+
+    // If Vercel Deployment Protection is enabled, Puppeteer would get
+    // redirected to Vercel's login page before the statement can render.
+    // The bypass token skips that gate for this request only (still
+    // requires our own app-level access code to view the dashboard,
+    // which the statement route doesn't gate).
+    const bypass = process.env.VERCEL_PROTECTION_BYPASS;
+    if (bypass) {
+      await page.setExtraHTTPHeaders({
+        'x-vercel-protection-bypass': bypass,
+        'x-vercel-set-bypass-cookie': 'true',
+      });
+    }
+
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
 
     // Wait for Google Fonts + any late-loading assets. document.fonts.ready
