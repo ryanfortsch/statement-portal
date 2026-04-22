@@ -80,6 +80,54 @@ function isoFromMMDDYYYY(dateStr: string): string {
   return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
 }
 
+/**
+ * Assign bank cleaning charges to reservations 1:1 so no single stay
+ * ever claims multiple Cape Ann Elite charges. Walk reservations in
+ * check-out order; for each, claim the earliest still-unclaimed cleaning
+ * whose posting date is on/after the check-out. A cleaning posted before
+ * any known check-out (or any leftover once every reservation has its
+ * cleaning) stays unattributed (source='bank').
+ *
+ * The previous logic was "nearest check-out within 0-3 days" with no
+ * claim-tracking, so two back-to-back stays would both match the same
+ * charge and leave the earlier stay's cleaning unassigned. Cape Ann
+ * Elite also bills with variable lag, so the 3-day cap was too tight --
+ * widened to unbounded (any cleaning on/after the checkout can match).
+ */
+function matchCleaningsToReservations<R extends { check_out: string; guest_name: string }>(
+  cleaningCharges: { date: string; amount: number; description: string }[],
+  reservations: R[],
+): { charge: typeof cleaningCharges[number]; matchedGuest: string | null; matchedCheckout: string | null }[] {
+  const withISO = cleaningCharges.map((c, origIdx) => ({
+    c, origIdx, iso: isoFromMMDDYYYY(c.date),
+  }));
+  const sortedByDate = [...withISO].sort((a, b) => a.iso.localeCompare(b.iso));
+  const sortedRes = [...reservations].sort((a, b) => a.check_out.localeCompare(b.check_out));
+
+  const claimedIdx = new Set<number>();
+  const assignment = new Map<number, R>();  // origIdx -> reservation
+
+  for (const res of sortedRes) {
+    for (const { origIdx, iso } of sortedByDate) {
+      if (claimedIdx.has(origIdx)) continue;
+      if (!iso) continue;
+      if (iso < res.check_out) continue;  // cleaning predates checkout
+      claimedIdx.add(origIdx);
+      assignment.set(origIdx, res);
+      break;
+    }
+  }
+
+  return cleaningCharges.map((c, origIdx) => {
+    const matched = assignment.get(origIdx);
+    return {
+      charge: c,
+      matchedGuest: matched ? matched.guest_name : null,
+      matchedCheckout: matched ? matched.check_out : null,
+    };
+  });
+}
+
 // ── endpoint ─────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -249,38 +297,18 @@ export async function POST(request: NextRequest) {
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
 
     if (cleaningCharges.length > 0) {
-      const sortedRes = [...(reservations || [])].sort((a, b) => a.check_out.localeCompare(b.check_out));
-      const cleaningInserts = cleaningCharges.map(c => {
-        const chargeDateISO = isoFromMMDDYYYY(c.date);
-        let matchedGuest = '';
-        let matchedCheckout = '';
-        if (chargeDateISO && sortedRes.length > 0) {
-          let bestMatch = sortedRes[0];
-          let bestDiff = Infinity;
-          for (const r of sortedRes) {
-            const checkoutTs = new Date(r.check_out + 'T00:00:00').getTime();
-            const chargeTs = new Date(chargeDateISO + 'T00:00:00').getTime();
-            const diffDays = (chargeTs - checkoutTs) / (1000 * 60 * 60 * 24);
-            if (diffDays >= 0 && diffDays <= 3 && diffDays < bestDiff) {
-              bestDiff = diffDays;
-              bestMatch = r;
-            }
-          }
-          if (bestDiff <= 3) {
-            matchedGuest = bestMatch.guest_name;
-            matchedCheckout = bestMatch.check_out;
-          }
-        }
-        return {
-          property_statement_id: stmt.id,
-          guest_name: matchedGuest || null,
-          checkout_date: matchedCheckout || null,
-          bank_charge_amount: c.amount,
-          bank_charge_date: chargeDateISO || null,
-          amount: c.amount,
-          source: matchedGuest ? 'matched' : 'bank',
-        };
-      });
+      const cleaningInserts = matchCleaningsToReservations(
+        cleaningCharges,
+        reservations || [],
+      ).map(m => ({
+        property_statement_id: stmt.id,
+        guest_name: m.matchedGuest,
+        checkout_date: m.matchedCheckout,
+        bank_charge_amount: m.charge.amount,
+        bank_charge_date: isoFromMMDDYYYY(m.charge.date) || null,
+        amount: m.charge.amount,
+        source: m.matchedGuest ? 'matched' : 'bank',
+      }));
       const { error: cleanErr } = await supabase.from('cleaning_events').insert(cleaningInserts);
       if (cleanErr) throw cleanErr;
     }
