@@ -57,6 +57,15 @@ function parseCSVLine(line: string): string[] {
   fields.push(cur); return fields;
 }
 
+// Lenient number parse: handles "", " ", "$1,234.56". Returns null when blank.
+function parseMoney(raw: string | undefined | null): number | null {
+  if (raw == null) return null;
+  const s = String(raw).replace(/[,$"\s]/g, '').trim();
+  if (!s) return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
 function nightsBetween(a: string, b: string): number {
   const d1 = new Date(a + 'T00:00:00'), d2 = new Date(b + 'T00:00:00');
   return Math.max(0, Math.round((d2.getTime() - d1.getTime()) / 86400_000));
@@ -81,7 +90,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing or empty csv body (send {"csv": "..."}' }, { status: 400 });
     }
 
-    const lines = csvText.split('\n');
+    // Normalise line endings, split, header parse.
+    const normalized = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+    if (lines.length < 2) {
+      return NextResponse.json({ error: 'CSV has no rows' }, { status: 400 });
+    }
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().replace(/^"|"$/g, '').toUpperCase());
+    const colIdx = (name: string) => headers.indexOf(name.toUpperCase());
+    const iCheckIn = colIdx('CHECK-IN');
+    const iCheckOut = colIdx('CHECK-OUT');
+    const iCode = colIdx('CONFIRMATION CODE');
+    const iListing = colIdx('LISTING');
+    const iGuest = colIdx('GUEST');
+    const iPlatform = colIdx('PLATFORM');
+    const iReview = colIdx("GUEST'S PUBLIC REVIEW");
+    // Money columns -- added when Dotti expanded the report to pipe the
+    // guest-paid gross into our calcs (see /api/ingest for the formula).
+    // Any of these can be -1 (missing) on older CSV exports and we fall
+    // back to null in the DB.
+    const iTotalPaid = colIdx('TOTAL PAID');
+    const iTaxes = colIdx('TOTAL TAXES');
+    const iCommission = colIdx('CHANNEL COMMISSION INCL TAX');
+    const iOwnerNet = colIdx('OWNER NET REVENUE (ACCOUNTING)');
+
+    if (iCheckIn < 0 || iCheckOut < 0 || iListing < 0) {
+      return NextResponse.json(
+        { error: `CSV missing required headers (CHECK-IN, CHECK-OUT, LISTING). Got: ${headers.join(', ')}` },
+        { status: 400 },
+      );
+    }
+
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const todayStr = today.toISOString().slice(0, 10);
 
@@ -94,15 +133,15 @@ export async function POST(request: NextRequest) {
       const line = lines[i].trim();
       if (!line) continue;
       const f = parseCSVLine(line);
-      if (f.length < 7) continue;
+      if (f.length < Math.max(iListing, iCheckIn, iCheckOut) + 1) continue;
 
-      const checkIn = (f[0] || '').split(' ')[0];
-      const checkOut = (f[1] || '').split(' ')[0];
-      const confirmationCode = (f[2] || '').trim();
-      const listing = (f[3] || '').trim();
-      const guest = (f[4] || '').trim();
-      const platform = (f[5] || '').trim();
-      const reviewText = (f[6] || '').trim();
+      const checkIn = (f[iCheckIn] || '').split(' ')[0];
+      const checkOut = (f[iCheckOut] || '').split(' ')[0];
+      const confirmationCode = iCode >= 0 ? (f[iCode] || '').trim() : '';
+      const listing = (f[iListing] || '').trim();
+      const guest = iGuest >= 0 ? (f[iGuest] || '').trim() : '';
+      const platform = iPlatform >= 0 ? (f[iPlatform] || '').trim() : '';
+      const reviewText = iReview >= 0 ? (f[iReview] || '').trim() : '';
 
       if (!checkIn || !checkOut || !listing) continue;
       const propertyId = matchProperty(listing);
@@ -111,6 +150,12 @@ export async function POST(request: NextRequest) {
 
       const nights = nightsBetween(checkIn, checkOut);
       const channel = channelLabel(platform);
+
+      // Money (may be null if these columns aren't in the uploaded CSV).
+      const totalPaid = iTotalPaid >= 0 ? parseMoney(f[iTotalPaid]) : null;
+      const totalTaxes = iTaxes >= 0 ? parseMoney(f[iTaxes]) : null;
+      const channelCommission = iCommission >= 0 ? parseMoney(f[iCommission]) : null;
+      const ownerNetGuesty = iOwnerNet >= 0 ? parseMoney(f[iOwnerNet]) : null;
 
       // Reservation row: any reservation (past or future) is useful for future
       // "On the horizon" + cross-referencing. Dedupe by synthetic id.
@@ -127,6 +172,10 @@ export async function POST(request: NextRequest) {
         status: 'confirmed',
         source: 'csv-fallback',
         synced_at: new Date().toISOString(),
+        total_paid: totalPaid,
+        total_taxes: totalTaxes,
+        channel_commission: channelCommission,
+        owner_net_revenue_guesty: ownerNetGuesty,
       });
 
       // Review row: infer 5.0 if there's meaningful public review text.

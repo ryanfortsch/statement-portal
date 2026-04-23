@@ -97,8 +97,51 @@ function round2(n: number): number {
 }
 
 // Stripe fee: 3.9% + $0.20/txn, 2 txns per reservation = $0.40
-function calcStripeFee(rentalIncome: number): number {
-  return round2(rentalIncome * 0.039 + 0.40);
+// Stripe: 3.9% + $0.40 ($0.20 × 2 transactions) on the amount Stripe
+// actually processed (the guest's top-line charge), not on Guesty's net.
+function calcStripeFee(processedAmount: number): number {
+  return round2(processedAmount * 0.039 + 0.40);
+}
+
+// Lenient number parse: "", " ", "$1,234.56" -> number or null.
+function parseMoney(raw: string | undefined | null): number | null {
+  if (raw == null) return null;
+  const s = String(raw).replace(/[,$"\s]/g, '').trim();
+  if (!s) return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * Back out the legacy 4.4% gross-up kludge embedded in Guesty's channel
+ * commission column for pre-fix VRBO + Manual reservations. See the
+ * twin helper in /api/ingest for the history. Returns the effective
+ * commission after removing the kludge (0 for Manual, 5% × pre-tax for
+ * VRBO) along with a flag so callers can note the adjustment.
+ */
+function stripLegacyCommissionKludge(args: {
+  platform: string;
+  totalPaid: number;
+  totalTaxes: number;
+  commission: number;
+}): { effective: number; hadKludge: boolean } {
+  const { platform, totalPaid, totalTaxes, commission } = args;
+  if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
+  const base = Math.max(totalPaid - totalTaxes, 0);
+  if (base <= 0) return { effective: commission, hadKludge: false };
+  const ratio = commission / base;
+  const p = platform.toUpperCase();
+  if (p === 'MANUAL') {
+    if (ratio > 0.02) return { effective: 0, hadKludge: true };
+    return { effective: commission, hadKludge: false };
+  }
+  if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    if (ratio > 0.07) {
+      return { effective: round2(base * 0.05), hadKludge: true };
+    }
+    return { effective: commission, hadKludge: false };
+  }
+  return { effective: commission, hadKludge: false };
 }
 
 function titleCase(s: string | null | undefined): string {
@@ -224,7 +267,15 @@ async function fillPlatformGap(args: {
     return NextResponse.json({ error: 'Platform CSV appears empty or malformed' }, { status: 400 });
   }
 
-  const platformMap = new Map<string, { platform: string; guest: string }>();
+  type CsvMatch = {
+    platform: string;
+    guest: string;
+    total_paid: number | null;
+    total_taxes: number | null;
+    channel_commission: number | null;
+    owner_net_revenue_guesty: number | null;
+  };
+  const platformMap = new Map<string, CsvMatch>();
   const guestyResUpserts: Record<string, string | number | null>[] = [];
 
   for (const row of rows) {
@@ -235,7 +286,19 @@ async function fillPlatformGap(args: {
     const checkOutRaw = (row['CHECK-OUT'] || row['Check-Out'] || row['check_out'] || '').trim();
     if (!code) continue;
 
-    platformMap.set(code, { platform, guest });
+    const totalPaid = parseMoney(row['TOTAL PAID']);
+    const totalTaxes = parseMoney(row['TOTAL TAXES']);
+    const channelCommission = parseMoney(row['CHANNEL COMMISSION INCL TAX']);
+    const ownerNet = parseMoney(row['OWNER NET REVENUE (ACCOUNTING)']);
+
+    platformMap.set(code, {
+      platform,
+      guest,
+      total_paid: totalPaid,
+      total_taxes: totalTaxes,
+      channel_commission: channelCommission,
+      owner_net_revenue_guesty: ownerNet,
+    });
 
     const checkIn = checkInRaw.split(' ')[0];
     const checkOut = checkOutRaw.split(' ')[0];
@@ -260,6 +323,10 @@ async function fillPlatformGap(args: {
       status: 'confirmed',
       source: 'csv-fallback',
       synced_at: new Date().toISOString(),
+      total_paid: totalPaid,
+      total_taxes: totalTaxes,
+      channel_commission: channelCommission,
+      owner_net_revenue_guesty: ownerNet,
     });
   }
 
@@ -298,8 +365,24 @@ async function fillPlatformGap(args: {
     if (isHomeownerStay) {
       adjustedRevenue = 0;
     } else if (isStripeChannel) {
-      stripeFee = calcStripeFee(res.guesty_rental_income || 0);
-      adjustedRevenue = round2((res.guesty_rental_income || 0) - stripeFee);
+      // VRBO / Manual: reconstruct from guest gross (see /api/ingest for
+      // the reasoning). Use CSV's TOTAL_PAID as the Stripe fee base.
+      const totalPaid = match.total_paid || 0;
+      const totalTaxes = match.total_taxes || 0;
+      const rawCommission = match.channel_commission || 0;
+      if (totalPaid > 0) {
+        const { effective } = stripLegacyCommissionKludge({
+          platform: normalizedPlatform,
+          totalPaid, totalTaxes, commission: rawCommission,
+        });
+        stripeFee = calcStripeFee(totalPaid);
+        adjustedRevenue = round2(totalPaid - totalTaxes - effective - stripeFee);
+      } else {
+        // CSV didn't carry TOTAL_PAID (older export shape). Fall back to
+        // the old 3.9%-on-net approximation and leave a data gap below.
+        stripeFee = calcStripeFee(res.guesty_rental_income || 0);
+        adjustedRevenue = round2((res.guesty_rental_income || 0) - stripeFee);
+      }
     }
 
     // Only overwrite guest_name when the stored value is a placeholder
