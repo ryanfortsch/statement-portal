@@ -1136,6 +1136,20 @@ function DashboardContent() {
     | null
   >(null);
   const [lastSync, setLastSync] = useState<Record<string, string>>({});
+  const [syncingStripe, setSyncingStripe] = useState(false);
+  const [stripeSyncResult, setStripeSyncResult] = useState<
+    | {
+        properties: number;
+        fee_updates: number;
+        refunds: number;
+        gross_mismatches: number;
+        missing_charges: number;
+        orphan_charges: number;
+        errors: string[];
+      }
+    | string
+    | null
+  >(null);
   const [fundsSentDate, setFundsSentDate] = useState<string>('');
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
@@ -1342,6 +1356,46 @@ function DashboardContent() {
       setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncStripe() {
+    if (!selectedMonth) return;
+    setSyncingStripe(true);
+    setStripeSyncResult(null);
+    try {
+      const res = await fetch('/api/sync-stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: selectedMonth }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setStripeSyncResult(data.error || 'Sync failed');
+        return;
+      }
+      // Aggregate across properties for the toast summary.
+      type Pr = {
+        fee_updates: unknown[]; refunds_detected: unknown[]; gross_mismatches: unknown[];
+        reservations_missing_charge: unknown[]; unmatched_charges: unknown[]; error?: string;
+      };
+      const rs: Pr[] = data.results || [];
+      const agg = {
+        properties: rs.length,
+        fee_updates: rs.reduce((s, p) => s + (p.fee_updates?.length || 0), 0),
+        refunds: rs.reduce((s, p) => s + (p.refunds_detected?.length || 0), 0),
+        gross_mismatches: rs.reduce((s, p) => s + (p.gross_mismatches?.length || 0), 0),
+        missing_charges: rs.reduce((s, p) => s + (p.reservations_missing_charge?.length || 0), 0),
+        orphan_charges: rs.reduce((s, p) => s + (p.unmatched_charges?.length || 0), 0),
+        errors: rs.filter(p => p.error).map(p => p.error as string),
+      };
+      setStripeSyncResult(agg);
+      await loadPeriod(selectedMonth);
+      await loadLastSync();
+    } catch (err) {
+      setStripeSyncResult(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setSyncingStripe(false);
     }
   }
 
@@ -1574,6 +1628,14 @@ function DashboardContent() {
                 busy={syncingGuesty}
                 label={syncingGuesty ? 'Syncing…' : 'Sync Bookings'}
                 meta={lastSync['guesty-reviews'] ? relativeTime(lastSync['guesty-reviews']) : undefined}
+                icon={<IconSync className="w-3 h-3" />}
+              />
+              <EditorialButton
+                onClick={syncStripe}
+                disabled={syncingStripe || !selectedMonth}
+                busy={syncingStripe}
+                label={syncingStripe ? 'Syncing…' : 'Sync Stripe'}
+                meta={lastSync['stripe'] ? relativeTime(lastSync['stripe']) : undefined}
                 icon={<IconSync className="w-3 h-3" />}
               />
               <label
@@ -2041,6 +2103,28 @@ function DashboardContent() {
             <strong>{csvResult.reservations}</strong> reservations and <strong>{csvResult.reviews}</strong> reviews saved from your Guesty CSV
             {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} rows didn&apos;t match a property)</span>}
             {'. '}Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
+          </Toast>
+        )
+      )}
+      {stripeSyncResult && (
+        typeof stripeSyncResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
+        ) : (
+          <Toast
+            tone={stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 ? 'tide' : 'positive'}
+            onDismiss={() => setStripeSyncResult(null)}
+          >
+            Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
+            {stripeSyncResult.fee_updates > 0 && <>: <strong>{stripeSyncResult.fee_updates}</strong> fee{stripeSyncResult.fee_updates === 1 ? '' : 's'} corrected to the real Stripe number</>}
+            {stripeSyncResult.refunds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.refunds} refund{stripeSyncResult.refunds === 1 ? '' : 's'} flagged</span>}
+            {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
+            {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
+            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.missing_charges === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
+            {stripeSyncResult.errors.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
+              </span>
+            )}
           </Toast>
         )
       )}
