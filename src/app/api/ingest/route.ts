@@ -218,12 +218,29 @@ function isInMonth(dateStr: string, month: string): boolean {
 
 /**
  * Assign bank cleaning charges to reservations 1:1 so no single stay
- * ever claims multiple Cape Ann Elite charges. Walk reservations in
- * check-out order; for each, claim the earliest still-unclaimed cleaning
- * whose posting date is on/after the check-out. A cleaning posted before
- * any known check-out (or any leftover once every reservation has its
- * cleaning) stays unattributed (source='bank'). Cape Ann Elite posts with
- * variable lag so there's no hard time cap.
+ * ever claims multiple Cape Ann Elite charges, and so the *last*
+ * checkout of the month pairs with the *last* cleaning of the month.
+ *
+ * Walk reservations in REVERSE check-out order. For each, claim the
+ * latest still-unclaimed cleaning whose posting date is on/after that
+ * check-out. Then cascade backward: earlier checkouts get what's left,
+ * each also claiming the latest available option inside their own
+ * window.
+ *
+ * Why this direction? Cape Ann Elite bills cleanings with variable lag
+ * (1-10+ days). When there are N checkouts and fewer cleanings visible
+ * in the month, the late checkouts are the ones whose cleanings most
+ * likely *did* post in-month (short lag), while the earliest checkouts
+ * may have had their cleaning bundled into a same-day turnover or
+ * billed at a longer lag. Matching last-to-last captures that reality.
+ *
+ * The old "walk forward, claim earliest" direction gave later checkouts
+ * nothing while assigning their likely-correct cleaning to an earlier
+ * stay whose cleaning actually posted earlier.
+ *
+ * Leftover cleanings stay unattributed (source='bank'). Reservations
+ * that don't get a cleaning in this month are fine -- theirs will
+ * typically appear in the next month's ingest.
  */
 function matchCleaningsToReservations<R extends { check_out: string; guest_name: string }>(
   cleaningCharges: { date: string; amount: number; description: string }[],
@@ -237,17 +254,20 @@ function matchCleaningsToReservations<R extends { check_out: string; guest_name:
   const withISO = cleaningCharges.map((c, origIdx) => ({
     c, origIdx, iso: toISO(c.date),
   }));
-  const sortedByDate = [...withISO].sort((a, b) => a.iso.localeCompare(b.iso));
-  const sortedRes = [...reservations].sort((a, b) => a.check_out.localeCompare(b.check_out));
+  // Cleanings ordered LATEST first so we can pick the latest unclaimed
+  // in range with a simple scan.
+  const sortedByDateDesc = [...withISO].sort((a, b) => b.iso.localeCompare(a.iso));
+  // Reservations ordered LATEST check-out first.
+  const sortedResDesc = [...reservations].sort((a, b) => b.check_out.localeCompare(a.check_out));
 
   const claimedIdx = new Set<number>();
   const assignment = new Map<number, R>();  // origIdx -> reservation
 
-  for (const res of sortedRes) {
-    for (const { origIdx, iso } of sortedByDate) {
+  for (const res of sortedResDesc) {
+    for (const { origIdx, iso } of sortedByDateDesc) {
       if (claimedIdx.has(origIdx)) continue;
       if (!iso) continue;
-      if (iso < res.check_out) continue;  // cleaning predates checkout
+      if (iso < res.check_out) continue;  // cleaning predates this checkout
       claimedIdx.add(origIdx);
       assignment.set(origIdx, res);
       break;
