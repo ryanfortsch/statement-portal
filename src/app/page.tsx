@@ -752,6 +752,7 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
+  const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
@@ -978,6 +979,7 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
               <div>
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
+                  const offStripeResolvable = gap.gap_type === 'stripe_missing_charge';
                   return (
                     <div
                       key={gap.id}
@@ -995,22 +997,60 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
                         <div style={{ fontWeight: 500, color: 'var(--ink)' }}>{gap.description}</div>
                         {gap.expected_data && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>{gap.expected_data}</div>}
                       </div>
-                      {fillable && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}
-                          style={{
-                            flexShrink: 0,
-                            border: '1px solid var(--ink)',
-                            background: 'transparent',
-                            color: 'var(--ink)',
-                            fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                            padding: '6px 10px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Fill Gap
-                        </button>
-                      )}
+                      <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+                        {offStripeResolvable && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const guestMatch = gap.description.match(/for\s+([^(]+)\s+\(/);
+                              const guest = guestMatch ? guestMatch[1].trim() : 'this guest';
+                              if (!confirm(`Mark as paid off-Stripe?\n\nThis will zero ${guest}'s Stripe fee and add that amount back to the owner payout. Use this only if the guest paid by check, wire, or ACH.`)) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/resolve-gap', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ gap_id: gap.id, resolution: 'paid_off_stripe' }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--ink)',
+                              background: 'transparent',
+                              color: 'var(--ink)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Working…' : 'Paid Off-Stripe'}
+                          </button>
+                        )}
+                        {fillable && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}
+                            style={{
+                              border: '1px solid var(--ink)',
+                              background: 'transparent',
+                              color: 'var(--ink)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Fill Gap
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
