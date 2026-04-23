@@ -115,9 +115,64 @@ function parseCSVLine(line: string, delimiter: string): string[] {
   return result;
 }
 
-// Stripe fee: 3.9% + $0.20/txn, 2 txns per reservation = $0.40
-function calcStripeFee(rentalIncome: number): number {
-  return Math.round((rentalIncome * 0.039 + 0.40) * 100) / 100;
+// Stripe fee: 3.9% + $0.20/txn, 2 txns per reservation = $0.40.
+// The processor charges on the processed amount -- i.e. what the guest
+// paid, not on Guesty's net rental income. For channels where Rising
+// Tide's Stripe account processes the card (VRBO + Manual), the base is
+// TOTAL PAID from the reservations CSV. For Airbnb/Booking.com the
+// channel processes payment so this fee doesn't apply on our side.
+function calcStripeFee(processedAmount: number): number {
+  return Math.round((processedAmount * 0.039 + 0.40) * 100) / 100;
+}
+
+/**
+ * Detect and strip the legacy 4.4% gross-up kludge that used to live in
+ * the CHANNEL COMMISSION column of the Guesty reservations report.
+ *
+ * Before the accounting overhaul, Ryan/Dotti added a 4.4% fee to the
+ * channel commission in Guesty so Guesty's Owner Statement PDF would
+ * approximate the real post-Stripe owner net (because 3.9% on gross is
+ * roughly 4.4% on the pre-Stripe net). The commissions in Guesty have
+ * been corrected going forward, but historical reservations (anything
+ * checked in before the fix landed) still carry the inflated value.
+ *
+ * For **Manual** rows: real commission is 0, so any commission > ~2% of
+ * (TOTAL_PAID - TAXES) is legacy. Treat as 0.
+ *
+ * For **VRBO** rows: real commission is 5%, so a value > ~7% of
+ * (TOTAL_PAID - TAXES) has the 4.4% kludge stacked on top. Subtract 4.4%
+ * to recover the real 5% component.
+ *
+ * Returns a safe effective_commission plus whether a legacy adjustment
+ * was applied so we can flag it in the statement audit trail.
+ */
+function stripLegacyCommissionKludge(args: {
+  platform: string;
+  totalPaid: number;
+  totalTaxes: number;
+  commission: number;
+}): { effective: number; hadKludge: boolean } {
+  const { platform, totalPaid, totalTaxes, commission } = args;
+  if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
+  const base = Math.max(totalPaid - totalTaxes, 0);
+  if (base <= 0) return { effective: commission, hadKludge: false };
+  const ratio = commission / base;
+  const p = platform.toUpperCase();
+  if (p === 'MANUAL') {
+    // Real Manual commission = 0. Anything above 2% ratio is kludge.
+    if (ratio > 0.02) return { effective: 0, hadKludge: true };
+    return { effective: commission, hadKludge: false };
+  }
+  if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Real VRBO commission = 5% of (TOTAL_PAID - TAXES). Above 7% = kludge.
+    if (ratio > 0.07) {
+      const cleaned = Math.round(base * 0.05 * 100) / 100;
+      return { effective: cleaned, hadKludge: true };
+    }
+    return { effective: commission, hadKludge: false };
+  }
+  // Airbnb / Booking.com: commission handled by the channel, never kludged.
+  return { effective: commission, hadKludge: false };
 }
 
 // Title-case a guest name: "julie polvinen" -> "Julie Polvinen"
@@ -325,11 +380,20 @@ export async function POST(request: NextRequest) {
     //   3. Leave null -- statement page will try to enrich at render time.
     //      NEVER use confirmation_code as a pseudo-name.
     const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
-    const guestyLookupMap = new Map<string, { guest_name: string | null; channel: string | null; guesty_channel_id: string | null }>();
+    type GuestyLookup = {
+      guest_name: string | null;
+      channel: string | null;
+      guesty_channel_id: string | null;
+      total_paid: number | null;
+      total_taxes: number | null;
+      channel_commission: number | null;
+      owner_net_revenue_guesty: number | null;
+    };
+    const guestyLookupMap = new Map<string, GuestyLookup>();
     if (codes.length > 0) {
       const { data: guestyRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, channel, guesty_channel_id')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
         .in('confirmation_code', codes);
       (guestyRows || []).forEach(r => {
         if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
@@ -385,9 +449,29 @@ export async function POST(request: NextRequest) {
 
     const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
-    // 4. Process reservations with channel logic
+    // 4. Process reservations with channel logic.
+    //
+    // Revenue reconstruction (post-accounting-overhaul):
+    //
+    //   Airbnb / Booking.com -- channel processes the guest payment and
+    //     forwards a net ACH. Guesty's PDF rental_income == that deposit.
+    //     adjusted_revenue = rental_income, stripe_fee = 0.
+    //
+    //   VRBO / Manual -- Rising Tide's Stripe account processes the card.
+    //     Guesty reports rental_income *before* Stripe fees but *after*
+    //     channel commission + taxes. So we rebuild from the guest gross:
+    //         stripe_fee = TOTAL_PAID * 0.039 + 0.40
+    //         adjusted_revenue = TOTAL_PAID - TAXES - commission - stripe_fee
+    //     where commission is post-legacy-kludge (see stripLegacyCommissionKludge).
+    //     Falls back to the old rental_income-based approximation when the
+    //     guesty_reservations row doesn't have TOTAL_PAID (e.g. older CSV
+    //     exports) -- a data gap is raised so we know to re-upload.
+    //
+    //   Homeowner stay (Manual + rental_income == 0): always adjusted=0.
     let totalRevenue = 0;
     let totalStripeFees = 0;
+    const reconciliationGaps: string[] = [];
+    const missingGrossCodes: string[] = [];
     const processedReservations: {
       guest_name: string;
       confirmation_code: string;
@@ -411,10 +495,9 @@ export async function POST(request: NextRequest) {
         normalizePlatform(guestyInfo?.guesty_channel_id) ||
         normalizePlatform(guestyInfo?.channel) ||
         'Unknown';
-      const isStripeChannel = platform.toUpperCase().includes('HOMEAWAY') ||
-                               platform.toUpperCase().includes('VRBO') ||
-                               platform.toUpperCase() === 'MANUAL';
-      const isHomeownerStay = platform.toUpperCase() === 'MANUAL' && (!res.rental_income || res.rental_income === 0);
+      const platformUpper = platform.toUpperCase();
+      const isStripeChannel = platformUpper.includes('HOMEAWAY') || platformUpper.includes('VRBO') || platformUpper === 'MANUAL';
+      const isHomeownerStay = platformUpper === 'MANUAL' && (!res.rental_income || res.rental_income === 0);
 
       let stripeFee = 0;
       let adjustedRevenue = res.rental_income;
@@ -422,8 +505,40 @@ export async function POST(request: NextRequest) {
       if (isHomeownerStay) {
         adjustedRevenue = 0;
       } else if (isStripeChannel) {
-        stripeFee = calcStripeFee(res.rental_income);
-        adjustedRevenue = Math.round((res.rental_income - stripeFee) * 100) / 100;
+        // Prefer the reconstructed formula using TOTAL_PAID from the
+        // Guesty reservations CSV.
+        const totalPaid = guestyInfo?.total_paid ?? null;
+        const totalTaxes = guestyInfo?.total_taxes ?? 0;
+        const rawCommission = guestyInfo?.channel_commission ?? 0;
+        if (totalPaid && totalPaid > 0) {
+          const { effective: effCommission, hadKludge } = stripLegacyCommissionKludge({
+            platform,
+            totalPaid,
+            totalTaxes,
+            commission: rawCommission,
+          });
+          stripeFee = calcStripeFee(totalPaid);
+          adjustedRevenue = Math.round((totalPaid - totalTaxes - effCommission - stripeFee) * 100) / 100;
+          // Reconciliation: compare our reconstructed net to Guesty's implied
+          // rental income (gross - taxes - raw commission). If they differ by
+          // more than $2 it usually means the kludge detection got it wrong
+          // or Guesty's commission field includes something unexpected.
+          const guestyImpliedNet = Math.round((totalPaid - totalTaxes - rawCommission) * 100) / 100;
+          const ourPreStripeNet = Math.round((totalPaid - totalTaxes - effCommission) * 100) / 100;
+          const drift = Math.abs(ourPreStripeNet - guestyImpliedNet);
+          if (!hadKludge && drift > 2) {
+            reconciliationGaps.push(
+              `${res.confirmation_code}: reconstructed pre-Stripe net ($${ourPreStripeNet}) differs from Guesty net ($${guestyImpliedNet}) by $${drift.toFixed(2)}`,
+            );
+          }
+        } else {
+          // Fallback: no TOTAL_PAID available. Use the old approximation
+          // (Stripe fee on Guesty's rental_income) and flag it so the
+          // user knows to upload an updated reservations CSV.
+          stripeFee = calcStripeFee(res.rental_income);
+          adjustedRevenue = Math.round((res.rental_income - stripeFee) * 100) / 100;
+          if (res.confirmation_code) missingGrossCodes.push(res.confirmation_code);
+        }
       }
 
       // Bank deposit matching
@@ -647,6 +762,32 @@ export async function POST(request: NextRequest) {
           : `No bank deposit match for ${r.guest_name} ($${r.adjusted_revenue})`,
         severity: isPending ? 'info' : 'warning',
         expected_data: `Bank deposit ~$${r.adjusted_revenue}`,
+      });
+    }
+
+    // Revenue reconstruction gaps:
+    //  - missing_guest_gross: one or more VRBO/Manual reservations don't
+    //    have TOTAL_PAID in guesty_reservations, so Stripe fee fell back
+    //    to the old approximation on Guesty's net. Usually fixes itself
+    //    after a fresh Upload Reservations CSV run.
+    //  - revenue_reconciliation: our reconstructed pre-Stripe net for a
+    //    VRBO/Manual stay diverges from Guesty's implied net by >$2.
+    //    Worth a manual look -- sometimes a booking had a discount,
+    //    refund, or unusual commission that our formula didn't model.
+    if (missingGrossCodes.length > 0) {
+      gaps.push({
+        gap_type: 'missing_guest_gross',
+        description: `${missingGrossCodes.length} VRBO/Manual reservation${missingGrossCodes.length === 1 ? '' : 's'} missing TOTAL_PAID. Stripe fee fell back to a 3.9% approximation on Guesty's net, which slightly understates the real fee.`,
+        severity: 'warning',
+        expected_data: `Upload the latest Guesty reservations CSV (covers ${missingGrossCodes.join(', ')})`,
+      });
+    }
+    if (reconciliationGaps.length > 0) {
+      gaps.push({
+        gap_type: 'revenue_reconciliation',
+        description: `Revenue reconstruction drifts from Guesty's implied net on ${reconciliationGaps.length} stay${reconciliationGaps.length === 1 ? '' : 's'}. Probably a discount, refund, or non-standard commission.`,
+        severity: 'info',
+        expected_data: reconciliationGaps.join('; '),
       });
     }
 
