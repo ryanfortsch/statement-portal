@@ -133,6 +133,95 @@ function defaultFundsSentDate(statementMonth: string): string {
   return mon.toISOString().slice(0, 10);
 }
 
+/**
+ * Text-format the accountant's monthly remittance checklist. What the
+ * accountant used to assemble by hand each close cycle:
+ *
+ *   1. TAX -> *9928:   per property, sum of taxes collected this month on
+ *      Stay Collections / VRBO / Booking reservations. Move these dollars
+ *      out of the property account into the shared tax-holding account
+ *      so MassTaxConnect can debit them when filings post.
+ *
+ *   2. VRBO COMMISSION -> *5130:   per property, 5% of each VRBO stay's
+ *      pre-tax revenue. This reimburses the credit card (*3878) that
+ *      Rising Tide uses to pay VRBO the monthly commission lump sum.
+ *
+ *   3. BOOKING.COM AUTO-DEBIT (FYI only, no action):   Booking pulls
+ *      their 15% directly from the property account the following month.
+ *      We show the number so the accountant can reconcile it when the
+ *      debit clears.
+ *
+ * Airbnb bookings are absent from this list: Airbnb handles both tax and
+ * commission on their side and pays Rising Tide a net amount. Nothing for
+ * the accountant to route.
+ */
+function buildRemittanceList(args: {
+  monthName: string;
+  rows: Array<{
+    propertyName: string;
+    propertyShort: string;
+    taxToRemit: number;
+    vrboCommissionSweep: number;
+    bookingAutoDebit: number;
+  }>;
+}): string {
+  const { monthName, rows } = args;
+  const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const totalTax = rows.reduce((s, r) => s + r.taxToRemit, 0);
+  const totalVrbo = rows.reduce((s, r) => s + r.vrboCommissionSweep, 0);
+  const totalBooking = rows.reduce((s, r) => s + r.bookingAutoDebit, 0);
+
+  const lines: string[] = [];
+  lines.push(`${monthName} REMITTANCE INSTRUCTIONS`);
+  lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  lines.push('');
+
+  const taxRows = rows.filter(r => r.taxToRemit > 0);
+  lines.push('1. TAX REMITTANCE (property account -> *9928)');
+  lines.push('-'.repeat(60));
+  if (taxRows.length === 0) {
+    lines.push('  (no tax collected this month)');
+  } else {
+    taxRows.forEach(r => {
+      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.taxToRemit).padStart(12)}`);
+    });
+    lines.push('-'.repeat(60));
+    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(28)} ${dollars(totalTax).padStart(12)}`);
+  }
+  lines.push('');
+
+  const vrboRows = rows.filter(r => r.vrboCommissionSweep > 0);
+  lines.push('2. VRBO COMMISSION SWEEP (property account -> *5130)');
+  lines.push('-'.repeat(60));
+  if (vrboRows.length === 0) {
+    lines.push('  (no VRBO stays this month)');
+  } else {
+    vrboRows.forEach(r => {
+      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.vrboCommissionSweep).padStart(12)}`);
+    });
+    lines.push('-'.repeat(60));
+    lines.push(`  ${'TOTAL VRBO TO *5130'.padEnd(28)} ${dollars(totalVrbo).padStart(12)}`);
+  }
+  lines.push('');
+
+  const bookingRows = rows.filter(r => r.bookingAutoDebit > 0);
+  lines.push('3. BOOKING.COM AUTO-DEBIT (FYI -- no action required)');
+  lines.push('    Booking.com will pull their 15% directly from the property');
+  lines.push('    account next month. Verify against these amounts when they post.');
+  lines.push('-'.repeat(60));
+  if (bookingRows.length === 0) {
+    lines.push('  (no Booking.com stays this month)');
+  } else {
+    bookingRows.forEach(r => {
+      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.bookingAutoDebit).padStart(12)}`);
+    });
+    lines.push('-'.repeat(60));
+    lines.push(`  ${'TOTAL BOOKING DEBIT'.padEnd(28)} ${dollars(totalBooking).padStart(12)}`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildTransferList(args: {
   monthName: string;
   fundsSentIso: string;
@@ -1200,6 +1289,15 @@ function DashboardContent() {
     | null
   >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
+  const [remittanceOpen, setRemittanceOpen] = useState(false);
+  const [remittanceRows, setRemittanceRows] = useState<Array<{
+    propertyName: string;
+    propertyShort: string;
+    taxToRemit: number;
+    vrboCommissionSweep: number;
+    bookingAutoDebit: number;
+  }> | null>(null);
+  const [loadingRemittance, setLoadingRemittance] = useState(false);
   const [uploadingCsv, setUploadingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<
     | { parsed: number; reservations: number; reviews: number; unmatched: number }
@@ -1396,6 +1494,67 @@ function DashboardContent() {
       setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  /**
+   * Build the per-property remittance rows for the current month. Pulls
+   * reservations + their matching guesty_reservations rows (for tax +
+   * commission), then per property computes:
+   *   - taxToRemit = sum of total_taxes across Stay Collections / VRBO /
+   *     Booking reservations (Airbnb's tax is handled on their side)
+   *   - vrboCommissionSweep = 5% of each VRBO stay's pre-tax revenue
+   *   - bookingAutoDebit = Booking.com's channel_commission (FYI only)
+   * Runs lazily on Remittance button click so we don't fetch this on
+   * every dashboard load.
+   */
+  async function loadRemittance() {
+    setLoadingRemittance(true);
+    try {
+      // Collect all reservation confirmation codes across this month's statements.
+      const allCodes: string[] = [];
+      props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
+      const { data: guestyRows } = allCodes.length
+        ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, channel_commission').in('confirmation_code', allCodes)
+        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null }> };
+      const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
+      (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
+
+      const rows = props.map(p => {
+        let taxToRemit = 0;
+        let vrboCommissionSweep = 0;
+        let bookingAutoDebit = 0;
+        for (const r of p.reservations || []) {
+          const g = byCode.get(r.confirmation_code);
+          if (!g) continue;
+          const platform = (r.platform || '').toUpperCase();
+          const isVRBO = platform.includes('HOMEAWAY') || platform === 'VRBO';
+          const isBooking = platform.includes('BOOKING');
+          const isManual = platform === 'MANUAL';
+          if (isVRBO || isManual || isBooking) {
+            taxToRemit += Number(g.total_taxes || 0);
+          }
+          if (isVRBO) {
+            // Real 5% commission, regardless of whether the CSV has the
+            // legacy kludge baked in.
+            const base = Math.max((g.total_paid || 0) - (g.total_taxes || 0), 0);
+            vrboCommissionSweep += base * 0.05;
+          }
+          if (isBooking) {
+            bookingAutoDebit += Number(g.channel_commission || 0);
+          }
+        }
+        return {
+          propertyName: p.property_name,
+          propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
+          taxToRemit: Math.round(taxToRemit * 100) / 100,
+          vrboCommissionSweep: Math.round(vrboCommissionSweep * 100) / 100,
+          bookingAutoDebit: Math.round(bookingAutoDebit * 100) / 100,
+        };
+      });
+      setRemittanceRows(rows);
+    } finally {
+      setLoadingRemittance(false);
     }
   }
 
@@ -1848,17 +2007,30 @@ function DashboardContent() {
                   {fmtCompact(totalMgmt)}
                 </div>
               </div>
-              <button
-                onClick={() => setTransferListOpen(true)}
-                style={{
-                  border: '1px solid var(--ink)',
-                  background: 'transparent', color: 'var(--ink)',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                  padding: '8px 14px', cursor: 'pointer',
-                }}
-              >
-                Transfer List
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { setRemittanceOpen(true); if (!remittanceRows) loadRemittance(); }}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Remittance
+                </button>
+                <button
+                  onClick={() => setTransferListOpen(true)}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Transfer List
+                </button>
+              </div>
             </div>
 
             {/* Per-property rows */}
@@ -2107,6 +2279,65 @@ function DashboardContent() {
                     }}
                   >
                     Copy to Clipboard
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </PreviewModal>
+      )}
+
+      {/* Remittance instructions modal */}
+      {remittanceOpen && (
+        <PreviewModal onClose={() => setRemittanceOpen(false)}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Remittance instructions</div>
+          <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>
+            {monthLabel(selectedMonth)} &middot; accountant transfers
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+            Tax gets moved from each property account to *9928. VRBO commissions get swept to *5130 to reimburse the *3878 credit card. Booking.com&apos;s auto-debit next month is shown for reconciliation only.
+          </p>
+          {loadingRemittance || !remittanceRows ? (
+            <div style={{ marginTop: 18, padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>Loading…</div>
+          ) : (() => {
+            const text = buildRemittanceList({
+              monthName: monthLabel(selectedMonth).toUpperCase(),
+              rows: remittanceRows,
+            });
+            return (
+              <>
+                <pre className="font-mono" style={{
+                  marginTop: 18,
+                  whiteSpace: 'pre',
+                  fontSize: 11, lineHeight: 1.55,
+                  color: 'var(--ink-2)',
+                  background: 'var(--paper-2)',
+                  padding: '16px 18px',
+                  borderLeft: '3px solid var(--tide)',
+                  overflowX: 'auto',
+                }}>{text}</pre>
+                <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={async () => { try { await navigator.clipboard.writeText(text); } catch {} }}
+                    style={{
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={() => { setRemittanceRows(null); loadRemittance(); }}
+                    disabled={loadingRemittance}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: loadingRemittance ? 'wait' : 'pointer',
+                    }}
+                  >
+                    Refresh
                   </button>
                 </div>
               </>
