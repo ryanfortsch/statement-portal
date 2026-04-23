@@ -173,17 +173,16 @@ function normalizePlatform(raw?: string | null): string | null {
 
 /**
  * Assign bank cleaning charges to reservations 1:1 so no single stay
- * ever claims multiple Cape Ann Elite charges. Walk reservations in
- * check-out order; for each, claim the earliest still-unclaimed cleaning
- * whose posting date is on/after the check-out. A cleaning posted before
- * any known check-out (or any leftover once every reservation has its
- * cleaning) stays unattributed (source='bank').
+ * ever claims multiple Cape Ann Elite charges, and so the *last*
+ * checkout of the month pairs with the *last* cleaning of the month.
  *
- * The previous logic was "nearest check-out within 0-3 days" with no
- * claim-tracking, so two back-to-back stays would both match the same
- * charge and leave the earlier stay's cleaning unassigned. Cape Ann
- * Elite also bills with variable lag, so the 3-day cap was too tight --
- * widened to unbounded (any cleaning on/after the checkout can match).
+ * Walk reservations in REVERSE check-out order. For each, claim the
+ * latest still-unclaimed cleaning whose posting date is on/after that
+ * check-out. Earlier checkouts cascade backward through the remaining
+ * cleanings, each picking the latest option inside their own window.
+ *
+ * See /api/ingest for the algorithm's rationale. Duplicated here so
+ * neither route drifts from the other on this accounting rule.
  */
 function matchCleaningsToReservations<R extends { check_out: string; guest_name: string }>(
   cleaningCharges: { date: string; amount: number; description: string }[],
@@ -192,17 +191,17 @@ function matchCleaningsToReservations<R extends { check_out: string; guest_name:
   const withISO = cleaningCharges.map((c, origIdx) => ({
     c, origIdx, iso: isoFromMMDDYYYY(c.date),
   }));
-  const sortedByDate = [...withISO].sort((a, b) => a.iso.localeCompare(b.iso));
-  const sortedRes = [...reservations].sort((a, b) => a.check_out.localeCompare(b.check_out));
+  const sortedByDateDesc = [...withISO].sort((a, b) => b.iso.localeCompare(a.iso));
+  const sortedResDesc = [...reservations].sort((a, b) => b.check_out.localeCompare(a.check_out));
 
   const claimedIdx = new Set<number>();
   const assignment = new Map<number, R>();  // origIdx -> reservation
 
-  for (const res of sortedRes) {
-    for (const { origIdx, iso } of sortedByDate) {
+  for (const res of sortedResDesc) {
+    for (const { origIdx, iso } of sortedByDateDesc) {
       if (claimedIdx.has(origIdx)) continue;
       if (!iso) continue;
-      if (iso < res.check_out) continue;  // cleaning predates checkout
+      if (iso < res.check_out) continue;  // cleaning predates this checkout
       claimedIdx.add(origIdx);
       assignment.set(origIdx, res);
       break;
