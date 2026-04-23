@@ -80,15 +80,25 @@ async function stripeGet<T>(key: string, path: string, params: Record<string, st
   return body as T;
 }
 
-async function listChargesForMonth(key: string, month: string): Promise<StripeCharge[]> {
+/**
+ * List Stripe charges whose creation date falls in a window around the
+ * statement month. STR payment timing doesn't align with stay timing --
+ * guests pay at booking (1-6 months ahead) and VRBO/Direct balances hit
+ * 30-60 days before check-in -- so a month-only window misses most of the
+ * charges that pay for this month's stays. We pull a 6-months-back to
+ * 2-months-forward window, which covers normal booking lead times.
+ */
+async function listChargesAroundMonth(key: string, month: string): Promise<StripeCharge[]> {
   const [y, m] = month.split('-').map(Number);
-  const start = Math.floor(Date.UTC(y, m - 1, 1) / 1000);
-  const end = Math.floor(Date.UTC(y, m, 1) / 1000);
+  // 6 months before the start of the statement month, through 2 months
+  // after the end of it.
+  const start = Math.floor(Date.UTC(y, m - 1 - 6, 1) / 1000);
+  const end = Math.floor(Date.UTC(y, m + 2, 1) / 1000);
   const charges: StripeCharge[] = [];
   let startingAfter: string | undefined;
-  // Safety cap: don't loop forever if Stripe keeps returning has_more (shouldn't,
-  // but defence in depth against a bug that would otherwise burn our budget).
-  for (let i = 0; i < 10; i++) {
+  // Safety cap at 50 pages (5000 charges) -- more than any small portfolio
+  // will have in 8 months, cheap insurance against a runaway loop.
+  for (let i = 0; i < 50; i++) {
     const params: Record<string, string | string[]> = {
       'created[gte]': String(start),
       'created[lt]': String(end),
@@ -200,11 +210,12 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const charges = await listChargesForMonth(restrictedKey, month);
+        const charges = await listChargesAroundMonth(restrictedKey, month);
         const succeeded = charges.filter(c => c.status === 'succeeded' || c.paid);
         pr.charges_found = succeeded.length;
 
-        // Existing reservations for this statement -- for matching + fee updates.
+        // This statement-month's reservations -- the ones we may update fees
+        // on and emit gaps for.
         const { data: rRes } = await supabase
           .from('reservations')
           .select('id, confirmation_code, platform, guest_name, property_statement_id, guesty_rental_income, stripe_fee, adjusted_revenue')
@@ -213,9 +224,38 @@ export async function POST(request: NextRequest) {
         const byCode = new Map<string, ReservationRow>();
         for (const r of reservations) if (r.confirmation_code) byCode.set(r.confirmation_code, r);
 
-        // Also pull guesty_reservations for the TOTAL_PAID gross so we can
-        // flag mismatches between what Stripe charged and what Guesty thinks
-        // the guest paid.
+        // Additionally, know about every reservation across all months for
+        // this property. A Stripe charge is only a real 'orphan' if no
+        // reservation in the DB matches -- otherwise the charge just belongs
+        // to a stay in a different statement month, which is normal
+        // (guests pay months before check-in).
+        const { data: crossMonthRes } = await supabase
+          .from('reservations')
+          .select('confirmation_code, property_statement_id')
+          .not('confirmation_code', 'is', null);
+        // Narrow the cross-month set to this property via property_statements.
+        const { data: allStmtsThisProp } = await supabase
+          .from('property_statements')
+          .select('id')
+          .eq('property_id', propertyId);
+        const thisPropStmtIds = new Set((allStmtsThisProp || []).map(s => s.id));
+        const knownCodesThisProp = new Set(
+          (crossMonthRes || [])
+            .filter(r => r.property_statement_id && thisPropStmtIds.has(r.property_statement_id))
+            .map(r => r.confirmation_code as string),
+        );
+        // Same lookup against guesty_reservations (this captures upcoming
+        // stays that don't yet have a reservations row because their
+        // statement month hasn't been ingested).
+        const { data: guestyAllForProp } = await supabase
+          .from('guesty_reservations')
+          .select('confirmation_code')
+          .eq('property_id', propertyId);
+        for (const g of guestyAllForProp || []) {
+          if (g.confirmation_code) knownCodesThisProp.add(g.confirmation_code);
+        }
+
+        // TOTAL_PAID gross on this month's reservations, for mismatch check.
         const codesForThisProp = reservations.map(r => r.confirmation_code).filter(Boolean);
         const { data: gRes } = codesForThisProp.length
           ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid').in('confirmation_code', codesForThisProp)
@@ -223,11 +263,15 @@ export async function POST(request: NextRequest) {
         const grossByCode = new Map<string, number>();
         (gRes || []).forEach(g => { if (g.total_paid != null && g.confirmation_code) grossByCode.set(g.confirmation_code, g.total_paid); });
 
-        const matchedCodes = new Set<string>();
+        // Aggregate Stripe charges by confirmation code (a single reservation
+        // often has an initial + final-balance charge, both with the same
+        // description). We sum fees, sum grosses, and track refunds across all
+        // charges for the code.
+        type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number };
+        const byCodeAgg = new Map<string, Agg>();
+        const orphanCodes: { code: string; amount: number }[] = [];
 
         for (const charge of succeeded) {
-          // Stripe descriptions carry the confirmation code -- sometimes
-          // with trailing notes, so match on the first token.
           const desc = (charge.description || '').trim();
           const firstToken = desc.split(/\s+/)[0];
           const code = firstToken || desc;
@@ -236,44 +280,58 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
+          const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0 };
+          agg.grossCents += charge.amount;
+          agg.refundedCents += charge.amount_refunded;
+          const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
+            ? charge.balance_transaction.fee
+            : null;
+          if (fee != null) { agg.feeCents += fee; agg.feeKnown = true; }
+          agg.chargeCount += 1;
+          byCodeAgg.set(code, agg);
+        }
+
+        const matchedCodes = new Set<string>();
+
+        for (const [code, agg] of byCodeAgg.entries()) {
           const res = byCode.get(code);
           if (!res) {
-            pr.unmatched_charges.push(`${code} ($${(charge.amount / 100).toFixed(2)}) -- no reservation`);
+            // A charge for a reservation we don't have this month is only
+            // a real orphan if it doesn't match any reservation for this
+            // property in any month (past or future).
+            if (!knownCodesThisProp.has(code)) {
+              orphanCodes.push({ code, amount: round2(agg.grossCents / 100) });
+            }
             continue;
           }
           matchedCodes.add(code);
           pr.matched++;
 
-          // Airbnb / Booking.com shouldn't be in these accounts at all,
-          // so if we see one it's a data puzzle, skip the update.
+          // Airbnb / Booking.com shouldn't be in these accounts at all.
           const p = (res.platform || '').toUpperCase();
           const isRTStripeChannel = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL';
           if (!isRTStripeChannel) continue;
 
-          const actualFee = feeFromCharge(charge);
-          const stripeGross = round2(charge.amount / 100);
-          const refunded = round2(charge.amount_refunded / 100);
+          const stripeGross = round2(agg.grossCents / 100);
+          const refunded = round2(agg.refundedCents / 100);
+          const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
 
-          // Gross mismatch: Stripe says the guest paid X, Guesty says Y.
+          // Gross mismatch vs Guesty.
           const guestyGross = grossByCode.get(code);
           if (guestyGross != null && Math.abs(guestyGross - stripeGross) > 1) {
             pr.gross_mismatches.push({ code, guest: res.guest_name || 'Guest', stripe: stripeGross, guesty: guestyGross });
           }
 
-          // Refund on Stripe side we haven't accounted for -- flag it. We
-          // don't auto-reduce owner payout here because the accounting
-          // convention depends on timing (was it within statement period?
-          // how does it affect mgmt fee?). Flag + human decides.
           if (refunded > 0) {
             pr.refunds_detected.push({ code, guest: res.guest_name || 'Guest', amount: refunded });
           }
 
-          // Fee update: swap our estimate for Stripe's actual if they differ
-          // by more than a dollar and we have the actual value.
+          // Fee update: swap our estimate for the summed actual fee across
+          // all charges for this reservation, when it differs by > $1.
           if (actualFee != null && res.stripe_fee != null) {
             const prev = round2(res.stripe_fee);
             if (Math.abs(prev - actualFee) > 1) {
-              const deltaFee = round2(actualFee - prev);  // positive means we under-estimated the fee
+              const deltaFee = round2(actualFee - prev);
               const newAdjusted = round2((res.adjusted_revenue || 0) - deltaFee);
               await supabase
                 .from('reservations')
@@ -284,9 +342,12 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Reservations we expected a Stripe charge for but didn't find one.
-        // Only care about VRBO/Manual non-zero stays; other channels don't
-        // flow through this account.
+        pr.unmatched_charges = orphanCodes.map(o => `${o.code} ($${o.amount.toFixed(2)})`);
+
+        // Reservations in this statement month we expected a Stripe charge
+        // for but didn't find one in the wider window. Only VRBO/Manual
+        // non-homeowner stays -- other channels don't flow through this
+        // Stripe account.
         for (const r of reservations) {
           if (matchedCodes.has(r.confirmation_code)) continue;
           const p = (r.platform || '').toUpperCase();
