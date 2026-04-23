@@ -411,14 +411,13 @@ export async function POST(request: NextRequest) {
             expected_data: `Check Stripe dashboard for this confirmation code`,
           });
         }
-        for (const oc of pr.unmatched_charges) {
-          newGaps.push({
-            gap_type: 'stripe_orphan_charge',
-            description: `Stripe charge with no matching reservation: ${oc}`,
-            severity: 'info',
-            expected_data: `Check whether this charge belongs to a stay we haven't ingested yet`,
-          });
-        }
+        // Note: we intentionally don't persist orphan charges as data gaps.
+        // With a 6-month charge lookback, "orphans" are almost always
+        // historical reservations predating the portal's ingested range
+        // (canceled, rebooked, or from months before Dotti uploaded Guesty
+        // data). They clutter property cards without actionable signal.
+        // They're still reported in the sync summary/toast so the operator
+        // can see the count; we just don't create per-property gaps.
         if (newGaps.length > 0) {
           await supabase
             .from('data_gaps')
