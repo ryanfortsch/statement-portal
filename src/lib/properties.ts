@@ -39,7 +39,7 @@ export const PROPERTIES: Record<string, Property> = {
   },
   '53_rocky_neck': {
     id: '53_rocky_neck', name: '53 Rocky Neck Ave', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
-    owner_last: 'Prudenzi', owner_full: 'Mark Prudenzi', owner_greeting: 'Dennis',
+    owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi', owner_greeting: 'Simon',
     owner_emails: ['senecalglenn@gmail.com'],
     fee_pct: 25, bank_last4: '9910', listing_match: '53 rocky neck',
   },
