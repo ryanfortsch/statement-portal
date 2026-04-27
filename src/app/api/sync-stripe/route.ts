@@ -194,12 +194,36 @@ export async function POST(request: NextRequest) {
     for (const [propertyId, restrictedKey] of Object.entries(keys)) {
       const stmt = stmtByPropertyId.get(propertyId);
       if (!stmt) {
-        results.push({
-          property_id: propertyId,
-          charges_found: 0, matched: 0,
-          unmatched_charges: [], fee_updates: [], refunds_detected: [], gross_mismatches: [], reservations_missing_charge: [],
-          error: `No statement for ${propertyId} / ${month} -- run the monthly ingest first`,
-        });
+        // No statement for this property in this month. Two cases worth
+        // distinguishing:
+        //   (a) the property had real (revenue-generating) bookings but
+        //       the monthly ingest wasn't run -- real error, surface it
+        //   (b) the property had no real bookings -- common (homeowner
+        //       blocked their own calendar, or just an empty month),
+        //       silently skip
+        // "Real" here means total_paid > 0; null counts too because legacy
+        // rows from before the money columns existed can't be distinguished
+        // and we err on the side of telling the operator.
+        const monthStart = `${month}-01`;
+        const [y, m] = month.split('-').map(Number);
+        const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+        const { count: gRowCount } = await supabase
+          .from('guesty_reservations')
+          .select('*', { count: 'exact', head: true })
+          .eq('property_id', propertyId)
+          .gte('check_out', monthStart)
+          .lt('check_out', monthEndExclusive)
+          .or('total_paid.is.null,total_paid.gt.0');
+        const hadRealBookings = (gRowCount || 0) > 0;
+        if (hadRealBookings) {
+          results.push({
+            property_id: propertyId,
+            charges_found: 0, matched: 0,
+            unmatched_charges: [], fee_updates: [], refunds_detected: [], gross_mismatches: [], reservations_missing_charge: [],
+            error: `No statement for ${propertyId} / ${month} despite ${gRowCount} paid booking(s) in Guesty -- run the monthly ingest first`,
+          });
+        }
+        // Otherwise silently skip -- no error, no entry in results
         continue;
       }
 
