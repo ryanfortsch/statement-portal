@@ -77,6 +77,18 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+// Mirror of /api/ingest's MAINTENANCE_VENDORS list. Keep in sync.
+const MAINTENANCE_VENDORS: { name: string; matches: string[] }[] = [
+  { name: 'Ian Drometer', matches: ['DROMETER'] },
+];
+
+function matchMaintenanceVendor(descUpper: string): string | null {
+  for (const v of MAINTENANCE_VENDORS) {
+    if (v.matches.some(m => descUpper.includes(m))) return v.name;
+  }
+  return null;
+}
+
 function isInMonth(dateStr: string, month: string): boolean {
   // Chase format: MM/DD/YYYY
   const parts = dateStr.split('/');
@@ -565,20 +577,34 @@ export async function POST(request: NextRequest) {
     }
 
     const cleaningCharges: { date: string; amount: number; description: string }[] = [];
+    const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     for (const row of bankRows) {
       const desc = row['Description'] || row['DESCRIPTION'] || '';
       const amountStr = row['Amount'] || row['AMOUNT'] || '0';
       const date = row['Posting Date'] || row['DATE'] || row['Post Date'] || '';
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
+      const descUpper = desc.toUpperCase();
 
-      if (desc.toUpperCase().includes('CAPE ANN ELITE')) {
+      if (descUpper.includes('CAPE ANN ELITE')) {
         if (isInMonth(date, month)) {
           cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
         }
-      } else if (amount > 0) {
+        continue;
+      }
+
+      // Maintenance / repair vendors (Ian Drometer-style handyman charges).
+      // Keep this list in sync with /api/ingest's MAINTENANCE_VENDORS.
+      const vendor = matchMaintenanceVendor(descUpper);
+      if (vendor) {
+        if (isInMonth(date, month) && amount < 0) {
+          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor });
+        }
+        continue;
+      }
+
+      if (amount > 0) {
         let source = 'other';
-        const descUpper = desc.toUpperCase();
         if (descUpper.includes('AIRBNB')) source = 'airbnb';
         else if (descUpper.includes('STRIPE')) source = 'stripe';
         else if (descUpper.includes('BOOKING.COM') || descUpper.includes('BOOKING COM')) source = 'booking';
@@ -587,6 +613,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Re-run the deposit matching pass. Same algorithm as /api/ingest, but
     //    operating on the reservations already in the DB.
@@ -663,9 +690,13 @@ export async function POST(request: NextRequest) {
         .eq('id', u.id);
     }
 
-    // 6. Rebuild cleaning_events: the old ones were sourced from (probably
-    //    absent) prior bank data. Wipe and re-insert from the fresh CSV.
+    // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
+    //    from (probably absent) prior bank data. Wipe and re-insert from the
+    //    fresh CSV.
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
+    // repair_events table may not exist if the migration hasn't run.
+    const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
+    if (repDelErr && !/does not exist|relation/i.test(repDelErr.message)) throw repDelErr;
 
     if (cleaningCharges.length > 0) {
       const cleaningInserts = matchCleaningsToReservations(
@@ -684,12 +715,26 @@ export async function POST(request: NextRequest) {
       if (cleanErr) throw cleanErr;
     }
 
+    if (repairCharges.length > 0) {
+      const repairInserts = repairCharges.map(c => ({
+        property_statement_id: stmt.id,
+        vendor_name: c.vendor,
+        description: c.description,
+        bank_charge_date: isoFromMMDDYYYY(c.date) || null,
+        bank_charge_amount: c.amount,
+        source: 'bank',
+      }));
+      const { error: repErr } = await supabase.from('repair_events').insert(repairInserts);
+      if (repErr && !/does not exist|relation/i.test(repErr.message)) throw repErr;
+      if (repErr) console.warn('repair_events insert skipped (table missing)');
+    }
+
     // 7. Update the property_statements row with the new bank-derived fields.
     //    rental_revenue + management_fee are unchanged (those come from Guesty,
-    //    which we haven't touched). cleaning_total changes, owner_payout
-    //    recomputes from the new cleaning_total.
+    //    which we haven't touched). cleaning_total + repairs_total change,
+    //    owner_payout recomputes from both.
     const newOwnerPayout =
-      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - (stmt.repairs_total || 0)) * 100) / 100;
+      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal) * 100) / 100;
 
     // Confidence: green if we now have all three sources. We don't know
     // about has_platform_csv here without reading the existing row, but
@@ -711,6 +756,7 @@ export async function POST(request: NextRequest) {
       .from('property_statements')
       .update({
         cleaning_total: cleaningTotal,
+        repairs_total: repairsTotal,
         owner_payout: newOwnerPayout,
         has_bank_csv: true,
         confidence,

@@ -37,6 +37,15 @@ type CleaningEvent = {
   source: string;
 };
 
+type RepairEvent = {
+  id: string;
+  vendor_name: string | null;
+  description: string | null;
+  bank_charge_date: string | null;
+  bank_charge_amount: number;
+  source: string | null;
+};
+
 type DataGap = {
   id: string;
   gap_type: string;
@@ -77,6 +86,7 @@ type PropertyStatement = {
   updated_at?: string;
   reservations?: Reservation[];
   cleaning_events?: CleaningEvent[];
+  repair_events?: RepairEvent[];
   data_gaps?: DataGap[];
   drift_bookings?: DriftBooking[];
 };
@@ -856,6 +866,7 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
+  const repairs = prop.repair_events || [];
   const bankMatched = reservations.filter(r => r.bank_match_status === 'matched').length;
   const pctMatched = reservations.length > 0 ? Math.round((bankMatched / reservations.length) * 100) : 0;
 
@@ -1146,10 +1157,39 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
             </div>
           )}
 
+          {/* Repairs & Maintenance */}
+          {repairs.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <SectionHead num="05" title="Repairs & Maintenance" meta={`${fmt(prop.repairs_total)} total`} />
+              <div>
+                {repairs.map((re) => (
+                  <div key={re.id} className="flex items-center justify-between" style={{ padding: '10px 0', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
+                    <div className="flex items-center gap-4" style={{ minWidth: 0 }}>
+                      <span className="tabular-nums" style={{ color: 'var(--ink-4)', width: 50, fontSize: 11 }}>
+                        {re.bank_charge_date ? fmtDate(re.bank_charge_date) : '—'}
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-fraunces)',
+                        fontWeight: 500,
+                        color: 'var(--ink)',
+                      }}>
+                        {re.vendor_name || 'Maintenance vendor'}
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+                        Bank
+                      </span>
+                    </div>
+                    <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(re.bank_charge_amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Data Gaps */}
           {gaps.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <SectionHead num="05" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
+              <SectionHead num="06" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
               <div>
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
@@ -1426,9 +1466,10 @@ function DashboardContent() {
 
       const enrichedProps = await Promise.all(
         (props || []).map(async (prop: PropertyStatement) => {
-          const [resResult, cleanResult, gapResult, guestyResResult] = await Promise.all([
+          const [resResult, cleanResult, repairResult, gapResult, guestyResResult] = await Promise.all([
             supabase.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
             supabase.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
+            supabase.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
             supabase.from('data_gaps').select('*').eq('property_statement_id', prop.id),
             // Drift detection: paid bookings (total_paid > 0) for this property
             // that checked out within the statement month. Compare to the
@@ -1452,6 +1493,7 @@ function DashboardContent() {
             ...prop,
             reservations: resResult.data || [],
             cleaning_events: cleanResult.data || [],
+            repair_events: repairResult.data || [],
             data_gaps: gapResult.data || [],
             drift_bookings: driftBookings,
           };

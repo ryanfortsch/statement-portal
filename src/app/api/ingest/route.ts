@@ -206,6 +206,24 @@ function normalizePlatform(raw?: string | null): string | null {
   return s;
 }
 
+/**
+ * Recurring maintenance / repair vendors. Bank ingest scans descriptions for
+ * any of these matchers and tags them with the canonical name. New vendors
+ * (plumber, electrician, landscaper, etc.) get added here.
+ *
+ * Match strings are upper-cased substrings.
+ */
+const MAINTENANCE_VENDORS: { name: string; matches: string[] }[] = [
+  { name: 'Ian Drometer', matches: ['DROMETER'] },
+];
+
+function matchMaintenanceVendor(descUpper: string): string | null {
+  for (const v of MAINTENANCE_VENDORS) {
+    if (v.matches.some(m => descUpper.includes(m))) return v.name;
+  }
+  return null;
+}
+
 // Check if a date string (MM/DD/YYYY) falls within a given month (YYYY-MM)
 function isInMonth(dateStr: string, month: string): boolean {
   // Chase format: MM/DD/YYYY
@@ -443,6 +461,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cleaningCharges: { date: string; amount: number; description: string }[] = [];
+    const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
 
     for (const row of bankRows) {
@@ -450,16 +469,30 @@ export async function POST(request: NextRequest) {
       const amountStr = row['Amount'] || row['AMOUNT'] || '0';
       const date = row['Posting Date'] || row['DATE'] || row['Post Date'] || '';
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
+      const descUpper = desc.toUpperCase();
 
       // Cleaning charges: month-filtered only
-      if (desc.toUpperCase().includes('CAPE ANN ELITE')) {
+      if (descUpper.includes('CAPE ANN ELITE')) {
         if (isInMonth(date, month)) {
           cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
         }
-      } else if (amount > 0) {
+        continue;
+      }
+
+      // Maintenance / repair vendor matches. Recurring property handymen,
+      // plumbers, etc. Always a DEBIT (negative amount). Add to MAINTENANCE_VENDORS
+      // when new vendors come up.
+      const vendor = matchMaintenanceVendor(descUpper);
+      if (vendor) {
+        if (isInMonth(date, month) && amount < 0) {
+          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor });
+        }
+        continue;
+      }
+
+      if (amount > 0) {
         // Deposits: collect ALL dates for cross-month matching
         let source = 'other';
-        const descUpper = desc.toUpperCase();
         if (descUpper.includes('AIRBNB')) source = 'airbnb';
         else if (descUpper.includes('STRIPE')) source = 'stripe';
         else if (descUpper.includes('BOOKING.COM') || descUpper.includes('BOOKING COM')) source = 'booking';
@@ -468,6 +501,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Process reservations with channel logic.
     //
@@ -653,7 +687,7 @@ export async function POST(request: NextRequest) {
     // 5. Calculate totals
     totalRevenue = Math.round(totalRevenue * 100) / 100;
     const managementFee = Math.round(totalRevenue * (propConfig.fee_pct / 100) * 100) / 100;
-    const ownerPayout = Math.round((totalRevenue - managementFee - cleaningTotal) * 100) / 100;
+    const ownerPayout = Math.round((totalRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
 
     // 6. Confidence
     const hasGuesty = reservations.length > 0;
@@ -691,6 +725,11 @@ export async function POST(request: NextRequest) {
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
       await supabase.from('cleaning_events').delete().eq('property_statement_id', existingStmt.id);
+      // repair_events table may not exist yet if the migration hasn't run.
+      // Tolerate that and continue -- repairs flow degrades gracefully until
+      // supabase-schema-repairs.sql lands.
+      const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', existingStmt.id);
+      if (repDelErr && !/does not exist|relation/i.test(repDelErr.message)) throw repDelErr;
       await supabase.from('data_gaps').delete().eq('property_statement_id', existingStmt.id);
       await supabase.from('property_statements').delete().eq('id', existingStmt.id);
     }
@@ -707,7 +746,7 @@ export async function POST(request: NextRequest) {
         rental_revenue: totalRevenue,
         management_fee: managementFee,
         cleaning_total: cleaningTotal,
-        repairs_total: 0,
+        repairs_total: repairsTotal,
         tax_remittance: 0,
         owner_payout: ownerPayout,
         num_stays: processedReservations.filter(r => r.adjusted_revenue > 0).length,
@@ -752,6 +791,28 @@ export async function POST(request: NextRequest) {
         .from('cleaning_events')
         .insert(cleaningInserts);
       if (cleanErr) throw cleanErr;
+    }
+
+    // 11b. Insert repair events (handyman / vendor charges from the bank).
+    // Tolerates the migration not having run yet.
+    if (repairCharges.length > 0) {
+      const repairInserts = repairCharges.map(c => {
+        const parts = c.date.split('/');
+        const iso = parts.length === 3 ? `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}` : null;
+        return {
+          property_statement_id: stmt.id,
+          vendor_name: c.vendor,
+          description: c.description,
+          bank_charge_date: iso,
+          bank_charge_amount: c.amount,
+          source: 'bank',
+        };
+      });
+      const { error: repErr } = await supabase
+        .from('repair_events')
+        .insert(repairInserts);
+      if (repErr && !/does not exist|relation/i.test(repErr.message)) throw repErr;
+      if (repErr) console.warn('repair_events insert skipped (table missing -- run supabase-schema-repairs.sql)');
     }
 
     // 12. Data gap flags
