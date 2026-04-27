@@ -47,6 +47,13 @@ type DataGap = {
   upload_id: string | null;
 };
 
+type DriftBooking = {
+  confirmation_code: string;
+  guest_name: string | null;
+  check_out: string;
+  total_paid: number | null;
+};
+
 type PropertyStatement = {
   id: string;
   property_id: string;
@@ -66,9 +73,12 @@ type PropertyStatement = {
   has_bank_csv: boolean;
   confidence: string;
   notes: string | null;
+  created_at?: string;
+  updated_at?: string;
   reservations?: Reservation[];
   cleaning_events?: CleaningEvent[];
   data_gaps?: DataGap[];
+  drift_bookings?: DriftBooking[];
 };
 
 type StatementPeriod = {
@@ -842,6 +852,7 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
+  const [refreshingStatement, setRefreshingStatement] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
@@ -885,9 +896,22 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
                     {gaps.length} gap{gaps.length > 1 ? 's' : ''}
                   </span>
                 )}
+                {(prop.drift_bookings?.length || 0) > 0 && (
+                  <span title="Paid bookings have been added to Guesty since this statement was last ingested. Click the property to expand and refresh." style={{
+                    fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                    color: 'var(--paper)',
+                    background: 'var(--tide)',
+                    padding: '2px 7px',
+                  }}>
+                    {prop.drift_bookings!.length} new
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3, letterSpacing: '.02em' }}>
                 {prop.owner_name} &middot; {prop.management_fee_pct}% management fee
+                {prop.updated_at && (
+                  <> &middot; <span title={`Last ingested ${new Date(prop.updated_at).toLocaleString()}`}>ingested {relativeTime(prop.updated_at)}</span></>
+                )}
               </div>
             </div>
           </div>
@@ -909,6 +933,67 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
       {/* Expanded Detail */}
       {expanded && (
         <div style={{ paddingBottom: 24 }}>
+          {/* Drift banner: paid bookings added to guesty_reservations since
+              this statement was last ingested. One-click adds them to the
+              statement without a full re-ingest of all 3 files. */}
+          {(prop.drift_bookings?.length || 0) > 0 && (
+            <div style={{
+              padding: '12px 14px',
+              borderTop: '1px dotted var(--rule)',
+              borderBottom: '1px dotted var(--rule)',
+              background: 'rgba(75, 138, 158, 0.08)',
+              borderLeft: '3px solid var(--tide)',
+              display: 'flex', alignItems: 'center', gap: 12,
+              fontSize: 12, color: 'var(--ink-2)',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 500, color: 'var(--ink)' }}>
+                  {prop.drift_bookings!.length} new paid booking{prop.drift_bookings!.length === 1 ? '' : 's'} since this statement was generated
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>
+                  {prop.drift_bookings!.slice(0, 3).map(d => `${d.guest_name || 'Guest'} ($${(d.total_paid || 0).toFixed(0)})`).join(' · ')}
+                  {prop.drift_bookings!.length > 3 && ` +${prop.drift_bookings!.length - 3} more`}
+                </div>
+              </div>
+              <button
+                disabled={refreshingStatement}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  setRefreshingStatement(true);
+                  try {
+                    const res = await fetch('/api/refresh-statement', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ month, property_id: prop.property_id }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      alert(`Refresh failed: ${data.error || 'unknown error'}`);
+                    } else {
+                      onRefresh();
+                    }
+                  } catch (err) {
+                    alert(`Refresh failed: ${err instanceof Error ? err.message : err}`);
+                  } finally {
+                    setRefreshingStatement(false);
+                  }
+                }}
+                style={{
+                  border: '1px solid var(--ink)',
+                  background: 'var(--ink)',
+                  color: 'var(--paper)',
+                  fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                  padding: '8px 14px',
+                  cursor: refreshingStatement ? 'wait' : 'pointer',
+                  opacity: refreshingStatement ? 0.5 : 1,
+                  flexShrink: 0,
+                }}
+              >
+                {refreshingStatement ? 'Refreshing…' : 'Add to Statement'}
+              </button>
+            </div>
+          )}
+
           {/* Sources + bank verified */}
           <div className="flex items-center gap-2 flex-wrap" style={{
             padding: '10px 0',
@@ -1332,14 +1417,44 @@ function DashboardContent() {
         .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
       if (propsError) throw propsError;
 
+      // Compute the month range once, used to detect "drift" -- paid bookings
+      // that have appeared in guesty_reservations since this property's
+      // statement was last ingested.
+      const monthStart = `${month}-01`;
+      const [_y, _m] = month.split('-').map(Number);
+      const monthEndExclusive = new Date(Date.UTC(_y, _m, 1)).toISOString().slice(0, 10);
+
       const enrichedProps = await Promise.all(
         (props || []).map(async (prop: PropertyStatement) => {
-          const [resResult, cleanResult, gapResult] = await Promise.all([
+          const [resResult, cleanResult, gapResult, guestyResResult] = await Promise.all([
             supabase.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
             supabase.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
             supabase.from('data_gaps').select('*').eq('property_statement_id', prop.id),
+            // Drift detection: paid bookings (total_paid > 0) for this property
+            // that checked out within the statement month. Compare to the
+            // reservations we already have on the statement -- any
+            // confirmation_code that's missing is a "new booking".
+            supabase
+              .from('guesty_reservations')
+              .select('confirmation_code, guest_name, check_out, total_paid')
+              .eq('property_id', prop.property_id)
+              .gte('check_out', monthStart)
+              .lt('check_out', monthEndExclusive)
+              .gt('total_paid', 0),
           ]);
-          return { ...prop, reservations: resResult.data || [], cleaning_events: cleanResult.data || [], data_gaps: gapResult.data || [] };
+          const existingCodes = new Set(
+            (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
+          );
+          const driftBookings = (guestyResResult.data || []).filter(
+            (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
+          );
+          return {
+            ...prop,
+            reservations: resResult.data || [],
+            cleaning_events: cleanResult.data || [],
+            data_gaps: gapResult.data || [],
+            drift_bookings: driftBookings,
+          };
         })
       );
 
