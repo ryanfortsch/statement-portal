@@ -729,7 +729,7 @@ export async function POST(request: NextRequest) {
       // Tolerate that and continue -- repairs flow degrades gracefully until
       // supabase-schema-repairs.sql lands.
       const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', existingStmt.id);
-      if (repDelErr && !/does not exist|relation/i.test(repDelErr.message)) throw repDelErr;
+      if (repDelErr && repDelErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repDelErr.message || '')) throw repDelErr;
       await supabase.from('data_gaps').delete().eq('property_statement_id', existingStmt.id);
       await supabase.from('property_statements').delete().eq('id', existingStmt.id);
     }
@@ -811,7 +811,7 @@ export async function POST(request: NextRequest) {
       const { error: repErr } = await supabase
         .from('repair_events')
         .insert(repairInserts);
-      if (repErr && !/does not exist|relation/i.test(repErr.message)) throw repErr;
+      if (repErr && repErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repErr.message || '')) throw repErr;
       if (repErr) console.warn('repair_events insert skipped (table missing -- run supabase-schema-repairs.sql)');
     }
 
