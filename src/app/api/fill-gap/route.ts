@@ -696,7 +696,7 @@ export async function POST(request: NextRequest) {
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
-    if (repDelErr && !/does not exist|relation/i.test(repDelErr.message)) throw repDelErr;
+    if (repDelErr && repDelErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repDelErr.message || '')) throw repDelErr;
 
     if (cleaningCharges.length > 0) {
       const cleaningInserts = matchCleaningsToReservations(
@@ -725,7 +725,7 @@ export async function POST(request: NextRequest) {
         source: 'bank',
       }));
       const { error: repErr } = await supabase.from('repair_events').insert(repairInserts);
-      if (repErr && !/does not exist|relation/i.test(repErr.message)) throw repErr;
+      if (repErr && repErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repErr.message || '')) throw repErr;
       if (repErr) console.warn('repair_events insert skipped (table missing)');
     }
 
