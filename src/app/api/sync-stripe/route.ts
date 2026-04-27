@@ -131,6 +131,7 @@ type ReservationRow = {
   guesty_rental_income: number;
   stripe_fee: number | null;
   adjusted_revenue: number | null;
+  bank_match_status: string | null;
 };
 
 type PerPropertyResult = {
@@ -242,7 +243,7 @@ export async function POST(request: NextRequest) {
         // on and emit gaps for.
         const { data: rRes } = await supabase
           .from('reservations')
-          .select('id, confirmation_code, platform, guest_name, property_statement_id, guesty_rental_income, stripe_fee, adjusted_revenue')
+          .select('id, confirmation_code, platform, guest_name, property_statement_id, guesty_rental_income, stripe_fee, adjusted_revenue, bank_match_status')
           .eq('property_statement_id', stmt.id);
         const reservations: ReservationRow[] = (rRes || []) as ReservationRow[];
         const byCode = new Map<string, ReservationRow>();
@@ -350,11 +351,19 @@ export async function POST(request: NextRequest) {
             pr.refunds_detected.push({ code, guest: res.guest_name || 'Guest', amount: refunded });
           }
 
-          // Fee update: swap our estimate for the summed actual fee across
-          // all charges for this reservation, when it differs by > $1.
-          if (actualFee != null && res.stripe_fee != null) {
+          // Fee update: swap our estimate for the summed actual fee from
+          // Stripe whenever the actual is available and differs (even by
+          // pennies). The previous $1 threshold avoided pointless writes
+          // but left small estimate drift on every reservation. Keeping
+          // estimates only when Stripe doesn't return a fee at all.
+          //
+          // Skip reservations explicitly marked paid_off_stripe -- those
+          // paid by check/wire and shouldn't have their stripe_fee
+          // touched even if Stripe somehow has a stray charge for that
+          // confirmation code.
+          if (actualFee != null && res.stripe_fee != null && res.bank_match_status !== 'paid_off_stripe') {
             const prev = round2(res.stripe_fee);
-            if (Math.abs(prev - actualFee) > 1) {
+            if (prev !== actualFee) {
               const deltaFee = round2(actualFee - prev);
               const newAdjusted = round2((res.adjusted_revenue || 0) - deltaFee);
               await supabase
