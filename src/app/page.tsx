@@ -180,6 +180,7 @@ function buildRemittanceList(args: {
   rows: Array<{
     propertyName: string;
     propertyShort: string;
+    taxCertId: string | null;
     taxToRemit: number;
     vrboCommissionSweep: number;
     bookingAutoDebit: number;
@@ -198,28 +199,33 @@ function buildRemittanceList(args: {
 
   const taxRows = rows.filter(r => r.taxToRemit > 0);
   lines.push('1. TAX REMITTANCE (property account -> *9928)');
-  lines.push('-'.repeat(60));
+  lines.push('   File on MassTaxConnect using each property\'s certificate.');
+  lines.push('-'.repeat(72));
   if (taxRows.length === 0) {
     lines.push('  (no tax collected this month)');
   } else {
     taxRows.forEach(r => {
-      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.taxToRemit).padStart(12)}`);
+      // Show the cert ID inline for the accountant to file under. If the
+      // property doesn't have one (e.g. 17 Beach Rd uses Airbnb's remittance),
+      // flag it so they don't try to file something that doesn't apply.
+      const cert = r.taxCertId || 'NO CERT (Airbnb remits direct)';
+      lines.push(`  ${r.propertyShort.padEnd(22)} ${dollars(r.taxToRemit).padStart(11)}   Cert: ${cert}`);
     });
-    lines.push('-'.repeat(60));
-    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(28)} ${dollars(totalTax).padStart(12)}`);
+    lines.push('-'.repeat(72));
+    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(22)} ${dollars(totalTax).padStart(11)}`);
   }
   lines.push('');
 
   const vrboRows = rows.filter(r => r.vrboCommissionSweep > 0);
   lines.push('2. VRBO COMMISSION SWEEP (property account -> *5130)');
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   if (vrboRows.length === 0) {
     lines.push('  (no VRBO stays this month)');
   } else {
     vrboRows.forEach(r => {
       lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.vrboCommissionSweep).padStart(12)}`);
     });
-    lines.push('-'.repeat(60));
+    lines.push('-'.repeat(72));
     lines.push(`  ${'TOTAL VRBO TO *5130'.padEnd(28)} ${dollars(totalVrbo).padStart(12)}`);
   }
   lines.push('');
@@ -228,14 +234,14 @@ function buildRemittanceList(args: {
   lines.push('3. BOOKING.COM AUTO-DEBIT (FYI -- no action required)');
   lines.push('    Booking.com will pull their 15% directly from the property');
   lines.push('    account next month. Verify against these amounts when they post.');
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   if (bookingRows.length === 0) {
     lines.push('  (no Booking.com stays this month)');
   } else {
     bookingRows.forEach(r => {
       lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.bookingAutoDebit).padStart(12)}`);
     });
-    lines.push('-'.repeat(60));
+    lines.push('-'.repeat(72));
     lines.push(`  ${'TOTAL BOOKING DEBIT'.padEnd(28)} ${dollars(totalBooking).padStart(12)}`);
   }
 
@@ -258,19 +264,19 @@ function buildTransferList(args: {
   lines.push(`Funds sent ${fs}`);
   lines.push('');
   lines.push('OWNER PAYOUTS (ACH to owner bank account)');
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   rows.forEach(r => {
     lines.push(`  ${r.owner.padEnd(28)} ${dollars(r.payout).padStart(12)}   (${r.property})`);
   });
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   lines.push(`  ${'TOTAL OWNER PAYOUTS'.padEnd(28)} ${dollars(totalPayout).padStart(12)}`);
   lines.push('');
   lines.push('MANAGEMENT SWEEP (to Rising Tide operating account)');
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   rows.forEach(r => {
     lines.push(`  ${r.owner.padEnd(28)} ${dollars(r.mgmtFee).padStart(12)}   (${r.property})`);
   });
-  lines.push('-'.repeat(60));
+  lines.push('-'.repeat(72));
   lines.push(`  ${'TOTAL MGMT SWEEP'.padEnd(28)} ${dollars(totalMgmt).padStart(12)}`);
   return lines.join('\n');
 }
@@ -1418,6 +1424,7 @@ function DashboardContent() {
   const [remittanceRows, setRemittanceRows] = useState<Array<{
     propertyName: string;
     propertyShort: string;
+    taxCertId: string | null;
     taxToRemit: number;
     vrboCommissionSweep: number;
     bookingAutoDebit: number;
@@ -1704,6 +1711,7 @@ function DashboardContent() {
         return {
           propertyName: p.property_name,
           propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
+          taxCertId: PROPERTIES[p.property_id]?.tax_cert_id ?? null,
           taxToRemit: Math.round(taxToRemit * 100) / 100,
           vrboCommissionSweep: Math.round(vrboCommissionSweep * 100) / 100,
           bookingAutoDebit: Math.round(bookingAutoDebit * 100) / 100,
