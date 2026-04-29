@@ -20,6 +20,18 @@ export type Property = {
   fee_pct: number;            // management fee percentage
   bank_last4: string | null;  // Chase account last 4, null if not applicable
   listing_match: string;      // lowercase substring used to match Guesty listings
+  /**
+   * MassTaxConnect occupancy-tax certificate. Per Allie's Apr 29 note from
+   * Supporting Strategies, this is the per-property cert ID we file under
+   * when remitting the tax-account (*9928) balance to the state. Surfaces
+   * on the Remittance modal so the accountant has it next to the dollar
+   * amount they're sending. null for properties that don't file directly
+   * (e.g. 17 Beach Rd, where Airbnb collects + remits on our behalf).
+   *
+   * Where two certs were listed in the source doc, we use the post-CIF
+   * (Community Impact Fee removed) version where applicable.
+   */
+  tax_cert_id: string | null;
 };
 
 // Emails pulled from confirmed statement sends in the Apr 2026 audit.
@@ -30,48 +42,62 @@ export const PROPERTIES: Record<string, Property> = {
     owner_last: 'Bailey', owner_full: 'Marci & Paul Bailey', owner_greeting: 'Marci and Paul',
     owner_emails: ['baileynrma@comcast.net', 'paulbailey2006@yahoo.com'],
     fee_pct: 25, bank_last4: '5622', listing_match: '3 south',
+    tax_cert_id: 'C0335252520',
   },
   '21_horton': {
     id: '21_horton', name: '21 Horton St', address: '21 Horton Street', city: 'Gloucester, MA',
     owner_last: 'Kittredge', owner_full: 'Claudia Kittredge', owner_greeting: 'Claudia and Vicente',
     owner_emails: ['ckittred1@gmail.com', 'claudia.kittredge@gmail.com'],
     fee_pct: 22, bank_last4: '1323', listing_match: '21 horton',
+    // Updated cert (CIF removed). Original C0444061070 also still on file.
+    tax_cert_id: 'C0537511070',
   },
   '53_rocky_neck': {
     id: '53_rocky_neck', name: '53 Rocky Neck Ave', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi', owner_greeting: 'Simon',
     owner_emails: ['senecalglenn@gmail.com'],
     fee_pct: 25, bank_last4: '9910', listing_match: '53 rocky neck',
+    // Newer cert from Allie's Apr 29 doc; older C053801070 also listed there.
+    tax_cert_id: 'C0554181070',
   },
   '4_brier_neck': {
     id: '4_brier_neck', name: '4 Brier Neck Rd', address: '4 Brier Neck Road', city: 'Gloucester, MA',
     owner_last: 'Armstrong', owner_full: 'The Armstrong Family', owner_greeting: 'Jane',
     owner_emails: ['jane@independent-thinking.com'],
     fee_pct: 20, bank_last4: '7876', listing_match: '4 brier neck',
+    // Files under the Rising Tide STR umbrella (ROC-21760774-002).
+    tax_cert_id: 'C0497021070',
   },
   '30_woodward': {
     id: '30_woodward', name: '30 Woodward Ave', address: '30 Woodward Avenue', city: 'Gloucester, MA',
     owner_last: 'McWethy', owner_full: 'The McWethy Family', owner_greeting: 'Jim',
     owner_emails: ['mcwethycottages@gmail.com'],
     fee_pct: 25, bank_last4: '8221', listing_match: '30 woodward',
+    // Updated cert (CIF removed). Original C0287531070 also still on file.
+    tax_cert_id: 'C0539611070',
   },
   '20_hammond': {
     id: '20_hammond', name: '20 Hammond St', address: '20 Hammond Street', city: 'Gloucester, MA',
     owner_last: 'Ramsey', owner_full: 'The Ramsey Family', owner_greeting: 'Danielle and Mark',
     owner_emails: ['dfry0404@yahoo.com'],
     fee_pct: 25, bank_last4: '9969', listing_match: '20 hammond',
+    tax_cert_id: 'C0548731070',
   },
   '20_enon': {
     id: '20_enon', name: '20 Enon Rd', address: '20 Enon Road', city: 'Beverly, MA',
     owner_last: 'Snyder', owner_full: 'The Snyder Family', owner_greeting: 'Kathleen and Robert',
     owner_emails: ['katsnyder21@gmail.com', 'robertsnyder99@gmail.com'],
     fee_pct: 25, bank_last4: '1307', listing_match: '20 enon',
+    // Beverly is a different MA jurisdiction than Gloucester (cert ends 0300
+    // not 1070), but MassTaxConnect handles that automatically off the cert ID.
+    tax_cert_id: 'C0515350300',
   },
   '73_rocky_neck': {
     id: '73_rocky_neck', name: '73 Rocky Neck Ave', address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Moynahan', owner_full: 'The Moynahan Family', owner_greeting: 'Matt and Laila',
     owner_emails: ['matthewmoynahan@yahoo.com', 'lailarocha@gmail.com'],
     fee_pct: 25, bank_last4: '3227', listing_match: '73 rocky neck',
+    tax_cert_id: 'C0538941070',
   },
   '17_beach_rd': {
     id: '17_beach_rd', name: '17 Beach Rd', address: '17 Beach Road', city: 'Gloucester, MA',
@@ -79,6 +105,9 @@ export const PROPERTIES: Record<string, Property> = {
     // London's email still pending; using Susan's until we have both.
     owner_emails: ['jupitersusan153@gmail.com'],
     fee_pct: 22, bank_last4: '5621', listing_match: '17 beach',
+    // Airbnb collects + remits MA occupancy tax on our behalf for this
+    // listing -- no direct MassTaxConnect filing required.
+    tax_cert_id: null,
   },
 };
 
