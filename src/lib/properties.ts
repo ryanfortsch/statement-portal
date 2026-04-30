@@ -2,9 +2,9 @@
  * Single source of truth for Rising Tide STR property config.
  *
  * Before this module existed, each of `/api/ingest/route.ts`,
- * `/src/app/statement/page.tsx`, and `/src/app/upload/page.tsx` kept a
- * slightly different version of the PROPERTIES list. When an owner's email
- * changed or a new listing came online, you had to patch three places.
+ * `/src/app/statements/render/page.tsx`, and `/src/app/statements/upload/page.tsx`
+ * kept a slightly different version of the PROPERTIES list. When an owner's
+ * email changed or a new listing came online, you had to patch three places.
  * Now they all import from here.
  */
 

@@ -4,8 +4,8 @@ import puppeteer, { Browser } from 'puppeteer-core';
 /**
  * Render the HTML statement page to a letter-sized PDF.
  *
- * Puppeteer drives the same /statement?id=...&month=... page the dashboard
- * links to, waits for custom fonts (Fraunces, Inter, JetBrains Mono) and
+ * Puppeteer drives the same /statements/render?id=...&month=... page the
+ * dashboard links to, waits for custom fonts (Fraunces, Inter, JetBrains Mono) and
  * network activity to settle, then prints-to-PDF using the @media print
  * block baked into the statement's inline CSS.
  *
@@ -21,7 +21,7 @@ export async function renderStatementPdf(args: {
   origin: string;  // e.g. "https://rising-tide-str-i38g.vercel.app"
 }): Promise<Buffer> {
   const { statementId, month, origin } = args;
-  const url = `${origin}/statement?id=${encodeURIComponent(statementId)}&month=${encodeURIComponent(month)}`;
+  const url = `${origin}/statements/render?id=${encodeURIComponent(statementId)}&month=${encodeURIComponent(month)}`;
 
   const localChrome = process.env.CHROME_EXECUTABLE_PATH;
   const executablePath = localChrome || (await chromium.executablePath());
@@ -66,7 +66,7 @@ export async function renderStatementPdf(args: {
       // past page 1, the page-break-inside rules in the statement CSS
       // should prevent that -- but as a hard guarantee we limit output
       // to page 1 here too. See also the @media print rules in
-      // statement/page.tsx that compact tables / hero spacing.
+      // statements/render/page.tsx that compact tables / hero spacing.
       pageRanges: '1',
     });
 

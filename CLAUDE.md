@@ -1,21 +1,25 @@
 @AGENTS.md
 
-# Rising Tide STR - Owner Statement Portal
+# Rising Tide Helm
 
 ## What This Is
 
-A Next.js web app that generates branded monthly owner statements for Rising Tide STR, a vacation rental management company in Gloucester, MA. Ryan (ryan@risingtidestr.com) runs Rising Tide and manages 12 short-term rental properties for different owners.
+**Helm** is the internal operations hub for Rising Tide STR, a vacation rental management company in Gloucester, MA. Ryan (ryan@risingtidestr.com) runs Rising Tide and manages 12 short-term rental properties for different owners. Helm is where Ryan and his team run the business: statements, owner CRM, revenue projections, and other ops tools live here as sibling modules under one shell.
 
-Each month, Ryan uploads three data files per property. The portal ingests them, calculates revenue/fees/payouts, and renders a print-ready editorial statement that gets sent to property owners.
+The repo was originally just the **Statement Portal**, which is now the first module under Helm at `/statements`. Future modules (CRM, Projections, etc.) live as siblings at their own route prefixes and share the same Supabase project, auth, integrations, and design language.
 
-Live at: `rising-tide-statements-*.vercel.app` (Vercel Hobby plan)
+### Statements module (the original product)
+
+Each month, Ryan uploads three data files per property. The Statements module ingests them, calculates revenue/fees/payouts, and renders a print-ready editorial statement that gets sent to property owners.
+
+Live at: `rising-tide-statements-*.vercel.app` (Vercel Hobby plan; domain rename to follow)
 
 ## Tech Stack
 
 - **Framework**: Next.js 16.2.4 (App Router), React 19, TypeScript
 - **Database**: Supabase (PostgreSQL) - tables below
 - **Hosting**: Vercel (Hobby plan, auto-deploys from `main`)
-- **PDF approach**: Server-rendered HTML page at `/statement?id=...&month=...` that the user prints to PDF via Cmd+P. NOT programmatic PDF generation (we tried pdf-lib and it looked bad).
+- **PDF approach**: Server-rendered HTML page at `/statements/render?id=...&month=...` that the user prints to PDF via Cmd+P. NOT programmatic PDF generation (we tried pdf-lib and it looked bad).
 - **Styling**: All CSS is inline in the statement page component (no Tailwind on the statement). Dashboard uses Tailwind.
 - **Fonts**: Fraunces (serif), Inter (sans), JetBrains Mono (mono) via Google Fonts
 
@@ -24,9 +28,11 @@ Live at: `rising-tide-statements-*.vercel.app` (Vercel Hobby plan)
 ```
 src/
   app/
-    page.tsx              # Dashboard (client component) - property cards, upload CSV, view statements
-    statement/page.tsx    # Statement renderer (server component) - the editorial HTML page
-    upload/page.tsx       # Data upload page per property
+    page.tsx                           # Helm home (module cards: Statements, CRM, Projections)
+    statements/
+      page.tsx                         # Statements module dashboard (client) - property cards, upload CSV, view statements
+      render/page.tsx                  # Statement renderer (server) - the editorial HTML page (was /statement)
+      upload/page.tsx                  # Data upload page per property (was /upload)
     api/
       ingest/route.ts              # POST: parses Guesty PDF + platform CSV + bank CSV, writes to Supabase
       ingest-guesty-csv/route.ts   # POST: ingests Guesty reservations CSV as a fallback when API is unavailable
@@ -142,9 +148,9 @@ Guesty listing names do NOT match property addresses. The platform CSV LISTING c
 
 The statement page uses a `listing_match` field (lowercase substring) to match CSV rows to properties.
 
-## Statement Page (/statement)
+## Statement render page (/statements/render)
 
-The statement page (`src/app/statement/page.tsx`) is the main deliverable. Server-rendered HTML designed to look like a premium editorial document when printed to PDF.
+The statement render page (`src/app/statements/render/page.tsx`) is the main deliverable. Server-rendered HTML designed to look like a premium editorial document when printed to PDF.
 
 ### Design system
 - Warm paper background (#faf7f1), dark ink (#1e2e34)
@@ -166,16 +172,20 @@ When the user clicks "View Statement" with a CSV loaded, it gets base64-encoded 
 - **Bottom left ("On the horizon")**: Future bookings for this property (check-in after the statement month)
 - **Bottom right (Guest Review)**: Best review snippet from a past guest. Falls back to "A note from Allie" if no reviews exist.
 
-## Dashboard (/)
+## Helm home (/)
+
+Static landing page that lists Helm's modules (Statements active; CRM and Projections marked "Soon"). Clicking Statements goes to the Statements module dashboard.
+
+## Statements dashboard (/statements)
 
 Client-side React page. Shows all properties for a selected month with expandable cards. Key features:
 - Month selector
 - "Sync Invoices" button (hits /api/sync-invoices)
-- "Reviews CSV" upload button (stores in React state, passed to statement page)
-- Per-property "View Statement" button (opens /statement in new tab)
-- Per-property "Re-upload Data" link (goes to /upload?property=...&month=...)
+- "Reviews CSV" upload button (stores in React state, passed to statement render page)
+- Per-property "View Statement" button (opens /statements/render in new tab)
+- Per-property "Re-upload Data" link (goes to /statements/upload?property=...&month=...)
 
-## Upload Page (/upload)
+## Statements upload (/statements/upload)
 
 Three-file upload form: Guesty PDF, Platform CSV, Bank CSV. POSTs to /api/ingest.
 
@@ -189,7 +199,7 @@ Three-file upload form: Guesty PDF, Platform CSV, Bank CSV. POSTs to /api/ingest
 
 1. **NFS/iCloud mount issues**: The repo lives in an iCloud-synced folder. Git and node_modules sometimes get "Resource deadlock avoided" errors in a sandbox. Build and push must happen from the user's own terminal.
 
-2. ~~Legacy /api/statement route~~ — deleted. All statement rendering goes through the HTML page at `/statement?id=...&month=...`.
+2. ~~Legacy /api/statement route~~ deleted. All statement rendering goes through the HTML page at `/statements/render?id=...&month=...`.
 
 3. **Stripe fee approximation**: Uses rental_income as the base, but Stripe technically charges on the total transaction value (including taxes and VRBO fees). The current calculation slightly underestimates the fee.
 
