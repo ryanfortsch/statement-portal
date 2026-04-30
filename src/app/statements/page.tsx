@@ -8,6 +8,7 @@ import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-t
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { HelmModuleNav } from '@/components/HelmModuleNav';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -1941,11 +1942,7 @@ function DashboardContent() {
               </Link>
               <Link href="/" className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>Helm</Link>
               <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
-              <nav className="flex items-baseline gap-4" style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: 500 }}>
-                <span style={{ color: 'var(--ink)' }}>Statements</span>
-                <span style={{ color: 'var(--ink-4)' }} title="Coming soon">CRM</span>
-                <span style={{ color: 'var(--ink-4)' }} title="Coming soon">Projections</span>
-              </nav>
+              <HelmModuleNav current="statements" />
             </div>
             <div className="flex items-center gap-4">
               <div className="eyebrow">Period</div>

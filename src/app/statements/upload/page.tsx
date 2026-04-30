@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { HelmModuleNav } from '@/components/HelmModuleNav';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 
 const PROPERTIES = [
@@ -305,11 +306,7 @@ export default function UploadPage() {
               </Link>
               <Link href="/" className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>Helm</Link>
               <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
-              <nav className="flex items-baseline gap-4" style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: 500 }}>
-                <Link href="/statements" style={{ color: 'var(--ink)', textDecoration: 'none' }}>Statements</Link>
-                <span style={{ color: 'var(--ink-4)' }} title="Coming soon">CRM</span>
-                <span style={{ color: 'var(--ink-4)' }} title="Coming soon">Projections</span>
-              </nav>
+              <HelmModuleNav current="statements" />
             </div>
             <Link href="/statements" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,

@@ -1,40 +1,5 @@
 import Link from 'next/link';
-
-type Module = {
-  id: string;
-  href: string;
-  number: string;
-  title: string;
-  description: string;
-  status: 'active' | 'soon';
-};
-
-const MODULES: Module[] = [
-  {
-    id: 'statements',
-    href: '/statements',
-    number: '01',
-    title: 'Statements',
-    description: 'Monthly owner statements. Ingest data, reconcile bank deposits, send the deliverable.',
-    status: 'active',
-  },
-  {
-    id: 'crm',
-    href: '#',
-    number: '02',
-    title: 'CRM',
-    description: 'Owner and guest relationships. Contacts, conversation history, notes, follow-ups.',
-    status: 'soon',
-  },
-  {
-    id: 'projections',
-    href: '#',
-    number: '03',
-    title: 'Projections',
-    description: 'Revenue forecasts and pricing scenarios for new and existing properties.',
-    status: 'soon',
-  },
-];
+import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 
 export default function HelmHome() {
   return (
@@ -75,14 +40,14 @@ export default function HelmHome() {
           color: 'var(--ink-3)',
           maxWidth: 580,
         }}>
-          Helm is the internal operations hub for Rising Tide STR. Statements, owner relationships, projections, all under one roof.
+          Helm is the internal operations hub for Rising Tide STR. Statements, ops, inspections, work, properties, owners, all under one roof.
         </p>
       </section>
 
       {/* ─── MODULES ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1 }}>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {MODULES.map((m) => (
+          {HELM_MODULES.map((m) => (
             <ModuleRow key={m.id} module={m} />
           ))}
         </div>
@@ -107,8 +72,13 @@ export default function HelmHome() {
   );
 }
 
-function ModuleRow({ module: m }: { module: Module }) {
-  const isActive = m.status === 'active';
+function ModuleRow({ module: m }: { module: HelmModule }) {
+  const reachable = m.status === 'active' || m.status === 'external';
+
+  const callToAction =
+    m.status === 'active' ? 'Open →' :
+    m.status === 'external' ? 'Open ↗' :
+    'Soon';
 
   const content = (
     <div
@@ -117,23 +87,22 @@ function ModuleRow({ module: m }: { module: Module }) {
         gridTemplateColumns: '64px 1fr auto',
         gap: 24,
         alignItems: 'baseline',
-        padding: '32px 0',
+        padding: '28px 0',
         borderBottom: '1px solid var(--rule)',
-        opacity: isActive ? 1 : 0.5,
-        transition: 'opacity 0.15s, background 0.15s',
+        opacity: reachable ? 1 : 0.5,
+        transition: 'opacity 0.15s',
       }}
-      className={isActive ? 'helm-module-row-active' : ''}
     >
       <span className="font-mono" style={{
         fontSize: 11,
-        color: isActive ? 'var(--signal)' : 'var(--ink-4)',
+        color: reachable ? 'var(--signal)' : 'var(--ink-4)',
         letterSpacing: '.08em',
       }}>
         {m.number}
       </span>
       <div>
         <h2 className="font-serif" style={{
-          fontSize: 30,
+          fontSize: 28,
           fontWeight: 400,
           letterSpacing: '-0.02em',
           color: 'var(--ink)',
@@ -142,11 +111,11 @@ function ModuleRow({ module: m }: { module: Module }) {
           {m.title}
         </h2>
         <p style={{
-          marginTop: 8,
+          marginTop: 6,
           fontSize: 14,
           lineHeight: 1.5,
           color: 'var(--ink-3)',
-          maxWidth: 560,
+          maxWidth: 620,
         }}>
           {m.description}
         </p>
@@ -156,15 +125,28 @@ function ModuleRow({ module: m }: { module: Module }) {
         letterSpacing: '.22em',
         textTransform: 'uppercase',
         fontWeight: 500,
-        color: isActive ? 'var(--ink)' : 'var(--ink-4)',
+        color: reachable ? 'var(--ink)' : 'var(--ink-4)',
         whiteSpace: 'nowrap',
       }}>
-        {isActive ? 'Open →' : 'Soon'}
+        {callToAction}
       </span>
     </div>
   );
 
-  if (isActive) {
+  if (m.status === 'external') {
+    return (
+      <a
+        href={m.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+      >
+        {content}
+      </a>
+    );
+  }
+
+  if (m.status === 'active') {
     return (
       <Link href={m.href} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
         {content}
