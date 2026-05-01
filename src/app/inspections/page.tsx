@@ -64,7 +64,7 @@ async function getRecentInspections(): Promise<RecentInspection[]> {
       pass_count: row.pass_count,
       issue_count: row.issue_count,
       na_count: row.na_count,
-      property_name: property?.title || property?.name || row.property_id,
+      property_name: property?.name || property?.title || row.property_id,
     };
   });
 }
@@ -137,7 +137,7 @@ export default async function InspectionsPage() {
                 <option value="" disabled>Choose a property…</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.title || p.name} · {p.city}
+                    {p.name}{p.title ? ` · ${p.title}` : ''} · {p.city}
                   </option>
                 ))}
               </select>

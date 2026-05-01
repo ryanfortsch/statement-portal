@@ -7,15 +7,15 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const PROPERTY_DETAILS: Record<string, { name: string; address: string; city: string; owner_full: string; fee_pct: number; listing_match: string }> = {
-  '3_south_st':    { name: '3 South St',        address: '3 South Street',       city: 'Rockport, MA',    owner_full: 'Marci & Paul Bailey', fee_pct: 25, listing_match: '3 south' },
-  '21_horton':     { name: '21 Horton St',       address: '21 Horton Street',     city: 'Gloucester, MA',  owner_full: 'Claudia Kittredge', fee_pct: 22, listing_match: '21 horton' },
-  '53_rocky_neck': { name: '53 Rocky Neck Ave',  address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'Simon Prudenzi', fee_pct: 25, listing_match: '53 rocky neck' },
-  '4_brier_neck':  { name: '4 Brier Neck Rd',    address: '4 Brier Neck Road',    city: 'Gloucester, MA',  owner_full: 'The Armstrong Family', fee_pct: 20, listing_match: '4 brier neck' },
-  '30_woodward':   { name: '30 Woodward Ave',    address: '30 Woodward Avenue',   city: 'Gloucester, MA',  owner_full: 'The McWethy Family', fee_pct: 25, listing_match: '30 woodward' },
-  '20_hammond':    { name: '20 Hammond St',      address: '20 Hammond Street',    city: 'Gloucester, MA',  owner_full: 'The Ramsey Family', fee_pct: 25, listing_match: '20 hammond' },
-  '20_enon':       { name: '20 Enon Rd',         address: '20 Enon Road',         city: 'Beverly, MA',     owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
-  '73_rocky_neck': { name: '73 Rocky Neck Ave',  address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'The Moynahan Family', fee_pct: 25, listing_match: '73 rocky neck' },
-  '17_beach_rd':   { name: '17 Beach Rd',        address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'Susan & London Nolan', fee_pct: 22, listing_match: '17 beach' },
+  '3_south_st':    { name: '3 South',       address: '3 South Street',       city: 'Rockport, MA',    owner_full: 'Marci & Paul Bailey', fee_pct: 25, listing_match: '3 south' },
+  '21_horton':     { name: '21 Horton',     address: '21 Horton Street',     city: 'Gloucester, MA',  owner_full: 'Claudia Kittredge', fee_pct: 22, listing_match: '21 horton' },
+  '53_rocky_neck': { name: '53 Rocky Neck', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'Simon Prudenzi', fee_pct: 25, listing_match: '53 rocky neck' },
+  '4_brier_neck':  { name: '4 Brier Neck',  address: '4 Brier Neck Road',    city: 'Gloucester, MA',  owner_full: 'The Armstrong Family', fee_pct: 20, listing_match: '4 brier neck' },
+  '30_woodward':   { name: '30 Woodward',   address: '30 Woodward Avenue',   city: 'Gloucester, MA',  owner_full: 'The McWethy Family', fee_pct: 25, listing_match: '30 woodward' },
+  '20_hammond':    { name: '20 Hammond',    address: '20 Hammond Street',    city: 'Gloucester, MA',  owner_full: 'The Ramsey Family', fee_pct: 25, listing_match: '20 hammond' },
+  '20_enon':       { name: '20 Enon',       address: '20 Enon Road',         city: 'Beverly, MA',     owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
+  '73_rocky_neck': { name: '73 Rocky Neck', address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'The Moynahan Family', fee_pct: 25, listing_match: '73 rocky neck' },
+  '17_beach_rd':   { name: '17 Beach',      address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'Susan & London Nolan', fee_pct: 22, listing_match: '17 beach' },
 };
 
 // ---- helpers ----

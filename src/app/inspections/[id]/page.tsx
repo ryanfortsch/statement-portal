@@ -134,7 +134,7 @@ export default async function InspectionInProgressPage({
             marginTop: 8,
           }}
         >
-          {property.title || property.name}
+          {property.name}
         </h1>
         <p style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-3)' }}>
           {property.city} &middot; Inspector: {inspection.inspector_name} &middot; {items.length} items
