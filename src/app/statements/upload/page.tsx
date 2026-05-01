@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { HelmModuleNav } from '@/components/HelmModuleNav';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 
 const PROPERTIES = [
@@ -298,15 +299,16 @@ export default function UploadPage() {
       <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10">
           <div className="rt-masthead-top flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
-            <Link href="/" className="flex items-center gap-3" style={{ textDecoration: 'none' }}>
+            <div className="flex items-center gap-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
-              <div className="flex items-baseline gap-3">
-                <span className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Rising Tide</span>
-                <span className="eyebrow">Owner Statement Portal</span>
-              </div>
-            </Link>
-            <Link href="/" style={{
+              <Link href="/" style={{ display: 'inline-flex' }} aria-label="Helm home">
+                <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
+              </Link>
+              <Link href="/" className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>Helm</Link>
+              <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
+              <HelmModuleNav current="statements" />
+            </div>
+            <Link href="/statements" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               border: '1px solid var(--rule)',
               background: 'transparent',
@@ -317,7 +319,7 @@ export default function UploadPage() {
               <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
               </svg>
-              Dashboard
+              Statements
             </Link>
           </div>
           <div style={{ padding: '14px 0 4px' }}>
@@ -430,7 +432,7 @@ export default function UploadPage() {
             {/* Actions */}
             <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 32 }}>
               <a
-                href={`/statement?id=${result.property_statement_id}&month=${result.month}`}
+                href={`/statements/render?id=${result.property_statement_id}&month=${result.month}`}
                 target="_blank"
                 rel="noopener"
                 style={{
@@ -502,14 +504,14 @@ export default function UploadPage() {
               }}>
                 Upload Another
               </button>
-              <Link href="/" style={{
+              <Link href="/statements" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: 'var(--ink-3)',
                 fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
                 padding: '10px 18px',
                 border: '1px solid var(--rule)',
               }}>
-                View Dashboard
+                View Statements
               </Link>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Property matching -- keep in sync with statement/page.tsx
+// Property matching -- keep in sync with statements/render/page.tsx
 const LISTING_MATCH: Record<string, string> = {
   '3_south_st':    '3 south',
   '21_horton':     '21 horton',

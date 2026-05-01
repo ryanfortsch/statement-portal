@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
-// Keep this in sync with PROPERTY_DETAILS[*].listing_match in statement/page.tsx
+// Keep this in sync with PROPERTY_DETAILS[*].listing_match in statements/render/page.tsx
 const LISTING_MATCH: Record<string, string> = {
   '3_south_st':    '3 south',
   '21_horton':     '21 horton',

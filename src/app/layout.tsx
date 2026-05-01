@@ -25,8 +25,8 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rising Tide - Statement Portal",
-  description: "Owner statement review and approval portal",
+  title: "Rising Tide Helm",
+  description: "Internal operations hub for Rising Tide STR",
 };
 
 export const viewport = {
