@@ -178,7 +178,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               min={-100}
               max={200}
               step={1}
-              defaultValue={pct(v.year2_growth_pct, 15)}
+              defaultValue={pct(v.year2_growth_pct, 10)}
               style={inputStyle}
             />
           </Field>
