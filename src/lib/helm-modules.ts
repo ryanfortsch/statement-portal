@@ -41,12 +41,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'inspections',
-    href: 'https://inspect.risingtidestr.com',
-    external: true,
+    href: '/inspections',
     number: '03',
     title: 'Inspections',
-    description: 'Mobile inspector flow with checklist, draft persistence, and issue capture. Lives at inspect.risingtidestr.com.',
-    status: 'external',
+    description: 'Walk a property, run the standard 50-item checklist, mark Pass / Issue / N/A, and produce a summary. Helm-native.',
+    status: 'active',
     primary: true,
   },
   {
