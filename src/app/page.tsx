@@ -1,10 +1,82 @@
 import Link from 'next/link';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabasePerfection, isPerfectionConfigured } from '@/lib/supabase-perfection';
 
-export default function HelmHome() {
+export const dynamic = 'force-dynamic';
+export const revalidate = 60;
+
+type DashboardStats = {
+  activeProperties: number | null;
+  totalProperties: number | null;
+  latestMonth: string | null;
+  latestStatus: string | null;
+  totalPayout: number;
+  statementsCount: number;
+};
+
+async function getDashboardStats(): Promise<DashboardStats> {
+  const [perfectionStats, helmStats] = await Promise.all([
+    getPerfectionStats(),
+    getHelmStats(),
+  ]);
+  return { ...perfectionStats, ...helmStats };
+}
+
+async function getPerfectionStats() {
+  if (!isPerfectionConfigured) return { activeProperties: null, totalProperties: null };
+  try {
+    const [{ count: total }, { count: active }] = await Promise.all([
+      supabasePerfection.from('properties').select('*', { count: 'exact', head: true }),
+      supabasePerfection.from('properties').select('*', { count: 'exact', head: true }).eq('is_active', true),
+    ]);
+    return { activeProperties: active ?? null, totalProperties: total ?? null };
+  } catch {
+    return { activeProperties: null, totalProperties: null };
+  }
+}
+
+async function getHelmStats() {
+  if (!isHelmConfigured) {
+    return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
+  }
+  try {
+    const { data: periods } = await supabase
+      .from('statement_periods')
+      .select('id, month, status')
+      .order('month', { ascending: false })
+      .limit(1);
+
+    const period = periods?.[0];
+    if (!period) return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
+
+    const { data: stmts } = await supabase
+      .from('property_statements')
+      .select('owner_payout')
+      .eq('period_id', period.id as string);
+
+    const totalPayout = (stmts || []).reduce(
+      (s: number, x: { owner_payout: number | null }) => s + (Number(x.owner_payout) || 0),
+      0
+    );
+
+    return {
+      latestMonth: period.month as string,
+      latestStatus: period.status as string,
+      totalPayout,
+      statementsCount: stmts?.length ?? 0,
+    };
+  } catch {
+    return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
+  }
+}
+
+export default async function HelmHome() {
+  const stats = await getDashboardStats();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      {/* ─── MASTHEAD ─── */}
+      {/* MASTHEAD */}
       <header style={{ borderBottom: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10" style={{ padding: '20px 40px 18px' }}>
           <div className="flex items-center justify-between">
@@ -20,11 +92,11 @@ export default function HelmHome() {
         </div>
       </header>
 
-      {/* ─── HERO ─── */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 64, paddingBottom: 48 }}>
-        <div className="eyebrow" style={{ marginBottom: 18 }}>The Bridge</div>
+      {/* HERO */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 36, width: '100%' }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>The Bridge</div>
         <h1 className="font-serif" style={{
-          fontSize: 56,
+          fontSize: 52,
           lineHeight: 1.05,
           fontWeight: 300,
           letterSpacing: '-0.02em',
@@ -33,19 +105,55 @@ export default function HelmHome() {
         }}>
           Run Rising Tide from <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>one place.</em>
         </h1>
-        <p style={{
-          marginTop: 22,
-          fontSize: 16,
-          lineHeight: 1.55,
-          color: 'var(--ink-3)',
-          maxWidth: 580,
-        }}>
-          Helm is the internal operations hub for Rising Tide STR. Statements, ops, inspections, work, properties, owners, all under one roof.
-        </p>
       </section>
 
-      {/* ─── MODULES ─── */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1 }}>
+      {/* TODAY STRIP */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>The state of things</div>
+        <div
+          style={{
+            borderTop: '1px solid var(--ink)',
+            borderBottom: '1px solid var(--ink)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+          }}
+        >
+          <Stat
+            label="Active Properties"
+            value={stats.activeProperties != null ? String(stats.activeProperties) : '—'}
+            sub={
+              stats.activeProperties != null && stats.totalProperties != null
+                ? `${stats.totalProperties} total`
+                : 'configure env vars'
+            }
+            href="/properties"
+          />
+          <Stat
+            label="Latest Period"
+            value={stats.latestMonth ? formatMonth(stats.latestMonth) : '—'}
+            sub={stats.latestStatus ? statusLabel(stats.latestStatus) : 'no statements yet'}
+            href="/statements"
+          />
+          <Stat
+            label="Statements"
+            value={stats.statementsCount > 0 ? String(stats.statementsCount) : '—'}
+            sub={stats.latestMonth ? 'in latest period' : ''}
+            href="/statements"
+          />
+          <Stat
+            label="Owner Payouts"
+            value={stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—'}
+            sub={stats.latestMonth ? 'latest period total' : ''}
+            href="/statements"
+            last
+            accent
+          />
+        </div>
+      </section>
+
+      {/* MODULES */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Modules</div>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {HELM_MODULES.map((m) => (
             <ModuleRow key={m.id} module={m} />
@@ -53,7 +161,7 @@ export default function HelmHome() {
         </div>
       </section>
 
-      {/* ─── FOOTER ─── */}
+      {/* FOOTER */}
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{
           padding: '14px 40px',
@@ -72,6 +180,56 @@ export default function HelmHome() {
   );
 }
 
+function Stat({
+  label,
+  value,
+  sub,
+  href,
+  last = false,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  href?: string;
+  last?: boolean;
+  accent?: boolean;
+}) {
+  const inner = (
+    <div
+      style={{
+        padding: '20px 22px',
+        borderRight: last ? 'none' : '1px solid var(--rule)',
+      }}
+    >
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
+      <div
+        className="font-serif tabular-nums"
+        style={{
+          fontSize: 28,
+          fontWeight: 400,
+          color: accent ? 'var(--signal)' : 'var(--ink)',
+          lineHeight: 1.05,
+        }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>
+      )}
+    </div>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+        {inner}
+      </Link>
+    );
+  }
+  return inner;
+}
+
 function ModuleRow({ module: m }: { module: HelmModule }) {
   const reachable = m.status === 'active' || m.status === 'external';
 
@@ -87,7 +245,7 @@ function ModuleRow({ module: m }: { module: HelmModule }) {
         gridTemplateColumns: '64px 1fr auto',
         gap: 24,
         alignItems: 'baseline',
-        padding: '28px 0',
+        padding: '24px 0',
         borderBottom: '1px solid var(--rule)',
         opacity: reachable ? 1 : 0.5,
         transition: 'opacity 0.15s',
@@ -102,7 +260,7 @@ function ModuleRow({ module: m }: { module: HelmModule }) {
       </span>
       <div>
         <h2 className="font-serif" style={{
-          fontSize: 28,
+          fontSize: 24,
           fontWeight: 400,
           letterSpacing: '-0.02em',
           color: 'var(--ink)',
@@ -111,8 +269,8 @@ function ModuleRow({ module: m }: { module: HelmModule }) {
           {m.title}
         </h2>
         <p style={{
-          marginTop: 6,
-          fontSize: 14,
+          marginTop: 4,
+          fontSize: 13,
           lineHeight: 1.5,
           color: 'var(--ink-3)',
           maxWidth: 620,
@@ -155,4 +313,25 @@ function ModuleRow({ module: m }: { module: HelmModule }) {
   }
 
   return <div>{content}</div>;
+}
+
+function formatMonth(month: string): string {
+  try {
+    const [year, m] = month.split('-');
+    const d = new Date(Number(year), Number(m) - 1, 1);
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  } catch {
+    return month;
+  }
+}
+
+function statusLabel(status: string): string {
+  return status.replaceAll('_', ' ');
+}
+
+function formatCurrency(value: number): string {
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(1)}k`;
+  }
+  return `$${Math.round(value)}`;
 }
