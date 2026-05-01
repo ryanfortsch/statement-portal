@@ -199,6 +199,13 @@ function SlideRatings({ footer }: { footer: string }) {
             </div>
           ))}
         </div>
+        {/* "Did you know?" — verbatim from risingtidestr.com homepage */}
+        <div className="rt-did-you-know">
+          <div className="rt-dyk-label">Did you know?</div>
+          <p className="rt-dyk-body">
+            After location and price, guest reviews are the third most important factor in booking decisions.
+          </p>
+        </div>
       </div>
       <Footer label={footer} />
     </section>
@@ -245,17 +252,9 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
 function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
   const y1 = roundToThousand(computed.year1MonthlyAvg);
   const y2 = roundToThousand(computed.year2MonthlyAvg);
-  // Use the unrounded values for the % so it matches the configured growth, not
-  // the visual rounding ($8k → $9k could be 9.5% or 12.5% depending on raw values).
   const growthPct = computed.year1MonthlyAvg > 0
     ? Math.round(((computed.year2MonthlyAvg - computed.year1MonthlyAvg) / computed.year1MonthlyAvg) * 100)
     : 0;
-  // Visualize from a 70% baseline so a 10% revenue lift reads as a clear ~33%
-  // bar-height delta. Without this baseline trick, $8k vs $9k looks identical.
-  const minScale = Math.min(y1, y2) * 0.7;
-  const maxScale = Math.max(y1, y2);
-  const range = maxScale - minScale;
-  const pct = (v: number) => (range > 0 ? Math.max(8, ((v - minScale) / range) * 100) : 50);
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -269,27 +268,28 @@ function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer
             </p>
           </div>
           <div className="rt-y2-right">
-            <div className="rt-y2-bars">
-              <div className="rt-y2-col">
-                <div className="rt-y2-amt">{fmtMoney(y1)}</div>
-                <div className="rt-y2-bar" style={{ height: `${pct(y1)}%` }} />
-                <div className="rt-y2-cap">YEAR 1</div>
+            <div className="rt-y2-step">
+              {/* Year 2 — top step */}
+              <div className="rt-y2-step-top">
+                <div className="rt-y2-step-amt-rt">{fmtMoney(y2)}<span className="rt-y2-unit">/ mo.</span></div>
+                <div className="rt-y2-step-cap rt-y2-step-cap-rt">YEAR 2</div>
               </div>
-              <div className="rt-y2-col">
-                <div className="rt-y2-amt rt-y2-amt-rt">{fmtMoney(y2)}</div>
-                <div className="rt-y2-bar rt-y2-bar-rt" style={{ height: `${pct(y2)}%` }} />
-                <div className="rt-y2-cap">YEAR 2</div>
-              </div>
-              <div className="rt-y2-arrow" aria-hidden="true">
-                <svg viewBox="0 0 200 100" preserveAspectRatio="none">
+              {/* Connector + pill */}
+              <div className="rt-y2-step-mid" aria-hidden="true">
+                <svg viewBox="0 0 320 110" preserveAspectRatio="none">
                   <defs>
-                    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                    <marker id="y2arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal)" />
                     </marker>
                   </defs>
-                  <path d="M 20 75 Q 100 10, 180 30" stroke="var(--signal)" strokeWidth="2" fill="none" strokeLinecap="round" markerEnd="url(#arrowhead)" />
+                  <path d="M 24 95 Q 160 0, 296 18" stroke="var(--signal)" strokeWidth="2.5" fill="none" strokeLinecap="round" markerEnd="url(#y2arrow)" />
                 </svg>
-                <div className="rt-y2-growth-pill">+{growthPct}%</div>
+                <div className="rt-y2-pill">+{growthPct}%</div>
+              </div>
+              {/* Year 1 — bottom step */}
+              <div className="rt-y2-step-bottom">
+                <div className="rt-y2-step-amt">{fmtMoney(y1)}<span className="rt-y2-unit">/ mo.</span></div>
+                <div className="rt-y2-step-cap">YEAR 1</div>
               </div>
             </div>
           </div>
@@ -740,6 +740,23 @@ const deckCss = `
   .rt-rating-value { font-family: var(--font-fraunces), "Times New Roman", serif; font-size: 22px; color: var(--ink); text-align: right; }
   .rt-rating-value-rt { color: var(--signal); }
 
+  /* "Did you know?" — verbatim copy from risingtidestr.com homepage */
+  .rt-did-you-know {
+    margin-top: 36px;
+    border-top: 1px solid var(--rule);
+    padding-top: 18px;
+    max-width: 880px;
+  }
+  .rt-dyk-label {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--signal);
+    font-weight: 400;
+    margin-bottom: 6px;
+  }
+  .rt-dyk-body { margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink-3); max-width: 720px; }
+
   /* ── Year 1 (slide 6) ── */
   .rt-year-stat { margin-top: 48px; }
   .rt-year-number {
@@ -780,54 +797,81 @@ const deckCss = `
   .rt-y2-left { display: flex; flex-direction: column; justify-content: center; }
   .rt-y2-body { margin-top: 18px; font-size: 16px; line-height: 1.6; color: var(--ink-3); max-width: 460px; }
   .rt-y2-right { display: flex; align-items: center; justify-content: center; }
-  .rt-y2-bars {
+  /* ── Year 2 step layout ── replaces the unsatisfying bars with two clearly
+        offset amounts connected by an arc + growth pill. A 10% lift now reads
+        as an unambiguous step up. */
+  .rt-y2-step {
+    width: 100%;
+    height: 420px;
     position: relative;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 56px;
-    align-items: end;
-    width: 100%;
-    height: 380px;
-    border-bottom: 2px solid var(--ink);
-    padding-bottom: 24px;
+    grid-template-rows: 1fr auto 1fr;
   }
-  .rt-y2-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; position: relative; z-index: 1; }
-  .rt-y2-amt {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 38px;
-    color: var(--ink-3);
-    margin-bottom: 14px;
-    font-weight: 400;
+  .rt-y2-step-top {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding-right: 16px;
   }
-  .rt-y2-amt-rt { color: var(--signal); }
-  .rt-y2-bar { width: 100%; background: var(--ink-3); min-height: 8px; }
-  .rt-y2-bar-rt { background: var(--signal); }
-  .rt-y2-cap { margin-top: 14px; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
-
-  /* Growth arrow + pill — drawn over the bars to make the lift unmistakable */
-  .rt-y2-arrow {
-    position: absolute;
-    top: -10px;
-    left: 18%;
-    right: 18%;
+  .rt-y2-step-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding-left: 16px;
+  }
+  .rt-y2-step-mid {
+    position: relative;
     height: 110px;
-    pointer-events: none;
-    z-index: 0;
   }
-  .rt-y2-arrow svg { width: 100%; height: 100%; overflow: visible; }
-  .rt-y2-growth-pill {
+  .rt-y2-step-mid svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .rt-y2-step-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 70px;
+    line-height: 1;
+    color: var(--ink-3);
+    font-weight: 300;
+    letter-spacing: -0.025em;
+  }
+  .rt-y2-step-amt-rt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 96px;
+    line-height: 1;
+    color: var(--signal);
+    font-weight: 300;
+    letter-spacing: -0.03em;
+  }
+  .rt-y2-unit {
+    font-size: 24px;
+    color: var(--ink-3);
+    margin-left: 8px;
+    letter-spacing: 0;
+    font-style: italic;
+  }
+  .rt-y2-step-cap {
+    margin-top: 10px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+  }
+  .rt-y2-step-cap-rt { color: var(--signal); }
+  .rt-y2-pill {
     position: absolute;
-    top: -8px;
+    top: 38%;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     background: var(--signal);
     color: var(--paper);
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 22px;
+    font-size: 28px;
     font-weight: 400;
-    padding: 6px 18px;
+    padding: 8px 22px;
     border-radius: 999px;
     letter-spacing: -0.01em;
+    box-shadow: 0 6px 20px rgba(200, 90, 58, 0.25);
   }
 
   /* ── Services (slide 8) ── */
