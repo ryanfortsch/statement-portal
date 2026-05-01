@@ -1,10 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { supabasePerfection, isPerfectionConfigured } from '@/lib/supabase-perfection';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { helmPropertyFromPerfection, type Property as HelmProperty } from '@/lib/properties';
-import type { PerfectionProperty, PerfectionInspection, PerfectionWorkSlip } from '@/lib/perfection-types';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -19,24 +17,24 @@ type HelmStatementRow = {
   owner_payout: number;
 };
 
-async function getProperty(id: string): Promise<PerfectionProperty | null> {
-  if (!isPerfectionConfigured) return null;
-  const { data, error } = await supabasePerfection
+async function getProperty(id: string): Promise<HelmPropertyRow | null> {
+  if (!isHelmConfigured) return null;
+  const { data, error } = await supabase
     .from('properties')
     .select('*')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
-  return (data as PerfectionProperty) ?? null;
+  return (data as HelmPropertyRow) ?? null;
 }
 
-async function getRecentStatements(helmProp: HelmProperty | undefined): Promise<HelmStatementRow[]> {
-  if (!helmProp || !isHelmConfigured) return [];
+async function getRecentStatements(propertyId: string): Promise<HelmStatementRow[]> {
+  if (!isHelmConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('property_statements')
       .select('id, num_stays, nights_booked, rental_revenue, owner_payout, statement_periods!inner(month, status)')
-      .eq('property_id', helmProp.id)
+      .eq('property_id', propertyId)
       .order('statement_periods(month)', { ascending: false })
       .limit(6);
     if (error) throw error;
@@ -64,39 +62,6 @@ async function getRecentStatements(helmProp: HelmProperty | undefined): Promise<
   }
 }
 
-async function getRecentInspections(propertyId: string): Promise<PerfectionInspection[]> {
-  if (!isPerfectionConfigured) return [];
-  try {
-    const { data, error } = await supabasePerfection
-      .from('inspections')
-      .select('id,property_id,inspector_name,started_at,completed_at,skipped_at,skip_reason,skip_reason_type,issue_count,pass_count,total_items')
-      .eq('property_id', propertyId)
-      .order('started_at', { ascending: false, nullsFirst: false })
-      .limit(5);
-    if (error) throw error;
-    return (data ?? []) as PerfectionInspection[];
-  } catch {
-    return [];
-  }
-}
-
-async function getOpenWorkSlips(propertyId: string): Promise<PerfectionWorkSlip[]> {
-  if (!isPerfectionConfigured) return [];
-  try {
-    const { data, error } = await supabasePerfection
-      .from('work_slips')
-      .select('id,property_id,inspection_id,status,priority,category,title,action_summary,description,scheduled_date,created_at,completed_at,owner_action_required')
-      .eq('property_id', propertyId)
-      .in('status', ['open', 'scheduled', 'in_progress'])
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (error) throw error;
-    return (data ?? []) as PerfectionWorkSlip[];
-  } catch {
-    return [];
-  }
-}
-
 type Params = { id: string };
 
 export default async function PropertyDetailPage({ params }: { params: Promise<Params> }) {
@@ -104,17 +69,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const helmProp = helmPropertyFromPerfection(p);
+  const statements = await getRecentStatements(p.id);
 
-  const [statements, inspections, workSlips] = await Promise.all([
-    getRecentStatements(helmProp),
-    getRecentInspections(p.id),
-    getOpenWorkSlips(p.id),
-  ]);
-
-  const display = p.nickname || p.name || p.address;
-  const subtitle = p.title || p.name || '';
-  const cityFromAddress = (p.address.match(/,\s*([^,]+),\s*[A-Z]{2}/) || [])[1] || '';
+  const display = p.title || p.name;
+  const subtitle = p.title && p.title !== p.name ? p.name : '';
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -152,13 +110,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           {display}
         </h1>
-        {subtitle && subtitle !== display && (
+        {subtitle && (
           <p style={{ marginTop: 12, fontSize: 16, color: 'var(--ink-3)' }}>
             {subtitle}
           </p>
         )}
         <p style={{ marginTop: 6, fontSize: 14, color: 'var(--ink-3)' }}>
-          {p.address}
+          {p.address}, {p.city}
         </p>
 
         {!p.is_active && (
@@ -184,33 +142,24 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat
-              label="Mgmt Fee"
-              value={p.management_fee_pct != null ? `${p.management_fee_pct}%` : '—'}
-            />
+            <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
             <Stat
               label="Cleaning Est"
               value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
             />
-            <Stat
-              label="Type"
-              value={p.type_of_unit || '—'}
-            />
-            <Stat
-              label="Owner"
-              value={helmProp?.owner_last || (p.is_rising_tide_owned ? 'Rising Tide' : '—')}
-              last
-            />
+            <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} />
+            <Stat label="Owner" value={p.owner_last} last />
           </div>
         </div>
       </section>
 
-      {/* RECENT STATEMENTS */}
-      <Section title="Recent Statements" eyebrow="Helm" empty={!helmProp || statements.length === 0} emptyMessage={
-        !helmProp
-          ? 'This property is not in the Helm statements registry.'
-          : 'No statements for this property yet.'
-      }>
+      {/* RECENT STATEMENTS (Helm-native) */}
+      <Section
+        title="Recent Statements"
+        eyebrow="Helm"
+        empty={statements.length === 0}
+        emptyMessage="No statements for this property yet."
+      >
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {statements.map((s) => (
             <Link
@@ -246,122 +195,79 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </Section>
 
-      {/* RECENT INSPECTIONS */}
-      <Section title="Recent Inspections" eyebrow="Perfection" empty={inspections.length === 0} emptyMessage="No inspections yet (or RLS-blocked).">
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {inspections.map((insp) => (
-            <a
-              key={insp.id}
-              href="https://inspect.risingtidestr.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '160px 1fr auto auto',
-                  gap: 24,
-                  alignItems: 'baseline',
-                  padding: '18px 0',
-                  borderBottom: '1px solid var(--rule)',
-                }}
-              >
-                <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-                  {formatDate(insp.started_at) || '—'}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {insp.inspector_name}
-                </span>
-                <span style={{
-                  fontSize: 11,
-                  letterSpacing: '.08em',
-                  textTransform: 'uppercase',
-                  color: inspectionStatusColor(insp),
-                }}>
-                  {inspectionStatusLabel(insp)}
-                </span>
-                <span className="font-mono tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {insp.issue_count != null && insp.issue_count > 0
-                    ? `${insp.issue_count} issue${insp.issue_count === 1 ? '' : 's'} ↗`
-                    : '↗'}
-                </span>
-              </div>
-            </a>
-          ))}
+      {/* OWNER + COMMS */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+            Owner
+          </h2>
+          <span className="eyebrow">Helm</span>
         </div>
-      </Section>
+        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
+          <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
+            <Detail term="Owner" definition={p.owner_full} />
+            <Detail term="Greeting" definition={p.owner_greeting} />
+            <Detail
+              term="Emails"
+              definition={p.owner_emails.length > 0 ? p.owner_emails.join(', ') : '—'}
+              mono
+            />
+            <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
+          </dl>
+        </div>
+      </section>
 
-      {/* OPEN WORK */}
-      <Section title="Open Work" eyebrow="Perfection" empty={workSlips.length === 0} emptyMessage="No open work slips for this property.">
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {workSlips.map((w) => (
-            <a
-              key={w.id}
-              href="https://inspect.risingtidestr.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '90px 1fr auto auto',
-                  gap: 24,
-                  alignItems: 'baseline',
-                  padding: '18px 0',
-                  borderBottom: '1px solid var(--rule)',
-                }}
-              >
-                <span style={{
-                  fontSize: 10,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: workSlipPriorityColor(w.priority),
-                  fontWeight: 600,
-                }}>
-                  {w.priority}
-                </span>
-                <div>
-                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{w.title}</div>
-                  {w.action_summary && (
-                    <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-                      {w.action_summary}
-                    </div>
-                  )}
-                </div>
-                <span style={{
-                  fontSize: 11,
-                  letterSpacing: '.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink-3)',
-                }}>
-                  {w.status.replaceAll('_', ' ')}
-                </span>
-                <span className="font-mono tabular-nums" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  {formatRelative(w.created_at)} ↗
-                </span>
-              </div>
-            </a>
-          ))}
+      {/* INSPECTIONS / WORK (still in Lovable) */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+            Inspections &amp; Work
+          </h2>
+          <span className="eyebrow">External</span>
         </div>
-      </Section>
+        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18, paddingBottom: 18 }}>
+          <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14 }}>
+            Inspections, work slips, and turnover state still live in the Perfection app. Helm-native
+            schemas for these are in flight; until then, click through to view them in context.
+          </p>
+          <a
+            href="https://inspect.risingtidestr.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+            }}
+          >
+            Open Perfection ↗
+          </a>
+        </div>
+      </section>
 
       {/* DETAILS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 18 }}>Details</div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
+          <Detail term="Helm ID" definition={p.id} mono />
           <Detail term="Code" definition={p.code || '—'} />
-          <Detail term="Nickname" definition={p.nickname || '—'} />
           <Detail term="Title" definition={p.title || '—'} />
+          <Detail term="Type" definition={p.type_of_unit || '—'} />
           <Detail term="Tags" definition={p.tags || '—'} />
-          <Detail term="City" definition={cityFromAddress || '—'} />
           <Detail term="Timezone" definition={p.timezone || '—'} />
           <Detail
             term="Coordinates"
             definition={
               p.latitude != null && p.longitude != null
-                ? `${p.latitude.toFixed(4)}°, ${p.longitude.toFixed(4)}°`
+                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
                 : '—'
             }
           />
@@ -374,9 +280,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         <div className="eyebrow" style={{ marginBottom: 18 }}>Activity</div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
           <Detail term="Activated" definition={formatDate(p.activated_at)} />
-          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
           <Detail term="Created" definition={formatDate(p.created_at)} />
-          <Detail term="Property ID" definition={p.id} mono />
+          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
+          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
         </dl>
       </section>
 
@@ -394,7 +300,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           <span>Rising Tide &middot; Properties</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Sources: Helm + inspect.risingtidestr.com
+            Source: Helm
           </span>
         </div>
       </footer>
@@ -462,26 +368,6 @@ function Detail({ term, definition, mono = false }: { term: string; definition: 
       </dd>
     </div>
   );
-}
-
-function inspectionStatusLabel(insp: PerfectionInspection): string {
-  if (insp.skipped_at) return `Skipped${insp.skip_reason_type ? ` · ${insp.skip_reason_type}` : ''}`;
-  if (insp.completed_at) return 'Complete';
-  if (insp.started_at) return 'In progress';
-  return '—';
-}
-
-function inspectionStatusColor(insp: PerfectionInspection): string {
-  if (insp.skipped_at) return 'var(--negative)';
-  if (insp.completed_at) return 'var(--positive)';
-  if (insp.started_at) return 'var(--signal)';
-  return 'var(--ink-4)';
-}
-
-function workSlipPriorityColor(priority: string): string {
-  if (priority === 'high') return 'var(--negative)';
-  if (priority === 'normal') return 'var(--ink)';
-  return 'var(--ink-4)';
 }
 
 function formatDate(value: string | null): string {

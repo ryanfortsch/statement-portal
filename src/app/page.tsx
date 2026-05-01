@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { supabasePerfection, isPerfectionConfigured } from '@/lib/supabase-perfection';
 import { UserMenu } from '@/components/UserMenu';
 
 export const dynamic = 'force-dynamic';
@@ -17,19 +16,19 @@ type DashboardStats = {
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [perfectionStats, helmStats] = await Promise.all([
-    getPerfectionStats(),
+  const [propertyStats, helmStats] = await Promise.all([
+    getPropertyStats(),
     getHelmStats(),
   ]);
-  return { ...perfectionStats, ...helmStats };
+  return { ...propertyStats, ...helmStats };
 }
 
-async function getPerfectionStats() {
-  if (!isPerfectionConfigured) return { activeProperties: null, totalProperties: null };
+async function getPropertyStats() {
+  if (!isHelmConfigured) return { activeProperties: null, totalProperties: null };
   try {
     const [{ count: total }, { count: active }] = await Promise.all([
-      supabasePerfection.from('properties').select('*', { count: 'exact', head: true }),
-      supabasePerfection.from('properties').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('properties').select('*', { count: 'exact', head: true }),
+      supabase.from('properties').select('*', { count: 'exact', head: true }).eq('is_active', true),
     ]);
     return { activeProperties: active ?? null, totalProperties: total ?? null };
   } catch {
