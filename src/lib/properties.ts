@@ -121,27 +121,42 @@ export function getProperty(id: string): Property | undefined {
 }
 
 /**
- * Cross-reference a Perfection property (UUID-keyed) to the Helm property
- * registry (string-keyed like "21_horton") by matching Helm's `listing_match`
- * substring against any of Perfection's name/nickname/title/address fields.
- *
- * Used by /properties/[id] to pull the property's Helm statements alongside
- * its Perfection inspections + work slips.
+ * Row shape from Helm's `properties` table. Mirrors the SQL schema 1:1.
+ * Used by /properties pages and the home dashboard.
  */
-type PerfectionPropertyShape = {
-  name?: string | null;
-  nickname?: string | null;
-  title?: string | null;
-  address?: string | null;
+export type HelmPropertyRow = {
+  id: string;
+  perfection_id: string | null;
+  name: string;
+  nickname: string | null;
+  title: string | null;
+  code: string | null;
+  address: string;
+  city: string;
+  type_of_unit: string | null;
+  tags: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  timezone: string | null;
+  is_active: boolean;
+  is_rising_tide_owned: boolean;
+  activated_at: string | null;
+  deactivated_at: string | null;
+  deactivated_reason: string | null;
+  cleaning_cost_estimate: number | null;
+  guesty_listing_id: string | null;
+  source: string | null;
+  owner_last: string;
+  owner_full: string;
+  owner_greeting: string;
+  owner_emails: string[];
+  management_fee_pct: number;
+  bank_last4: string | null;
+  tax_cert_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  last_synced_at: string | null;
 };
-export function helmPropertyFromPerfection(p: PerfectionPropertyShape): Property | undefined {
-  const haystack = [p.name, p.nickname, p.title, p.address]
-    .filter(Boolean)
-    .map((s) => (s as string).toLowerCase())
-    .join(' | ');
-  if (!haystack) return undefined;
-  return Object.values(PROPERTIES).find((h) => haystack.includes(h.listing_match));
-}
 
 /** Emails always CC'd when a statement is sent out from the portal. */
 export const ALWAYS_CC = [

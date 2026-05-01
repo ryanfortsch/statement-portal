@@ -1,26 +1,23 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { supabasePerfection, isPerfectionConfigured } from '@/lib/supabase-perfection';
-import type { PerfectionProperty } from '@/lib/perfection-types';
+import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
-async function getProperties(): Promise<{ properties: PerfectionProperty[]; error: string | null }> {
-  if (!isPerfectionConfigured) {
-    return {
-      properties: [],
-      error: 'Perfection Supabase env vars are not set. Add NEXT_PUBLIC_PERFECTION_SUPABASE_URL and NEXT_PUBLIC_PERFECTION_SUPABASE_ANON_KEY to .env.local (and to your Vercel project).',
-    };
+async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: string | null }> {
+  if (!isHelmConfigured) {
+    return { properties: [], error: 'Helm Supabase env vars are not set.' };
   }
   try {
-    const { data, error } = await supabasePerfection
+    const { data, error } = await supabase
       .from('properties')
-      .select('id,name,nickname,address,code,title,latitude,longitude,is_active,activated_at,deactivated_at,deactivated_reason,management_fee_pct,cleaning_cost_estimate,is_rising_tide_owned,guesty_listing_id,tags,type_of_unit,timezone,created_at,last_synced_at')
+      .select('*')
       .order('is_active', { ascending: false })
       .order('name');
     if (error) throw error;
-    return { properties: (data ?? []) as PerfectionProperty[], error: null };
+    return { properties: (data ?? []) as HelmPropertyRow[], error: null };
   } catch (err) {
     return { properties: [], error: err instanceof Error ? err.message : String(err) };
   }
@@ -53,7 +50,7 @@ export default async function PropertiesPage() {
         </h1>
         {!error && (
           <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-            Live data from the Perfection Supabase project. {active.length} active{inactive.length ? `, ${inactive.length} inactive` : ''}.
+            {active.length} active{inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.
           </p>
         )}
       </section>
@@ -61,35 +58,9 @@ export default async function PropertiesPage() {
       {/* LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         {error ? (
-          <div
-            style={{
-              borderTop: '1px solid var(--ink)',
-              borderBottom: '1px solid var(--ink)',
-              padding: '32px 0',
-            }}
-          >
-            <div className="eyebrow" style={{ color: 'var(--negative)', marginBottom: 12 }}>Configuration needed</div>
-            <p style={{ fontSize: 14, color: 'var(--ink)', maxWidth: 640, marginBottom: 16 }}>
-              The Properties module reads from the Perfection (Lovable) Supabase project, but the env vars for that project are not set.
-            </p>
-            <pre
-              className="font-mono"
-              style={{
-                fontSize: 11,
-                background: 'var(--paper-2)',
-                padding: '12px 14px',
-                borderLeft: '3px solid var(--negative)',
-                color: 'var(--negative)',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {error}
-            </pre>
-          </div>
+          <ErrorBlock error={error} />
         ) : properties.length === 0 ? (
-          <div style={{ borderTop: '1px solid var(--ink)', padding: '32px 0', textAlign: 'center' }}>
-            <p style={{ color: 'var(--ink-3)' }}>No properties found.</p>
-          </div>
+          <EmptyBlock />
         ) : (
           <>
             <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -131,7 +102,7 @@ export default async function PropertiesPage() {
         >
           <span>Rising Tide &middot; Properties</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: inspect.risingtidestr.com
+            Source: Helm
           </span>
         </div>
       </footer>
@@ -144,13 +115,12 @@ function PropertyRow({
   number,
   dimmed = false,
 }: {
-  property: PerfectionProperty;
+  property: HelmPropertyRow;
   number: string;
   dimmed?: boolean;
 }) {
-  const display = p.nickname || p.name || p.address;
-  const subtitle = p.title || p.address;
-  const showAddress = display !== p.address;
+  const display = p.title || p.name;
+  const subtitle = p.title ? p.name : p.address;
 
   return (
     <Link
@@ -160,7 +130,7 @@ function PropertyRow({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '64px 1fr auto',
+          gridTemplateColumns: '64px 1fr auto auto',
           gap: 24,
           alignItems: 'baseline',
           padding: '24px 0',
@@ -192,9 +162,19 @@ function PropertyRow({
           </h2>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {subtitle}
-            {showAddress && p.address !== subtitle ? ` · ${p.address}` : ''}
+            {p.title && p.address !== subtitle ? ` · ${p.address}` : ''}
           </p>
         </div>
+        <span
+          className="tabular-nums"
+          style={{
+            fontSize: 12,
+            color: 'var(--ink-3)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {p.owner_last}
+        </span>
         <span
           style={{
             fontSize: 10,
@@ -205,9 +185,48 @@ function PropertyRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {p.is_active ? `${p.management_fee_pct ? `${p.management_fee_pct}%` : ''} →` : 'Inactive'}
+          {p.is_active ? `${p.management_fee_pct}% →` : 'Inactive'}
         </span>
       </div>
     </Link>
+  );
+}
+
+function ErrorBlock({ error }: { error: string }) {
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--ink)',
+        borderBottom: '1px solid var(--ink)',
+        padding: '32px 0',
+      }}
+    >
+      <div className="eyebrow" style={{ color: 'var(--negative)', marginBottom: 12 }}>Database error</div>
+      <pre
+        className="font-mono"
+        style={{
+          fontSize: 11,
+          background: 'var(--paper-2)',
+          padding: '12px 14px',
+          borderLeft: '3px solid var(--negative)',
+          color: 'var(--negative)',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {error}
+      </pre>
+    </div>
+  );
+}
+
+function EmptyBlock() {
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)', padding: '40px 0', textAlign: 'center' }}>
+      <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>No properties found.</p>
+      <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>
+        Run the migration at <code className="font-mono">supabase/migrations/20260430_create_properties.sql</code> in
+        Helm&apos;s Supabase SQL Editor to seed the table.
+      </p>
+    </div>
   );
 }

@@ -63,7 +63,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/properties',
     number: '05',
     title: 'Properties',
-    description: 'Live property registry. Reads from inspect.risingtidestr.com so the data never goes stale.',
+    description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
     primary: false,
   },
