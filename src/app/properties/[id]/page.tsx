@@ -71,8 +71,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
   const statements = await getRecentStatements(p.id);
 
-  const display = p.title || p.name;
-  const subtitle = p.title && p.title !== p.name ? p.name : '';
+  // Internal-first display: the address-without-suffix name as the hero,
+  // the external "Stay at ..." marketing title (if any) as a quieter
+  // subtitle below.
+  const display = p.name;
+  const subtitle = p.title || '';
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>

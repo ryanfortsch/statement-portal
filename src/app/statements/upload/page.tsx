@@ -6,15 +6,15 @@ import { HelmModuleNav } from '@/components/HelmModuleNav';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 
 const PROPERTIES = [
-  { id: '3_south_st', name: '3 South St', owner: 'Bailey', location: 'Rockport' },
-  { id: '21_horton', name: '21 Horton St', owner: 'Kittredge', location: 'Gloucester' },
-  { id: '53_rocky_neck', name: '53 Rocky Neck Ave', owner: 'Prudenzi', location: 'Gloucester' },
-  { id: '4_brier_neck', name: '4 Brier Neck Rd', owner: 'Armstrong', location: 'Gloucester' },
-  { id: '30_woodward', name: '30 Woodward Ave', owner: 'McWethy', location: 'Gloucester' },
-  { id: '20_hammond', name: '20 Hammond St', owner: 'Ramsey', location: 'Gloucester' },
-  { id: '20_enon', name: '20 Enon Rd', owner: 'Snyder', location: 'Beverly' },
-  { id: '73_rocky_neck', name: '73 Rocky Neck Ave', owner: 'Moynahan', location: 'Gloucester' },
-  { id: '17_beach_rd', name: '17 Beach Rd', owner: 'Nolan', location: 'Gloucester' },
+  { id: '3_south_st', name: '3 South', owner: 'Bailey', location: 'Rockport' },
+  { id: '21_horton', name: '21 Horton', owner: 'Kittredge', location: 'Gloucester' },
+  { id: '53_rocky_neck', name: '53 Rocky Neck', owner: 'Prudenzi', location: 'Gloucester' },
+  { id: '4_brier_neck', name: '4 Brier Neck', owner: 'Armstrong', location: 'Gloucester' },
+  { id: '30_woodward', name: '30 Woodward', owner: 'McWethy', location: 'Gloucester' },
+  { id: '20_hammond', name: '20 Hammond', owner: 'Ramsey', location: 'Gloucester' },
+  { id: '20_enon', name: '20 Enon', owner: 'Snyder', location: 'Beverly' },
+  { id: '73_rocky_neck', name: '73 Rocky Neck', owner: 'Moynahan', location: 'Gloucester' },
+  { id: '17_beach_rd', name: '17 Beach', owner: 'Nolan', location: 'Gloucester' },
 ];
 
 type ParsedReservation = {

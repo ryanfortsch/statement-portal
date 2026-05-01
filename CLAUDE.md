@@ -113,38 +113,40 @@ owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - 
 
 Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total.
 
+## Property Naming Convention
+
+Three forms exist for every property; use the right one for the right context.
+
+| Form | Where it lives | Use it for | Example |
+|------|----------------|------------|---------|
+| **Internal name** | `properties.name` / `Property.name` | Helm UI, internal comms, dashboards | `21 Horton` |
+| **Full address** | `properties.address` / `Property.address` | Statements, owner billing, mail, tax filings | `21 Horton Street` |
+| **External title** | `properties.title` (Helm DB only) | Airbnb, stay-cape-ann, anything owner / guest sees as the listing name | `Stay at Rocky Neck` |
+
+Internal name is the street address WITHOUT the suffix (`St`, `Ave`, `Rd`, `Ln`). Always. When in doubt, internal name is what staff would say in a Slack message.
+
 ## Properties
 
-| ID | Address | Owner | Mgmt Fee | Bank Last4 |
-|----|---------|-------|----------|------------|
-| 3_south_st | 3 South St, Rockport MA | Bailey | 25% | 5622 |
-| 21_horton | 21 Horton St, Gloucester MA | Kittredge | 22% | 1323 |
-| 53_rocky_neck | 53 Rocky Neck Ave, Gloucester MA | Prudenzi | 25% | 9910 |
-| 4_brier_neck | 4 Brier Neck Rd, Gloucester MA | Armstrong | 20% | 7876 |
-| 30_woodward | 30 Woodward Ave, Gloucester MA | McWethy | 25% | 8221 |
-| 20_hammond | 20 Hammond St, Gloucester MA | Ramsey | 25% | 9969 |
-| 20_enon | 20 Enon Rd, Gloucester MA | Snyder | 25% | 1307 |
-| 73_rocky_neck | 73 Rocky Neck Ave, Gloucester MA | Moynahan | 25% | 3227 |
-| 17_beach_rd | 17 Beach Rd, Gloucester MA | Nolan | 22% | 5621 |
-| 65_calderwood | 65 Calderwood Ln, Fairfield CT | Liu | 25% | - |
-| 3_locust | 3 Locust St, Gloucester MA | Lucas | 25% | - |
-| 3246_ne_27th | 3246 NE 27th Ave, Lighthouse Point FL | Enriquez | 25% | - |
+| ID | Internal Name | Full Address | External Title | Owner | Mgmt Fee | Bank Last4 |
+|----|---------------|--------------|----------------|-------|----------|------------|
+| 3_south_st | 3 South | 3 South Street, Rockport MA | Stay at Old Garden Beach | Bailey | 25% | 5622 |
+| 21_horton | 21 Horton | 21 Horton Street, Gloucester MA | Stay at Rocky Neck | Kittredge | 22% | 1323 |
+| 53_rocky_neck | 53 Rocky Neck | 53 Rocky Neck Avenue, Gloucester MA | Stay at The Neck | Prudenzi | 25% | 9910 |
+| 4_brier_neck | 4 Brier Neck | 4 Brier Neck Road, Gloucester MA | (none) | Armstrong | 20% | 7876 |
+| 30_woodward | 30 Woodward | 30 Woodward Avenue, Gloucester MA | Stay at Little River | McWethy | 25% | 8221 |
+| 20_hammond | 20 Hammond | 20 Hammond Street, Gloucester MA | Stay at East Gloucester | Ramsey | 25% | 9969 |
+| 20_enon | 20 Enon | 20 Enon Road, Beverly MA | Stay at Beverly Shops | Snyder | 25% | 1307 |
+| 73_rocky_neck | 73 Rocky Neck | 73 Rocky Neck Avenue, Gloucester MA | Stay at Smith Cove | Moynahan | 25% | 3227 |
+| 17_beach_rd | 17 Beach | 17 Beach Road, Gloucester MA | (none) | Nolan | 22% | 5621 |
+| 65_calderwood | 65 Calderwood | 65 Calderwood Lane, Fairfield CT | Stay at Black Rock Harbor | Liu | 25% | - |
+| 3_locust | 3 Locust | 3 Locust Street, Gloucester MA | Stay at Niles Beach | Lucas | 25% | - |
+| 3246_ne_27th | 3246 NE 27th | 3246 NE 27th Avenue, Lighthouse Point FL | Stay At Lighthouse Point | Enriquez | 25% | - |
 
 The last three (65_calderwood, 3_locust, 3246_ne_27th) are newer and appear in the statement renderer but may not yet be in the ingest route's PROPERTIES config.
 
 ## Guesty Listing Name Mapping
 
-Guesty listing names do NOT match property addresses. The platform CSV LISTING column has marketing names:
-- "Stay at The Neck" = 53 Rocky Neck Ave
-- "Stay at Rocky Neck" = 21 Horton St
-- "Stay at Old Garden Beach" = 3 South St
-- "Stay at Beverly Shops" = 20 Enon Rd
-- "Stay at Little River" = 30 Woodward Ave
-- "Stay at East Gloucester" = 20 Hammond St
-- "Stay at Niles Beach" = 3 Locust St
-- "Stay at Smith Cove" = 73 Rocky Neck Ave
-- "Stay at Black Rock Harbor" = 65 Calderwood Ln
-- "Stay At Lighthouse Point" = 3246 NE 27th Ave
+Guesty's platform CSV uses the External Title above. The `listing_match` field in `lib/properties.ts` is a lowercase substring of the internal name and gets matched against incoming Guesty listing names.
 
 The statement page uses a `listing_match` field (lowercase substring) to match CSV rows to properties.
 

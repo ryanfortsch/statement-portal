@@ -119,8 +119,11 @@ function PropertyRow({
   number: string;
   dimmed?: boolean;
 }) {
-  const display = p.title || p.name;
-  const subtitle = p.title ? p.name : p.address;
+  // Internal naming convention: show the short address-without-suffix
+  // primary, and the external "Stay at ..." marketing title as a quieter
+  // secondary label when present.
+  const display = p.name;
+  const subtitle = p.title || p.address;
 
   return (
     <Link
@@ -162,7 +165,6 @@ function PropertyRow({
           </h2>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {subtitle}
-            {p.title && p.address !== subtitle ? ` · ${p.address}` : ''}
           </p>
         </div>
         <span

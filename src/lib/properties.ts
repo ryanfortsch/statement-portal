@@ -10,8 +10,14 @@
 
 export type Property = {
   id: string;
-  name: string;               // short, e.g. "20 Enon Rd"
-  address: string;            // long, e.g. "20 Enon Road"
+  // Naming convention (set 2026-05-01):
+  //   name    = INTERNAL  — street address WITHOUT suffix, e.g. "20 Enon"
+  //   address = FULL      — full street with suffix, e.g. "20 Enon Road"
+  //   (separately, the `properties` table also stores `title` for the
+  //   EXTERNAL marketing name used on Airbnb/stay-cape-ann, e.g.
+  //   "Stay at Beverly Shops". `title` is not on this Property type.)
+  name: string;               // internal short name, no suffix, e.g. "20 Enon"
+  address: string;            // full street address with suffix, e.g. "20 Enon Road"
   city: string;               // "Beverly, MA"
   owner_last: string;         // "Snyder" -- short for summary rows
   owner_full: string;         // "The Snyder Family" -- for statement "Prepared for"
@@ -38,14 +44,14 @@ export type Property = {
 // Four properties are still missing emails -- Ryan to confirm.
 export const PROPERTIES: Record<string, Property> = {
   '3_south_st': {
-    id: '3_south_st', name: '3 South St', address: '3 South Street', city: 'Rockport, MA',
+    id: '3_south_st', name: '3 South', address: '3 South Street', city: 'Rockport, MA',
     owner_last: 'Bailey', owner_full: 'Marci & Paul Bailey', owner_greeting: 'Marci and Paul',
     owner_emails: ['baileynrma@comcast.net', 'paulbailey2006@yahoo.com'],
     fee_pct: 25, bank_last4: '5622', listing_match: '3 south',
     tax_cert_id: 'C0335252520',
   },
   '21_horton': {
-    id: '21_horton', name: '21 Horton St', address: '21 Horton Street', city: 'Gloucester, MA',
+    id: '21_horton', name: '21 Horton', address: '21 Horton Street', city: 'Gloucester, MA',
     owner_last: 'Kittredge', owner_full: 'Claudia Kittredge', owner_greeting: 'Claudia and Vicente',
     owner_emails: ['ckittred1@gmail.com', 'claudia.kittredge@gmail.com'],
     fee_pct: 22, bank_last4: '1323', listing_match: '21 horton',
@@ -53,7 +59,7 @@ export const PROPERTIES: Record<string, Property> = {
     tax_cert_id: 'C0537511070',
   },
   '53_rocky_neck': {
-    id: '53_rocky_neck', name: '53 Rocky Neck Ave', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
+    id: '53_rocky_neck', name: '53 Rocky Neck', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi', owner_greeting: 'Simon',
     owner_emails: ['senecalglenn@gmail.com'],
     fee_pct: 25, bank_last4: '9910', listing_match: '53 rocky neck',
@@ -61,7 +67,7 @@ export const PROPERTIES: Record<string, Property> = {
     tax_cert_id: 'C0554181070',
   },
   '4_brier_neck': {
-    id: '4_brier_neck', name: '4 Brier Neck Rd', address: '4 Brier Neck Road', city: 'Gloucester, MA',
+    id: '4_brier_neck', name: '4 Brier Neck', address: '4 Brier Neck Road', city: 'Gloucester, MA',
     owner_last: 'Armstrong', owner_full: 'The Armstrong Family', owner_greeting: 'Jane',
     owner_emails: ['jane@independent-thinking.com'],
     fee_pct: 20, bank_last4: '7876', listing_match: '4 brier neck',
@@ -69,7 +75,7 @@ export const PROPERTIES: Record<string, Property> = {
     tax_cert_id: 'C0497021070',
   },
   '30_woodward': {
-    id: '30_woodward', name: '30 Woodward Ave', address: '30 Woodward Avenue', city: 'Gloucester, MA',
+    id: '30_woodward', name: '30 Woodward', address: '30 Woodward Avenue', city: 'Gloucester, MA',
     owner_last: 'McWethy', owner_full: 'The McWethy Family', owner_greeting: 'Jim',
     owner_emails: ['mcwethycottages@gmail.com'],
     fee_pct: 25, bank_last4: '8221', listing_match: '30 woodward',
@@ -77,14 +83,14 @@ export const PROPERTIES: Record<string, Property> = {
     tax_cert_id: 'C0539611070',
   },
   '20_hammond': {
-    id: '20_hammond', name: '20 Hammond St', address: '20 Hammond Street', city: 'Gloucester, MA',
+    id: '20_hammond', name: '20 Hammond', address: '20 Hammond Street', city: 'Gloucester, MA',
     owner_last: 'Ramsey', owner_full: 'The Ramsey Family', owner_greeting: 'Danielle and Mark',
     owner_emails: ['dfry0404@yahoo.com'],
     fee_pct: 25, bank_last4: '9969', listing_match: '20 hammond',
     tax_cert_id: 'C0548731070',
   },
   '20_enon': {
-    id: '20_enon', name: '20 Enon Rd', address: '20 Enon Road', city: 'Beverly, MA',
+    id: '20_enon', name: '20 Enon', address: '20 Enon Road', city: 'Beverly, MA',
     owner_last: 'Snyder', owner_full: 'The Snyder Family', owner_greeting: 'Kathleen and Robert',
     owner_emails: ['katsnyder21@gmail.com', 'robertsnyder99@gmail.com'],
     fee_pct: 25, bank_last4: '1307', listing_match: '20 enon',
@@ -93,14 +99,14 @@ export const PROPERTIES: Record<string, Property> = {
     tax_cert_id: 'C0515350300',
   },
   '73_rocky_neck': {
-    id: '73_rocky_neck', name: '73 Rocky Neck Ave', address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',
+    id: '73_rocky_neck', name: '73 Rocky Neck', address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Moynahan', owner_full: 'The Moynahan Family', owner_greeting: 'Matt and Laila',
     owner_emails: ['matthewmoynahan@yahoo.com', 'lailarocha@gmail.com'],
     fee_pct: 25, bank_last4: '3227', listing_match: '73 rocky neck',
     tax_cert_id: 'C0538941070',
   },
   '17_beach_rd': {
-    id: '17_beach_rd', name: '17 Beach Rd', address: '17 Beach Road', city: 'Gloucester, MA',
+    id: '17_beach_rd', name: '17 Beach', address: '17 Beach Road', city: 'Gloucester, MA',
     owner_last: 'Nolan', owner_full: 'Susan & London Nolan', owner_greeting: 'Susan and London',
     // London's email still pending; using Susan's until we have both.
     owner_emails: ['jupitersusan153@gmail.com'],

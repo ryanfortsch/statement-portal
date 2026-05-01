@@ -120,7 +120,7 @@ export default async function InspectionSummaryPage({
             maxWidth: 720,
           }}
         >
-          {property.title || property.name}
+          {property.name}
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
           {property.city} &middot; {inspection.inspector_name} &middot; Completed {formatDateTime(inspection.completed_at)}

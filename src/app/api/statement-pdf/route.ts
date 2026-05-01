@@ -32,8 +32,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'id and month are required' }, { status: 400 });
     }
 
-    // Prefer the short PROPERTIES name ("21 Horton St") for the filename,
-    // fall back to whatever property_statements has if that lookup fails.
+    // Prefer the short internal PROPERTIES name ("21 Horton") for the
+    // filename, fall back to whatever property_statements has if that
+    // lookup fails.
     let propertyShort: string | null = null;
     try {
       const sb = getSupabase();

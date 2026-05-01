@@ -102,7 +102,7 @@ insert into public.properties (
   management_fee_pct, bank_last4, tax_cert_id
 ) values
   (
-    '3_south_st', '3 South St', '3 South Street', 'Rockport, MA',
+    '3_south_st', '3 South', '3 South Street', 'Rockport, MA',
     'Stay at Old Garden Beach', '3 south',
     true, false,
     'Bailey', 'Marci & Paul Bailey', 'Marci and Paul',
@@ -110,7 +110,7 @@ insert into public.properties (
     25, '5622', 'C0335252520'
   ),
   (
-    '21_horton', '21 Horton St', '21 Horton Street', 'Gloucester, MA',
+    '21_horton', '21 Horton', '21 Horton Street', 'Gloucester, MA',
     'Stay at Rocky Neck', '21 horton',
     true, false,
     'Kittredge', 'Claudia Kittredge', 'Claudia and Vicente',
@@ -118,7 +118,7 @@ insert into public.properties (
     22, '1323', 'C0537511070'
   ),
   (
-    '53_rocky_neck', '53 Rocky Neck Ave', '53 Rocky Neck Avenue', 'Gloucester, MA',
+    '53_rocky_neck', '53 Rocky Neck', '53 Rocky Neck Avenue', 'Gloucester, MA',
     'Stay at The Neck', '53 rocky neck',
     true, false,
     'Prudenzi', 'Simon Prudenzi', 'Simon',
@@ -126,7 +126,7 @@ insert into public.properties (
     25, '9910', 'C0554181070'
   ),
   (
-    '4_brier_neck', '4 Brier Neck Rd', '4 Brier Neck Road', 'Gloucester, MA',
+    '4_brier_neck', '4 Brier Neck', '4 Brier Neck Road', 'Gloucester, MA',
     null, '4 brier neck',
     true, false,
     'Armstrong', 'The Armstrong Family', 'Jane',
@@ -134,7 +134,7 @@ insert into public.properties (
     20, '7876', 'C0497021070'
   ),
   (
-    '30_woodward', '30 Woodward Ave', '30 Woodward Avenue', 'Gloucester, MA',
+    '30_woodward', '30 Woodward', '30 Woodward Avenue', 'Gloucester, MA',
     'Stay at Little River', '30 woodward',
     true, false,
     'McWethy', 'The McWethy Family', 'Jim',
@@ -142,7 +142,7 @@ insert into public.properties (
     25, '8221', 'C0539611070'
   ),
   (
-    '20_hammond', '20 Hammond St', '20 Hammond Street', 'Gloucester, MA',
+    '20_hammond', '20 Hammond', '20 Hammond Street', 'Gloucester, MA',
     'Stay at East Gloucester', '20 hammond',
     true, false,
     'Ramsey', 'The Ramsey Family', 'Danielle and Mark',
@@ -150,7 +150,7 @@ insert into public.properties (
     25, '9969', 'C0548731070'
   ),
   (
-    '20_enon', '20 Enon Rd', '20 Enon Road', 'Beverly, MA',
+    '20_enon', '20 Enon', '20 Enon Road', 'Beverly, MA',
     'Stay at Beverly Shops', '20 enon',
     true, false,
     'Snyder', 'The Snyder Family', 'Kathleen and Robert',
@@ -158,7 +158,7 @@ insert into public.properties (
     25, '1307', 'C0515350300'
   ),
   (
-    '73_rocky_neck', '73 Rocky Neck Ave', '73 Rocky Neck Avenue', 'Gloucester, MA',
+    '73_rocky_neck', '73 Rocky Neck', '73 Rocky Neck Avenue', 'Gloucester, MA',
     'Stay at Smith Cove', '73 rocky neck',
     true, false,
     'Moynahan', 'The Moynahan Family', 'Matt and Laila',
@@ -166,7 +166,7 @@ insert into public.properties (
     25, '3227', 'C0538941070'
   ),
   (
-    '17_beach_rd', '17 Beach Rd', '17 Beach Road', 'Gloucester, MA',
+    '17_beach_rd', '17 Beach', '17 Beach Road', 'Gloucester, MA',
     null, '17 beach',
     true, false,
     'Nolan', 'Susan & London Nolan', 'Susan and London',
