@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmModuleNav } from './HelmModuleNav';
+import { UserMenu } from './UserMenu';
 
 type Props = {
   current?: string;
@@ -51,7 +52,10 @@ export function HelmMasthead({ current, rightContent }: Props) {
             />
             <HelmModuleNav current={current} />
           </div>
-          {rightContent && <div>{rightContent}</div>}
+          <div className="flex items-center gap-6">
+            {rightContent}
+            <UserMenu />
+          </div>
         </div>
       </div>
     </header>
