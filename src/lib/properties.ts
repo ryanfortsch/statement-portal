@@ -120,6 +120,29 @@ export function getProperty(id: string): Property | undefined {
   return PROPERTIES[id];
 }
 
+/**
+ * Cross-reference a Perfection property (UUID-keyed) to the Helm property
+ * registry (string-keyed like "21_horton") by matching Helm's `listing_match`
+ * substring against any of Perfection's name/nickname/title/address fields.
+ *
+ * Used by /properties/[id] to pull the property's Helm statements alongside
+ * its Perfection inspections + work slips.
+ */
+type PerfectionPropertyShape = {
+  name?: string | null;
+  nickname?: string | null;
+  title?: string | null;
+  address?: string | null;
+};
+export function helmPropertyFromPerfection(p: PerfectionPropertyShape): Property | undefined {
+  const haystack = [p.name, p.nickname, p.title, p.address]
+    .filter(Boolean)
+    .map((s) => (s as string).toLowerCase())
+    .join(' | ');
+  if (!haystack) return undefined;
+  return Object.values(PROPERTIES).find((h) => haystack.includes(h.listing_match));
+}
+
 /** Emails always CC'd when a statement is sent out from the portal. */
 export const ALWAYS_CC = [
   'allie@risingtidestr.com',

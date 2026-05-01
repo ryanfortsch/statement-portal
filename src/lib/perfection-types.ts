@@ -5,6 +5,36 @@
  * more modules.
  */
 
+export type PerfectionInspection = {
+  id: string;
+  property_id: string;
+  inspector_name: string;
+  started_at: string | null;
+  completed_at: string | null;
+  skipped_at: string | null;
+  skip_reason: string | null;
+  skip_reason_type: string | null;
+  issue_count: number | null;
+  pass_count: number | null;
+  total_items: number | null;
+};
+
+export type PerfectionWorkSlip = {
+  id: string;
+  property_id: string;
+  inspection_id: string;
+  status: string;
+  priority: string;
+  category: string;
+  title: string;
+  action_summary: string | null;
+  description: string | null;
+  scheduled_date: string | null;
+  created_at: string;
+  completed_at: string | null;
+  owner_action_required: boolean;
+};
+
 export type PerfectionProperty = {
   id: string;
   name: string | null;
