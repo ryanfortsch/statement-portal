@@ -308,19 +308,39 @@ export default function UploadPage() {
               <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
               <HelmModuleNav current="statements" />
             </div>
-            <Link href="/statements" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              border: '1px solid var(--rule)',
-              background: 'transparent',
-              color: 'var(--ink-3)',
-              fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-              padding: '6px 12px',
-            }}>
-              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-              </svg>
-              Statements
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href="/statements" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                border: '1px solid var(--rule)',
+                background: 'transparent',
+                color: 'var(--ink-3)',
+                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
+                padding: '6px 12px',
+              }}>
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                Statements
+              </Link>
+              <form action="/api/auth/signout" method="post">
+                <button
+                  type="submit"
+                  title="Sign out"
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-4)',
+                    background: 'none',
+                    border: '1px solid var(--rule)',
+                    cursor: 'pointer',
+                    padding: '4px 10px',
+                  }}
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
           </div>
           <div style={{ padding: '14px 0 4px' }}>
             <div className="eyebrow">Step</div>

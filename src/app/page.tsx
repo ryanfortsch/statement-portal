@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { supabasePerfection, isPerfectionConfigured } from '@/lib/supabase-perfection';
+import { UserMenu } from '@/components/UserMenu';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -85,9 +86,12 @@ export default async function HelmHome() {
               <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
               <span className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Helm</span>
             </div>
-            <span style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 500 }}>
-              Rising Tide &middot; Internal Operations
-            </span>
+            <div className="flex items-center gap-6">
+              <span style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 500 }}>
+                Rising Tide &middot; Internal Operations
+              </span>
+              <UserMenu />
+            </div>
           </div>
         </div>
       </header>
