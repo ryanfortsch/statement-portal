@@ -1,0 +1,354 @@
+import type { ProjectionRow } from '@/lib/projections-types';
+
+/**
+ * Shared input form for new + edit projections. Submits to a server action
+ * passed via `action`. Field names match the `buildPayload()` parser in
+ * src/app/projections/actions.ts.
+ *
+ * Numeric fields that represent percentages (mgmt_fee_pct, year2_growth_pct)
+ * use whole numbers in the UI (25 = 25%) and are converted to decimals
+ * server-side.
+ */
+
+type Props = {
+  action: (formData: FormData) => Promise<void>;
+  initial?: Partial<ProjectionRow>;
+  submitLabel?: string;
+};
+
+const DEFAULT_PRESENTATION_MONTH = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+})();
+
+export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props) {
+  const v = initial ?? {};
+  const pct = (n: number | null | undefined, fallback: number) =>
+    n != null ? Math.round(n * 100) : fallback;
+
+  return (
+    <form action={action} className="space-y-10">
+      {/* ─── Prospect & Property ───────────────────────────────────────────── */}
+      <Section eyebrow="01" title="Prospect & Property">
+        <Row>
+          <Field label="Prospect name (full)" required>
+            <input
+              name="prospect_name"
+              required
+              defaultValue={v.prospect_name ?? ''}
+              placeholder="John Gavin, Bethany Giblin"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Greeting (first name)">
+            <input
+              name="prospect_first_name"
+              defaultValue={v.prospect_first_name ?? ''}
+              placeholder="John"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Property address" required>
+            <input
+              name="property_address"
+              required
+              defaultValue={v.property_address ?? ''}
+              placeholder="36 Granite St"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="City, State">
+            <input
+              name="property_city"
+              defaultValue={v.property_city ?? ''}
+              placeholder="Rockport, MA"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Market" required>
+            <select
+              name="market"
+              required
+              defaultValue={v.market ?? 'Rockport'}
+              style={selectStyle}
+            >
+              <option value="Rockport">Rockport</option>
+              <option value="Gloucester">Gloucester</option>
+            </select>
+          </Field>
+          <Field label="Bedrooms" required>
+            <select
+              name="bedrooms"
+              required
+              defaultValue={v.bedrooms ?? 2}
+              style={selectStyle}
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+              <option value={5}>5</option>
+              <option value={6}>6+</option>
+            </select>
+          </Field>
+          <Field label="Home value" required hint="Zillow-equivalent">
+            <input
+              name="home_value"
+              required
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.home_value ?? ''}
+              placeholder="850000"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Neighborhood">
+            <input
+              name="neighborhood"
+              defaultValue={v.neighborhood ?? ''}
+              placeholder="Back Beach"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Interior grade">
+            <input
+              name="interior_grade"
+              defaultValue={v.interior_grade ?? ''}
+              placeholder="A / B / C"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+      </Section>
+
+      {/* ─── Presentation ──────────────────────────────────────────────────── */}
+      <Section eyebrow="02" title="Presentation">
+        <Row>
+          <Field label="Presentation month" required hint="Cover page date — e.g. March 2026">
+            <input
+              name="presentation_month"
+              required
+              type="month"
+              defaultValue={v.presentation_month ?? DEFAULT_PRESENTATION_MONTH}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Property go-live month" required hint="Year-1 ramp starts here (1 = Jan)">
+            <select
+              name="start_month"
+              required
+              defaultValue={v.start_month ?? 5}
+              style={selectStyle}
+            >
+              {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          </Field>
+        </Row>
+      </Section>
+
+      {/* ─── Assumptions ───────────────────────────────────────────────────── */}
+      <Section eyebrow="03" title="Assumptions">
+        <Row>
+          <Field label="Management fee %" required>
+            <input
+              name="mgmt_fee_pct"
+              required
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              defaultValue={pct(v.mgmt_fee_pct, 25)}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Year 2 growth %" required>
+            <input
+              name="year2_growth_pct"
+              required
+              type="number"
+              min={-100}
+              max={200}
+              step={1}
+              defaultValue={pct(v.year2_growth_pct, 15)}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Turnovers / year" required>
+            <input
+              name="turnovers_per_year"
+              required
+              type="number"
+              min={0}
+              step={1}
+              defaultValue={v.turnovers_per_year ?? 45}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Base cleaning ($)" required hint="Per turnover">
+            <input
+              name="base_cleaning"
+              required
+              type="number"
+              min={0}
+              step={5}
+              defaultValue={v.base_cleaning ?? 200}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Add'l per BR > 2 ($)" required>
+            <input
+              name="addl_cleaning_per_br"
+              required
+              type="number"
+              min={0}
+              step={5}
+              defaultValue={v.addl_cleaning_per_br ?? 50}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+      </Section>
+
+      {/* ─── Overrides (optional) ──────────────────────────────────────────── */}
+      <Section eyebrow="04" title="Overrides (optional)">
+        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
+          Leave blank to use the model. Set revenue overrides to bypass the
+          50/50 blend. Set hero overrides to control the cover-page range
+          directly (otherwise it shows ramped Year 1 → full Year 1).
+        </p>
+        <Row>
+          <Field label="Revenue override — Low ($)">
+            <input
+              name="revenue_override_low"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.revenue_override_low ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Revenue override — High ($)">
+            <input
+              name="revenue_override_high"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.revenue_override_high ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Hero range — Low ($)" hint="Cover page lower bound">
+            <input
+              name="hero_low_override"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.hero_low_override ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Hero range — High ($)" hint="Cover page upper bound">
+            <input
+              name="hero_high_override"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.hero_high_override ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+      </Section>
+
+      <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 12 }}>
+        <button
+          type="submit"
+          style={{
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            padding: '14px 28px',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          {submitLabel} →
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Layout primitives ───────────────────────────────────────────────────────
+function Section({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-3" style={{ marginBottom: 18 }}>
+        <span className="font-mono" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
+          {eyebrow}
+        </span>
+        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          {title}
+        </h2>
+      </div>
+      <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Row({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>{children}</div>;
+}
+
+function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span className="eyebrow">
+        {label}
+        {required && <span style={{ color: 'var(--signal)', marginLeft: 4 }}>*</span>}
+      </span>
+      {children}
+      {hint && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{hint}</span>}
+    </label>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  background: 'var(--paper)',
+  border: '1px solid var(--rule)',
+  color: 'var(--ink)',
+  fontSize: 14,
+  fontWeight: 400,
+  padding: '10px 12px',
+  outline: 'none',
+  width: '100%',
+};
+
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  cursor: 'pointer',
+  appearance: 'none',
+  paddingRight: 32,
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 10px center',
+  backgroundSize: '16px',
+};

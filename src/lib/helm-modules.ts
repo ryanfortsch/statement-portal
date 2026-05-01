@@ -67,9 +67,18 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
   },
   {
+    id: 'projections',
+    href: '/projections',
+    number: '06',
+    title: 'Projections',
+    description: 'Prospect revenue estimates. Punch in a property, get a print-ready 11-page deck to send to the prospective owner.',
+    status: 'active',
+    primary: true,
+  },
+  {
     id: 'crm',
     href: '#',
-    number: '06',
+    number: '07',
     title: 'CRM',
     description: 'Contacts, households, owners. Comms log via Quo. Pinned notes and tags.',
     status: 'soon',
@@ -78,7 +87,7 @@ export const HELM_MODULES: HelmModule[] = [
   {
     id: 'guest-intel',
     href: '#',
-    number: '07',
+    number: '08',
     title: 'Guest Intel',
     description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
     status: 'soon',
@@ -87,7 +96,7 @@ export const HELM_MODULES: HelmModule[] = [
   {
     id: 'admin',
     href: '#',
-    number: '08',
+    number: '09',
     title: 'Admin',
     description: 'Settings, inspection templates, automation rules, team, roles.',
     status: 'soon',
