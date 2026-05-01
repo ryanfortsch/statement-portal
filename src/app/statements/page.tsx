@@ -1381,7 +1381,12 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [authenticated, setAuthenticated] = useState(false);
+  // Auth is now handled by Google SSO via middleware. By the time this
+  // component renders, the user is signed in. Default authenticated=true
+  // so the legacy access-code login screen (further down) never shows;
+  // setAuthenticated still exists as a no-op for the legacy code paths.
+  // Cleanup pass to remove the dead login JSX can come in a follow-up.
+  const [authenticated, setAuthenticated] = useState(true);
   const [inputCode, setInputCode] = useState('');
   const [authError, setAuthError] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1944,9 +1949,10 @@ function DashboardContent() {
               <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
               <HelmModuleNav current="statements" />
             </div>
-            <div className="flex items-center gap-4">
-              <div className="eyebrow">Period</div>
-              {periods.length > 1 ? (
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4">
+                <div className="eyebrow">Period</div>
+                {periods.length > 1 ? (
                 <select
                   value={selectedMonth}
                   onChange={(e) => loadPeriod(e.target.value)}
@@ -1971,9 +1977,28 @@ function DashboardContent() {
                     <option key={p.month} value={p.month}>{monthLabel(p.month)}</option>
                   ))}
                 </select>
-              ) : (
-                <span className="font-serif" style={{ fontSize: 15, fontWeight: 500 }}>{monthLabel(selectedMonth)}</span>
-              )}
+                ) : (
+                  <span className="font-serif" style={{ fontSize: 15, fontWeight: 500 }}>{monthLabel(selectedMonth)}</span>
+                )}
+              </div>
+              <form action="/api/auth/signout" method="post">
+                <button
+                  type="submit"
+                  title="Sign out"
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-4)',
+                    background: 'none',
+                    border: '1px solid var(--rule)',
+                    cursor: 'pointer',
+                    padding: '4px 10px',
+                  }}
+                >
+                  Sign out
+                </button>
+              </form>
             </div>
           </div>
 
