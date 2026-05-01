@@ -60,11 +60,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'properties',
-    href: '#',
+    href: '/properties',
     number: '05',
     title: 'Properties',
-    description: 'Per-property folder. History, snapshot, current state, owner emails.',
-    status: 'soon',
+    description: 'Live property registry. Reads from inspect.risingtidestr.com so the data never goes stale.',
+    status: 'active',
     primary: false,
   },
   {

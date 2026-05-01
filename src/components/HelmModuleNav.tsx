@@ -1,11 +1,19 @@
 import Link from 'next/link';
-import { PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
 
 type Props = {
   current?: string;
 };
 
 export function HelmModuleNav({ current }: Props) {
+  // Always show the primary set. If the current module isn't in the primary
+  // set, append it so the user sees a "you are here" anchor in the nav.
+  const visible: HelmModule[] = [...PRIMARY_MODULES];
+  if (current && !visible.find((m) => m.id === current)) {
+    const extra = HELM_MODULES.find((m) => m.id === current);
+    if (extra) visible.push(extra);
+  }
+
   return (
     <nav className="flex items-baseline gap-4" style={{
       fontSize: 10,
@@ -13,7 +21,7 @@ export function HelmModuleNav({ current }: Props) {
       textTransform: 'uppercase',
       fontWeight: 500,
     }}>
-      {PRIMARY_MODULES.map((m) => (
+      {visible.map((m) => (
         <ModuleLink key={m.id} module={m} active={m.id === current} />
       ))}
     </nav>
