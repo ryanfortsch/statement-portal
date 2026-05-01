@@ -73,12 +73,12 @@ function SlideCover({
           </h1>
           <div className="rt-cover-rule" />
           <p className="rt-cover-tag">
-            {projection.property_address.split(' ').slice(1).join(' ') || projection.property_address} is an exceptional home.
+            {projection.property_address} is an exceptional home.
           </p>
           <p className="rt-cover-body">
-            Rising Tide is a boutique manager
+            We are vacation rental management
             <br />
-            specializing in exceptional homes
+            for exceptional homes
             <br />
             across Cape Ann.
           </p>
@@ -87,7 +87,7 @@ function SlideCover({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/rising-tide-logo.png" alt="Rising Tide" className="rt-cover-logo" />
           <div className="rt-cover-wordmark">RISING TIDE</div>
-          <div className="rt-cover-sub">SHORT TERM RENTAL MANAGEMENT</div>
+          <div className="rt-cover-sub">VACATION RENTAL MANAGEMENT</div>
         </div>
       </div>
       <Footer label={footer} dark />
@@ -168,11 +168,12 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
 }
 
 function SlideRatings({ footer }: { footer: string }) {
-  const data: { label: string; value: number; rt?: boolean }[] = [
-    { label: 'RISING TIDE', value: 4.98, rt: true },
-    { label: 'National Average', value: 4.8 },
-    { label: 'Atlantic Vacation Homes', value: 4.7 },
-    { label: 'Vacasa', value: 4.5 },
+  // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
+  const data: { label: string; value: number; display: string; rt?: boolean }[] = [
+    { label: 'RISING TIDE', value: 4.99, display: '4.99', rt: true },
+    { label: 'National Average', value: 4.8, display: '4.8' },
+    { label: 'Atlantic Vacation Homes', value: 4.7, display: '4.7' },
+    { label: 'Vacasa', value: 4.5, display: '4.5' },
   ];
   // Bar scale: visualize across [4.0, 5.0] for visual differentiation
   const minScale = 4.0;
@@ -194,7 +195,7 @@ function SlideRatings({ footer }: { footer: string }) {
                   style={{ width: `${pct(d.value)}%` }}
                 />
               </div>
-              <div className={`rt-rating-value${d.rt ? ' rt-rating-value-rt' : ''}`}>{d.value.toFixed(2)}</div>
+              <div className={`rt-rating-value${d.rt ? ' rt-rating-value-rt' : ''}`}>{d.display}</div>
             </div>
           ))}
         </div>
@@ -244,8 +245,17 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
 function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
   const y1 = roundToThousand(computed.year1MonthlyAvg);
   const y2 = roundToThousand(computed.year2MonthlyAvg);
-  const max = Math.max(y1, y2) * 1.15;
-  const pct = (v: number) => (max > 0 ? (v / max) * 100 : 0);
+  // Use the unrounded values for the % so it matches the configured growth, not
+  // the visual rounding ($8k → $9k could be 9.5% or 12.5% depending on raw values).
+  const growthPct = computed.year1MonthlyAvg > 0
+    ? Math.round(((computed.year2MonthlyAvg - computed.year1MonthlyAvg) / computed.year1MonthlyAvg) * 100)
+    : 0;
+  // Visualize from a 70% baseline so a 10% revenue lift reads as a clear ~33%
+  // bar-height delta. Without this baseline trick, $8k vs $9k looks identical.
+  const minScale = Math.min(y1, y2) * 0.7;
+  const maxScale = Math.max(y1, y2);
+  const range = maxScale - minScale;
+  const pct = (v: number) => (range > 0 ? Math.max(8, ((v - minScale) / range) * 100) : 50);
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -270,6 +280,17 @@ function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer
                 <div className="rt-y2-bar rt-y2-bar-rt" style={{ height: `${pct(y2)}%` }} />
                 <div className="rt-y2-cap">YEAR 2</div>
               </div>
+              <div className="rt-y2-arrow" aria-hidden="true">
+                <svg viewBox="0 0 200 100" preserveAspectRatio="none">
+                  <defs>
+                    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal)" />
+                    </marker>
+                  </defs>
+                  <path d="M 20 75 Q 100 10, 180 30" stroke="var(--signal)" strokeWidth="2" fill="none" strokeLinecap="round" markerEnd="url(#arrowhead)" />
+                </svg>
+                <div className="rt-y2-growth-pill">+{growthPct}%</div>
+              </div>
             </div>
           </div>
         </div>
@@ -280,23 +301,46 @@ function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer
 }
 
 function SlideServices({ footer }: { footer: string }) {
-  const cols: { title: string; items: string[] }[] = [
-    { title: 'GUESTS', items: ['Guest screening', '24/7 guest services', '5-star experience'] },
-    { title: 'PROPERTY', items: ['Turnover management', 'Property maintenance', 'Inventory and supplies'] },
-    { title: 'MARKETING', items: ['Airbnb, Vrbo, and more', 'Market-based pricing', 'Direct booking platform'] },
+  const cols: { num: string; eyebrow: string; lead: string; items: string[] }[] = [
+    {
+      num: '01',
+      eyebrow: 'Guests',
+      lead: 'Every traveler vetted, welcomed, and supported around the clock.',
+      items: ['Guest screening and verification', '24/7 messaging and on-call support', 'Curated welcome and arrival experience', 'Five-star hospitality, every stay'],
+    },
+    {
+      num: '02',
+      eyebrow: 'Property',
+      lead: 'The home stays in the condition your guests expect, and you do too.',
+      items: ['Professional turnover and laundry', 'Routine inspections and maintenance', 'Inventory, supplies, and consumables', 'Vendor coordination on your behalf'],
+    },
+    {
+      num: '03',
+      eyebrow: 'Marketing',
+      lead: 'Listed where guests look, priced where the market lands.',
+      items: ['Airbnb, Vrbo, and direct channels', 'Dynamic, market-based pricing', 'Professional photography and copy', 'Direct-booking platform and SEO'],
+    },
   ];
   return (
     <section className="rt-slide">
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Full service property management</h2>
+        <p className="rt-services-lead">
+          Three pillars of service for every property we manage. All included. No &agrave; la carte fees.
+        </p>
         <div className="rt-services">
           {cols.map((col) => (
-            <div key={col.title} className="rt-service-col">
-              <div className="rt-eyebrow">{col.title}</div>
+            <div key={col.eyebrow} className="rt-service-col">
+              <div className="rt-service-num">{col.num}</div>
+              <div className="rt-service-eyebrow">{col.eyebrow}</div>
+              <p className="rt-service-lead">{col.lead}</p>
               <ul className="rt-service-list">
                 {col.items.map((it) => (
-                  <li key={it}>{it}</li>
+                  <li key={it}>
+                    <span className="rt-service-mark" aria-hidden="true">✓</span>
+                    <span>{it}</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -318,19 +362,72 @@ function SlideOwnerControl({ footer }: { footer: string }) {
   return (
     <section className="rt-slide">
       <Header label={footer} />
-      <div className="rt-content-pad rt-owner-pad">
-        <h2 className="rt-section-title">Owner control &amp; transparency</h2>
-        <ul className="rt-checks">
-          {items.map((it) => (
-            <li key={it} className="rt-check-row">
-              <span className="rt-check-mark">✔</span>
-              <span>{it}</span>
-            </li>
-          ))}
-        </ul>
+      <div className="rt-content-pad rt-owner-grid">
+        <div className="rt-owner-left">
+          <h2 className="rt-section-title">Owner control &amp; transparency</h2>
+          <ul className="rt-checks">
+            {items.map((it) => (
+              <li key={it} className="rt-check-row">
+                <span className="rt-check-mark">✔</span>
+                <span>{it}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rt-owner-right">
+          <div className="rt-eyebrow rt-stmt-eyebrow">Your monthly statement</div>
+          <StatementPreview />
+        </div>
       </div>
       <Footer label={footer} />
     </section>
+  );
+}
+
+/** Stylized mini statement that mirrors the editorial language of /statements/render — no real data, just enough visual cues for a prospect to picture what they'll receive each month. */
+function StatementPreview() {
+  return (
+    <div className="rt-stmt-card">
+      <div className="rt-stmt-mast">
+        <div className="rt-stmt-mast-left">
+          <div className="rt-stmt-brand">RISING TIDE</div>
+          <div className="rt-stmt-period">OWNER STATEMENT &middot; APRIL 2026</div>
+        </div>
+        <div className="rt-stmt-mast-right">YOUR PROPERTY</div>
+      </div>
+      <div className="rt-stmt-hero">
+        <div className="rt-stmt-eyebrow-sm">NET PAYOUT</div>
+        <div className="rt-stmt-amount">$8,247</div>
+      </div>
+      <div className="rt-stmt-grid">
+        <div>
+          <div className="rt-stmt-eyebrow-sm">RESERVATIONS</div>
+          <div className="rt-stmt-rows">
+            {[
+              ['Apr 4 – Apr 7', '$1,420'],
+              ['Apr 11 – Apr 14', '$1,680'],
+              ['Apr 18 – Apr 24', '$2,940'],
+              ['Apr 26 – Apr 30', '$1,820'],
+            ].map(([d, v]) => (
+              <div key={d} className="rt-stmt-row">
+                <span>{d}</span>
+                <span>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="rt-stmt-eyebrow-sm">FINANCIALS</div>
+          <div className="rt-stmt-rows">
+            <div className="rt-stmt-row"><span>Rental Revenue</span><span>$11,860</span></div>
+            <div className="rt-stmt-row"><span>Mgmt Fee (25%)</span><span>$2,965</span></div>
+            <div className="rt-stmt-row"><span>Cleaning</span><span>$648</span></div>
+            <div className="rt-stmt-row rt-stmt-row-total"><span>Owner Payout</span><span>$8,247</span></div>
+          </div>
+        </div>
+      </div>
+      <div className="rt-stmt-foot">SAMPLE &middot; FOR ILLUSTRATION</div>
+    </div>
   );
 }
 
@@ -340,15 +437,25 @@ function SlideClose({ footer }: { footer: string }) {
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">The Rising Tide Difference</h2>
-        <p className="rt-close-lead">
-          By keeping our portfolio intentionally small, we&rsquo;re able to give each property the attention it requires.
-        </p>
-        <p className="rt-close-body">
-          Thank you for considering Rising Tide for full-service property management. As a North Shore Massachusetts native, I care deeply about how homes are cared for and how this region is experienced by those who visit. We look forward to the possibility of working together and are happy to answer any questions.
-        </p>
-        <div className="rt-signature">
-          <div className="rt-sig-name">ALLIE O&rsquo;BRIEN</div>
-          <div className="rt-sig-title">OWNER, RISING TIDE</div>
+        <div className="rt-close-grid">
+          <div className="rt-close-text">
+            <p className="rt-close-lead">
+              By keeping our portfolio intentionally small, we&rsquo;re able to give each property the attention it requires.
+            </p>
+            <p className="rt-close-body">
+              Thank you for considering Rising Tide for full-service property management. As a North Shore Massachusetts native, I care deeply about how homes are cared for and how this region is experienced by those who visit. We look forward to the possibility of working together and are happy to answer any questions.
+            </p>
+            <div className="rt-signature">
+              <div className="rt-sig-name">ALLIE O&rsquo;BRIEN</div>
+              <div className="rt-sig-title">OWNER, RISING TIDE</div>
+            </div>
+          </div>
+          <div className="rt-close-portrait">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/allie-obrien.jpg" alt="Allie O'Brien, Owner of Rising Tide" />
+            <div className="rt-close-portrait-rule" />
+            <div className="rt-close-portrait-caption">A North Shore native.</div>
+          </div>
         </div>
       </div>
       <Footer label={footer} />
@@ -674,6 +781,7 @@ const deckCss = `
   .rt-y2-body { margin-top: 18px; font-size: 16px; line-height: 1.6; color: var(--ink-3); max-width: 460px; }
   .rt-y2-right { display: flex; align-items: center; justify-content: center; }
   .rt-y2-bars {
+    position: relative;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 56px;
@@ -683,7 +791,7 @@ const deckCss = `
     border-bottom: 2px solid var(--ink);
     padding-bottom: 24px;
   }
-  .rt-y2-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .rt-y2-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; position: relative; z-index: 1; }
   .rt-y2-amt {
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 38px;
@@ -696,57 +804,207 @@ const deckCss = `
   .rt-y2-bar-rt { background: var(--signal); }
   .rt-y2-cap { margin-top: 14px; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 
+  /* Growth arrow + pill — drawn over the bars to make the lift unmistakable */
+  .rt-y2-arrow {
+    position: absolute;
+    top: -10px;
+    left: 18%;
+    right: 18%;
+    height: 110px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .rt-y2-arrow svg { width: 100%; height: 100%; overflow: visible; }
+  .rt-y2-growth-pill {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--signal);
+    color: var(--paper);
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 400;
+    padding: 6px 18px;
+    border-radius: 999px;
+    letter-spacing: -0.01em;
+  }
+
   /* ── Services (slide 8) ── */
+  .rt-services-lead {
+    margin: 14px 0 0;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--ink-3);
+    max-width: 720px;
+    font-style: italic;
+  }
   .rt-services {
-    margin-top: 48px;
+    margin-top: 36px;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 48px;
-    max-width: 1040px;
+    gap: 36px;
+    max-width: 1100px;
   }
-  .rt-service-col { border-top: 2px solid var(--ink); padding-top: 18px; }
-  .rt-service-list { margin: 18px 0 0; padding: 0; list-style: none; }
-  .rt-service-list li {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--rule);
-    font-size: 15px;
+  .rt-service-col {
+    border-top: 2px solid var(--ink);
+    padding-top: 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .rt-service-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 36px;
+    color: var(--signal);
+    font-weight: 300;
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .rt-service-eyebrow {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 22px;
     color: var(--ink);
+    line-height: 1.2;
+    font-weight: 400;
+    margin-bottom: 8px;
+  }
+  .rt-service-lead {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-3);
+    margin: 0 0 16px;
+    min-height: 60px;
+  }
+  .rt-service-list { margin: 0; padding: 0; list-style: none; }
+  .rt-service-list li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 13px;
+    color: var(--ink);
+    line-height: 1.4;
   }
   .rt-service-list li:last-child { border-bottom: 0; }
+  .rt-service-mark { color: var(--signal); font-size: 12px; flex-shrink: 0; padding-top: 2px; }
 
   /* ── Owner control (slide 9) ── */
-  .rt-owner-pad { justify-content: center; padding-top: 0; padding-bottom: 0; }
+  .rt-owner-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px;
+    align-items: start;
+  }
+  .rt-owner-left { display: flex; flex-direction: column; }
+  .rt-owner-right { display: flex; flex-direction: column; gap: 14px; }
+  .rt-stmt-eyebrow { color: var(--ink-4); }
   .rt-checks {
-    margin: 36px 0 0;
+    margin: 28px 0 0;
     padding: 0;
     list-style: none;
-    max-width: 720px;
   }
   .rt-check-row {
     display: flex;
     align-items: center;
     gap: 18px;
-    padding: 18px 0;
+    padding: 14px 0;
     border-bottom: 1px solid var(--rule);
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 24px;
+    font-size: 22px;
     color: var(--ink);
     font-weight: 400;
   }
-  .rt-check-mark { color: var(--signal); font-size: 22px; line-height: 1; }
+  .rt-check-mark { color: var(--signal); font-size: 20px; line-height: 1; }
+
+  /* ── Mini statement preview (right column of owner control slide) ── */
+  .rt-stmt-card {
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    box-shadow: 0 4px 18px rgba(30, 46, 52, 0.08);
+    padding: 18px 20px 14px;
+    aspect-ratio: 8.5 / 11;
+    max-height: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  .rt-stmt-mast {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 8px;
+  }
+  .rt-stmt-brand {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .rt-stmt-period { font-size: 7px; letter-spacing: 0.18em; color: var(--ink-4); margin-top: 2px; font-weight: 500; }
+  .rt-stmt-mast-right { font-size: 7px; letter-spacing: 0.18em; color: var(--ink-4); font-weight: 500; }
+  .rt-stmt-hero { padding: 6px 0; border-bottom: 1px solid var(--rule); }
+  .rt-stmt-eyebrow-sm { font-size: 7px; letter-spacing: 0.2em; color: var(--ink-4); text-transform: uppercase; font-weight: 500; margin-bottom: 4px; }
+  .rt-stmt-amount {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 28px;
+    color: var(--signal);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .rt-stmt-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    flex: 1;
+  }
+  .rt-stmt-rows { display: flex; flex-direction: column; }
+  .rt-stmt-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 8px;
+    color: var(--ink-3);
+  }
+  .rt-stmt-row span:last-child { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .rt-stmt-row-total { border-top: 1px solid var(--ink); margin-top: 4px; padding-top: 5px; }
+  .rt-stmt-row-total span { color: var(--ink) !important; font-weight: 500; }
+  .rt-stmt-foot {
+    text-align: center;
+    font-size: 6px;
+    letter-spacing: 0.2em;
+    color: var(--ink-4);
+    text-transform: uppercase;
+    border-top: 1px solid var(--rule);
+    padding-top: 6px;
+  }
 
   /* ── Closing (slide 10) ── */
+  .rt-close-grid {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 64px;
+    align-items: start;
+    flex: 1;
+  }
+  .rt-close-text { display: flex; flex-direction: column; }
   .rt-close-lead {
-    margin-top: 28px;
+    margin-top: 0;
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 26px;
     line-height: 1.35;
     color: var(--ink);
     font-weight: 300;
-    max-width: 880px;
+    max-width: 560px;
   }
-  .rt-close-body { margin-top: 22px; font-size: 15px; line-height: 1.65; color: var(--ink-3); max-width: 760px; }
-  .rt-signature { margin-top: 36px; text-align: right; }
+  .rt-close-body { margin-top: 22px; font-size: 14px; line-height: 1.65; color: var(--ink-3); max-width: 560px; }
+  .rt-signature { margin-top: 32px; }
   .rt-sig-name {
     font-size: 14px;
     letter-spacing: 0.22em;
@@ -755,6 +1013,21 @@ const deckCss = `
     text-transform: uppercase;
   }
   .rt-sig-title { margin-top: 4px; font-size: 11px; letter-spacing: 0.18em; color: var(--ink-3); text-transform: uppercase; }
+  .rt-close-portrait { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+  .rt-close-portrait img {
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    background: var(--paper-2);
+  }
+  .rt-close-portrait-rule { width: 48px; height: 2px; background: var(--signal); margin-top: 4px; }
+  .rt-close-portrait-caption {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 16px;
+    color: var(--ink-3);
+  }
 
   /* ── Endnotes (slide 11) ── */
   .rt-endnotes { margin-top: 24px; padding: 0; list-style: none; max-width: 960px; }
