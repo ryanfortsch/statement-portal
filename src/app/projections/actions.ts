@@ -1,9 +1,16 @@
 'use server';
 
+import crypto from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import type { OnboardingData } from '@/lib/projections-types';
+
+/** 32-hex-char random token for the public onboarding link. */
+function newOnboardingToken(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
 
 /**
  * Server actions for the Projections module.
@@ -92,6 +99,7 @@ export async function createProjection(formData: FormData) {
     created_by_name:
       session.user.name?.trim() ||
       (localPart ? localPart.charAt(0).toUpperCase() + localPart.slice(1) : 'User'),
+    onboarding_token: newOnboardingToken(),
   };
 
   const { data, error } = await supabase
@@ -146,4 +154,47 @@ export async function markSent(id: string) {
 
   revalidatePath('/projections');
   revalidatePath(`/projections/${id}`);
+}
+
+/**
+ * Public-facing: an owner submits the onboarding form. No auth — gated by
+ * knowledge of the token. The token comes in as a hidden field.
+ */
+export async function submitOnboarding(formData: FormData) {
+  const token = String(formData.get('token') || '').trim();
+  if (!token || !/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid onboarding link');
+
+  // Pull every field from the form into the JSONB payload. Empty strings
+  // become undefined so we don't bloat the record with junk.
+  const ALL_FIELDS: (keyof OnboardingData)[] = [
+    'full_name', 'phone', 'email', 'mailing_address', 'preferred_contact',
+    'property_address', 'property_type', 'hoa', 'bedrooms', 'bathrooms',
+    'square_feet', 'livable_floors', 'basement', 'parking',
+    'electricity_provider', 'heating', 'cooling', 'internet_provider',
+    'cable_provider', 'wifi_name', 'wifi_password', 'num_tvs', 'smart_tv',
+    'currently_listed', 'listing_urls', 'str_registration', 'str_insurance',
+    'guest_access_method', 'smart_lock_brand', 'smart_lock_code', 'security_cameras',
+    'key_code_location', 'alarm_system', 'known_issues', 'upcoming_maintenance', 'notes',
+    'emergency_name', 'emergency_relationship', 'emergency_phone', 'emergency_email',
+  ];
+
+  const data: OnboardingData = {};
+  for (const f of ALL_FIELDS) {
+    const v = String(formData.get(f) ?? '').trim();
+    if (v) data[f] = v;
+  }
+
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      onboarding_data: data,
+      onboarding_submitted_at: new Date().toISOString(),
+    })
+    .eq('onboarding_token', token);
+
+  if (error) throw new Error(error.message);
+
+  // Revalidate the public form (so it shows the thank-you state on refresh)
+  revalidatePath(`/onboarding/${token}`);
+  redirect(`/onboarding/${token}/thanks`);
 }

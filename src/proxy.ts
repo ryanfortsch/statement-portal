@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
  *   /api/auth/...           NextAuth callback handlers
  *   /statements/render      print page (called by puppeteer with the Vercel
  *                           protection bypass token; no human session)
+ *   /onboarding/<token>     owner intake form sent to prospects after the
+ *                           contract is signed; gated by knowledge of a
+ *                           per-prospect random token
  *
  * Other API routes (/api/ingest, /api/sync-*, etc.) also stay open for now;
  * they're called manually from inside the dashboard. We can gate them later.
@@ -15,6 +18,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/auth/",
   "/api/auth/",
   "/statements/render",
+  "/onboarding/",
 ];
 
 export default auth((req) => {
