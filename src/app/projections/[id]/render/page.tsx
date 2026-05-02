@@ -37,7 +37,6 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
       <div className="rt-deck">
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
-        <SlideImagePlaceholder projection={projection} footer={footerLabel} />
         <SlidePillars footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
@@ -118,22 +117,6 @@ function SlideHero({
         <p className="rt-hero-disclaimer">
           Year 1 estimate, net of management fees and cleaning expenses, based on comparable property performance. <sup>(1)</sup>
         </p>
-      </div>
-      <Footer label={footer} />
-    </section>
-  );
-}
-
-function SlideImagePlaceholder({ projection, footer }: { projection: ProjectionRow; footer: string }) {
-  return (
-    <section className="rt-slide">
-      <Header label={footer} />
-      <div className="rt-image-frame">
-        <div className="rt-image-placeholder">
-          <div className="rt-eyebrow">RENDERING FOR VISUALIZATION PURPOSES</div>
-          <div className="rt-image-text">{projection.property_address}</div>
-          <div className="rt-image-sub">Drop a property photo into this slide before sending</div>
-        </div>
       </div>
       <Footer label={footer} />
     </section>
@@ -525,8 +508,6 @@ function SlideClose({ footer }: { footer: string }) {
           <div className="rt-close-portrait">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/allie-obrien.jpg" alt="Allie O'Brien, Owner of Rising Tide" />
-            <div className="rt-close-portrait-rule" />
-            <div className="rt-close-portrait-caption">A North Shore native.</div>
           </div>
         </div>
       </div>
@@ -732,30 +713,6 @@ const deckCss = `
     color: var(--ink-3);
     font-style: italic;
   }
-
-  /* ── Image placeholder (slide 3) ── */
-  .rt-image-frame {
-    position: absolute;
-    top: 96px;
-    left: 96px;
-    right: 96px;
-    bottom: 96px;
-    border: 1px dashed var(--rule);
-    background: var(--paper-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .rt-image-placeholder { text-align: center; padding: 0 32px; }
-  .rt-image-text {
-    margin-top: 14px;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 36px;
-    color: var(--ink);
-    font-weight: 300;
-    letter-spacing: -0.02em;
-  }
-  .rt-image-sub { margin-top: 12px; font-size: 13px; color: var(--ink-4); }
 
   /* ── Generic content padding for slide bodies ── */
   .rt-content-pad { padding: 96px 96px 130px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
@@ -1421,15 +1378,7 @@ const deckCss = `
     display: block;
     background: var(--paper-2);
   }
-  .rt-close-portrait-rule { width: 48px; height: 2px; background: var(--signal); margin-top: 4px; }
-  .rt-close-portrait-caption {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-style: italic;
-    font-size: 16px;
-    color: var(--ink-3);
-  }
-
-  /* ── Endnotes (slide 11) ── */
+  /* ── Endnotes (slide 10) ── */
   .rt-endnotes { margin-top: 24px; padding: 0; list-style: none; max-width: 960px; }
   .rt-endnotes li { padding: 14px 0; border-top: 1px solid var(--rule); font-size: 13px; line-height: 1.65; color: var(--ink-3); }
   .rt-endnotes li:last-child { border-bottom: 1px solid var(--rule); }
