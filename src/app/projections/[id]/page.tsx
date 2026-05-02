@@ -40,7 +40,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/projections" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
-            ← Projections
+            ← Prospects
           </Link>
           {' · '}
           <span>{fmtMonthYear(projection.presentation_month)}</span>
@@ -168,11 +168,168 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
+      {/* OWNER ONBOARDING INTAKE — public link + status */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
+        <OnboardingPanel projection={projection} />
+      </section>
+
       {/* EDIT FORM */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Edit inputs</div>
         <ProjectionForm action={update} initial={projection} submitLabel="Save changes" />
       </section>
+    </div>
+  );
+}
+
+function OnboardingPanel({ projection }: { projection: ProjectionRow }) {
+  const submitted = projection.onboarding_submitted_at;
+  const data = projection.onboarding_data;
+  const link = `/onboarding/${projection.onboarding_token}`;
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          Owner onboarding intake
+        </h3>
+        <span className="eyebrow" style={{ color: submitted ? 'var(--positive)' : 'var(--ink-4)' }}>
+          {submitted ? `Submitted ${new Date(submitted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Not yet submitted'}
+        </span>
+      </div>
+
+      {!submitted && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Send this link to the owner once the contract is signed. They&rsquo;ll fill in property details, utilities, access, and an emergency contact. Their answers land back here.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+        <code
+          className="font-mono"
+          style={{
+            flex: '1 1 320px',
+            background: 'var(--paper-2)',
+            border: '1px solid var(--rule)',
+            padding: '10px 12px',
+            fontSize: 12,
+            color: 'var(--ink-3)',
+            overflowX: 'auto',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {link}
+        </code>
+        <Link
+          href={link}
+          target="_blank"
+          style={{
+            background: 'transparent',
+            color: 'var(--ink)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            padding: '11px 18px',
+            border: '1px solid var(--ink)',
+            textDecoration: 'none',
+          }}
+        >
+          Open ↗
+        </Link>
+      </div>
+
+      {submitted && data && <OnboardingSummary data={data} />}
+    </div>
+  );
+}
+
+function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboarding_data']> }) {
+  type Item = { label: string; value: string | undefined };
+  const groups: { title: string; items: Item[] }[] = [
+    {
+      title: 'Personal',
+      items: [
+        { label: 'Name', value: data.full_name },
+        { label: 'Phone', value: data.phone },
+        { label: 'Email', value: data.email },
+        { label: 'Mailing', value: data.mailing_address },
+        { label: 'Preferred', value: data.preferred_contact },
+      ],
+    },
+    {
+      title: 'Property',
+      items: [
+        { label: 'Type', value: data.property_type },
+        { label: 'HOA', value: data.hoa },
+        { label: 'BR / BA', value: [data.bedrooms, data.bathrooms].filter(Boolean).join(' / ') || undefined },
+        { label: 'Sq Ft', value: data.square_feet },
+        { label: 'Floors', value: data.livable_floors },
+        { label: 'Basement', value: data.basement },
+        { label: 'Parking', value: data.parking },
+      ],
+    },
+    {
+      title: 'Utilities',
+      items: [
+        { label: 'Electric', value: data.electricity_provider },
+        { label: 'Heating', value: data.heating },
+        { label: 'Cooling', value: data.cooling },
+        { label: 'Internet', value: data.internet_provider },
+        { label: 'Cable', value: data.cable_provider },
+        { label: 'WiFi name', value: data.wifi_name },
+        { label: 'WiFi pass', value: data.wifi_password },
+        { label: 'TVs', value: [data.num_tvs, data.smart_tv].filter(Boolean).join(' · ') || undefined },
+      ],
+    },
+    {
+      title: 'STR',
+      items: [
+        { label: 'Listed?', value: data.currently_listed },
+        { label: 'URLs', value: data.listing_urls },
+        { label: 'Reg #', value: data.str_registration },
+        { label: 'Insurance', value: data.str_insurance },
+        { label: 'Access', value: data.guest_access_method },
+        { label: 'Smart lock', value: [data.smart_lock_brand, data.smart_lock_code].filter(Boolean).join(' · ') || undefined },
+        { label: 'Cameras', value: data.security_cameras },
+      ],
+    },
+    {
+      title: 'Access & notes',
+      items: [
+        { label: 'Key/code', value: data.key_code_location },
+        { label: 'Alarm', value: data.alarm_system },
+        { label: 'Issues', value: data.known_issues },
+        { label: 'Maintenance', value: data.upcoming_maintenance },
+        { label: 'Notes', value: data.notes },
+      ],
+    },
+    {
+      title: 'Emergency contact',
+      items: [
+        { label: 'Name', value: data.emergency_name },
+        { label: 'Relationship', value: data.emergency_relationship },
+        { label: 'Phone', value: data.emergency_phone },
+        { label: 'Email', value: data.emergency_email },
+      ],
+    },
+  ];
+
+  return (
+    <div style={{ marginTop: 28, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 28, borderTop: '1px solid var(--rule)', paddingTop: 22 }}>
+      {groups.map((g) => (
+        <div key={g.title}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>{g.title}</div>
+          {g.items.filter((it) => !!it.value).map((it) => (
+            <div key={it.label} style={{ padding: '6px 0', borderBottom: '1px solid var(--rule-soft)', fontSize: 12 }}>
+              <span style={{ color: 'var(--ink-4)', display: 'inline-block', width: 92 }}>{it.label}</span>
+              <span style={{ color: 'var(--ink)' }}>{it.value}</span>
+            </div>
+          ))}
+          {g.items.every((it) => !it.value) && (
+            <div style={{ padding: '6px 0', fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>No answers in this section.</div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
