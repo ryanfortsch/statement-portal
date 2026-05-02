@@ -102,6 +102,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'soon',
     primary: false,
   },
+  {
+    id: 'revenue',
+    href: '/revenue',
+    number: '10',
+    title: 'Revenue',
+    description: 'Portfolio revenue snapshot. Stays, ADR, occupancy, owner payout. Pro-rated by nights from Guesty bookings.',
+    status: 'active',
+    primary: true,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
