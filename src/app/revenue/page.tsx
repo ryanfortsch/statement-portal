@@ -198,9 +198,6 @@ function PropertyCard({ snapshot }: { snapshot: PropertySnapshot }) {
           >
             {snapshot.propertyName}
           </h3>
-          {!snapshot.guestyListingId && (
-            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>No Guesty</span>
-          )}
         </div>
         {snapshot.turnoversNext30 > 0 && (
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
