@@ -317,8 +317,12 @@ async function fetchAllReservations(token: string, sinceIso?: string): Promise<G
   let skip = 0;
   const limit = 100;
   const sinceMs = sinceIso ? new Date(sinceIso).getTime() : null;
+  // Guesty omits the `money` block by default; we need to request it explicitly
+  // to populate host_payout. Without this every row's host_payout comes back
+  // null and the Revenue dashboard reads zero across the board.
+  const fields = '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
   while (true) {
-    const page = await guestyGet('/v1/reservations', token, { limit, skip });
+    const page = await guestyGet('/v1/reservations', token, { limit, skip, fields });
     const batch: GuestyReservation[] = page.data || page.results || [];
     if (batch.length === 0) break;
     let hitFloor = false;
