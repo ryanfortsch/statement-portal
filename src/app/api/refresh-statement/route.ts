@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
 
       return {
         property_statement_id: stmt.id,
+        property_id: propertyId,
         guest_name: g.guest_name,
         confirmation_code: g.confirmation_code,
         check_in: g.check_in,

@@ -765,7 +765,11 @@ export async function POST(request: NextRequest) {
     if (processedReservations.length > 0) {
       const { error: resErr } = await supabase
         .from('reservations')
-        .insert(processedReservations.map(r => ({ property_statement_id: stmt.id, ...r })));
+        .insert(processedReservations.map(r => ({
+          property_statement_id: stmt.id,
+          property_id: propertyId,
+          ...r,
+        })));
       if (resErr) throw resErr;
     }
 
