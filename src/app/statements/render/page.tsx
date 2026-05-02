@@ -413,7 +413,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="headline-block">
                 <div className="kicker">{mo} &middot; {yr}</div>
                 <h1 className="display">{mo} <em>Statement</em></h1>
-                <div className="display-sub">{d.address.toUpperCase()} &middot; {d.city.toUpperCase()}</div>
+                <div className="display-sub">{d.name.toUpperCase()} &middot; {d.city.toUpperCase()}</div>
               </div>
             </section>
 
@@ -422,7 +422,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="cell">
                 <div className="label">Prepared for</div>
                 <div className="val">{d.owner_full}</div>
-                <div className="sub">{d.address} &middot; {d.city}</div>
+                <div className="sub">{d.name} &middot; {d.city}</div>
               </div>
               <div className="cell">
                 <div className="label">Period</div>
