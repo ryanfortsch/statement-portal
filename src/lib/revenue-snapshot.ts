@@ -92,15 +92,27 @@ type ReservationRow = {
 };
 
 /**
- * Resolve the per-stay payout. `host_payout` is what Guesty's live API
- * populates, but most rows in Helm came in via the CSV ingest path which
- * fills `owner_net_revenue_guesty` instead. Use whichever is non-zero.
+ * Resolve the per-stay GROSS payout (the figure that gets split into
+ * management fee + owner payout, before cleaning is deducted).
+ *
+ *   `host_payout`               - already gross. Use as-is.
+ *   `owner_net_revenue_guesty`  - already NET of management fee per Guesty's
+ *                                 accounting export. Back it out by
+ *                                 dividing by (1 - mgmtFraction).
+ *
+ * Verified against Helm's Statement reconciliation: 17_beach_rd at 22% has
+ * owner_net $717.10 and stmt rental_revenue $919.36 (= 717.10 / 0.78);
+ * 20_hammond at 25% has owner_net $2980.02 and rental_revenue $3973.36
+ * (= 2980.02 / 0.75).
  */
-function resolvePayout(r: ReservationRow): number {
+function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
   const hp = Number(r.host_payout ?? 0);
   if (hp > 0) return hp;
   const own = Number(r.owner_net_revenue_guesty ?? 0);
-  if (own > 0) return own;
+  if (own > 0) {
+    if (mgmtFraction <= 0 || mgmtFraction >= 1) return own;
+    return own / (1 - mgmtFraction);
+  }
   return 0;
 }
 
@@ -238,12 +250,15 @@ export async function computeRevenueSnapshot(
       const nightsInPeriod = nightsBetween(overlapStart, overlapEnd);
       if (nightsInPeriod <= 0) continue;
 
-      nightsSold += nightsInPeriod;
+      const fullPayout = resolveGrossPayout(r, mgmtFeeFraction);
 
-      const fullPayout = resolvePayout(r);
-      if (fullPayout > 0) {
-        totalRevenue += fullPayout * (nightsInPeriod / totalNights);
-      }
+      // Skip rows with no money — these are owner blocks, holds, or
+      // cancelled-but-not-deleted stays. They shouldn't count toward
+      // stays/nights/occupancy either.
+      if (fullPayout <= 0) continue;
+
+      nightsSold += nightsInPeriod;
+      totalRevenue += fullPayout * (nightsInPeriod / totalNights);
 
       // Cleaning attributed at checkout (so it doesn't double-count for stays
       // that overlap multiple periods).
