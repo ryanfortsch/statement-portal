@@ -17,6 +17,36 @@ type HelmStatementRow = {
   owner_payout: number;
 };
 
+type ReservationSummary = {
+  id: string;
+  guest_name: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  nights: number | null;
+  platform: string | null;
+  adjusted_revenue: number | null;
+};
+
+type InspectionSummary = {
+  id: string;
+  completed_at: string | null;
+  started_at: string | null;
+  inspector_name: string | null;
+  total_items: number;
+  pass_count: number;
+  issue_count: number;
+  na_count: number;
+};
+
+type OwnerRecord = {
+  id: string;
+  name_full: string;
+  name_greeting: string;
+  name_last: string;
+  emails: string[];
+  notes: string | null;
+};
+
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   if (!isHelmConfigured) return null;
   const { data, error } = await supabase
@@ -62,6 +92,56 @@ async function getRecentStatements(propertyId: string): Promise<HelmStatementRow
   }
 }
 
+// Direct query on reservations.property_id (added in the entity-layer migration).
+// Before that column existed, this would have required a join through
+// property_statements + statement_periods.
+async function getRecentReservations(propertyId: string): Promise<ReservationSummary[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('id, guest_name, check_in, check_out, nights, platform, adjusted_revenue')
+      .eq('property_id', propertyId)
+      .order('check_out', { ascending: false })
+      .limit(6);
+    if (error) throw error;
+    return (data ?? []) as ReservationSummary[];
+  } catch {
+    return [];
+  }
+}
+
+async function getRecentInspections(propertyId: string): Promise<InspectionSummary[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('inspections')
+      .select('id, completed_at, started_at, inspector_name, total_items, pass_count, issue_count, na_count')
+      .eq('property_id', propertyId)
+      .order('started_at', { ascending: false })
+      .limit(5);
+    if (error) throw error;
+    return (data ?? []) as InspectionSummary[];
+  } catch {
+    return [];
+  }
+}
+
+async function getOwner(ownerId: string | null): Promise<OwnerRecord | null> {
+  if (!isHelmConfigured || !ownerId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('owners')
+      .select('id, name_full, name_greeting, name_last, emails, notes')
+      .eq('id', ownerId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as OwnerRecord) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 type Params = { id: string };
 
 export default async function PropertyDetailPage({ params }: { params: Promise<Params> }) {
@@ -69,7 +149,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const statements = await getRecentStatements(p.id);
+  const [statements, reservations, inspections, owner] = await Promise.all([
+    getRecentStatements(p.id),
+    getRecentReservations(p.id),
+    getRecentInspections(p.id),
+    getOwner(p.owner_id),
+  ]);
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -198,6 +283,99 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </Section>
 
+      {/* RECENT STAYS (Helm-native via reservations.property_id) */}
+      <Section
+        title="Recent Stays"
+        eyebrow="Helm"
+        empty={reservations.length === 0}
+        emptyMessage="No reservations yet for this property."
+      >
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {reservations.map((r) => (
+            <div
+              key={r.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '160px 1fr auto auto',
+                gap: 24,
+                alignItems: 'baseline',
+                padding: '16px 0',
+                borderBottom: '1px solid var(--rule)',
+              }}
+            >
+              <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                {formatDateRange(r.check_in, r.check_out)}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--ink)' }}>
+                {r.guest_name || '—'}
+                {r.platform ? (
+                  <span style={{ color: 'var(--ink-3)', marginLeft: 10, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase' }}>
+                    {r.platform}
+                  </span>
+                ) : null}
+              </span>
+              <span className="font-mono tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {r.nights ?? 0} night{r.nights === 1 ? '' : 's'}
+              </span>
+              <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                {r.adjusted_revenue != null ? formatCurrency(r.adjusted_revenue) : '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* INSPECTIONS (Helm-native) */}
+      <Section
+        title="Inspections"
+        eyebrow="Helm"
+        empty={inspections.length === 0}
+        emptyMessage="No inspections logged for this property yet."
+      >
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {inspections.map((i) => {
+            const when = i.completed_at || i.started_at;
+            const inProgress = !i.completed_at;
+            return (
+              <Link
+                key={i.id}
+                href={`/inspections/${i.id}/summary`}
+                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '160px 1fr auto auto',
+                    gap: 24,
+                    alignItems: 'baseline',
+                    padding: '18px 0',
+                    borderBottom: '1px solid var(--rule)',
+                  }}
+                >
+                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                    {formatDate(when)}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>
+                    {i.inspector_name || '—'}
+                    {inProgress && (
+                      <span style={{ color: 'var(--signal, #c85a3a)', marginLeft: 10, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase' }}>
+                        in progress
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                    {i.pass_count} pass · {i.issue_count} issue · {i.na_count} n/a
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    {i.total_items > 0 ? `${Math.round((i.pass_count / i.total_items) * 100)}%` : '—'} →
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </Section>
+
       {/* OWNER + COMMS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
@@ -208,51 +386,18 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
           <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-            <Detail term="Owner" definition={p.owner_full} />
-            <Detail term="Greeting" definition={p.owner_greeting} />
+            <Detail term="Owner" definition={owner?.name_full ?? p.owner_full} />
+            <Detail term="Greeting" definition={owner?.name_greeting ?? p.owner_greeting} />
             <Detail
               term="Emails"
-              definition={p.owner_emails.length > 0 ? p.owner_emails.join(', ') : '—'}
+              definition={(() => {
+                const emails = owner?.emails ?? p.owner_emails;
+                return emails.length > 0 ? emails.join(', ') : '—';
+              })()}
               mono
             />
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
-        </div>
-      </section>
-
-      {/* INSPECTIONS / WORK (still in Lovable) */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Inspections &amp; Work
-          </h2>
-          <span className="eyebrow">External</span>
-        </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18, paddingBottom: 18 }}>
-          <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14 }}>
-            Inspections, work slips, and turnover state still live in the Perfection app. Helm-native
-            schemas for these are in flight; until then, click through to view them in context.
-          </p>
-          <a
-            href="https://inspect.risingtidestr.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-            }}
-          >
-            Open Perfection ↗
-          </a>
         </div>
       </section>
 
@@ -396,6 +541,22 @@ function formatMonth(month: string): string {
 function formatCurrency(value: number): string {
   if (value == null) return '—';
   return `$${Math.round(value).toLocaleString('en-US')}`;
+}
+
+function formatDateRange(checkIn: string | null, checkOut: string | null): string {
+  if (!checkIn && !checkOut) return '—';
+  const inDate = checkIn ? formatShortDate(checkIn) : '—';
+  const outDate = checkOut ? formatShortDate(checkOut) : '—';
+  return `${inDate} → ${outDate}`;
+}
+
+function formatShortDate(value: string): string {
+  try {
+    const d = new Date(value);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return value;
+  }
 }
 
 function formatRelative(value: string | null): string {

@@ -156,6 +156,7 @@ export type HelmPropertyRow = {
   owner_full: string;
   owner_greeting: string;
   owner_emails: string[];
+  owner_id: string | null;
   management_fee_pct: number;
   bank_last4: string | null;
   tax_cert_id: string | null;
