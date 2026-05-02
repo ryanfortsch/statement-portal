@@ -169,42 +169,49 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
 
 function SlideRatings({ footer }: { footer: string }) {
   // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
-  const data: { label: string; value: number; display: string; rt?: boolean }[] = [
-    { label: 'RISING TIDE', value: 4.99, display: '4.99', rt: true },
-    { label: 'National Average', value: 4.8, display: '4.8' },
-    { label: 'Atlantic Vacation Homes', value: 4.7, display: '4.7' },
-    { label: 'Vacasa', value: 4.5, display: '4.5' },
+  const competitors: { label: string; display: string }[] = [
+    { label: 'National Average', display: '4.8' },
+    { label: 'Atlantic Vacation Homes', display: '4.7' },
+    { label: 'Vacasa', display: '4.5' },
   ];
-  // Bar scale: visualize across [4.0, 5.0] for visual differentiation
-  const minScale = 4.0;
-  const maxScale = 5.0;
-  const pct = (v: number) => Math.max(0, Math.min(100, ((v - minScale) / (maxScale - minScale)) * 100));
   return (
     <section className="rt-slide">
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Why we obsess over guest service</h2>
-        <div className="rt-eyebrow" style={{ marginTop: 18, marginBottom: 24 }}>AVG. GUEST RATING <sup>(2)</sup></div>
-        <div className="rt-rating-bars">
-          {data.map((d) => (
-            <div key={d.label} className="rt-rating-row">
-              <div className={`rt-rating-label${d.rt ? ' rt-rating-label-rt' : ''}`}>{d.label}</div>
-              <div className="rt-rating-track">
-                <div
-                  className={`rt-rating-fill${d.rt ? ' rt-rating-fill-rt' : ''}`}
-                  style={{ width: `${pct(d.value)}%` }}
-                />
-              </div>
-              <div className={`rt-rating-value${d.rt ? ' rt-rating-value-rt' : ''}`}>{d.display}</div>
+        <div className="rt-rating-grid">
+          {/* HERO: +18% Revenue lift, the through-line for the slide */}
+          <div className="rt-rating-hero">
+            <div className="rt-rating-hero-line">
+              <span className="rt-rating-hero-pct">+18%</span>
+              <span className="rt-rating-hero-word">Revenue</span>
             </div>
-          ))}
-        </div>
-        {/* "Did you know?" — verbatim from risingtidestr.com homepage */}
-        <div className="rt-did-you-know">
-          <div className="rt-dyk-label">Did you know?</div>
-          <p className="rt-dyk-body">
-            After location and price, guest reviews are the third most important factor in booking decisions.
-          </p>
+            <p className="rt-rating-hero-body">
+              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(3)</sup>
+            </p>
+            <div className="rt-rating-hero-rule" />
+            <p className="rt-rating-hero-tag">
+              Five-star service is what we obsess over. It is also what compounds, year after year, into stronger bookings and higher rates.
+            </p>
+          </div>
+
+          {/* Right-hand comparison card */}
+          <div className="rt-rating-card">
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(2)</sup></div>
+            <div className="rt-rating-rt-block">
+              <div className="rt-rating-rt-label">RISING TIDE</div>
+              <div className="rt-rating-rt-value">4.99</div>
+              <div className="rt-rating-rt-stars" aria-hidden="true">★★★★★</div>
+            </div>
+            <div className="rt-rating-comp-list">
+              {competitors.map((c) => (
+                <div key={c.label} className="rt-rating-comp-row">
+                  <span className="rt-rating-comp-label">{c.label}</span>
+                  <span className="rt-rating-comp-value">{c.display}<span className="rt-rating-comp-star">★</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       <Footer label={footer} />
@@ -478,6 +485,10 @@ function SlideEndnotes({ footer }: { footer: string }) {
             <span className="rt-en-num">(2)</span>
             Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
+          <li>
+            <span className="rt-en-num">(3)</span>
+            Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
+          </li>
         </ol>
       </div>
       <Footer label={footer} />
@@ -724,38 +735,112 @@ const deckCss = `
   }
   .rt-pillar-body { font-size: 14px; line-height: 1.55; color: var(--ink-3); }
 
-  /* ── Ratings (slide 5) ── */
-  .rt-rating-bars { display: flex; flex-direction: column; gap: 20px; max-width: 880px; }
-  .rt-rating-row {
+  /* ── Ratings (slide 5) — +18% revenue hero on the left, comparison card on the right ── */
+  .rt-rating-grid {
+    margin-top: 32px;
+    flex: 1;
     display: grid;
-    grid-template-columns: 240px 1fr 56px;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 56px;
     align-items: center;
-    gap: 24px;
   }
-  .rt-rating-label { font-size: 14px; color: var(--ink-3); }
-  .rt-rating-label-rt { color: var(--signal); font-weight: 600; letter-spacing: 0.06em; }
-  .rt-rating-track { height: 26px; background: var(--paper-2); border-left: 2px solid var(--ink); position: relative; }
-  .rt-rating-fill { height: 100%; background: var(--ink-3); }
-  .rt-rating-fill-rt { background: var(--signal); }
-  .rt-rating-value { font-family: var(--font-fraunces), "Times New Roman", serif; font-size: 22px; color: var(--ink); text-align: right; }
-  .rt-rating-value-rt { color: var(--signal); }
-
-  /* "Did you know?" — verbatim copy from risingtidestr.com homepage */
-  .rt-did-you-know {
-    margin-top: 36px;
-    border-top: 1px solid var(--rule);
-    padding-top: 18px;
-    max-width: 880px;
+  .rt-rating-hero { display: flex; flex-direction: column; }
+  .rt-rating-hero-line {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    line-height: 1;
   }
-  .rt-dyk-label {
+  .rt-rating-hero-pct {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 124px;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.04em;
+  }
+  .rt-rating-hero-word {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 80px;
+    font-weight: 300;
+    color: var(--ink);
+    letter-spacing: -0.025em;
+  }
+  .rt-rating-hero-body {
+    margin: 24px 0 0;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink);
+    max-width: 540px;
+    font-weight: 400;
+  }
+  .rt-rating-hero-body strong { color: var(--signal); font-weight: 600; }
+  .rt-rating-hero-rule { width: 56px; height: 2px; background: var(--ink); margin: 24px 0; }
+  .rt-rating-hero-tag {
+    margin: 0;
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-style: italic;
-    font-size: 18px;
-    color: var(--signal);
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--ink-3);
+    max-width: 480px;
     font-weight: 400;
-    margin-bottom: 6px;
   }
-  .rt-dyk-body { margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink-3); max-width: 720px; }
+
+  /* Right card */
+  .rt-rating-card {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .rt-rating-card-eyebrow { color: var(--ink-3); }
+  .rt-rating-rt-block {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 18px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .rt-rating-rt-label {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    color: var(--paper-3);
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .rt-rating-rt-value {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 56px;
+    line-height: 1;
+    color: var(--paper);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+  .rt-rating-rt-stars { margin-top: 6px; color: var(--signal); font-size: 16px; letter-spacing: 0.18em; }
+  .rt-rating-comp-list { display: flex; flex-direction: column; }
+  .rt-rating-comp-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .rt-rating-comp-row:last-child { border-bottom: 0; }
+  .rt-rating-comp-label { color: var(--ink-3); }
+  .rt-rating-comp-value {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 22px;
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .rt-rating-comp-star { color: var(--ink-4); margin-left: 6px; font-size: 14px; }
 
   /* ── Year 1 (slide 6) ── */
   .rt-year-stat { margin-top: 48px; }
