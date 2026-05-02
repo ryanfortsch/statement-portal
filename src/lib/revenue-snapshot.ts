@@ -205,7 +205,7 @@ export async function computeRevenueSnapshot(
       projectedOwnerPayout: null,
     };
 
-    if (skipped || !prop.guesty_listing_id) {
+    if (skipped) {
       return {
         propertyId: prop.id,
         propertyName: prop.nickname || prop.name,
