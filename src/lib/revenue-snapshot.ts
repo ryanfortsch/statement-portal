@@ -88,7 +88,21 @@ type ReservationRow = {
   check_out: string | null;
   status: string | null;
   host_payout: number | null;
+  owner_net_revenue_guesty: number | null;
 };
+
+/**
+ * Resolve the per-stay payout. `host_payout` is what Guesty's live API
+ * populates, but most rows in Helm came in via the CSV ingest path which
+ * fills `owner_net_revenue_guesty` instead. Use whichever is non-zero.
+ */
+function resolvePayout(r: ReservationRow): number {
+  const hp = Number(r.host_payout ?? 0);
+  if (hp > 0) return hp;
+  const own = Number(r.owner_net_revenue_guesty ?? 0);
+  if (own > 0) return own;
+  return 0;
+}
 
 function effectiveStart(rangeStart: string, activatedAt: string | null): string {
   if (!activatedAt) return rangeStart;
@@ -133,7 +147,7 @@ export async function computeRevenueSnapshot(
 
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
-    .select('property_id, listing_id, check_in, check_out, status, host_payout')
+    .select('property_id, listing_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty')
     .lt('check_in', periodEndExclusive)
     .gt('check_out', rangeStart);
 
@@ -226,7 +240,7 @@ export async function computeRevenueSnapshot(
 
       nightsSold += nightsInPeriod;
 
-      const fullPayout = Number(r.host_payout ?? 0);
+      const fullPayout = resolvePayout(r);
       if (fullPayout > 0) {
         totalRevenue += fullPayout * (nightsInPeriod / totalNights);
       }

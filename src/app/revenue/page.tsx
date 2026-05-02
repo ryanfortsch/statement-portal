@@ -179,7 +179,7 @@ function Stat({
 
 function PropertyCard({ snapshot }: { snapshot: PropertySnapshot }) {
   const m = snapshot.metrics;
-  const noData = m.totalRevenue == null;
+  const noData = m.staysCount === 0;
 
   return (
     <article
