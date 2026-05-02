@@ -392,49 +392,119 @@ function SlideOwnerControl({ footer }: { footer: string }) {
   );
 }
 
-/** Stylized mini statement that mirrors the editorial language of /statements/render — no real data, just enough visual cues for a prospect to picture what they'll receive each month. */
+/**
+ * Mini owner statement that mirrors src/app/statements/render/page.tsx —
+ * masthead, header row with logo + italic display title, addressee 3-cell,
+ * hero payout with cents, two-column Reservations/Financials.
+ *
+ * No real data; the values are illustrative. The layout is what matters
+ * (it's recognisably a Rising Tide owner statement).
+ */
 function StatementPreview() {
   return (
     <div className="rt-stmt-card">
+      {/* Masthead */}
       <div className="rt-stmt-mast">
-        <div className="rt-stmt-mast-left">
-          <div className="rt-stmt-brand">RISING TIDE</div>
-          <div className="rt-stmt-period">OWNER STATEMENT &middot; APRIL 2026</div>
+        <span><b>Rising Tide</b> &middot; Vacation Rentals</span>
+        <span>Owner Statement &middot; No. 04 / 2026</span>
+        <span>allie@risingtidestr.com</span>
+      </div>
+
+      {/* Header row: logo + headline */}
+      <div className="rt-stmt-head">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/rising-tide-logo.png" alt="" className="rt-stmt-logo" />
+        <div className="rt-stmt-headline">
+          <div className="rt-stmt-kicker">April &middot; 2026</div>
+          <div className="rt-stmt-display">April <em>Statement</em></div>
+          <div className="rt-stmt-display-sub">YOUR PROPERTY ADDRESS &middot; GLOUCESTER, MA</div>
         </div>
-        <div className="rt-stmt-mast-right">YOUR PROPERTY</div>
       </div>
-      <div className="rt-stmt-hero">
-        <div className="rt-stmt-eyebrow-sm">NET PAYOUT</div>
-        <div className="rt-stmt-amount">$8,247</div>
-      </div>
-      <div className="rt-stmt-grid">
+
+      {/* Addressee */}
+      <div className="rt-stmt-addressee">
         <div>
-          <div className="rt-stmt-eyebrow-sm">RESERVATIONS</div>
+          <div className="rt-stmt-cell-label">Prepared for</div>
+          <div className="rt-stmt-cell-val">The Owner Family</div>
+          <div className="rt-stmt-cell-sub">Property &middot; Gloucester, MA</div>
+        </div>
+        <div>
+          <div className="rt-stmt-cell-label">Period</div>
+          <div className="rt-stmt-cell-val">Apr 1 &mdash; Apr 30, 2026</div>
+          <div className="rt-stmt-cell-sub">30 days &middot; 18 nights booked</div>
+        </div>
+        <div>
+          <div className="rt-stmt-cell-label">Issued &middot; Payout</div>
+          <div className="rt-stmt-cell-val">May 5</div>
+          <div className="rt-stmt-cell-sub">Direct deposit</div>
+        </div>
+      </div>
+
+      {/* Hero */}
+      <div className="rt-stmt-hero">
+        <div>
+          <div className="rt-stmt-payout-label">Owner Payout</div>
+          <div className="rt-stmt-payout-amt">
+            <span className="rt-stmt-dollar">$</span>
+            <span>8,247</span>
+            <span className="rt-stmt-cents">.32</span>
+          </div>
+        </div>
+        <div className="rt-stmt-mini-grid">
+          <div className="rt-stmt-mini">
+            <div className="rt-stmt-mini-label">Stays</div>
+            <div className="rt-stmt-mini-val">4</div>
+          </div>
+          <div className="rt-stmt-mini">
+            <div className="rt-stmt-mini-label">Nights</div>
+            <div className="rt-stmt-mini-val">18<span className="rt-stmt-mini-u">/30</span></div>
+            <div className="rt-stmt-mini-sub">60% occupancy</div>
+          </div>
+          <div className="rt-stmt-mini">
+            <div className="rt-stmt-mini-label">ADR</div>
+            <div className="rt-stmt-mini-val">$439</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Two-column: reservations + financials */}
+      <div className="rt-stmt-twocol">
+        <div>
+          <div className="rt-stmt-sec-head">
+            <span className="rt-stmt-sec-num">01</span>
+            <span className="rt-stmt-sec-title">Reservations</span>
+            <span className="rt-stmt-sec-meta">4 stays</span>
+          </div>
           <div className="rt-stmt-rows">
             {[
-              ['Apr 4 – Apr 7', '$1,420'],
-              ['Apr 11 – Apr 14', '$1,680'],
-              ['Apr 18 – Apr 24', '$2,940'],
-              ['Apr 26 – Apr 30', '$1,820'],
-            ].map(([d, v]) => (
-              <div key={d} className="rt-stmt-row">
-                <span>{d}</span>
-                <span>{v}</span>
+              ['Sofia G.', 'Apr 4 → 7', 'Vrbo', '$1,420'],
+              ['James K.', 'Apr 11 → 14', 'Airbnb', '$1,680'],
+              ['Priya S.', 'Apr 18 → 24', 'Airbnb', '$2,940'],
+              ['Mike R.', 'Apr 26 → 30', 'Direct', '$1,820'],
+            ].map(([guest, dates, ch, amt]) => (
+              <div key={guest} className="rt-stmt-row">
+                <span className="rt-stmt-guest">{guest}</span>
+                <span className="rt-stmt-dates">{dates}</span>
+                <span className="rt-stmt-channel" data-ch={ch}>{ch}</span>
+                <span className="rt-stmt-amt">{amt}</span>
               </div>
             ))}
           </div>
         </div>
         <div>
-          <div className="rt-stmt-eyebrow-sm">FINANCIALS</div>
+          <div className="rt-stmt-sec-head">
+            <span className="rt-stmt-sec-num">02</span>
+            <span className="rt-stmt-sec-title">Financials</span>
+            <span className="rt-stmt-sec-meta">Net $8,247</span>
+          </div>
           <div className="rt-stmt-rows">
-            <div className="rt-stmt-row"><span>Rental Revenue</span><span>$11,860</span></div>
-            <div className="rt-stmt-row"><span>Mgmt Fee (25%)</span><span>$2,965</span></div>
-            <div className="rt-stmt-row"><span>Cleaning</span><span>$648</span></div>
-            <div className="rt-stmt-row rt-stmt-row-total"><span>Owner Payout</span><span>$8,247</span></div>
+            <div className="rt-stmt-fin"><span>Rental Revenue</span><span>$11,860</span></div>
+            <div className="rt-stmt-fin"><span>Mgmt Fee <small>(25%)</small></span><span className="rt-stmt-neg">−$2,965</span></div>
+            <div className="rt-stmt-fin"><span>Cleaning <small>(4 turns)</small></span><span className="rt-stmt-neg">−$648</span></div>
+            <div className="rt-stmt-fin rt-stmt-fin-total"><span>Owner Payout</span><span>$8,247</span></div>
           </div>
         </div>
       </div>
-      <div className="rt-stmt-foot">SAMPLE &middot; FOR ILLUSTRATION</div>
     </div>
   );
 }
@@ -1065,72 +1135,241 @@ const deckCss = `
   }
   .rt-check-mark { color: var(--signal); font-size: 20px; line-height: 1; }
 
-  /* ── Mini statement preview (right column of owner control slide) ── */
+  /* ── Mini statement preview — mirrors src/app/statements/render layout ── */
   .rt-stmt-card {
     background: var(--paper);
-    border: 1px solid var(--ink);
-    box-shadow: 0 4px 18px rgba(30, 46, 52, 0.08);
-    padding: 18px 20px 14px;
+    border: 1px solid var(--ink-3);
+    box-shadow: 0 8px 28px rgba(30, 46, 52, 0.12);
+    padding: 12px 14px;
     aspect-ratio: 8.5 / 11;
-    max-height: 460px;
+    max-height: 480px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     font-family: var(--font-inter), system-ui, sans-serif;
-  }
-  .rt-stmt-mast {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    border-bottom: 1px solid var(--ink);
-    padding-bottom: 8px;
-  }
-  .rt-stmt-brand {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 13px;
-    letter-spacing: 0.16em;
     color: var(--ink);
+  }
+
+  /* Masthead — three-up, thin rule beneath */
+  .rt-stmt-mast {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 6px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 5px;
+  }
+  .rt-stmt-mast > :first-child { text-align: left; }
+  .rt-stmt-mast > :nth-child(2) { text-align: center; }
+  .rt-stmt-mast > :last-child { text-align: right; }
+  .rt-stmt-mast b {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    font-size: 7px;
+  }
+
+  /* Header row: logo + headline */
+  .rt-stmt-head {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 4px 0 6px;
+  }
+  .rt-stmt-logo { width: 32px; height: 32px; }
+  .rt-stmt-headline { display: flex; flex-direction: column; }
+  .rt-stmt-kicker {
+    font-size: 6px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
     font-weight: 500;
   }
-  .rt-stmt-period { font-size: 7px; letter-spacing: 0.18em; color: var(--ink-4); margin-top: 2px; font-weight: 500; }
-  .rt-stmt-mast-right { font-size: 7px; letter-spacing: 0.18em; color: var(--ink-4); font-weight: 500; }
-  .rt-stmt-hero { padding: 6px 0; border-bottom: 1px solid var(--rule); }
-  .rt-stmt-eyebrow-sm { font-size: 7px; letter-spacing: 0.2em; color: var(--ink-4); text-transform: uppercase; font-weight: 500; margin-bottom: 4px; }
-  .rt-stmt-amount {
+  .rt-stmt-display {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 28px;
-    color: var(--signal);
-    font-weight: 400;
-    letter-spacing: -0.02em;
+    font-size: 22px;
     line-height: 1;
+    font-weight: 400;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    margin-top: 2px;
   }
-  .rt-stmt-grid {
+  .rt-stmt-display em {
+    font-style: italic;
+    font-weight: 300;
+    color: var(--tide-deep);
+  }
+  .rt-stmt-display-sub {
+    margin-top: 4px;
+    font-size: 6px;
+    letter-spacing: 0.22em;
+    color: var(--ink-3);
+    font-weight: 500;
+  }
+
+  /* Addressee row — 3 cells with thin rules */
+  .rt-stmt-addressee {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 6px 0;
+  }
+  .rt-stmt-cell-label {
+    font-size: 5.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+  }
+  .rt-stmt-cell-val {
+    margin-top: 2px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 9px;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.15;
+  }
+  .rt-stmt-cell-sub { font-size: 6px; color: var(--ink-3); margin-top: 2px; }
+
+  /* Hero payout */
+  .rt-stmt-hero {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: end;
+    padding: 6px 0;
+  }
+  .rt-stmt-payout-label {
+    font-size: 6px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  .rt-stmt-payout-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 30px;
+    color: var(--signal);
+    line-height: 1;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+  }
+  .rt-stmt-dollar { font-size: 18px; vertical-align: top; margin-right: 1px; }
+  .rt-stmt-cents { font-size: 14px; color: var(--ink-3); margin-left: 1px; }
+
+  .rt-stmt-mini-grid {
+    display: grid;
+    grid-auto-flow: column;
+    gap: 10px;
+    align-items: end;
+  }
+  .rt-stmt-mini { text-align: right; }
+  .rt-stmt-mini-label {
+    font-size: 5.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+  }
+  .rt-stmt-mini-val {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1;
+    margin-top: 2px;
+  }
+  .rt-stmt-mini-u { font-size: 8px; color: var(--ink-4); margin-left: 1px; font-weight: 400; }
+  .rt-stmt-mini-sub { font-size: 5.5px; color: var(--ink-3); margin-top: 1px; }
+
+  /* Two-column: reservations + financials */
+  .rt-stmt-twocol {
+    flex: 1;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    flex: 1;
-  }
-  .rt-stmt-rows { display: flex; flex-direction: column; }
-  .rt-stmt-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--rule-soft);
-    font-size: 8px;
-    color: var(--ink-3);
-  }
-  .rt-stmt-row span:last-child { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .rt-stmt-row-total { border-top: 1px solid var(--ink); margin-top: 4px; padding-top: 5px; }
-  .rt-stmt-row-total span { color: var(--ink) !important; font-weight: 500; }
-  .rt-stmt-foot {
-    text-align: center;
-    font-size: 6px;
-    letter-spacing: 0.2em;
-    color: var(--ink-4);
-    text-transform: uppercase;
+    gap: 12px;
     border-top: 1px solid var(--rule);
     padding-top: 6px;
   }
+  .rt-stmt-sec-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 4px;
+  }
+  .rt-stmt-sec-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 9px;
+    color: var(--signal);
+    font-weight: 400;
+  }
+  .rt-stmt-sec-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 10px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .rt-stmt-sec-meta {
+    font-size: 5.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+  }
+  .rt-stmt-rows { display: flex; flex-direction: column; }
+  .rt-stmt-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    gap: 4px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 6.5px;
+    color: var(--ink);
+    align-items: baseline;
+  }
+  .rt-stmt-guest { font-weight: 500; }
+  .rt-stmt-dates { color: var(--ink-3); }
+  .rt-stmt-channel {
+    font-size: 5.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 1px 4px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+  }
+  .rt-stmt-amt { font-variant-numeric: tabular-nums; text-align: right; font-weight: 500; }
+  .rt-stmt-fin {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 7px;
+    color: var(--ink);
+    align-items: baseline;
+  }
+  .rt-stmt-fin small { color: var(--ink-4); margin-left: 2px; font-size: 5.5px; }
+  .rt-stmt-fin span:last-child { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .rt-stmt-neg { color: var(--negative) !important; }
+  .rt-stmt-fin-total {
+    border-top: 1.5px solid var(--ink);
+    border-bottom: 0;
+    margin-top: 3px;
+    padding-top: 4px;
+    font-weight: 600;
+  }
+  .rt-stmt-fin-total span:last-child { color: var(--signal); }
 
   /* ── Closing (slide 10) ── */
   .rt-close-grid {
