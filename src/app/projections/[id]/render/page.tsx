@@ -1402,10 +1402,12 @@ const deckCss = `
   .rt-sig-title { margin-top: 4px; font-size: 11px; letter-spacing: 0.18em; color: var(--ink-3); text-transform: uppercase; }
   .rt-close-portrait { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
   .rt-close-portrait img {
+    /* Source is 1600×2400 (2:3 portrait). Let it render at its native ratio
+       so the top of her head isn't cropped by an aspect-ratio override. */
     width: 100%;
-    max-width: 320px;
-    aspect-ratio: 4 / 5;
-    object-fit: cover;
+    max-width: 280px;
+    height: auto;
+    display: block;
     background: var(--paper-2);
   }
   .rt-close-portrait-rule { width: 48px; height: 2px; background: var(--signal); margin-top: 4px; }
