@@ -28,7 +28,7 @@ export default async function ProjectionsPage() {
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Projections</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Prospects</div>
         <h1
           className="font-serif"
           style={{
@@ -40,10 +40,10 @@ export default async function ProjectionsPage() {
             maxWidth: 720,
           }}
         >
-          A revenue estimate <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>for every prospect.</em>
+          The prospect funnel <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>in one place.</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          {firstName ? `Hi ${firstName}. ` : ''}Punch in the property and we&rsquo;ll model what it could earn under Rising Tide management. Output is a print-ready 11-page deck.
+          {firstName ? `Hi ${firstName}. ` : ''}One record per prospect drives three deliverables: a projection deck, a partnership guide, and a management contract. Same inputs, no copy-paste.
         </p>
       </section>
 
@@ -64,7 +64,7 @@ export default async function ProjectionsPage() {
               textDecoration: 'none',
             }}
           >
-            New Projection →
+            New Prospect →
           </Link>
         </div>
       </section>
@@ -73,17 +73,16 @@ export default async function ProjectionsPage() {
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Recent Projections
+            Recent Prospects
           </h2>
           <span className="eyebrow">last {projections.length}</span>
         </div>
 
         {projections.length === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '32px 0', textAlign: 'center' }}>
-            <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>No projections yet.</p>
+            <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>No prospects yet.</p>
             <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>
-              Run the migration at <code className="font-mono">supabase/migrations/20260501_create_projections.sql</code> in
-              Helm&apos;s Supabase SQL Editor, then click &ldquo;New Projection&rdquo; above.
+              Click &ldquo;New Prospect&rdquo; above to get started.
             </p>
           </div>
         ) : (
@@ -107,7 +106,7 @@ export default async function ProjectionsPage() {
             color: 'var(--ink-4)',
           }}
         >
-          <span>Rising Tide &middot; Projections</span>
+          <span>Rising Tide &middot; Prospects</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Source: Helm
           </span>

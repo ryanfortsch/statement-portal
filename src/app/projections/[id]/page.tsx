@@ -98,24 +98,29 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
-      {/* DELIVERABLE LINK + STATE ACTIONS */}
+      {/* DELIVERABLE LINKS + STATE ACTIONS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
           <Link
             href={`/projections/${id}/render`}
             target="_blank"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              padding: '14px 28px',
-              textDecoration: 'none',
-            }}
+            style={primaryActionStyle}
           >
-            View deliverable ↗
+            Projection ↗
+          </Link>
+          <Link
+            href={`/projections/${id}/guide`}
+            target="_blank"
+            style={secondaryActionStyle}
+          >
+            Partnership Guide ↗
+          </Link>
+          <Link
+            href={`/projections/${id}/contract`}
+            target="_blank"
+            style={secondaryActionStyle}
+          >
+            Contract ↗
           </Link>
           {projection.status === 'draft' ? (
             <form action={send}>
@@ -171,6 +176,29 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
     </div>
   );
 }
+
+const primaryActionStyle: React.CSSProperties = {
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  fontSize: 12,
+  fontWeight: 600,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  padding: '14px 28px',
+  textDecoration: 'none',
+};
+
+const secondaryActionStyle: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink)',
+  fontSize: 12,
+  fontWeight: 600,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  padding: '13px 22px',
+  textDecoration: 'none',
+  border: '1px solid var(--ink)',
+};
 
 function Stat({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (

@@ -43,8 +43,12 @@ function buildPayload(formData: FormData) {
   return {
     prospect_name: str(formData, 'prospect_name'),
     prospect_first_name: strOrNull(formData, 'prospect_first_name'),
+    prospect_first_names: strOrNull(formData, 'prospect_first_names'),
+    prospect_full_legal: strOrNull(formData, 'prospect_full_legal'),
+    prospect_phone: strOrNull(formData, 'prospect_phone'),
     property_address: str(formData, 'property_address'),
     property_city: strOrNull(formData, 'property_city'),
+    property_type: str(formData, 'property_type') || 'House',
     market: str(formData, 'market') as 'Rockport' | 'Gloucester',
     bedrooms: num(formData, 'bedrooms'),
     home_value: num(formData, 'home_value'),
@@ -64,6 +68,15 @@ function buildPayload(formData: FormData) {
 
     start_month: num(formData, 'start_month'),
     presentation_month: str(formData, 'presentation_month'),
+
+    // Contract terms
+    term_start: strOrNull(formData, 'term_start'),
+    term_end: strOrNull(formData, 'term_end'),
+    initial_deposit: num(formData, 'initial_deposit'),
+    min_account_balance: num(formData, 'min_account_balance'),
+    min_availability_days: num(formData, 'min_availability_days'),
+    sale_notification_days: num(formData, 'sale_notification_days'),
+    reputation_fee: num(formData, 'reputation_fee'),
   };
 }
 

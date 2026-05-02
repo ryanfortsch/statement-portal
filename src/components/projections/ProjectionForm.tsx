@@ -40,11 +40,37 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               style={inputStyle}
             />
           </Field>
-          <Field label="Greeting (first name)">
+          <Field label="Greeting (first name)" hint='Used in the projection hero ("...PAYOUTS TO JOHN")'>
             <input
               name="prospect_first_name"
               defaultValue={v.prospect_first_name ?? ''}
               placeholder="John"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Salutation (first names)" hint='Used in the partnership guide ("Dear Bethany and John,")'>
+            <input
+              name="prospect_first_names"
+              defaultValue={v.prospect_first_names ?? ''}
+              placeholder="Bethany and John"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Full legal name" hint="Used on the contract signature line">
+            <input
+              name="prospect_full_legal"
+              defaultValue={v.prospect_full_legal ?? ''}
+              placeholder="Bethany Giblin"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Phone (optional)">
+            <input
+              name="prospect_phone"
+              defaultValue={v.prospect_phone ?? ''}
+              placeholder="(978) 555-1234"
               style={inputStyle}
             />
           </Field>
@@ -59,13 +85,26 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               style={inputStyle}
             />
           </Field>
-          <Field label="City, State">
+          <Field label="City, State, ZIP">
             <input
               name="property_city"
               defaultValue={v.property_city ?? ''}
-              placeholder="Rockport, MA"
+              placeholder="Rockport, MA 01930"
               style={inputStyle}
             />
+          </Field>
+          <Field label="Property type">
+            <select
+              name="property_type"
+              defaultValue={v.property_type ?? 'House'}
+              style={selectStyle}
+            >
+              <option value="House">House</option>
+              <option value="Condo">Condo</option>
+              <option value="Cottage">Cottage</option>
+              <option value="Townhouse">Townhouse</option>
+              <option value="Apartment">Apartment</option>
+            </select>
           </Field>
         </Row>
         <Row>
@@ -220,8 +259,96 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
         </Row>
       </Section>
 
+      {/* ─── Contract terms ────────────────────────────────────────────────── */}
+      <Section eyebrow="04" title="Contract terms">
+        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
+          Defaults match Rising Tide&rsquo;s standard contract. Edit per-deal terms
+          below; they flow through to the contract render. Boilerplate clauses
+          (responsibilities, termination, force majeure, etc.) are not editable
+          from here.
+        </p>
+        <Row>
+          <Field label="Term start" hint="Agreement commences">
+            <input
+              name="term_start"
+              type="date"
+              defaultValue={v.term_start ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Term end" hint="Initial term ends">
+            <input
+              name="term_end"
+              type="date"
+              defaultValue={v.term_end ?? ''}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Initial deposit ($)" required>
+            <input
+              name="initial_deposit"
+              required
+              type="number"
+              min={0}
+              step={100}
+              defaultValue={v.initial_deposit ?? 2000}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Min account balance ($)" required>
+            <input
+              name="min_account_balance"
+              required
+              type="number"
+              min={0}
+              step={100}
+              defaultValue={v.min_account_balance ?? 2000}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Reputation damages ($)" required hint="If owner sells without notice">
+            <input
+              name="reputation_fee"
+              required
+              type="number"
+              min={0}
+              step={500}
+              defaultValue={v.reputation_fee ?? 5000}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Min availability (days/year)" required>
+            <input
+              name="min_availability_days"
+              required
+              type="number"
+              min={0}
+              max={365}
+              step={1}
+              defaultValue={v.min_availability_days ?? 270}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Sale notification (days)" required hint="Notice required if owner sells">
+            <input
+              name="sale_notification_days"
+              required
+              type="number"
+              min={0}
+              step={1}
+              defaultValue={v.sale_notification_days ?? 185}
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+      </Section>
+
       {/* ─── Overrides (optional) ──────────────────────────────────────────── */}
-      <Section eyebrow="04" title="Overrides (optional)">
+      <Section eyebrow="05" title="Overrides (optional)">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Leave blank to use the model. Set revenue overrides to bypass the
           50/50 blend. Set hero overrides to control the cover-page range

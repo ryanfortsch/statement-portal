@@ -13,13 +13,26 @@ export type ProjectionRow = {
 
   prospect_name: string;
   prospect_first_name: string | null;
+  prospect_first_names: string | null;     // "Bethany and John" (guide salutation)
+  prospect_full_legal: string | null;      // full legal name (contract signature)
+  prospect_phone: string | null;
   property_address: string;
   property_city: string | null;
+  property_type: string;                   // House / Condo / Cottage / etc.
   market: AirDnaMarket;
   bedrooms: number;
   home_value: number;
   neighborhood: string | null;
   interior_grade: string | null;
+
+  // Contract term dates + standard terms (editable per deal)
+  term_start: string | null;               // ISO date YYYY-MM-DD
+  term_end: string | null;                 // ISO date YYYY-MM-DD
+  initial_deposit: number;
+  min_account_balance: number;
+  min_availability_days: number;
+  sale_notification_days: number;
+  reputation_fee: number;
 
   mgmt_fee_pct: number;
   base_cleaning: number;
