@@ -221,15 +221,22 @@ function SlideRatings({ footer }: { footer: string }) {
 
 function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
   const monthly = roundToThousand(computed.year1MonthlyAvg);
-  // Build a tiny 12-month bar visualization of the seasonal curve
-  const max = Math.max(...computed.monthlyYear2.map((m) => m.netPayout));
+  // Scale the bars off the property's own peak month so the curve is readable
+  // even for properties whose Year 2 amounts blow out the y-axis.
+  const max = Math.max(...computed.monthlyYear1.map((m) => m.netPayout));
+  // Format each month's payout as a compact dollar (e.g. "$8.3k" / "$0").
+  const fmtCompact = (n: number) => {
+    if (n < 100) return '$0';
+    if (n < 1000) return `$${Math.round(n / 100) * 100 / 1000}k`;
+    return `$${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  };
   return (
     <section className="rt-slide">
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Performance &mdash; Year 1</h2>
         <div className="rt-year-stat">
-          <div className="rt-eyebrow">PROJECTED MONTHLY PAYOUTS</div>
+          <div className="rt-eyebrow">PROJECTED AVERAGE MONTHLY PAYOUT</div>
           <div className="rt-year-number">{fmtMoney(monthly)} <span className="rt-year-unit">/ mo.</span></div>
         </div>
 
@@ -239,6 +246,11 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
             const inactive = m.rampMultiplier === 0;
             return (
               <div key={m.monthIndex} className="rt-month-col">
+                <div
+                  className={`rt-month-amt${inactive ? ' rt-month-amt-inactive' : ''}`}
+                >
+                  {inactive ? '—' : fmtCompact(m.netPayout)}
+                </div>
                 <div className="rt-month-bar-wrap">
                   <div
                     className={`rt-month-bar${inactive ? ' rt-month-bar-inactive' : ''}`}
@@ -267,38 +279,27 @@ function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Performance &mdash; Year 2</h2>
-        <div className="rt-y2-grid">
-          <div className="rt-y2-left">
-            <div className="rt-eyebrow">PROJECTED MONTHLY PAYOUTS</div>
-            <p className="rt-y2-body">
-              After the first year, revenue typically improves as the property builds a strong review profile across platforms, generates repeat and direct bookings, and benefits from more refined pricing.
-            </p>
+        <p className="rt-y2-lead">
+          After the first year, revenue typically improves as the property builds a strong review profile across platforms, generates repeat and direct bookings, and benefits from more refined pricing.
+        </p>
+
+        <div className="rt-y2-compare">
+          <div className="rt-y2-side">
+            <div className="rt-y2-cap">YEAR 1</div>
+            <div className="rt-y2-amt">{fmtMoney(y1)}</div>
+            <div className="rt-y2-sub">/ mo.</div>
           </div>
-          <div className="rt-y2-right">
-            <div className="rt-y2-step">
-              {/* Year 2 — top step */}
-              <div className="rt-y2-step-top">
-                <div className="rt-y2-step-amt-rt">{fmtMoney(y2)}<span className="rt-y2-unit">/ mo.</span></div>
-                <div className="rt-y2-step-cap rt-y2-step-cap-rt">YEAR 2</div>
-              </div>
-              {/* Connector + pill */}
-              <div className="rt-y2-step-mid" aria-hidden="true">
-                <svg viewBox="0 0 320 110" preserveAspectRatio="none">
-                  <defs>
-                    <marker id="y2arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal)" />
-                    </marker>
-                  </defs>
-                  <path d="M 24 95 Q 160 0, 296 18" stroke="var(--signal)" strokeWidth="2.5" fill="none" strokeLinecap="round" markerEnd="url(#y2arrow)" />
-                </svg>
-                <div className="rt-y2-pill">+{growthPct}%</div>
-              </div>
-              {/* Year 1 — bottom step */}
-              <div className="rt-y2-step-bottom">
-                <div className="rt-y2-step-amt">{fmtMoney(y1)}<span className="rt-y2-unit">/ mo.</span></div>
-                <div className="rt-y2-step-cap">YEAR 1</div>
-              </div>
-            </div>
+
+          <div className="rt-y2-arrow-wrap" aria-hidden="true">
+            <div className="rt-y2-arrow-line" />
+            <div className="rt-y2-arrow-pill">+{growthPct}%</div>
+            <div className="rt-y2-arrow-head" />
+          </div>
+
+          <div className="rt-y2-side rt-y2-side-rt">
+            <div className="rt-y2-cap rt-y2-cap-rt">YEAR 2</div>
+            <div className="rt-y2-amt rt-y2-amt-rt">{fmtMoney(y2)}</div>
+            <div className="rt-y2-sub">/ mo.</div>
           </div>
         </div>
       </div>
@@ -857,106 +858,124 @@ const deckCss = `
 
   .rt-month-strip {
     margin-top: auto;
-    padding-top: 32px;
+    padding-top: 28px;
     border-top: 1px solid var(--rule);
     display: grid;
     grid-template-columns: repeat(12, 1fr);
-    gap: 12px;
-    height: 220px;
+    gap: 10px;
+    height: 280px;
     align-items: end;
   }
-  .rt-month-col { display: flex; flex-direction: column; align-items: center; height: 100%; }
-  .rt-month-bar-wrap { width: 100%; height: 88%; display: flex; align-items: flex-end; justify-content: center; }
-  .rt-month-bar { width: 100%; background: var(--signal); }
-  .rt-month-bar-inactive { background: var(--paper-3); }
-  .rt-month-label { margin-top: 10px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+  .rt-month-col {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    align-items: end;
+    justify-items: center;
+    height: 100%;
+    gap: 6px;
+  }
+  .rt-month-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .rt-month-amt-inactive { color: var(--ink-4); font-weight: 300; }
+  .rt-month-bar-wrap { width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+  .rt-month-bar { width: 100%; background: var(--signal); min-height: 1px; }
+  .rt-month-bar-inactive { background: var(--paper-3); min-height: 2px; }
+  .rt-month-label { margin-top: 4px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
 
-  /* ── Year 2 (slide 7) ── */
-  .rt-y2-grid {
-    margin-top: 48px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 64px;
+  /* ── Year 2 (slide 7) — clean before/after with growth pill ── */
+  .rt-y2-lead {
+    margin: 18px 0 0;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink-3);
+    max-width: 880px;
+  }
+  .rt-y2-compare {
+    margin-top: 56px;
     flex: 1;
-  }
-  .rt-y2-left { display: flex; flex-direction: column; justify-content: center; }
-  .rt-y2-body { margin-top: 18px; font-size: 16px; line-height: 1.6; color: var(--ink-3); max-width: 460px; }
-  .rt-y2-right { display: flex; align-items: center; justify-content: center; }
-  /* ── Year 2 step layout ── replaces the unsatisfying bars with two clearly
-        offset amounts connected by an arc + growth pill. A 10% lift now reads
-        as an unambiguous step up. */
-  .rt-y2-step {
-    width: 100%;
-    height: 420px;
-    position: relative;
     display: grid;
-    grid-template-rows: 1fr auto 1fr;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 32px;
+    align-items: center;
+    padding: 24px 0 56px;
   }
-  .rt-y2-step-top {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: flex-end;
-    padding-right: 16px;
-  }
-  .rt-y2-step-bottom {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-start;
-    padding-left: 16px;
-  }
-  .rt-y2-step-mid {
-    position: relative;
-    height: 110px;
-  }
-  .rt-y2-step-mid svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .rt-y2-step-amt {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 70px;
-    line-height: 1;
-    color: var(--ink-3);
-    font-weight: 300;
-    letter-spacing: -0.025em;
-  }
-  .rt-y2-step-amt-rt {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 96px;
-    line-height: 1;
-    color: var(--signal);
-    font-weight: 300;
-    letter-spacing: -0.03em;
-  }
-  .rt-y2-unit {
-    font-size: 24px;
-    color: var(--ink-3);
-    margin-left: 8px;
-    letter-spacing: 0;
-    font-style: italic;
-  }
-  .rt-y2-step-cap {
-    margin-top: 10px;
+  .rt-y2-side { text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .rt-y2-cap {
     font-size: 11px;
     letter-spacing: 0.22em;
     text-transform: uppercase;
     color: var(--ink-3);
     font-weight: 500;
+    margin-bottom: 18px;
   }
-  .rt-y2-step-cap-rt { color: var(--signal); }
-  .rt-y2-pill {
+  .rt-y2-cap-rt { color: var(--signal); }
+  .rt-y2-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 88px;
+    line-height: 1;
+    color: var(--ink-3);
+    font-weight: 300;
+    letter-spacing: -0.03em;
+  }
+  .rt-y2-amt-rt { color: var(--signal); font-size: 116px; }
+  .rt-y2-sub {
+    margin-top: 12px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-3);
+  }
+
+  /* Arrow + pill between the two amounts */
+  .rt-y2-arrow-wrap {
+    position: relative;
+    width: 220px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+  }
+  .rt-y2-arrow-line {
     position: absolute;
-    top: 38%;
+    top: 50%;
+    left: 0;
+    right: 14px;
+    height: 2px;
+    background: var(--signal);
+    transform: translateY(-50%);
+  }
+  .rt-y2-arrow-head {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-left: 14px solid var(--signal);
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    transform: translateY(-50%);
+  }
+  .rt-y2-arrow-pill {
+    position: absolute;
+    top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     background: var(--signal);
     color: var(--paper);
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 400;
     padding: 8px 22px;
     border-radius: 999px;
     letter-spacing: -0.01em;
-    box-shadow: 0 6px 20px rgba(200, 90, 58, 0.25);
+    line-height: 1;
+    box-shadow: 0 4px 14px rgba(200, 90, 58, 0.22);
   }
 
   /* ── Services (slide 8) ── */
