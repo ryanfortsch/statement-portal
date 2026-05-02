@@ -89,6 +89,7 @@ type ReservationRow = {
   status: string | null;
   host_payout: number | null;
   owner_net_revenue_guesty: number | null;
+  total_paid: number | null;
 };
 
 /**
@@ -99,6 +100,10 @@ type ReservationRow = {
  *   `owner_net_revenue_guesty`  - already NET of management fee per Guesty's
  *                                 accounting export. Back it out by
  *                                 dividing by (1 - mgmtFraction).
+ *   `total_paid`                - what the guest paid; for past months in our
+ *                                 data this matches stmt rental_revenue
+ *                                 exactly (17_beach_rd, 20_hammond,
+ *                                 3_south_st all reconcile to the cent).
  *
  * Verified against Helm's Statement reconciliation: 17_beach_rd at 22% has
  * owner_net $717.10 and stmt rental_revenue $919.36 (= 717.10 / 0.78);
@@ -113,6 +118,8 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
     if (mgmtFraction <= 0 || mgmtFraction >= 1) return own;
     return own / (1 - mgmtFraction);
   }
+  const tp = Number(r.total_paid ?? 0);
+  if (tp > 0) return tp;
   return 0;
 }
 
@@ -159,7 +166,7 @@ export async function computeRevenueSnapshot(
 
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
-    .select('property_id, listing_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty')
+    .select('property_id, listing_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
     .lt('check_in', periodEndExclusive)
     .gt('check_out', rangeStart);
 
