@@ -220,16 +220,9 @@ function SlideRatings({ footer }: { footer: string }) {
 }
 
 function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
-  const monthly = roundToThousand(computed.year1MonthlyAvg);
-  // Scale the bars off the property's own peak month so the curve is readable
-  // even for properties whose Year 2 amounts blow out the y-axis.
+  // Show actual values, not rounded — Dotti wants the real number.
+  const monthly = Math.round(computed.year1MonthlyAvg);
   const max = Math.max(...computed.monthlyYear1.map((m) => m.netPayout));
-  // Format each month's payout as a compact dollar (e.g. "$8.3k" / "$0").
-  const fmtCompact = (n: number) => {
-    if (n < 100) return '$0';
-    if (n < 1000) return `$${Math.round(n / 100) * 100 / 1000}k`;
-    return `$${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  };
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -242,22 +235,22 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
 
         <div className="rt-month-strip">
           {computed.monthlyYear1.map((m) => {
-            const h = max > 0 ? Math.max(2, (m.netPayout / max) * 100) : 0;
             const inactive = m.rampMultiplier === 0;
+            const h = max > 0 && !inactive ? Math.max(2, (m.netPayout / max) * 100) : 0;
             return (
               <div key={m.monthIndex} className="rt-month-col">
-                <div
-                  className={`rt-month-amt${inactive ? ' rt-month-amt-inactive' : ''}`}
-                >
-                  {inactive ? '—' : fmtCompact(m.netPayout)}
+                <div className="rt-month-amt">
+                  {inactive ? '' : fmtMoney(Math.round(m.netPayout))}
                 </div>
                 <div className="rt-month-bar-wrap">
-                  <div
-                    className={`rt-month-bar${inactive ? ' rt-month-bar-inactive' : ''}`}
-                    style={{ height: `${h}%` }}
-                  />
+                  {!inactive && (
+                    <div
+                      className="rt-month-bar"
+                      style={{ height: `${h}%` }}
+                    />
+                  )}
                 </div>
-                <div className="rt-month-label">{m.monthLabel}</div>
+                <div className={`rt-month-label${inactive ? ' rt-month-label-inactive' : ''}`}>{m.monthLabel}</div>
               </div>
             );
           })}
@@ -269,8 +262,9 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
 }
 
 function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
-  const y1 = roundToThousand(computed.year1MonthlyAvg);
-  const y2 = roundToThousand(computed.year2MonthlyAvg);
+  // Show actual values, not rounded.
+  const y1 = Math.round(computed.year1MonthlyAvg);
+  const y2 = Math.round(computed.year2MonthlyAvg);
   const growthPct = computed.year1MonthlyAvg > 0
     ? Math.round(((computed.year2MonthlyAvg - computed.year1MonthlyAvg) / computed.year1MonthlyAvg) * 100)
     : 0;
@@ -929,16 +923,16 @@ const deckCss = `
   .rt-month-strip {
     margin-top: auto;
     padding-top: 28px;
-    border-top: 1px solid var(--rule);
+    border-top: 1px solid var(--ink);
     display: grid;
     grid-template-columns: repeat(12, 1fr);
-    gap: 10px;
-    height: 280px;
+    gap: 6px;
+    height: 320px;
     align-items: end;
   }
   .rt-month-col {
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: 18px 1fr auto;
     align-items: end;
     justify-items: center;
     height: 100%;
@@ -946,18 +940,35 @@ const deckCss = `
   }
   .rt-month-amt {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ink);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
     line-height: 1;
+    white-space: nowrap;
   }
-  .rt-month-amt-inactive { color: var(--ink-4); font-weight: 300; }
-  .rt-month-bar-wrap { width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
-  .rt-month-bar { width: 100%; background: var(--signal); min-height: 1px; }
-  .rt-month-bar-inactive { background: var(--paper-3); min-height: 2px; }
-  .rt-month-label { margin-top: 4px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+  .rt-month-bar-wrap {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .rt-month-bar {
+    width: 60%;
+    background: var(--signal);
+    min-height: 1px;
+  }
+  .rt-month-label {
+    margin-top: 4px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+  }
+  .rt-month-label-inactive { color: var(--ink-4); font-weight: 400; }
 
   /* ── Year 2 (slide 7) — clean before/after with growth pill ── */
   .rt-y2-lead {
