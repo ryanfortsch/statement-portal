@@ -215,6 +215,10 @@ function normalizePlatform(raw?: string | null): string | null {
  */
 const MAINTENANCE_VENDORS: { name: string; matches: string[] }[] = [
   { name: 'Ian Drometer', matches: ['DROMETER'] },
+  // Morris Heating & Air -- HVAC service contract for the rentals.
+  // Bank descriptor truncates to "Morris Heating &" so we match on the
+  // shorter unambiguous prefix.
+  { name: 'Morris Heating & Air', matches: ['MORRIS HEATING'] },
 ];
 
 function matchMaintenanceVendor(descUpper: string): string | null {
