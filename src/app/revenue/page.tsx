@@ -1,5 +1,6 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { TimeRangePicker } from './TimeRangePicker';
+import { AutoRefresh } from './AutoRefresh';
 import {
   computeDateRange,
   formatRangeLabel,
@@ -12,57 +13,25 @@ import {
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { headers } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
-// Auto-sync may add a few seconds when the data is stale (rare path).
-export const maxDuration = 60;
 
 const STALE_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
- * Read sync_status for the reservations source. If the most recent sync is
- * older than STALE_MS (or there's no record at all), POST to /api/sync-guesty
- * inline so the snapshot below sees fresh data. Bounded so a slow Guesty API
- * can't take the page down.
+ * Look up sync_status without triggering a sync. The actual refresh is
+ * dispatched client-side (see AutoRefresh) so the page can paint immediately
+ * even when the data is stale.
  */
-async function ensureRecentSync(): Promise<Date | null> {
-  const { data: cur } = await supabase
+async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: boolean }> {
+  const { data } = await supabase
     .from('sync_status')
     .select('last_synced_at')
     .eq('source', 'guesty-reservations')
     .maybeSingle();
-
-  const lastSync = cur?.last_synced_at ? new Date(cur.last_synced_at) : null;
-  const stale = !lastSync || (Date.now() - lastSync.getTime()) >= STALE_MS;
-  if (!stale) return lastSync;
-
-  try {
-    const h = await headers();
-    const host = h.get('host') ?? 'localhost:3000';
-    const proto = host.startsWith('localhost') ? 'http' : 'https';
-    const res = await fetch(`${proto}://${host}/api/sync-guesty`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshMap: false }),
-      signal: AbortSignal.timeout(45_000),
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      console.error('[revenue] auto-sync failed', res.status, await res.text());
-      return lastSync;
-    }
-  } catch (err) {
-    console.error('[revenue] auto-sync threw', err);
-    return lastSync;
-  }
-
-  const { data: fresh } = await supabase
-    .from('sync_status')
-    .select('last_synced_at')
-    .eq('source', 'guesty-reservations')
-    .maybeSingle();
-  return fresh?.last_synced_at ? new Date(fresh.last_synced_at) : lastSync;
+  const lastSyncedAt = data?.last_synced_at ? new Date(data.last_synced_at) : null;
+  const isStale = !lastSyncedAt || (Date.now() - lastSyncedAt.getTime()) >= STALE_MS;
+  return { lastSyncedAt, isStale };
 }
 
 function formatRelative(date: Date | null): string {
@@ -107,7 +76,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     );
   }
 
-  const lastSyncedAt = await ensureRecentSync();
+  const { lastSyncedAt, isStale } = await readSyncStatus();
   const { snapshots, portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
 
   const sorted = [...snapshots].sort((a, b) => {
@@ -177,7 +146,10 @@ export default async function RevenuePage({ searchParams }: PageProps) {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Guesty bookings &middot; pro-rated by nights &middot; synced {formatRelative(lastSyncedAt)}</span>
+          <AutoRefresh
+            shouldRefresh={isStale}
+            initialLabel={`Synced ${formatRelative(lastSyncedAt)}`}
+          />
           <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>
             {rangeLabel}
           </span>
