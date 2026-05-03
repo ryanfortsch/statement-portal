@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -880,6 +881,58 @@ export async function POST(request: NextRequest) {
       await supabase.from('data_gaps').insert(gaps.map(g => ({ property_statement_id: stmt.id, ...g })));
     }
 
+    // 13. Auto-sync Stripe for this property. Replaces our formula-estimated
+    //     stripe_fee values with the real numbers from balance_transaction.fee
+    //     so the operator never sees an estimate after upload. Only runs for
+    //     properties whose restricted Stripe key is configured in
+    //     STRIPE_KEYS_JSON; properties without a key (Airbnb-only listings,
+    //     pre-Stripe-onboarding rentals) silently skip.
+    //
+    //     A sync failure here doesn't fail the ingest. The estimates we
+    //     wrote in step 9 still stand, the operator can hit the explicit
+    //     "Sync Stripe" button on the dashboard, and we surface the error
+    //     in the response so the upload page can show it.
+    type PostSyncTotals = { rental_revenue: number; management_fee: number; owner_payout: number };
+    let stripeSync: StripeSyncResult | null = null;
+    let postSyncTotals: PostSyncTotals | null = null;
+    const stripeKey = getStripeKeysMap()[propertyId];
+    if (stripeKey) {
+      try {
+        stripeSync = await syncPropertyStripe({
+          supabase,
+          propertyId,
+          restrictedKey: stripeKey,
+          month,
+          stmt: {
+            id: stmt.id,
+            management_fee_pct: propConfig.fee_pct,
+            cleaning_total: cleaningTotal,
+            repairs_total: repairsTotal,
+          },
+        });
+        if (stripeSync.fee_updates.length > 0) {
+          // Sync just rewrote rental_revenue/management_fee/owner_payout.
+          // Refetch so the response summary shows the post-sync numbers,
+          // not the pre-sync estimates.
+          const { data: refreshed } = await supabase
+            .from('property_statements')
+            .select('rental_revenue, management_fee, owner_payout')
+            .eq('id', stmt.id)
+            .single();
+          if (refreshed) postSyncTotals = refreshed as PostSyncTotals;
+        }
+      } catch (err) {
+        console.warn('Stripe auto-sync failed:', err);
+        stripeSync = {
+          property_id: propertyId,
+          charges_found: 0, matched: 0,
+          unmatched_charges: [], fee_updates: [], refunds_detected: [],
+          gross_mismatches: [], reservations_missing_charge: [],
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     return NextResponse.json({
       success: true,
       property: propConfig.name,
@@ -887,14 +940,15 @@ export async function POST(request: NextRequest) {
       property_statement_id: stmt.id,
       summary: {
         reservations: processedReservations.length,
-        total_revenue: totalRevenue,
+        total_revenue: postSyncTotals?.rental_revenue ?? totalRevenue,
         stripe_fees: totalStripeFees,
-        management_fee: managementFee,
+        management_fee: postSyncTotals?.management_fee ?? managementFee,
         cleaning_total: cleaningTotal,
-        owner_payout: ownerPayout,
+        owner_payout: postSyncTotals?.owner_payout ?? ownerPayout,
         confidence,
-        data_gaps: gaps.length,
+        data_gaps: gaps.length + (stripeSync?.refunds_detected.length || 0) + (stripeSync?.gross_mismatches.length || 0) + (stripeSync?.reservations_missing_charge.length || 0),
       },
+      stripe_sync: stripeSync,
       parsed_reservations: processedReservations,
       debug: { pdf_text_preview: pdfDebug, bank_rows_in_month: bankRows.filter(r => isInMonth(r['Posting Date'] || '', month)).length },
     });
