@@ -179,10 +179,22 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               style={inputStyle}
             />
           </Field>
-          <Field label="Property go-live month" required hint="Year-1 ramp starts here (1 = Jan)">
+        </Row>
+        <Row>
+          <Field label="Apply Year 1 ramp?" hint="Off (default): full seasonality from January. On: property goes live mid-year, months before are zero, then 0.2 / 0.5 / 1.0 over three months.">
+            <label style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid var(--rule)', cursor: 'pointer', fontSize: 14 }}>
+              <input
+                type="checkbox"
+                name="apply_ramp"
+                defaultChecked={!!v.apply_ramp}
+                style={{ width: 16, height: 16, accentColor: 'var(--signal)' }}
+              />
+              <span>Property goes live mid-year</span>
+            </label>
+          </Field>
+          <Field label="Go-live month" hint="Only used when ramp is on">
             <select
               name="start_month"
-              required
               defaultValue={v.start_month ?? 5}
               style={selectStyle}
             >

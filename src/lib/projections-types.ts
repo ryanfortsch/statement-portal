@@ -47,13 +47,82 @@ export type ProjectionRow = {
   hero_high_override: number | null;
 
   start_month: number;
+  apply_ramp: boolean;             // when false (the new norm), full seasonality from Jan
   presentation_month: string;
 
   status: 'draft' | 'sent';
   sent_at: string | null;
 
+  // Owner onboarding intake (public form @ /onboarding/<token>)
+  onboarding_token: string;
+  onboarding_submitted_at: string | null;
+  onboarding_data: OnboardingData | null;
+
+  // Funnel handoff: once promoted, the id of the public.properties row this
+  // prospect became.
+  property_id: string | null;
+
   created_at: string | null;
   updated_at: string | null;
+};
+
+/**
+ * Schema for the JSON blob stored in projections.onboarding_data.
+ * Add fields here as the intake form evolves; existing submissions stay
+ * backwards-compatible because the column is jsonb and all fields are optional.
+ */
+export type OnboardingData = {
+  // Personal
+  full_name?: string;
+  phone?: string;
+  email?: string;
+  mailing_address?: string;
+  preferred_contact?: string; // 'email' | 'phone' | 'text'
+
+  // Property
+  property_address?: string;
+  property_type?: string;
+  hoa?: string;
+  bedrooms?: string;
+  bathrooms?: string;
+  square_feet?: string;
+  livable_floors?: string;
+  basement?: string;
+  parking?: string;
+
+  // Utilities
+  electricity_provider?: string;
+  heating?: string;
+  cooling?: string;
+  internet_provider?: string;
+  cable_provider?: string;
+  wifi_name?: string;
+  wifi_password?: string;
+  num_tvs?: string;
+  smart_tv?: string;
+
+  // STR
+  currently_listed?: string;
+  listing_urls?: string;
+  str_registration?: string;
+  str_insurance?: string;
+  guest_access_method?: string;
+  smart_lock_brand?: string;
+  smart_lock_code?: string;
+  security_cameras?: string;
+
+  // Access & notes
+  key_code_location?: string;
+  alarm_system?: string;
+  known_issues?: string;
+  upcoming_maintenance?: string;
+  notes?: string;
+
+  // Emergency contact
+  emergency_name?: string;
+  emergency_relationship?: string;
+  emergency_phone?: string;
+  emergency_email?: string;
 };
 
 /** The set of editable input fields used by the form + server actions. */

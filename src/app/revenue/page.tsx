@@ -1,5 +1,6 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { TimeRangePicker } from './TimeRangePicker';
+import { AutoRefresh } from './AutoRefresh';
 import {
   computeDateRange,
   formatRangeLabel,
@@ -11,9 +12,36 @@ import {
   type PropertySnapshot,
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
-import { isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
+
+const STALE_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Look up sync_status without triggering a sync. The actual refresh is
+ * dispatched client-side (see AutoRefresh) so the page can paint immediately
+ * even when the data is stale.
+ */
+async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: boolean }> {
+  const { data } = await supabase
+    .from('sync_status')
+    .select('last_synced_at')
+    .eq('source', 'guesty-reservations')
+    .maybeSingle();
+  const lastSyncedAt = data?.last_synced_at ? new Date(data.last_synced_at) : null;
+  const isStale = !lastSyncedAt || (Date.now() - lastSyncedAt.getTime()) >= STALE_MS;
+  return { lastSyncedAt, isStale };
+}
+
+function formatRelative(date: Date | null): string {
+  if (!date) return 'never';
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)} min ago`;
+  if (diffSec < 86400) return `${Math.round(diffSec / 3600)} hr ago`;
+  return `${Math.round(diffSec / 86400)} d ago`;
+}
 
 const VALID_PRESETS: RangePreset[] = [
   'mtd', 'last_30', 'last_90', 'this_month', 'last_month',
@@ -30,7 +58,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   const preset: RangePreset =
     presetParam && (VALID_PRESETS as string[]).includes(presetParam)
       ? (presetParam as RangePreset)
-      : 'mtd';
+      : 'this_month';
 
   const { rangeStart, rangeEnd } = computeDateRange(preset);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
@@ -48,6 +76,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     );
   }
 
+  const { lastSyncedAt, isStale } = await readSyncStatus();
   const { snapshots, portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
 
   const sorted = [...snapshots].sort((a, b) => {
@@ -117,7 +146,10 @@ export default async function RevenuePage({ searchParams }: PageProps) {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Revenue from Guesty bookings &middot; pro-rated by nights in range</span>
+          <AutoRefresh
+            shouldRefresh={isStale}
+            initialLabel={`Synced ${formatRelative(lastSyncedAt)}`}
+          />
           <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>
             {rangeLabel}
           </span>

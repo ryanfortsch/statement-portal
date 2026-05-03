@@ -430,6 +430,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               definition={(owner?.phones && owner.phones.length > 0) ? owner.phones.join(', ') : '—'}
               mono
             />
+            <Detail term="Phone" definition={p.owner_phone || '—'} mono />
+            <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
+            <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
         </div>
@@ -481,6 +484,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         )}
       </section>
+
+      {/* OPERATIONAL DATA — only renders when there's something to show */}
+      <OperationalSections p={p} />
 
       {/* DETAILS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
@@ -534,6 +540,92 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </footer>
     </div>
+  );
+}
+
+/** Renders any operational sections that have at least one populated field. */
+type OpRow = { label: string; value: string | number | null; mono?: boolean };
+function OperationalSections({ p }: { p: HelmPropertyRow }) {
+  const specs: OpRow[] = [
+    { label: 'Bedrooms', value: p.bedrooms },
+    { label: 'Bathrooms', value: p.bathrooms },
+    { label: 'Square feet', value: p.square_feet },
+    { label: 'Livable floors', value: p.livable_floors },
+    { label: 'Basement', value: p.basement },
+    { label: 'Parking', value: p.parking },
+    { label: 'HOA', value: p.hoa },
+  ];
+  const utilities: OpRow[] = [
+    { label: 'Electricity', value: p.electricity_provider },
+    { label: 'Heating', value: p.heating },
+    { label: 'Cooling', value: p.cooling },
+    { label: 'Internet', value: p.internet_provider },
+    { label: 'Cable / TV', value: p.cable_provider },
+    { label: 'WiFi name', value: p.wifi_name },
+    { label: 'WiFi password', value: p.wifi_password, mono: true },
+    { label: 'TVs', value: p.num_tvs },
+    { label: 'Smart TV', value: p.smart_tv },
+  ];
+  const str: OpRow[] = [
+    { label: 'Currently listed', value: p.currently_listed },
+    { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
+    { label: 'STR registration', value: p.str_registration_id, mono: true },
+    { label: 'STR insurance', value: p.str_insurance_carrier },
+    { label: 'Guest access', value: p.guest_access_method },
+    { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
+    { label: 'Cameras', value: p.security_cameras },
+  ];
+  const access: OpRow[] = [
+    { label: 'Key / code location', value: p.key_code_location },
+    { label: 'Alarm system', value: p.alarm_system },
+    { label: 'Known issues', value: p.known_issues },
+    { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
+    { label: 'Notes', value: p.property_notes },
+  ];
+  const emergency: OpRow[] = [
+    { label: 'Name', value: p.emergency_contact_name },
+    { label: 'Relationship', value: p.emergency_contact_relationship },
+    { label: 'Phone', value: p.emergency_contact_phone, mono: true },
+    { label: 'Email', value: p.emergency_contact_email, mono: true },
+  ];
+
+  const groups = [
+    { title: 'Property specs', rows: specs },
+    { title: 'Utilities', rows: utilities },
+    { title: 'STR setup', rows: str },
+    { title: 'Property access & notes', rows: access },
+    { title: 'Emergency contact', rows: emergency },
+  ];
+
+  // Hide entirely if nothing has been onboarded yet — keeps the page clean
+  // for the existing 9 hand-seeded properties that don't have intake data.
+  const anything = groups.some((g) => g.rows.some((r) => r.value != null && r.value !== ''));
+  if (!anything) return null;
+
+  return (
+    <>
+      {groups.map((g) => {
+        const populated = g.rows.filter((r) => r.value != null && r.value !== '');
+        if (populated.length === 0) return null;
+        return (
+          <section key={g.title} className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+            <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+              <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                {g.title}
+              </h2>
+              <span className="eyebrow">From onboarding</span>
+            </div>
+            <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
+              <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
+                {populated.map((r) => (
+                  <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
+                ))}
+              </dl>
+            </div>
+          </section>
+        );
+      })}
+    </>
   );
 }
 
