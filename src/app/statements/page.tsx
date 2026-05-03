@@ -1952,10 +1952,21 @@ function DashboardContent() {
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-4">
                 <div className="eyebrow">Period</div>
-                {periods.length > 1 ? (
+                {/* Always show the dropdown so month-switching is a visible
+                    affordance even when only one period exists yet. The
+                    "+ New month..." sentinel routes to the upload flow,
+                    which is how new periods get created (the ingest
+                    endpoint inserts the period row when it sees a month
+                    that doesn't exist). */}
                 <select
                   value={selectedMonth}
-                  onChange={(e) => loadPeriod(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '__new__') {
+                      window.location.href = '/statements/upload';
+                      return;
+                    }
+                    loadPeriod(e.target.value);
+                  }}
                   className="font-serif"
                   style={{
                     background: 'transparent',
@@ -1976,10 +1987,9 @@ function DashboardContent() {
                   {periods.map(p => (
                     <option key={p.month} value={p.month}>{monthLabel(p.month)}</option>
                   ))}
+                  <option disabled style={{ color: 'var(--ink-4)' }}>──────────</option>
+                  <option value="__new__">+ New month…</option>
                 </select>
-                ) : (
-                  <span className="font-serif" style={{ fontSize: 15, fontWeight: 500 }}>{monthLabel(selectedMonth)}</span>
-                )}
               </div>
               <form action="/api/auth/signout" method="post">
                 <button
