@@ -19,6 +19,7 @@ export async function UserMenu() {
           letterSpacing: ".08em",
           textTransform: "uppercase",
           color: "var(--ink-3)",
+          whiteSpace: "nowrap",
         }}
       >
         {username}
@@ -41,6 +42,7 @@ export async function UserMenu() {
             border: "1px solid var(--rule)",
             cursor: "pointer",
             padding: "4px 10px",
+            whiteSpace: "nowrap",
           }}
         >
           Sign out

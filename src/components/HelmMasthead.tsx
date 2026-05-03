@@ -52,7 +52,11 @@ export function HelmMasthead({ current, rightContent }: Props) {
             />
             <HelmModuleNav current={current} />
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-5" style={{ flexShrink: 0 }}>
+            <span
+              style={{ width: 1, height: 14, background: 'var(--rule)' }}
+              aria-hidden="true"
+            />
             {rightContent}
             <UserMenu />
           </div>

@@ -15,9 +15,10 @@ export function HelmModuleNav({ current }: Props) {
   }
 
   return (
-    <nav className="flex items-baseline gap-4" style={{
+    <nav className="flex items-baseline" style={{
+      gap: 18,
       fontSize: 10,
-      letterSpacing: '0.22em',
+      letterSpacing: '0.16em',
       textTransform: 'uppercase',
       fontWeight: 500,
     }}>
