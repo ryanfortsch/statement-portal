@@ -58,6 +58,10 @@ export type ProjectionRow = {
   onboarding_submitted_at: string | null;
   onboarding_data: OnboardingData | null;
 
+  // Funnel handoff: once promoted, the id of the public.properties row this
+  // prospect became.
+  property_id: string | null;
+
   created_at: string | null;
   updated_at: string | null;
 };
