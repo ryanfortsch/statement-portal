@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { SyncCommsButton } from './SyncCommsButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -44,7 +45,18 @@ type OwnerRecord = {
   name_greeting: string;
   name_last: string;
   emails: string[];
+  phones: string[];
   notes: string | null;
+};
+
+type CommRow = {
+  id: string;
+  source: 'quo' | 'gmail';
+  direction: 'inbound' | 'outbound';
+  sent_at: string;
+  subject: string | null;
+  preview: string | null;
+  participants: string[];
 };
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
@@ -132,13 +144,29 @@ async function getOwner(ownerId: string | null): Promise<OwnerRecord | null> {
   try {
     const { data, error } = await supabase
       .from('owners')
-      .select('id, name_full, name_greeting, name_last, emails, notes')
+      .select('id, name_full, name_greeting, name_last, emails, phones, notes')
       .eq('id', ownerId)
       .maybeSingle();
     if (error) throw error;
     return (data as OwnerRecord) ?? null;
   } catch {
     return null;
+  }
+}
+
+async function getRecentComms(ownerId: string | null): Promise<CommRow[]> {
+  if (!isHelmConfigured || !ownerId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('comms')
+      .select('id, source, direction, sent_at, subject, preview, participants')
+      .eq('owner_id', ownerId)
+      .order('sent_at', { ascending: false })
+      .limit(8);
+    if (error) throw error;
+    return (data ?? []) as CommRow[];
+  } catch {
+    return [];
   }
 }
 
@@ -155,6 +183,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getRecentInspections(p.id),
     getOwner(p.owner_id),
   ]);
+  const comms = await getRecentComms(owner?.id ?? p.owner_id);
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -376,7 +405,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </Section>
 
-      {/* OWNER + COMMS */}
+      {/* OWNER */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
@@ -396,9 +425,61 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               })()}
               mono
             />
+            <Detail
+              term="Phones"
+              definition={(owner?.phones && owner.phones.length > 0) ? owner.phones.join(', ') : '—'}
+              mono
+            />
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
         </div>
+      </section>
+
+      {/* RECENT COMMS (Helm-native via comms table; sourced from Quo today) */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+            Recent Comms
+          </h2>
+          <div className="flex items-center gap-4">
+            <span className="eyebrow">Helm &middot; Quo</span>
+            <SyncCommsButton />
+          </div>
+        </div>
+        {comms.length === 0 ? (
+          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>
+            {owner?.phones && owner.phones.length > 0
+              ? 'No messages with this owner in the last sync window. Click Sync Quo to pull recent activity.'
+              : 'No phone on file for this owner — add one to owners.phones, then sync Quo.'}
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {comms.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '160px 90px 1fr',
+                  gap: 24,
+                  alignItems: 'baseline',
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                }}
+              >
+                <span className="font-serif" style={{ fontSize: 14, fontWeight: 400, color: 'var(--ink)' }}>
+                  {formatDateTime(c.sent_at)}
+                </span>
+                <span style={{ fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: c.direction === 'inbound' ? 'var(--signal, #c85a3a)' : 'var(--ink-3)' }}>
+                  {c.source} &middot; {c.direction === 'inbound' ? 'in' : 'out'}
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.4 }}>
+                  {c.subject ? <strong style={{ fontWeight: 500 }}>{c.subject}: </strong> : null}
+                  {c.preview || '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* DETAILS */}
@@ -541,6 +622,16 @@ function formatMonth(month: string): string {
 function formatCurrency(value: number): string {
   if (value == null) return '—';
   return `$${Math.round(value).toLocaleString('en-US')}`;
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return '—';
+  try {
+    const d = new Date(value);
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return value;
+  }
 }
 
 function formatDateRange(checkIn: string | null, checkOut: string | null): string {
