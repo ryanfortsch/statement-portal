@@ -246,12 +246,17 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
   const year2Gross = (year2NetMid + cleaning) / (1 - inputs.mgmt_fee_pct);
   const year2 = payoutFor(year2Gross, inputs.mgmt_fee_pct, cleaning);
 
-  // Year 1 ramped
-  const ramps = rampMultipliers(inputs.start_month);
+  // Year 1 monthly. Ramp is opt-in (apply_ramp). When off, full seasonality
+  // from Jan — matches the standard "Property Analyzer" template. When on,
+  // months before start = 0, then 0.2 / 0.5 / 1.0 for the next three months
+  // (legacy 36 Granite-style binary cutoff with a smoothing curve).
+  // Cleaning is split by *seasonality* not evenly: more turnovers happen in
+  // peak months. Matches spreadsheet C13 = annual_cleaning × seasonality[m].
+  const ramps = inputs.apply_ramp ? rampMultipliers(inputs.start_month) : Array(12).fill(1);
   const monthlyYear1 = MONTH_LABELS.map((label, m) => {
     const monthGross = grossMid * seasonality[m] * ramps[m];
     const monthMgmt = monthGross * inputs.mgmt_fee_pct;
-    const monthClean = (cleaning / 12) * ramps[m];
+    const monthClean = cleaning * seasonality[m] * ramps[m];
     return {
       monthIndex: m,
       monthLabel: label,
@@ -274,11 +279,11 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
   const activeMonthCount = ramps.filter((r) => r > 0).length;
   const effectiveAnnualizedMultiplier = ramps.reduce((s, r, i) => s + r * seasonality[i], 0);
 
-  // Year 2 monthly forecast
+  // Year 2 monthly forecast — full year, cleaning by seasonality.
   const monthlyYear2 = MONTH_LABELS.map((label, m) => {
     const monthGross = year2Gross * seasonality[m];
     const monthMgmt = monthGross * inputs.mgmt_fee_pct;
-    const monthClean = cleaning / 12;
+    const monthClean = cleaning * seasonality[m];
     return {
       monthIndex: m,
       monthLabel: label,
@@ -290,9 +295,14 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
     } satisfies MonthRow;
   });
 
-  // Hero range
-  const heroLow = inputs.hero_low_override ?? rampedTotal.netPayout;
-  const heroHigh = inputs.hero_high_override ?? year1Mid.netPayout;
+  // Hero range default depends on whether ramp is applied:
+  //   ramp on  → ramped Year 1 net  →  full Year 1 mid (matches the old
+  //              "what you'll earn this year ramping vs steady state" framing)
+  //   ramp off → Year 1 low  →  Year 1 high (a simple range)
+  const heroLow = inputs.hero_low_override
+    ?? (inputs.apply_ramp ? rampedTotal.netPayout : year1Low.netPayout);
+  const heroHigh = inputs.hero_high_override
+    ?? (inputs.apply_ramp ? year1Mid.netPayout : year1High.netPayout);
 
   return {
     inputs,

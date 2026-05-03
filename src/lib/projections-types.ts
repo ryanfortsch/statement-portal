@@ -47,6 +47,7 @@ export type ProjectionRow = {
   hero_high_override: number | null;
 
   start_month: number;
+  apply_ramp: boolean;             // when false (the new norm), full seasonality from Jan
   presentation_month: string;
 
   status: 'draft' | 'sent';

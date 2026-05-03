@@ -74,6 +74,7 @@ function buildPayload(formData: FormData) {
     hero_high_override: numOrNull(formData, 'hero_high_override'),
 
     start_month: num(formData, 'start_month'),
+    apply_ramp: str(formData, 'apply_ramp') === 'on',
     presentation_month: str(formData, 'presentation_month'),
 
     // Contract terms
