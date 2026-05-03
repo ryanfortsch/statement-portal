@@ -11,9 +11,68 @@ import {
   type PropertySnapshot,
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
-import { isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { headers } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
+// Auto-sync may add a few seconds when the data is stale (rare path).
+export const maxDuration = 60;
+
+const STALE_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Read sync_status for the reservations source. If the most recent sync is
+ * older than STALE_MS (or there's no record at all), POST to /api/sync-guesty
+ * inline so the snapshot below sees fresh data. Bounded so a slow Guesty API
+ * can't take the page down.
+ */
+async function ensureRecentSync(): Promise<Date | null> {
+  const { data: cur } = await supabase
+    .from('sync_status')
+    .select('last_synced_at')
+    .eq('source', 'guesty-reservations')
+    .maybeSingle();
+
+  const lastSync = cur?.last_synced_at ? new Date(cur.last_synced_at) : null;
+  const stale = !lastSync || (Date.now() - lastSync.getTime()) >= STALE_MS;
+  if (!stale) return lastSync;
+
+  try {
+    const h = await headers();
+    const host = h.get('host') ?? 'localhost:3000';
+    const proto = host.startsWith('localhost') ? 'http' : 'https';
+    const res = await fetch(`${proto}://${host}/api/sync-guesty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshMap: false }),
+      signal: AbortSignal.timeout(45_000),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.error('[revenue] auto-sync failed', res.status, await res.text());
+      return lastSync;
+    }
+  } catch (err) {
+    console.error('[revenue] auto-sync threw', err);
+    return lastSync;
+  }
+
+  const { data: fresh } = await supabase
+    .from('sync_status')
+    .select('last_synced_at')
+    .eq('source', 'guesty-reservations')
+    .maybeSingle();
+  return fresh?.last_synced_at ? new Date(fresh.last_synced_at) : lastSync;
+}
+
+function formatRelative(date: Date | null): string {
+  if (!date) return 'never';
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)} min ago`;
+  if (diffSec < 86400) return `${Math.round(diffSec / 3600)} hr ago`;
+  return `${Math.round(diffSec / 86400)} d ago`;
+}
 
 const VALID_PRESETS: RangePreset[] = [
   'mtd', 'last_30', 'last_90', 'this_month', 'last_month',
@@ -48,6 +107,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     );
   }
 
+  const lastSyncedAt = await ensureRecentSync();
   const { snapshots, portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
 
   const sorted = [...snapshots].sort((a, b) => {
@@ -117,7 +177,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Revenue from Guesty bookings &middot; pro-rated by nights in range</span>
+          <span>Guesty bookings &middot; pro-rated by nights &middot; synced {formatRelative(lastSyncedAt)}</span>
           <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>
             {rangeLabel}
           </span>
