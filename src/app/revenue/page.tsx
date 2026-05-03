@@ -58,7 +58,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   const preset: RangePreset =
     presetParam && (VALID_PRESETS as string[]).includes(presetParam)
       ? (presetParam as RangePreset)
-      : 'mtd';
+      : 'this_month';
 
   const { rangeStart, rangeEnd } = computeDateRange(preset);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
