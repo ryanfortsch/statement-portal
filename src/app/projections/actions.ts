@@ -158,6 +158,170 @@ export async function markSent(id: string) {
 }
 
 /**
+ * Promote a prospect into a managed property record. Copies prospect inputs
+ * and onboarding answers onto a new public.properties row, links the two
+ * records, and sends Dotti to the new property's detail page.
+ *
+ * Idempotent: if this prospect already has a property_id, redirects to it
+ * rather than creating a duplicate.
+ */
+export async function promoteToProperty(projectionId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  // Pull the prospect record
+  const { data: projRow, error: projErr } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (projErr || !projRow) throw new Error(projErr?.message || 'Prospect not found');
+
+  // Already promoted? Just go there.
+  const existing = projRow.property_id as string | null;
+  if (existing) {
+    redirect(`/properties/${existing}`);
+  }
+
+  const ob = (projRow.onboarding_data ?? {}) as OnboardingData;
+  const propertyId = await pickPropertyId(projRow.property_address as string);
+
+  const ownerFull = projRow.prospect_full_legal || projRow.prospect_name;
+  const ownerGreeting = projRow.prospect_first_names || projRow.prospect_first_name || ownerFull;
+  // Last name = last whitespace-separated token of full name. Falls back to
+  // the whole name for single-token owners.
+  const ownerLast = (() => {
+    const parts = String(ownerFull).trim().split(/\s+/);
+    return parts.length > 1 ? parts[parts.length - 1] : ownerFull;
+  })();
+
+  // properties.management_fee_pct is stored as a whole number (25), while
+  // projections.mgmt_fee_pct is decimal (0.25). Convert.
+  const feePct = Math.round(Number(projRow.mgmt_fee_pct) * 100);
+
+  const ownerEmails = ob.email ? [ob.email] : [];
+
+  const propertyPayload = {
+    id: propertyId,
+    name: String(projRow.property_address),
+    address: String(projRow.property_address),
+    city: projRow.property_city || '',
+    type_of_unit: projRow.property_type || null,
+    is_active: true,
+    is_rising_tide_owned: false,
+
+    owner_last: ownerLast,
+    owner_full: ownerFull,
+    owner_greeting: ownerGreeting,
+    owner_emails: ownerEmails,
+    owner_phone: ob.phone || projRow.prospect_phone || null,
+    owner_mailing_address: ob.mailing_address || null,
+    owner_preferred_contact: ob.preferred_contact || null,
+
+    management_fee_pct: feePct,
+
+    // Property characteristics (prefer onboarding answers; fall back to
+    // projection inputs where they overlap)
+    bedrooms: numOr(ob.bedrooms, projRow.bedrooms as number),
+    bathrooms: numOr(ob.bathrooms, null),
+    square_feet: numOr(ob.square_feet, null),
+    livable_floors: numOr(ob.livable_floors, null),
+    basement: ob.basement || null,
+    parking: ob.parking || null,
+    hoa: ob.hoa || null,
+
+    electricity_provider: ob.electricity_provider || null,
+    heating: ob.heating || null,
+    cooling: ob.cooling || null,
+    internet_provider: ob.internet_provider || null,
+    cable_provider: ob.cable_provider || null,
+    wifi_name: ob.wifi_name || null,
+    wifi_password: ob.wifi_password || null,
+    num_tvs: numOr(ob.num_tvs, null),
+    smart_tv: ob.smart_tv || null,
+
+    currently_listed: ob.currently_listed || null,
+    existing_listing_urls: ob.listing_urls || null,
+    str_registration_id: ob.str_registration || null,
+    str_insurance_carrier: ob.str_insurance || null,
+    guest_access_method: ob.guest_access_method || null,
+    smart_lock_brand: ob.smart_lock_brand || null,
+    smart_lock_code: ob.smart_lock_code || null,
+    security_cameras: ob.security_cameras || null,
+
+    key_code_location: ob.key_code_location || null,
+    alarm_system: ob.alarm_system || null,
+    known_issues: ob.known_issues || null,
+    upcoming_maintenance: ob.upcoming_maintenance || null,
+    property_notes: ob.notes || null,
+
+    emergency_contact_name: ob.emergency_name || null,
+    emergency_contact_relationship: ob.emergency_relationship || null,
+    emergency_contact_phone: ob.emergency_phone || null,
+    emergency_contact_email: ob.emergency_email || null,
+
+    projection_id: projectionId,
+  };
+
+  const { error: insertErr } = await supabase.from('properties').insert(propertyPayload);
+  if (insertErr) throw new Error(insertErr.message);
+
+  // Wire the back-reference on the prospect side so the link is bidirectional.
+  const { error: linkErr } = await supabase
+    .from('projections')
+    .update({ property_id: propertyId })
+    .eq('id', projectionId);
+  if (linkErr) throw new Error(linkErr.message);
+
+  revalidatePath(`/projections/${projectionId}`);
+  revalidatePath('/properties');
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+/**
+ * Slugify the property address into a stable, human-readable id. Mirrors the
+ * existing convention (e.g. "21 Horton St" → "21_horton"). Drops common
+ * street suffixes; if the slug collides, suffixes _2, _3, etc.
+ */
+async function pickPropertyId(address: string): Promise<string> {
+  const base = slugifyAddress(address);
+  if (!base) throw new Error('Could not derive a property id from the address');
+
+  // Probe for collisions; cheap because the table is small.
+  const { data: existing } = await supabase
+    .from('properties')
+    .select('id')
+    .ilike('id', `${base}%`);
+  const taken = new Set((existing ?? []).map((r: { id: string }) => r.id));
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${base}_${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  throw new Error(`Couldn't find a free property id for ${base}`);
+}
+
+function slugifyAddress(addr: string): string {
+  return addr
+    .toLowerCase()
+    .replace(/,.*$/, '')                                     // drop city/state suffix
+    .replace(/[.'']/g, '')                                   // strip punctuation
+    .replace(/\b(st|rd|ave|lane|ln|way|road|street|avenue|drive|dr|circle|cir|court|ct|place|pl|terrace|ter|boulevard|blvd)\b/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .join('_');
+}
+
+function numOr<T>(maybe: string | undefined | null, fallback: T): number | T {
+  if (maybe == null || maybe === '') return fallback;
+  const n = Number(String(maybe).replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
  * Public-facing: an owner submits the onboarding form. No auth — gated by
  * knowledge of the token. The token comes in as a hidden field.
  */

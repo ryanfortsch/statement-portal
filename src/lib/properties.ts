@@ -156,9 +156,59 @@ export type HelmPropertyRow = {
   owner_full: string;
   owner_greeting: string;
   owner_emails: string[];
+  owner_phone: string | null;
+  owner_mailing_address: string | null;
+  owner_preferred_contact: string | null;
   management_fee_pct: number;
   bank_last4: string | null;
   tax_cert_id: string | null;
+
+  // Property characteristics (from onboarding intake)
+  bedrooms: number | null;
+  bathrooms: number | null;
+  square_feet: number | null;
+  livable_floors: number | null;
+  basement: string | null;
+  parking: string | null;
+  hoa: string | null;
+
+  // Utilities
+  electricity_provider: string | null;
+  heating: string | null;
+  cooling: string | null;
+  internet_provider: string | null;
+  cable_provider: string | null;
+  wifi_name: string | null;
+  wifi_password: string | null;
+  num_tvs: number | null;
+  smart_tv: string | null;
+
+  // STR setup
+  currently_listed: string | null;
+  existing_listing_urls: string | null;
+  str_registration_id: string | null;
+  str_insurance_carrier: string | null;
+  guest_access_method: string | null;
+  smart_lock_brand: string | null;
+  smart_lock_code: string | null;
+  security_cameras: string | null;
+
+  // Property access & notes
+  key_code_location: string | null;
+  alarm_system: string | null;
+  known_issues: string | null;
+  upcoming_maintenance: string | null;
+  property_notes: string | null;
+
+  // Emergency contact
+  emergency_contact_name: string | null;
+  emergency_contact_relationship: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_email: string | null;
+
+  // Funnel link: which prospect record promoted into this property
+  projection_id: string | null;
+
   created_at: string | null;
   updated_at: string | null;
   last_synced_at: string | null;
