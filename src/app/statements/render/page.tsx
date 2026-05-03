@@ -606,7 +606,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       <div className="avatar">{selectedReviews[0].guest.charAt(0)}</div>
                       <div>
                         <div className="note-sig-name">{selectedReviews[0].guest}</div>
-                        <div className="note-sig-title">5-star guest</div>
                       </div>
                     </div>
                   )}

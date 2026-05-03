@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -265,9 +266,10 @@ async function fillPlatformGap(args: {
   stmt: ExistingStmt;
   reservations: ExistingReservation[];
   propertyId: string;
+  month: string;
   file: File;
 }) {
-  const { stmt, reservations, propertyId, file } = args;
+  const { stmt, reservations, propertyId, month, file } = args;
 
   // 1. Parse the platform CSV into a map keyed by confirmation code, and
   //    build the guesty_reservations upsert set (mirroring the shape
@@ -480,20 +482,65 @@ async function fillPlatformGap(args: {
     .eq('property_statement_id', stmt.id)
     .in('gap_type', ['no_platform_match', 'unresolved_guest_names']);
 
+  // 7. Auto-sync Stripe so the freshly-recomputed rental_revenue is
+  //    immediately corrected against balance_transaction.fee actuals.
+  //    Step 5's stripe_fee values came from the formula; sync replaces
+  //    those with real fees and recomputes the statement totals on top
+  //    of what we just wrote. Failure here doesn't fail the patch --
+  //    estimates stand and the error surfaces in stripe_sync.error.
+  type PostSyncTotals = { rental_revenue: number; management_fee: number; owner_payout: number };
+  let stripeSync: StripeSyncResult | null = null;
+  let postSyncTotals: PostSyncTotals | null = null;
+  const stripeKey = getStripeKeysMap()[propertyId];
+  if (stripeKey) {
+    try {
+      stripeSync = await syncPropertyStripe({
+        supabase,
+        propertyId,
+        restrictedKey: stripeKey,
+        month,
+        stmt: {
+          id: stmt.id,
+          management_fee_pct: stmt.management_fee_pct,
+          cleaning_total: stmt.cleaning_total,
+          repairs_total: stmt.repairs_total,
+        },
+      });
+      if (stripeSync.fee_updates.length > 0) {
+        const { data: refreshed } = await supabase
+          .from('property_statements')
+          .select('rental_revenue, management_fee, owner_payout')
+          .eq('id', stmt.id)
+          .single();
+        if (refreshed) postSyncTotals = refreshed as PostSyncTotals;
+      }
+    } catch (err) {
+      console.warn('Stripe auto-sync failed (platform_csv):', err);
+      stripeSync = {
+        property_id: propertyId,
+        charges_found: 0, matched: 0,
+        unmatched_charges: [], fee_updates: [], refunds_detected: [],
+        gross_mismatches: [], reservations_missing_charge: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   return NextResponse.json({
     success: true,
     file_type: 'platform_csv',
     property: stmt.property_name,
     property_statement_id: stmt.id,
     summary: {
-      rental_revenue: totalRevenue,
-      management_fee: managementFee,
-      owner_payout: ownerPayout,
+      rental_revenue: postSyncTotals?.rental_revenue ?? totalRevenue,
+      management_fee: postSyncTotals?.management_fee ?? managementFee,
+      owner_payout: postSyncTotals?.owner_payout ?? ownerPayout,
       stripe_fee_total: stripeFeeTotal,
       reservations_total: reservations.length,
       reservations_matched_by_csv: matchedCount,
       confidence,
     },
+    stripe_sync: stripeSync,
     changes: changes.map(c => ({
       id: c.id,
       guest_before: c.prev.guest,
@@ -565,7 +612,7 @@ export async function POST(request: NextRequest) {
 
     // Dispatch to the per-file-type handler.
     if (fileType === 'platform_csv') {
-      return await fillPlatformGap({ stmt, reservations: reservations || [], propertyId, file });
+      return await fillPlatformGap({ stmt, reservations: reservations || [], propertyId, month, file });
     }
     // else bank_csv -- continues below with existing logic.
 
@@ -813,6 +860,50 @@ export async function POST(request: NextRequest) {
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
 
+    // Auto-sync Stripe with the freshly-updated cleaning_total + repairs_total
+    // so the statement totals reconcile against balance_transaction.fee
+    // actuals on every patch, not just on full ingests. Bank CSV doesn't
+    // touch stripe_fee directly, but a prior estimate that drifted from
+    // Stripe will be corrected here too.
+    let stripeSync: StripeSyncResult | null = null;
+    let postSyncOwnerPayout: number | null = null;
+    const stripeKey = getStripeKeysMap()[propertyId];
+    if (stripeKey) {
+      try {
+        stripeSync = await syncPropertyStripe({
+          supabase,
+          propertyId,
+          restrictedKey: stripeKey,
+          month,
+          stmt: {
+            id: stmt.id,
+            management_fee_pct: stmt.management_fee_pct,
+            cleaning_total: cleaningTotal,
+            repairs_total: repairsTotal,
+          },
+        });
+        if (stripeSync.fee_updates.length > 0) {
+          const { data: refreshed } = await supabase
+            .from('property_statements')
+            .select('owner_payout')
+            .eq('id', stmt.id)
+            .single();
+          if (refreshed && typeof refreshed.owner_payout === 'number') {
+            postSyncOwnerPayout = refreshed.owner_payout;
+          }
+        }
+      } catch (err) {
+        console.warn('Stripe auto-sync failed (bank_csv):', err);
+        stripeSync = {
+          property_id: propertyId,
+          charges_found: 0, matched: 0,
+          unmatched_charges: [], fee_updates: [], refunds_detected: [],
+          gross_mismatches: [], reservations_missing_charge: [],
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     return NextResponse.json({
       success: true,
       file_type: 'bank_csv',
@@ -821,13 +912,14 @@ export async function POST(request: NextRequest) {
       property_statement_id: stmt.id,
       summary: {
         cleaning_total: cleaningTotal,
-        owner_payout: newOwnerPayout,
+        owner_payout: postSyncOwnerPayout ?? newOwnerPayout,
         cleaning_events: cleaningCharges.length,
         reservations_matched: resUpdates.filter(u => u.bank_match_status === 'matched').length,
         reservations_unmatched: resUpdates.filter(u => u.bank_match_status === 'unmatched').length,
         new_gaps: newGaps.length,
         confidence,
       },
+      stripe_sync: stripeSync,
       changes: resChanges,
     });
   } catch (err) {

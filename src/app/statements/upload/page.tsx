@@ -31,6 +31,18 @@ type ParsedReservation = {
   bank_match_status: string;
 };
 
+type StripeSyncSummary = {
+  property_id: string;
+  charges_found: number;
+  matched: number;
+  unmatched_charges: string[];
+  fee_updates: { code: string; guest: string; prev: number; next: number; delta: number }[];
+  refunds_detected: { code: string; guest: string; amount: number }[];
+  gross_mismatches: { code: string; guest: string; stripe: number; guesty: number }[];
+  reservations_missing_charge: { code: string; guest: string; expected: number }[];
+  error?: string;
+};
+
 type IngestResult = {
   success: boolean;
   property: string;
@@ -46,6 +58,7 @@ type IngestResult = {
     confidence: string;
     data_gaps: number;
   };
+  stripe_sync: StripeSyncSummary | null;
   parsed_reservations: ParsedReservation[];
 };
 
@@ -105,6 +118,120 @@ function Insight({ label, value, sub, accent, last }: { label: string; value: st
         color: accent ? 'var(--signal)' : 'var(--ink)',
       }}>{value}</div>
       {sub && <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 5 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * Renders the post-ingest Stripe sync result. Only mounted when the
+ * property has a STRIPE_KEYS_JSON entry; otherwise the callout doesn't
+ * appear at all.
+ *
+ * Three states:
+ *   - error   -> red note, formula estimates still stand
+ *   - "no-op" (charges_found > 0 && no fee_updates && no warnings)
+ *               -> green tick, "Stripe verified -- no adjustments"
+ *   - changes -> list of fee replacements + any warnings (refunds,
+ *                gross mismatches, missing charges)
+ */
+function StripeSyncCallout({ sync }: { sync: NonNullable<IngestResult['stripe_sync']> }) {
+  const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(n));
+  const totalDelta = sync.fee_updates.reduce((s, u) => s + u.delta, 0);
+  const hasWarnings = sync.refunds_detected.length + sync.gross_mismatches.length + sync.reservations_missing_charge.length > 0;
+  const hasChanges = sync.fee_updates.length > 0 || hasWarnings;
+  const everythingClean = !sync.error && !hasChanges;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <SectionHead
+        num="①"
+        title="Stripe sync"
+        meta={
+          sync.error ? 'failed'
+            : hasChanges ? `${sync.fee_updates.length} fee${sync.fee_updates.length === 1 ? '' : 's'} corrected`
+              : `${sync.charges_found} charge${sync.charges_found === 1 ? '' : 's'} verified`
+        }
+      />
+
+      {sync.error && (
+        <div style={{
+          padding: '12px 14px',
+          borderLeft: '2px solid var(--negative)',
+          background: 'var(--paper-2)',
+          fontSize: 12, color: 'var(--ink-2)',
+        }}>
+          <div style={{ fontWeight: 600, color: 'var(--negative)', marginBottom: 4 }}>Sync error -- estimates kept</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>{sync.error}</div>
+        </div>
+      )}
+
+      {everythingClean && (
+        <div style={{
+          padding: '10px 14px',
+          borderLeft: '2px solid var(--positive)',
+          background: 'var(--paper-2)',
+          fontSize: 12, color: 'var(--ink-2)',
+        }}>
+          All Stripe fees match what we estimated -- no adjustments needed.
+        </div>
+      )}
+
+      {sync.fee_updates.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Guest</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Estimate</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Actual</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Δ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sync.fee_updates.map((u, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                  <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{u.guest}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{fmt(u.prev)}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(u.next)}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: u.delta > 0 ? 'var(--negative)' : 'var(--positive)' }}>
+                    {u.delta > 0 ? '+' : ''}{fmt(u.delta)}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ padding: '8px 6px', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Total</td>
+                <td colSpan={2} />
+                <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)', color: totalDelta > 0 ? 'var(--negative)' : 'var(--positive)' }}>
+                  {totalDelta > 0 ? '+' : ''}{fmt(totalDelta)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {hasWarnings && (
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: 12 }}>
+          {sync.refunds_detected.map((r, i) => (
+            <li key={`refund-${i}`} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)', color: 'var(--ink-2)' }}>
+              <span style={{ color: 'var(--signal)', fontWeight: 600 }}>Refund detected:</span>{' '}
+              {r.guest} ({r.code}) -- {fmt(r.amount)}
+            </li>
+          ))}
+          {sync.gross_mismatches.map((m, i) => (
+            <li key={`mm-${i}`} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)', color: 'var(--ink-2)' }}>
+              <span style={{ color: 'var(--signal)', fontWeight: 600 }}>Gross mismatch:</span>{' '}
+              {m.guest} ({m.code}) -- Stripe {fmt(m.stripe)} vs Guesty {fmt(m.guesty)}
+            </li>
+          ))}
+          {sync.reservations_missing_charge.map((mc, i) => (
+            <li key={`mc-${i}`} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)', color: 'var(--ink-2)' }}>
+              <span style={{ color: 'var(--signal)', fontWeight: 600 }}>No Stripe charge:</span>{' '}
+              {mc.guest} ({mc.code}) -- expected {fmt(mc.expected)}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -405,6 +532,11 @@ export default function UploadPage() {
                 </span>
               </div>
             </div>
+
+            {/* Stripe sync callout. Only renders when the property has a
+                Stripe key configured (otherwise stripe_sync is null and the
+                ingest's formula estimates stand). */}
+            {result.stripe_sync && <StripeSyncCallout sync={result.stripe_sync} />}
 
             {/* Reservations table */}
             {result.parsed_reservations.length > 0 && (
