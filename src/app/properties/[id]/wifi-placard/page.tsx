@@ -11,12 +11,12 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
 }
 
 /**
- * Stay Collections WiFi placard — a 4 × 6 inch printout with a scannable
- * QR code, network name, and password. Slips into the glass case at the
+ * Stay Cape Ann WiFi placard. A 4 x 6 inch printout with a scannable QR
+ * code, network name, and password. Slips into the glass case at the
  * property.
  *
  * QR encoding follows the well-known WIFI: URI format used by both iOS
- * Camera and the Android scanner — when scanned the phone offers to
+ * Camera and the Android scanner. When scanned, the phone offers to
  * auto-join the network.
  */
 export default async function WifiPlacardPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,10 +51,10 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
             {/* Wi-Fi signal glyph + title */}
             <div className="rt-glyph" aria-hidden="true">
               <svg viewBox="0 0 80 56" width="64" height="44">
-                <path d="M40 46a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" fill="#0e3a6e" />
-                <path d="M28 36c3.4-3.4 7.6-5.1 12-5.1S48.6 32.6 52 36" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
-                <path d="M19 27.6c5.7-5.7 13.2-8.6 21-8.6s15.3 2.9 21 8.6" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
-                <path d="M10 19.2C18.1 11.1 28.7 7 40 7s21.9 4.1 30 12.2" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <path d="M40 46a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" fill="#0F2A44" />
+                <path d="M28 36c3.4-3.4 7.6-5.1 12-5.1S48.6 32.6 52 36" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <path d="M19 27.6c5.7-5.7 13.2-8.6 21-8.6s15.3 2.9 21 8.6" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <path d="M10 19.2C18.1 11.1 28.7 7 40 7s21.9 4.1 30 12.2" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
               </svg>
             </div>
             <h1 className="rt-title">Wi-Fi</h1>
@@ -105,8 +105,8 @@ const placardCss = `
 
   /* Brand palette — Stay Cape Ann navy, deeper than the previous bright blue */
   :root {
-    --sca-navy: #0e3a6e;
-    --sca-ink: #0e3a6e;
+    --sca-navy: #0F2A44;
+    --sca-ink: #0F2A44;
     --sca-paper: #ffffff;
   }
 

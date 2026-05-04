@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
+import { DownloadWifiQrButton } from '@/components/properties/DownloadWifiQrButton';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 
@@ -157,13 +158,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </section>
 
-      {/* GUEST DELIVERABLES — Stay Collections home guide + WiFi placard + Information Note */}
+      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard + Information Note */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
             Guest Deliverables
           </h2>
-          <span className="eyebrow">Stay Collections</span>
+          <span className="eyebrow">Stay Cape Ann</span>
         </div>
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 22 }}>
           <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
@@ -175,7 +176,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className="eyebrow">Welcome Guide</div>
               <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Stay Collections home guide
+                Stay Cape Ann home guide
               </h3>
               <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
                 One-page editorial guide. Wi-Fi, climate, kitchen, parking, trash, hassle-free departure.
@@ -206,6 +207,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   Open ↗
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
+                {p.wifi_name && p.wifi_password ? (
+                  <DownloadWifiQrButton propertyId={p.id} format="png" label="Download QR" />
+                ) : null}
               </div>
             </div>
             {/* Information Note tile */}

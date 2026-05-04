@@ -42,7 +42,7 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
         <article className="rt-page">
           <header className="rt-head">
             <div className="rt-eyebrow">
-              <span>Stay Collections</span>
+              <span>Stay Cape Ann</span>
               <span className="rt-eyebrow-dot" aria-hidden="true">•</span>
               <span>Information Note</span>
             </div>
