@@ -11,13 +11,13 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
 }
 
 /**
- * Stay Collections "Welcome Home" guide. One US Letter page, portrait,
+ * Stay Cape Ann "Welcome Home" guide. One US Letter page, portrait,
  * print-ready. Pre-populates from the operational columns on the property
  * record (wifi_name, wifi_password, parking, heating, cooling, smart-lock
- * details, emergency contact, etc.) — those came from the prospect's
+ * details, emergency contact, etc.) which came from the prospect's
  * onboarding intake when the property was promoted.
  *
- * Anything that's not in the DB falls back to a neutral default so the guide
+ * Anything that is not in the DB falls back to a neutral default so the guide
  * still reads cleanly even if the prospect skipped a field.
  */
 export default async function HomeGuidePage({ params }: { params: Promise<{ id: string }> }) {
@@ -37,7 +37,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
           {/* Top eyebrow */}
           <header className="rt-head">
             <div className="rt-eyebrow">
-              <span>Stay Collections</span>
+              <span>Stay Cape Ann</span>
               <span className="rt-eyebrow-dot" aria-hidden="true">•</span>
               <span>Welcome Guide</span>
             </div>
@@ -135,7 +135,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
               <h2 className="rt-foot-h">Hassle-free departure.</h2>
               <p>No chores required. Just lock the door and travel safely.</p>
             </div>
-            <div className="rt-mark">— Stay Collections —</div>
+            <div className="rt-mark">— Stay Cape Ann —</div>
             {p.address && (
               <div className="rt-mark-sub">
                 {stayName} &middot; {p.address}{p.city ? `, ${p.city}` : ''}
