@@ -32,11 +32,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'operations',
-    href: '#',
+    href: '/operations',
     number: '02',
     title: 'Operations',
-    description: 'Today’s turnovers, calendar, and wallboard. Daily ops between checkouts and check-ins.',
-    status: 'soon',
+    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty.',
+    status: 'active',
     primary: true,
   },
   {
