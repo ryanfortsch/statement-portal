@@ -228,7 +228,7 @@ export function ContractDocument({
           </section>
         )}
 
-        {/* Page 6 — liability, insurance, force majeure, dispute resolution, severability, governing law, signatures */}
+        {/* Legal text page — liability, insurance, force majeure, dispute resolution, severability, governing law */}
         <section className="rt-doc-page">
           <SectionTitle title="Liability and Indemnification" />
           <p className="rt-c-body">
@@ -261,8 +261,15 @@ export function ContractDocument({
           <p className="rt-c-body">
             This Agreement shall be governed by and construed in accordance with the laws of the State of Massachusetts. This document represents the entire agreement between the Parties and supersedes all prior communications, agreements, or understandings, written or oral, concerning the subject matter hereof.
           </p>
+          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 7 : 6} />
+        </section>
 
+        {/* Signatures — own page, gives the block room to breathe */}
+        <section className="rt-doc-page rt-c-sig-page">
           <SectionTitle title="Signatures" />
+          <p className="rt-c-sig-lede">
+            By signing below, the Parties acknowledge that they have read, understood, and agree to be bound by the terms of this Management Contract.
+          </p>
           <div className="rt-c-sig-grid">
             <SignerBlock
               eyebrow="Owner"
@@ -288,7 +295,7 @@ export function ContractDocument({
             <b>Thank you for choosing Rising Tide.</b><br />
             Questions? Reach Allie directly at allie@risingtidestr.com or (978) 865-2387.
           </p>
-          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 7 : 6} />
+          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 8 : 7} />
         </section>
 
         {/* Public-facing signing form, only when not yet signed. Hidden in print. */}
@@ -540,15 +547,28 @@ const contractCss = `
     white-space: nowrap;
   }
 
+  /* Dedicated signatures page — gives the block real breathing room rather
+     than fighting the legal text for the bottom of page 6. */
+  .rt-c-sig-page { padding-top: 96px; }
+  .rt-c-sig-lede {
+    margin: 14px 0 56px;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--ink-3);
+    max-width: 620px;
+    font-style: italic;
+    text-indent: 0;
+  }
+
   /* Signature block — two stacked signers with full-width lines + captions.
      Replaces the old side-by-side label/value rows that read as cramped. */
   .rt-c-sig-grid {
-    margin-top: 24px;
+    margin-top: 8px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 56px;
+    gap: 64px;
   }
-  .rt-c-signer { display: flex; flex-direction: column; gap: 20px; }
+  .rt-c-signer { display: flex; flex-direction: column; gap: 32px; }
   .rt-c-signer-eyebrow {
     font-size: 11px;
     letter-spacing: 0.22em;
@@ -560,32 +580,32 @@ const contractCss = `
   .rt-c-signer-field { display: flex; flex-direction: column; }
   .rt-c-signer-line {
     border-bottom: 1px solid var(--ink);
-    height: 30px;
+    height: 40px;
     display: flex;
     align-items: flex-end;
-    padding: 0 2px 4px;
+    padding: 0 2px 6px;
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--ink);
     font-weight: 400;
     line-height: 1;
   }
   .rt-c-signer-line-mono {
     font-family: var(--font-inter), system-ui, sans-serif;
-    font-size: 12px;
+    font-size: 13px;
   }
   .rt-c-signer-signed {
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-style: italic;
-    font-size: 20px;
+    font-size: 24px;
     color: var(--signal);
     line-height: 1;
     font-weight: 400;
   }
   .rt-c-signer-cap {
-    margin-top: 5px;
-    font-size: 9px;
-    letter-spacing: 0.18em;
+    margin-top: 8px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--ink-4);
     font-weight: 500;
