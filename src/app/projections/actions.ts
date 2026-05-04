@@ -2,6 +2,7 @@
 
 import crypto from 'node:crypto';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
@@ -319,6 +320,59 @@ function numOr<T>(maybe: string | undefined | null, fallback: T): number | T {
   if (maybe == null || maybe === '') return fallback;
   const n = Number(String(maybe).replace(/[^0-9.\-]/g, ''));
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Public-facing: an owner signs the management contract. No auth — gated by
+ * knowledge of the token. Captures a typed name + audit fields (timestamp,
+ * IP, user agent) sufficient for ESIGN/UETA compliance on residential STR
+ * contracts in MA.
+ *
+ * Idempotent: if already signed, redirects to the thanks page rather than
+ * overwriting the prior signature.
+ */
+export async function submitContractSignature(formData: FormData) {
+  const token = String(formData.get('token') || '').trim();
+  if (!token || !/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid contract link');
+
+  const agreed = formData.get('agree') === 'on';
+  const name = String(formData.get('signed_name') || '').trim();
+  if (!agreed) throw new Error('You must check "I agree" to sign.');
+  if (name.length < 3) throw new Error('Type your full legal name to sign.');
+
+  // Pull the projection. Skip if already signed (idempotent).
+  const { data: existing, error: lookupErr } = await supabase
+    .from('projections')
+    .select('id, contract_signed_at')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (lookupErr || !existing) throw new Error(lookupErr?.message || 'Contract not found');
+  if (existing.contract_signed_at) {
+    redirect(`/contract/${token}/signed`);
+  }
+
+  // Audit fields. Forwarded-for first hop is the originating client IP on
+  // Vercel; fall back to x-real-ip if a different proxy chain is in use.
+  const h = await headers();
+  const xff = h.get('x-forwarded-for') || '';
+  const ip = xff.split(',')[0].trim() || h.get('x-real-ip') || '';
+  const ua = h.get('user-agent') || '';
+
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      contract_signed_at: new Date().toISOString(),
+      contract_signed_name: name,
+      contract_signed_ip: ip || null,
+      contract_signed_user_agent: ua || null,
+    })
+    .eq('onboarding_token', token);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/contract/${token}`);
+  revalidatePath(`/projections/${existing.id}`);
+  redirect(`/contract/${token}/signed`);
 }
 
 /**

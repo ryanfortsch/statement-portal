@@ -62,6 +62,12 @@ export type ProjectionRow = {
   // prospect became.
   property_id: string | null;
 
+  // Contract signing (in-Helm flow at /contract/<onboarding_token>)
+  contract_signed_at: string | null;
+  contract_signed_name: string | null;
+  contract_signed_ip: string | null;
+  contract_signed_user_agent: string | null;
+
   created_at: string | null;
   updated_at: string | null;
 };

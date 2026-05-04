@@ -19,6 +19,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/auth/",
   "/statements/render",
   "/onboarding/",
+  "/contract/",
 ];
 
 /**

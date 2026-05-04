@@ -169,6 +169,11 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
+      {/* CONTRACT SIGNING — public link + signed status */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
+        <ContractSigningPanel projection={projection} />
+      </section>
+
       {/* OWNER ONBOARDING INTAKE — public link + status */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <OnboardingPanel projection={projection} />
@@ -184,6 +189,75 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         <div className="eyebrow" style={{ marginBottom: 14 }}>Edit inputs</div>
         <ProjectionForm action={update} initial={projection} submitLabel="Save changes" />
       </section>
+    </div>
+  );
+}
+
+function ContractSigningPanel({ projection }: { projection: ProjectionRow }) {
+  const signedAt = projection.contract_signed_at;
+  const signedName = projection.contract_signed_name;
+  const link = `/contract/${projection.onboarding_token}`;
+
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          Contract signing
+        </h3>
+        <span className="eyebrow" style={{ color: signedAt ? 'var(--positive)' : 'var(--ink-4)' }}>
+          {signedAt
+            ? `Signed ${new Date(signedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+            : 'Not yet signed'}
+        </span>
+      </div>
+
+      {!signedAt && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Send this link to the owner once the contract terms are settled. They&rsquo;ll read the contract on screen, type their full legal name, and submit. Their typed name + timestamp + IP / user-agent are recorded as their electronic signature (ESIGN/UETA-compliant). Once signed, the contract PDF reflects the signature.
+        </p>
+      )}
+
+      {signedAt && signedName && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
+          Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
+          {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+        <code
+          className="font-mono"
+          style={{
+            flex: '1 1 320px',
+            background: 'var(--paper-2)',
+            border: '1px solid var(--rule)',
+            padding: '10px 12px',
+            fontSize: 12,
+            color: 'var(--ink-3)',
+            overflowX: 'auto',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {link}
+        </code>
+        <Link
+          href={link}
+          target="_blank"
+          style={{
+            background: 'transparent',
+            color: 'var(--ink)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            padding: '11px 18px',
+            border: '1px solid var(--ink)',
+            textDecoration: 'none',
+          }}
+        >
+          Open ↗
+        </Link>
+      </div>
     </div>
   );
 }
