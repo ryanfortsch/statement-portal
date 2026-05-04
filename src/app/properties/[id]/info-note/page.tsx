@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { LOCAL_CONTACTS_24HR, type HelmPropertyRow } from '@/lib/properties';
+import { civicForProperty } from '@/lib/civic';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,13 +17,12 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  * can find local contacts, trash schedule, parking rules, noise ordinance,
  * and safety equipment locations at a glance.
  *
- * Data sources, in order of precedence:
- *   1. Per-property columns on public.properties (from onboarding intake).
- *   2. City-aware civic info (noise / animal ordinance text, trash link).
- *   3. Company-wide contact constants (LOCAL_CONTACTS_24HR).
- *
- * Empty fields render a neutral "—" so the document still prints cleanly
- * before every property has been backfilled.
+ * Resolution order for cell content (see lib/civic.ts):
+ *   1. Per-property override columns on public.properties (from onboarding).
+ *   2. Address-derived defaults — Gloucester trash schedule keyed by street
+ *      from the city's published list; city-wide ordinance text.
+ *   3. Empty cells render "—" rather than punting elsewhere; the Note is
+ *      the source of truth, never refers to another document.
  */
 export default async function InfoNotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -30,7 +30,7 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
   if (!p) notFound();
 
   const cityShort = (p.city || '').split(',')[0].trim();
-  const civic = civicForCity(cityShort);
+  const civic = civicForProperty(p);
 
   const operator = LOCAL_CONTACTS_24HR.operator;
   const backup = LOCAL_CONTACTS_24HR.backup;
@@ -82,40 +82,27 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
           {/* Six-cell grid */}
           <div className="rt-grid">
             <Cell num="01" title="Trash &amp; Recycling">
-              {(p.trash_day || p.recycling_day) ? (
-                <>
-                  {p.trash_day && (
-                    <p>
-                      <span className="rt-k">Trash</span>
-                      <span className="rt-v">{p.trash_day}</span>
-                    </p>
-                  )}
-                  {p.recycling_day && (
-                    <p>
-                      <span className="rt-k">Recycling</span>
-                      <span className="rt-v">{p.recycling_day}</span>
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p>Schedule TBD. Bins are kept behind the home.</p>
-              )}
+              <p>
+                <span className="rt-k">Trash</span>
+                <span className="rt-v">{civic.trashDay || '—'}</span>
+              </p>
+              <p>
+                <span className="rt-k">Recycling</span>
+                <span className="rt-v">{civic.recyclingDay || '—'}</span>
+              </p>
+              <p className="rt-aside">
+                Place bins curbside the night before. Pet waste, yard waste, and household hazardous
+                items go in the trash, not recycling.
+              </p>
               {p.trash_notes && <p>{p.trash_notes}</p>}
-              {civic.trashLink && (
-                <p className="rt-aside">
-                  Full schedule: <span className="rt-link">{civic.trashLink}</span>
-                </p>
-              )}
             </Cell>
 
             <Cell num="02" title="Parking">
-              <p>{p.parking_regulations || p.parking || 'See the welcome note for parking instructions.'}</p>
-              {civic.parkingNote && <p className="rt-aside">{civic.parkingNote}</p>}
+              <p>{civic.parking}</p>
             </Cell>
 
             <Cell num="03" title="Noise Ordinance">
               <p>{civic.noise}</p>
-              <p className="rt-aside">Please be considerate of neighbors at all hours.</p>
             </Cell>
 
             <Cell num="04" title="Animal Control">
@@ -187,49 +174,6 @@ function Cell({ num, title, children }: { num: string; title: string; children: 
       <div className="rt-cell-body">{children}</div>
     </section>
   );
-}
-
-/**
- * Per-city civic info. Gloucester is the primary case (and the trigger for
- * this whole document). Beverly + Rockport get sensible defaults; anything
- * else falls through to a generic blurb.
- */
-function civicForCity(city: string): {
-  noise: string;
-  animals: string;
-  parkingNote: string | null;
-  trashLink: string | null;
-} {
-  switch (city) {
-    case 'Gloucester':
-      return {
-        noise: 'Gloucester prohibits excessive noise that can be heard across property lines and disrupts neighbors’ comfort, especially between 10 p.m. and 7 a.m.',
-        animals: 'Dogs must be leashed in public spaces. Pet waste must be picked up. Excessive barking that disturbs neighbors is treated as a noise violation.',
-        parkingNote: 'Watch for posted street-sweeping signs and snow-emergency routes. Do not block driveways or hydrants.',
-        trashLink: 'gloucester-ma.gov/DocumentCenter/View/9780',
-      };
-    case 'Rockport':
-      return {
-        noise: 'Quiet hours run 10 p.m. to 7 a.m. Sound that crosses property lines and disturbs neighbors is prohibited at all hours.',
-        animals: 'Dogs must be leashed in public spaces and waste picked up. Excessive barking is a noise violation.',
-        parkingNote: 'Watch for resident-only zones near the harbor and beaches.',
-        trashLink: 'rockportma.gov/trash-recycling',
-      };
-    case 'Beverly':
-      return {
-        noise: 'Beverly enforces quiet hours from 10 p.m. to 7 a.m. Sound that crosses property lines and disturbs neighbors is prohibited at all hours.',
-        animals: 'Dogs must be leashed in public spaces and waste picked up. Excessive barking is a noise violation.',
-        parkingNote: 'Watch for posted street-sweeping signs and resident-only zones.',
-        trashLink: 'beverlyma.gov/trash-recycling',
-      };
-    default:
-      return {
-        noise: 'Please be considerate of neighbors at all hours, especially overnight (10 p.m. to 7 a.m.).',
-        animals: 'Dogs must be leashed in public spaces. Please pick up after pets.',
-        parkingNote: null,
-        trashLink: null,
-      };
-  }
 }
 
 const noteCss = `

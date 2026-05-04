@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { civicForProperty } from '@/lib/civic';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
 
   const stayName = p.title || `Stay at ${p.name}`;
   const cityShort = (p.city || '').split(',')[0] || 'Cape Ann';
+  const civic = civicForProperty(p);
 
   return (
     <>
@@ -100,7 +102,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
             </Cell>
 
             <Cell num="04" title="Parking">
-              <p>{p.parking ? humanize(p.parking) : 'See the home’s welcome note for parking instructions.'}</p>
+              <p>{p.parking ? humanize(p.parking) : civic.parking}</p>
               <p className="rt-aside">
                 Please keep shared driveway access clear.
               </p>
@@ -116,8 +118,11 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
 
             <Cell num="06" title="Trash & Recycling">
               <p>
-                Indoor bins are in the kitchen. When full, please empty into the outdoor bins
-                {' '}— these live behind the home and are picked up weekly.
+                Indoor bins are in the kitchen. When full, empty into the outdoor bins behind
+                the home.
+                {civic.trashDay
+                  ? ` Pickup is on ${civic.trashDay}${civic.recyclingDay && civic.recyclingDay !== civic.trashDay ? ` (recycling on ${civic.recyclingDay})` : ''}.`
+                  : ' Pickup runs weekly.'}
               </p>
               <p className="rt-aside">No need to take bins to the curb on departure.</p>
             </Cell>
