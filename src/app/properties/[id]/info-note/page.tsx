@@ -110,34 +110,34 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
             </Cell>
 
             <Cell num="05" title="Gas, Water &amp; Electric Shutoffs">
-              <p>
-                <span className="rt-k">Gas</span>
-                <span className="rt-v">{p.gas_shutoff_location || '—'}</span>
-              </p>
-              <p>
-                <span className="rt-k">Water</span>
-                <span className="rt-v">{p.water_shutoff_location || '—'}</span>
-              </p>
-              <p>
-                <span className="rt-k">Panel</span>
-                <span className="rt-v">{p.electrical_panel_location || '—'}</span>
-              </p>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Gas</div>
+                <div className="rt-stack-value">{p.gas_shutoff_location || '—'}</div>
+              </div>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Water</div>
+                <div className="rt-stack-value">{p.water_shutoff_location || '—'}</div>
+              </div>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Electrical panel</div>
+                <div className="rt-stack-value">{p.electrical_panel_location || '—'}</div>
+              </div>
               <p className="rt-aside">If you smell gas, leave the home immediately and call the operator.</p>
             </Cell>
 
             <Cell num="06" title="Fire Safety">
-              <p>
-                <span className="rt-k">Exits</span>
-                <span className="rt-v">{p.fire_exit_locations || '—'}</span>
-              </p>
-              <p>
-                <span className="rt-k">Alarms</span>
-                <span className="rt-v">{p.smoke_detector_locations || '—'}</span>
-              </p>
-              <p>
-                <span className="rt-k">Extinguishers</span>
-                <span className="rt-v">{p.fire_extinguisher_locations || '—'}</span>
-              </p>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Exits</div>
+                <div className="rt-stack-value">{p.fire_exit_locations || '—'}</div>
+              </div>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Smoke / CO alarms</div>
+                <div className="rt-stack-value">{p.smoke_detector_locations || '—'}</div>
+              </div>
+              <div className="rt-stack">
+                <div className="rt-stack-label">Extinguishers</div>
+                <div className="rt-stack-value">{p.fire_extinguisher_locations || '—'}</div>
+              </div>
             </Cell>
           </div>
 
@@ -325,7 +325,7 @@ const noteCss = `
   .rt-cell-body p:last-child { margin-bottom: 0; }
   .rt-aside { color: var(--ink-3); font-size: 10.5px; font-style: italic; }
 
-  /* Key/value rows */
+  /* Key/value rows (Trash, etc — short labels) */
   .rt-k {
     display: inline-block;
     width: 86px;
@@ -340,6 +340,23 @@ const noteCss = `
     display: inline-block;
     color: var(--ink);
     max-width: calc(100% - 90px);
+  }
+
+  /* Stacked label/value (Fire Safety, Shutoffs — variable-length labels) */
+  .rt-stack { margin-bottom: 8px; }
+  .rt-stack:last-of-type { margin-bottom: 0; }
+  .rt-stack-label {
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+    margin-bottom: 1px;
+  }
+  .rt-stack-value {
+    color: var(--ink);
+    font-size: 11.5px;
+    line-height: 1.45;
   }
   .rt-mono {
     font-family: var(--font-mono-dash), ui-monospace, monospace;
