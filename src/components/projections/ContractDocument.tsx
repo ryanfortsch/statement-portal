@@ -36,12 +36,13 @@ export function ContractDocument({
   const termStartLong = fmtDateNarrative(projection.term_start);
   const termEndLong = fmtDateNarrative(projection.term_end);
 
-  // Signature state
+  // Signature state. The "Date" field in the signature block is the contract's
+  // effective date (term_start), not the moment the owner clicked submit.
+  // Leave it blank if term_start hasn't been filled in. The actual signing
+  // timestamp still appears in the audit footer below the signature block.
   const signedName = projection.contract_signed_name || null;
   const signedAt = projection.contract_signed_at;
-  const signedDate = signedAt
-    ? new Date(signedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : null;
+  const effectiveDate = projection.term_start ? fmtDateNarrative(projection.term_start) : null;
 
   return (
     <>
@@ -274,8 +275,8 @@ export function ContractDocument({
               </div>
               <div className="rt-c-sig-row">
                 <span className="rt-c-sig-label">Date</span>
-                {signedDate ? (
-                  <span className="rt-c-sig-signed-date">{signedDate}</span>
+                {effectiveDate ? (
+                  <span className="rt-c-sig-signed-date">{effectiveDate}</span>
                 ) : (
                   <span className="rt-c-sig-line" />
                 )}
@@ -284,7 +285,14 @@ export function ContractDocument({
             <div className="rt-c-sig">
               <div className="rt-c-sig-row"><span className="rt-c-sig-label">Rising Tide STR, LLC<br /><span className="rt-c-sig-sub">Representative</span></span><span className="rt-c-sig-val">Allie O&rsquo;Brien</span></div>
               <div className="rt-c-sig-row"><span className="rt-c-sig-label">Representative Signature</span><span className="rt-c-sig-line" /></div>
-              <div className="rt-c-sig-row"><span className="rt-c-sig-label">Date</span><span className="rt-c-sig-line" /></div>
+              <div className="rt-c-sig-row">
+                <span className="rt-c-sig-label">Date</span>
+                {effectiveDate ? (
+                  <span className="rt-c-sig-signed-date">{effectiveDate}</span>
+                ) : (
+                  <span className="rt-c-sig-line" />
+                )}
+              </div>
             </div>
           </div>
           {signedName && signedAt && (
