@@ -50,11 +50,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'work',
-    href: '#',
+    href: '/work',
     number: '04',
     title: 'Work',
-    description: 'Work slips, tasks, queue, and execution log. Get the day done.',
-    status: 'soon',
+    description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
+    status: 'active',
     primary: true,
   },
   {
