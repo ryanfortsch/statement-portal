@@ -201,7 +201,7 @@ function SlideRatings({ footer }: { footer: string }) {
 }
 
 function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
-  // Show actual values, not rounded — Dotti wants the real number.
+  // Show actual values, not rounded. Dotti wants the real number.
   const monthly = Math.round(computed.year1MonthlyAvg);
   const max = Math.max(...computed.monthlyYear1.map((m) => m.netPayout));
   return (
@@ -396,7 +396,7 @@ function SlideServices({ footer }: { footer: string }) {
 
 /**
  * Local-focus slide. Captures the same message as the "Cape Ann, done right"
- * section on risingtidestr.com — small portfolio, hyper-local, Gloucester
+ * section on risingtidestr.com: small portfolio, hyper-local, Gloucester
  * HQ ten minutes from every home. No real map illustration in v1; the
  * editorial "10 minutes" stat carries the slide.
  */
@@ -404,7 +404,7 @@ function SlideLocal({ footer }: { footer: string }) {
   const items: { title: string; body: string }[] = [
     {
       title: 'HQ in the heart of Cape Ann.',
-      body: 'Rising Tide is based at 85 Eastern Ave in Gloucester — minutes from every home we manage.',
+      body: 'Rising Tide is based at 85 Eastern Ave in Gloucester, minutes from every home we manage.',
     },
     {
       title: 'Supplies staged and ready.',
@@ -492,7 +492,7 @@ function SlideOwnerControl({ footer }: { footer: string }) {
 }
 
 /**
- * Mini owner statement that mirrors src/app/statements/render/page.tsx —
+ * Mini owner statement that mirrors src/app/statements/render/page.tsx,
  * masthead, header row with logo + italic display title, addressee 3-cell,
  * hero payout with cents, two-column Reservations/Financials.
  *
@@ -879,7 +879,7 @@ const deckCss = `
   }
   .rt-pillar-body { font-size: 14px; line-height: 1.55; color: var(--ink-3); }
 
-  /* ── Ratings (slide 5) — +18% revenue hero on the left, comparison card on the right ── */
+  /* ── Ratings (slide 5): +18% revenue hero on the left, comparison card on the right ── */
   .rt-rating-grid {
     margin-top: 32px;
     flex: 1;
@@ -1049,7 +1049,7 @@ const deckCss = `
   }
   .rt-month-label-inactive { color: var(--ink-4); font-weight: 400; }
 
-  /* ── Year 2 (slide 7) — clean before/after with growth pill ── */
+  /* ── Year 2 (slide 7): clean before/after with growth pill ── */
   .rt-y2-lead {
     margin: 18px 0 0;
     font-size: 16px;
@@ -1331,7 +1331,7 @@ const deckCss = `
   }
   .rt-check-mark { color: var(--signal); font-size: 20px; line-height: 1; }
 
-  /* ── Mini statement preview — mirrors src/app/statements/render layout ── */
+  /* ── Mini statement preview, mirrors src/app/statements/render layout ── */
   .rt-stmt-card {
     background: var(--paper);
     border: 1px solid var(--ink-3);
@@ -1346,7 +1346,7 @@ const deckCss = `
     color: var(--ink);
   }
 
-  /* Masthead — three-up, thin rule beneath */
+  /* Masthead: three-up, thin rule beneath */
   .rt-stmt-mast {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -1408,7 +1408,7 @@ const deckCss = `
     font-weight: 500;
   }
 
-  /* Addressee row — 3 cells with thin rules */
+  /* Addressee row: 3 cells with thin rules */
   .rt-stmt-addressee {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

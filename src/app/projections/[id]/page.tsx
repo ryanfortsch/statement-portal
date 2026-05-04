@@ -169,12 +169,12 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
-      {/* CONTRACT SIGNING — public link + signed status */}
+      {/* CONTRACT SIGNING: public link + signed status */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <ContractSigningPanel projection={projection} />
       </section>
 
-      {/* OWNER ONBOARDING INTAKE — public link + status */}
+      {/* OWNER ONBOARDING INTAKE: public link + status */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <OnboardingPanel projection={projection} />
       </section>

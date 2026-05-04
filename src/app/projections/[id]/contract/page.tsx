@@ -12,7 +12,7 @@ async function getProjection(id: string): Promise<ProjectionRow | null> {
 
 /**
  * Internal contract preview at /projections/<id>/contract. Reuses the shared
- * ContractDocument component. No signing form here — that lives on the
+ * ContractDocument component. No signing form here; that lives on the
  * public route at /contract/<token>. If the contract is already signed,
  * ContractDocument renders the typed name + date in the signature block,
  * so the downloaded PDF reflects the signature.

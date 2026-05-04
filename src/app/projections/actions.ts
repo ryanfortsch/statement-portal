@@ -354,7 +354,7 @@ function numOr<T>(maybe: string | undefined | null, fallback: T): number | T {
 }
 
 /**
- * Public-facing: an owner signs the management contract. No auth — gated by
+ * Public-facing: an owner signs the management contract. No auth, gated by
  * knowledge of the token. Captures a typed name + audit fields (timestamp,
  * IP, user agent) sufficient for ESIGN/UETA compliance on residential STR
  * contracts in MA.
@@ -407,7 +407,7 @@ export async function submitContractSignature(formData: FormData) {
 }
 
 /**
- * Public-facing: an owner submits the onboarding form. No auth — gated by
+ * Public-facing: an owner submits the onboarding form. No auth, gated by
  * knowledge of the token. The token comes in as a hidden field.
  */
 export async function submitOnboarding(formData: FormData) {

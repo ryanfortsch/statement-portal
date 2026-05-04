@@ -109,7 +109,7 @@ function PageWhoWeAre() {
           />
           <Pillar
             heading="Guest Excellence"
-            body="We manage every guest interaction with professionalism and warmth — maintaining a 4.99-star average rating across our properties."
+            body="We manage every guest interaction with professionalism and warmth, maintaining a 4.99-star average rating across our properties."
           />
           <Pillar
             heading="Owner Transparency"
@@ -139,7 +139,7 @@ function PageOnboarding() {
     { n: '01', title: 'Property Walkthrough', body: 'We visit the property together to align on scope, identify what\'s needed, and set expectations for launch. Typically 1–2 hours.', timeline: 'Timeline: 1–2 days to schedule' },
     { n: '02', title: 'Contract & Deposit', body: 'Review and e-sign the management agreement. A $2,000 working capital deposit covers initial setup.', timeline: 'Timeline: Completed prior to setup' },
     { n: '03', title: 'Onboarding Form', body: 'Complete the onboarding form with your property details, utilities, and access information. This is the foundation for everything we do behind the scenes.', timeline: 'Timeline: Completed during setup phase' },
-    { n: '04', title: 'Property Setup', body: 'Rising Tide outfits and prepares your property to our hospitality standards — photography, listing creation, smart lock installation, supplies, and staging as needed.', timeline: 'Timeline: 1–4 weeks depending on scope' },
+    { n: '04', title: 'Property Setup', body: 'Rising Tide outfits and prepares your property to our hospitality standards: photography, listing creation, smart lock installation, supplies, and staging as needed.', timeline: 'Timeline: 1–4 weeks depending on scope' },
     { n: '05', title: 'Launch', body: 'Your property goes live on Airbnb, VRBO, the Rising Tide direct booking website (staycapeann.com), and additional channels. Now the fun part begins.', timeline: 'Timeline: 1–3 days to go live' },
   ];
   return (
@@ -196,16 +196,16 @@ function PageFAQTop() {
       <FAQGroup
         eyebrow="Guest Communication"
         items={[
-          { q: 'Who communicates with guests?', a: 'We handle all guest communication from booking through checkout — questions, requests, check-in coordination, and issue resolution. This centralized approach ensures fast response times and a consistently high-quality guest experience.' },
+          { q: 'Who communicates with guests?', a: 'We handle all guest communication from booking through checkout: questions, requests, check-in coordination, and issue resolution. This centralized approach ensures fast response times and a consistently high-quality guest experience.' },
           { q: 'Will I be copied on guest messages?', a: 'No. We manage guest communication end-to-end so you\'re not pulled into day-to-day questions. If something arises that requires your awareness or decision-making, we\'ll reach out directly.' },
         ]}
       />
       <FAQGroup
         eyebrow="Maintenance, Issues & Decision Thresholds"
         items={[
-          { q: 'Will I be contacted about every issue at the property?', a: 'No — and that\'s intentional. We resolve routine matters independently and reach out when an unexpected expense exceeds $300, a decision affects the home long-term, or your input would meaningfully impact the outcome. Our goal is to manage day-to-day issues quietly and involve you only when it truly matters.' },
+          { q: 'Will I be contacted about every issue at the property?', a: 'No, and that\'s intentional. We resolve routine matters independently and reach out when an unexpected expense exceeds $300, a decision affects the home long-term, or your input would meaningfully impact the outcome. Our goal is to manage day-to-day issues quietly and involve you only when it truly matters.' },
           { q: 'What happens if something urgent comes up?', a: 'If an issue poses a risk to guest safety, the home itself, or an upcoming stay, we may take immediate action to stabilize the situation and notify you as soon as possible.' },
-          { q: 'How do you handle damage caused by guests?', a: 'We assess the cause and pursue recovery whenever possible — filing claims through the booking platform, applying security deposits when applicable, and providing documentation throughout. Coverage varies by channel and is never guaranteed, but we always make a good-faith effort before costs reach the owner.' },
+          { q: 'How do you handle damage caused by guests?', a: 'We assess the cause and pursue recovery whenever possible: filing claims through the booking platform, applying security deposits when applicable, and providing documentation throughout. Coverage varies by channel and is never guaranteed, but we always make a good-faith effort before costs reach the owner.' },
           { q: 'What about general wear and tear or home-related issues?', a: 'Aging systems, appliance failure, leaks, and structural issues are the owner\'s responsibility. We\'ll notify you promptly and can recommend trusted vendors.' },
         ]}
       />
@@ -221,23 +221,23 @@ function PageFAQMid() {
       <FAQGroup
         eyebrow="Pricing, Occupancy & Performance"
         items={[
-          { q: 'How are nightly rates determined?', a: 'Rates are set with a focus on long-term performance — not simply filling every available night. We balance demand, seasonality, and the quality of your home to support strong revenue over time.' },
+          { q: 'How are nightly rates determined?', a: 'Rates are set with a focus on long-term performance, not simply filling every available night. We balance demand, seasonality, and the quality of your home to support strong revenue over time.' },
           { q: 'Why might the calendar not be completely full?', a: 'A completely full calendar isn\'t always the goal. Selective gaps can support stronger average nightly rates, preserve flexibility for high-value last-minute bookings, and reduce unnecessary wear during peak periods. We prioritize overall performance, not just occupancy percentage.' },
-          { q: 'Do you focus on direct bookings?', a: 'Yes — thoughtfully. We build repeat demand and direct relationships over time while maintaining strong visibility across major platforms. The goal is a balanced channel mix that supports stability, rate discipline, and long-term performance.' },
+          { q: 'Do you focus on direct bookings?', a: 'Yes, thoughtfully. We build repeat demand and direct relationships over time while maintaining strong visibility across major platforms. The goal is a balanced channel mix that supports stability, rate discipline, and long-term performance.' },
         ]}
       />
       <FAQGroup
         eyebrow="Owner Use & Access"
         items={[
           { q: 'Can I block dates for personal use?', a: 'Yes. You can block dates directly through the Rising Tide Owner Portal. We recommend doing so as early as possible to avoid conflicts with confirmed bookings.' },
-          { q: 'Can I stay at the property while it\'s under management?', a: 'Yes — owner stays are always welcome. During owner use, Rising Tide does not provide guest-style services or monitoring unless otherwise arranged in advance.' },
+          { q: 'Can I stay at the property while it\'s under management?', a: 'Yes, owner stays are always welcome. During owner use, Rising Tide does not provide guest-style services or monitoring unless otherwise arranged in advance.' },
         ]}
       />
       <FAQGroup
         eyebrow="Financial Visibility & Reporting"
         items={[
           { q: 'How and when do I receive payouts?', a: 'Owner payouts are issued monthly following the close of each month. Each payout is accompanied by a clear statement showing gross booking revenue, expenses, management fees, and net owner payout.' },
-          { q: 'What level of financial visibility will I have?', a: 'You\'ll have ongoing access to booking and performance data through the Rising Tide Owner Portal — full transparency without the noise of day-to-day management.' },
+          { q: 'What level of financial visibility will I have?', a: 'You\'ll have ongoing access to booking and performance data through the Rising Tide Owner Portal: full transparency without the noise of day-to-day management.' },
         ]}
       />
       <DocFooter />
