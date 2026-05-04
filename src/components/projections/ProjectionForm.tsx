@@ -181,7 +181,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
           </Field>
         </Row>
         <Row>
-          <Field label="Apply Year 1 ramp?" hint="Off (default): full seasonality from January. On: property goes live mid-year, months before are zero, then 0.2 / 0.5 / 1.0 over three months.">
+          <Field label="Ramp" hint="Off: full year from January. On: months before the go-live month are zero; the go-live month and the next two ramp at 0.2 / 0.5 / 1.0 of seasonality. Year 2 numbers always use the normalized full year, regardless.">
             <label style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid var(--rule)', cursor: 'pointer', fontSize: 14 }}>
               <input
                 type="checkbox"
@@ -189,10 +189,10 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
                 defaultChecked={!!v.apply_ramp}
                 style={{ width: 16, height: 16, accentColor: 'var(--signal)' }}
               />
-              <span>Property goes live mid-year</span>
+              <span>Apply ramp</span>
             </label>
           </Field>
-          <Field label="Go-live month" hint="Only used when ramp is on">
+          <Field label="Go-live month" hint="When ramp is on, the first month the property earns income.">
             <select
               name="start_month"
               defaultValue={v.start_month ?? 5}
