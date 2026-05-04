@@ -42,6 +42,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideYear1 computed={c} footer={footerLabel} />
         <SlideYear2 computed={c} footer={footerLabel} />
         <SlideServices footer={footerLabel} />
+        <SlideLocal footer={footerLabel} />
         <SlideOwnerControl footer={footerLabel} />
         <SlideClose footer={footerLabel} />
         <SlideEndnotes footer={footerLabel} />
@@ -330,6 +331,70 @@ function SlideServices({ footer }: { footer: string }) {
               </ul>
             </div>
           ))}
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+/**
+ * Local-focus slide. Captures the same message as the "Cape Ann, done right"
+ * section on risingtidestr.com — small portfolio, hyper-local, Gloucester
+ * HQ ten minutes from every home. No real map illustration in v1; the
+ * editorial "10 minutes" stat carries the slide.
+ */
+function SlideLocal({ footer }: { footer: string }) {
+  const items: { title: string; body: string }[] = [
+    {
+      title: 'HQ in the heart of Cape Ann.',
+      body: 'Rising Tide is based at 85 Eastern Ave in Gloucester — minutes from every home we manage.',
+    },
+    {
+      title: 'Supplies staged and ready.',
+      body: 'Linens, consumables, and maintenance gear stocked on-site. No waiting on shipments mid-stay.',
+    },
+    {
+      title: 'On the ground when it counts.',
+      body: 'When something needs attention, we&rsquo;re already close. No third-party dispatch, no out-of-state call center.',
+    },
+  ];
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <h2 className="rt-section-title">Cape Ann, done right.</h2>
+        <p className="rt-services-lead">
+          Gloucester and Rockport are our entire focus. Every home we manage benefits from that level of attention.
+        </p>
+
+        <div className="rt-local-grid">
+          <div className="rt-local-left">
+            <ul className="rt-local-list">
+              {items.map((it) => (
+                <li key={it.title}>
+                  <span className="rt-local-mark" aria-hidden="true">✓</span>
+                  <div>
+                    <div className="rt-local-h">{it.title}</div>
+                    <p className="rt-local-b" dangerouslySetInnerHTML={{ __html: it.body }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rt-local-right">
+            <div className="rt-local-stat">
+              <span className="rt-local-num">10</span>
+              <span className="rt-local-unit">min.</span>
+            </div>
+            <div className="rt-local-stat-cap">FROM EVERY HOME WE MANAGE</div>
+            <div className="rt-local-rule" />
+            <div className="rt-local-hq">
+              <div className="rt-local-hq-label">RISING TIDE HQ</div>
+              <div className="rt-local-hq-addr">85 Eastern Ave</div>
+              <div className="rt-local-hq-addr">Gloucester, MA</div>
+            </div>
+          </div>
         </div>
       </div>
       <Footer label={footer} />
@@ -1074,6 +1139,101 @@ const deckCss = `
   }
   .rt-service-list li:last-child { border-bottom: 0; }
   .rt-service-mark { color: var(--signal); font-size: 12px; flex-shrink: 0; padding-top: 2px; }
+
+  /* ── Local focus slide ── */
+  .rt-local-grid {
+    margin-top: 36px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .rt-local-left { display: flex; flex-direction: column; }
+  .rt-local-list { margin: 0; padding: 0; list-style: none; }
+  .rt-local-list li {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+  .rt-local-list li:first-child { border-top: 1px solid var(--ink); }
+  .rt-local-list li:last-child { border-bottom: 1px solid var(--ink); }
+  .rt-local-mark {
+    color: var(--signal);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    padding-top: 2px;
+  }
+  .rt-local-h {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+  }
+  .rt-local-b {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-3);
+    max-width: 460px;
+  }
+  .rt-local-right {
+    background: var(--paper-2);
+    border-left: 3px solid var(--signal);
+    padding: 36px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .rt-local-stat { display: flex; align-items: baseline; gap: 12px; }
+  .rt-local-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 156px;
+    line-height: 1;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.05em;
+  }
+  .rt-local-unit {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 32px;
+    font-style: italic;
+    font-weight: 300;
+    color: var(--ink-3);
+    letter-spacing: -0.01em;
+  }
+  .rt-local-stat-cap {
+    margin-top: 8px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-weight: 600;
+    max-width: 240px;
+    line-height: 1.45;
+  }
+  .rt-local-rule { width: 48px; height: 2px; background: var(--ink); margin: 24px 0 18px; }
+  .rt-local-hq-label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .rt-local-hq-addr {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 17px;
+    font-weight: 400;
+    color: var(--ink);
+    line-height: 1.4;
+  }
 
   /* ── Owner control (slide 9) ── */
   .rt-owner-grid {
