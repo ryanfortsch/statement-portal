@@ -512,9 +512,26 @@ const contractCss = `
     margin: 0 2px;
   }
 
-  .rt-c-bullets { margin: 0 0 12px 18px; padding: 0; font-size: 11px; line-height: 1.6; color: var(--ink); }
-  .rt-c-bullets li { padding: 3px 0; max-width: 640px; }
-  .rt-c-bullets ul { margin: 4px 0 0 18px; padding: 0; }
+  /* Bullets — Tailwind's preflight zeros list-style on ul/ol, so we restore
+     it here and color the markers signal so they read as Rising-Tide bullets.
+     padding-left is 42px = 24px body indent + ~18px bullet column,
+     so the text edge aligns with .rt-c-body. */
+  .rt-c-bullets {
+    margin: 0 0 12px;
+    padding-left: 42px;
+    list-style: disc;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink);
+    max-width: 702px;
+  }
+  .rt-c-bullets li { padding: 3px 0; }
+  .rt-c-bullets li::marker { color: var(--signal); }
+  .rt-c-bullets ul {
+    margin: 4px 0 0;
+    padding-left: 24px;
+    list-style: circle;
+  }
   .rt-c-bullets ul li { padding: 2px 0; }
 
   /* Rider clauses (per-deal addenda) */
