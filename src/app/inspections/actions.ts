@@ -43,69 +43,89 @@ export async function startInspection(formData: FormData) {
   redirect(`/inspections/${data.id}`);
 }
 
-type SubmittedItem = { itemId: string; status: InspectionStatus; notes: string };
-
-export async function completeInspection(inspectionId: string, formData: FormData) {
+/**
+ * Save (or re-save) a single item's result. Used by the mobile stepper
+ * for per-card optimistic saves. Idempotent (upserts on
+ * inspection_id + item_id) so repeated taps or retries are safe.
+ */
+export async function saveResult(args: {
+  inspectionId: string;
+  itemId: string;
+  status: InspectionStatus;
+  notes: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
 
-  const items: SubmittedItem[] = [];
-  for (const [key, value] of formData.entries()) {
-    if (!key.startsWith('status_')) continue;
-    const itemId = key.slice('status_'.length);
-    const status = String(value) as InspectionStatus;
-    if (status !== 'pass' && status !== 'issue' && status !== 'na') continue;
-    const notes = String(formData.get(`notes_${itemId}`) || '').trim();
-    items.push({ itemId, status, notes });
+  if (args.status !== 'pass' && args.status !== 'issue' && args.status !== 'na') {
+    return { ok: false, error: `Invalid status: ${args.status}` };
   }
 
-  if (items.length === 0) throw new Error('Mark at least one item before submitting');
-
-  const { error: resultsError } = await supabase
+  const { error } = await supabase
     .from('inspection_results')
     .upsert(
-      items.map((i) => ({
-        inspection_id: inspectionId,
-        item_id: i.itemId,
-        status: i.status,
-        notes: i.notes || null,
-      })),
+      {
+        inspection_id: args.inspectionId,
+        item_id: args.itemId,
+        status: args.status,
+        notes: args.notes || null,
+      },
       { onConflict: 'inspection_id,item_id' }
     );
 
-  if (resultsError) throw new Error(resultsError.message);
+  if (error) return { ok: false, error: error.message };
 
-  const passCount = items.filter((i) => i.status === 'pass').length;
-  const issueCount = items.filter((i) => i.status === 'issue').length;
-  const naCount = items.filter((i) => i.status === 'na').length;
+  revalidatePath(`/inspections/${args.inspectionId}`);
+  return { ok: true };
+}
 
-  // Look up the property + template + which items are intermittent so we
-  // can (a) record per-property history for any intermittent items just
-  // completed and (b) bump the per-property "inspections since last
-  // intermittent" counter (or reset to 0 when an intermittent ran).
-  const { data: insp } = await supabase
-    .from('inspections')
-    .select('property_id, template_id')
-    .eq('id', inspectionId)
-    .maybeSingle();
+/**
+ * Finalize an inspection. Reads existing inspection_results (already
+ * saved per-card via saveResult), computes aggregate counts on the
+ * inspection row, records any intermittent items completed to the
+ * per-property history, bumps or resets the spacing counter, and
+ * redirects to the summary page.
+ */
+export async function completeInspection(inspectionId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const [{ data: results }, { data: insp }] = await Promise.all([
+    supabase
+      .from('inspection_results')
+      .select('item_id, status')
+      .eq('inspection_id', inspectionId),
+    supabase
+      .from('inspections')
+      .select('property_id, template_id')
+      .eq('id', inspectionId)
+      .maybeSingle(),
+  ]);
+
+  const allResults = (results ?? []) as { item_id: string; status: InspectionStatus }[];
+  if (allResults.length === 0) throw new Error('Mark at least one item before completing');
+
+  const passCount = allResults.filter((r) => r.status === 'pass').length;
+  const issueCount = allResults.filter((r) => r.status === 'issue').length;
+  const naCount = allResults.filter((r) => r.status === 'na').length;
 
   if (insp) {
-    const itemIds = items.map((i) => i.itemId);
+    const itemIds = allResults.map((r) => r.item_id);
     const { data: itemRows } = await supabase
       .from('inspection_items')
       .select('id, item_category')
       .in('id', itemIds);
 
-    const intermittentItemIds = new Set(
+    const intermittentIds = new Set(
       (itemRows ?? [])
         .filter((r: { item_category: string | null }) => r.item_category === 'INTERMITTENT')
         .map((r: { id: string }) => r.id)
     );
 
-    if (intermittentItemIds.size > 0) {
+    if (intermittentIds.size > 0) {
       const nowIso = new Date().toISOString();
       await supabase.from('property_inspection_item_history').upsert(
-        Array.from(intermittentItemIds).map((iid) => ({
+        Array.from(intermittentIds).map((iid) => ({
           property_id: (insp as { property_id: string }).property_id,
           inspection_item_id: iid,
           last_completed_at: nowIso,
@@ -114,19 +134,19 @@ export async function completeInspection(inspectionId: string, formData: FormDat
         { onConflict: 'property_id,inspection_item_id' }
       );
 
-      // Reset spacing counter -- an intermittent just ran.
       await supabase
         .from('properties')
         .update({ inspections_since_last_intermittent: 0 })
         .eq('id', (insp as { property_id: string }).property_id);
     } else {
-      // Bump the spacing counter -- this inspection had no intermittent.
       const { data: prop } = await supabase
         .from('properties')
         .select('inspections_since_last_intermittent')
         .eq('id', (insp as { property_id: string }).property_id)
         .maybeSingle();
-      const next = ((prop as { inspections_since_last_intermittent: number } | null)?.inspections_since_last_intermittent ?? 0) + 1;
+      const next =
+        ((prop as { inspections_since_last_intermittent: number } | null)
+          ?.inspections_since_last_intermittent ?? 0) + 1;
       await supabase
         .from('properties')
         .update({ inspections_since_last_intermittent: next })
@@ -138,7 +158,7 @@ export async function completeInspection(inspectionId: string, formData: FormDat
     .from('inspections')
     .update({
       completed_at: new Date().toISOString(),
-      total_items: items.length,
+      total_items: allResults.length,
       pass_count: passCount,
       issue_count: issueCount,
       na_count: naCount,
