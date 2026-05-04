@@ -139,6 +139,19 @@ export type OnboardingData = {
   emergency_relationship?: string;
   emergency_phone?: string;
   emergency_email?: string;
+
+  // Inspection & safety (Gloucester STR permit Information Note)
+  trash_day?: string;
+  recycling_day?: string;
+  trash_notes?: string;
+  parking_regulations?: string;
+  gas_shutoff_location?: string;
+  water_shutoff_location?: string;
+  electrical_panel_location?: string;
+  fire_extinguisher_locations?: string;
+  smoke_detector_locations?: string;
+  fire_exit_locations?: string;
+  str_permit_expires?: string;
 };
 
 /** The set of editable input fields used by the form + server actions. */

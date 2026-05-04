@@ -206,6 +206,19 @@ export type HelmPropertyRow = {
   emergency_contact_phone: string | null;
   emergency_contact_email: string | null;
 
+  // Inspection & safety (Gloucester STR permit Information Note)
+  trash_day: string | null;
+  recycling_day: string | null;
+  trash_notes: string | null;
+  parking_regulations: string | null;
+  gas_shutoff_location: string | null;
+  water_shutoff_location: string | null;
+  electrical_panel_location: string | null;
+  fire_extinguisher_locations: string | null;
+  smoke_detector_locations: string | null;
+  fire_exit_locations: string | null;
+  str_permit_expires: string | null;
+
   // Funnel link: which prospect record promoted into this property
   projection_id: string | null;
 
@@ -219,6 +232,31 @@ export const ALWAYS_CC = [
   'allie@risingtidestr.com',
   'ryan@risingtidestr.com',
 ];
+
+/**
+ * 24-hour local contacts posted on every property's Information Note.
+ *
+ * Gloucester's STR ordinance (and most STR licensing jurisdictions) require
+ * a posted operator + an additional 24-hour reachable contact. These are
+ * company-wide for Rising Tide, so they live here as constants rather than
+ * per-property columns. Override at render time if a specific property
+ * eventually needs a different second contact.
+ */
+export const LOCAL_CONTACTS_24HR = {
+  operator: {
+    name: 'Allie O\'Brien',
+    role: 'Operations',
+    phone: '(978) 865-2387',
+    email: 'allie@risingtidestr.com',
+  },
+  backup: {
+    name: 'Dotti Maguire',
+    role: 'Owner / 24-hour contact',
+    // TODO: confirm the right number to post here. Email-only for now.
+    phone: '',
+    email: 'dotti@risingtidestr.com',
+  },
+};
 
 /** Sender identity used in drafts. */
 export const SEND_FROM = {

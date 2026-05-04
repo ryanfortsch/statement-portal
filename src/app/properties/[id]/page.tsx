@@ -157,7 +157,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </section>
 
-      {/* GUEST DELIVERABLES — Stay Collections home guide + WiFi placard */}
+      {/* GUEST DELIVERABLES — Stay Collections home guide + WiFi placard + Information Note */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
@@ -168,7 +168,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 22 }}>
           <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
             Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-            (WiFi, parking, climate, etc). Edit operational data below to refresh.
+            (WiFi, parking, climate, safety equipment, etc). Edit operational data below to refresh.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
             {/* Welcome Guide tile */}
@@ -206,6 +206,28 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   Open ↗
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
+              </div>
+            </div>
+            {/* Information Note tile */}
+            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Information Note</div>
+              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                Posted house &amp; civic info
+              </h3>
+              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
+                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
+                {missingInfoNoteFields(p).length > 0 ? (
+                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                    Missing: {missingInfoNoteFields(p).join(', ')}.
+                  </span>
+                ) : null}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
+                  Open ↗
+                </Link>
+                <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
               </div>
             </div>
           </div>
@@ -373,6 +395,23 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   );
 }
 
+/**
+ * Surfaces which Information Note fields are still empty so Dotti knows
+ * what to backfill. Returns short labels in the order the fields appear on
+ * the printed document.
+ */
+function missingInfoNoteFields(p: HelmPropertyRow): string[] {
+  const checks: Array<[unknown, string]> = [
+    [p.trash_day, 'trash day'],
+    [p.parking_regulations, 'parking regs'],
+    [p.gas_shutoff_location, 'gas shutoff'],
+    [p.fire_extinguisher_locations, 'extinguishers'],
+    [p.smoke_detector_locations, 'smoke alarms'],
+    [p.fire_exit_locations, 'fire exits'],
+  ];
+  return checks.filter(([v]) => !v).map(([, label]) => label);
+}
+
 /** Renders any operational sections that have at least one populated field. */
 type OpRow = { label: string; value: string | number | null; mono?: boolean };
 const primaryActionStyle: React.CSSProperties = {
@@ -432,6 +471,19 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
     { label: 'Phone', value: p.emergency_contact_phone, mono: true },
     { label: 'Email', value: p.emergency_contact_email, mono: true },
   ];
+  const inspection: OpRow[] = [
+    { label: 'Trash day', value: p.trash_day },
+    { label: 'Recycling day', value: p.recycling_day },
+    { label: 'Trash notes', value: p.trash_notes },
+    { label: 'Parking regulations', value: p.parking_regulations },
+    { label: 'Gas shutoff', value: p.gas_shutoff_location },
+    { label: 'Water shutoff', value: p.water_shutoff_location },
+    { label: 'Electrical panel', value: p.electrical_panel_location },
+    { label: 'Fire extinguishers', value: p.fire_extinguisher_locations },
+    { label: 'Smoke / CO detectors', value: p.smoke_detector_locations },
+    { label: 'Fire exits', value: p.fire_exit_locations },
+    { label: 'STR permit expires', value: p.str_permit_expires },
+  ];
 
   const groups = [
     { title: 'Property specs', rows: specs },
@@ -439,6 +491,7 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
     { title: 'STR setup', rows: str },
     { title: 'Property access & notes', rows: access },
     { title: 'Emergency contact', rows: emergency },
+    { title: 'Inspection & safety', rows: inspection },
   ];
 
   // Hide entirely if nothing has been onboarded yet — keeps the page clean
