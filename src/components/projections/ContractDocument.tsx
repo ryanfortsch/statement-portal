@@ -22,7 +22,6 @@ export function ContractDocument({
   const ownerName = projection.prospect_full_legal || projection.prospect_name;
   const today = new Date();
   const issuedDate = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const issuedNarrative = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const propertyAddress = `${projection.property_address}${projection.property_city ? `, ${projection.property_city}` : ''}`;
   const propertyType = projection.property_type || 'House';
   const mgmtPct = fmtPct(projection.mgmt_fee_pct);
@@ -31,10 +30,12 @@ export function ContractDocument({
   const minDays = projection.min_availability_days;
   const saleDays = projection.sale_notification_days;
   const repFee = fmtMoney(projection.reputation_fee);
-  const termStart = fmtDateShort(projection.term_start);
-  const termEnd = fmtDateShort(projection.term_end);
-  const termStartLong = fmtDateNarrative(projection.term_start);
-  const termEndLong = fmtDateNarrative(projection.term_end);
+  // Term-date renderings. Empty term_start / term_end render as a fillable
+  // underline, not "—", so the contract reads "...shall commence on ____".
+  const termStartShort = projection.term_start ? fmtDateShort(projection.term_start) : null;
+  const termEndShort = projection.term_end ? fmtDateShort(projection.term_end) : null;
+  const termStartLong = projection.term_start ? fmtDateNarrative(projection.term_start) : null;
+  const termEndLong = projection.term_end ? fmtDateNarrative(projection.term_end) : null;
 
   // Signature state. The "Date" field in the signature block is the contract's
   // effective date (term_start), not the moment the owner clicked submit.
@@ -71,7 +72,7 @@ export function ContractDocument({
         <section className="rt-doc-page">
           <SectionTitle title="Summary" />
           <p className="rt-c-body">
-            This Agreement is made and entered into on <Term>{issuedNarrative}</Term> by and between Rising Tide STR, LLC (&ldquo;Property Manager&rdquo;), a Massachusetts Limited Liability Company, located at 3 Locust Lane, Gloucester, MA, and <Term>{ownerName}</Term> (&ldquo;Owner&rdquo;), collectively referred to as the &ldquo;Parties&rdquo;.
+            This Agreement is made and entered into on <DateOrBlank value={termStartLong} /> by and between Rising Tide STR, LLC (&ldquo;Property Manager&rdquo;), a Massachusetts Limited Liability Company, located at 3 Locust Lane, Gloucester, MA, and <Term>{ownerName}</Term> (&ldquo;Owner&rdquo;), collectively referred to as the &ldquo;Parties&rdquo;.
           </p>
 
           <SectionTitle title="Property Details" />
@@ -82,10 +83,10 @@ export function ContractDocument({
 
           <SectionTitle title="Term" />
           <p className="rt-c-body">
-            This Agreement shall commence on <Term>{termStart}</Term> and continue until <Term>{termEnd}</Term>, unless terminated earlier in accordance with the terms herein.
+            This Agreement shall commence on <DateOrBlank value={termStartShort} /> and continue until <DateOrBlank value={termEndShort} />, unless terminated earlier in accordance with the terms herein.
           </p>
           <p className="rt-c-body">
-            This Agreement shall commence on <Term>{termStartLong}</Term> and continue through <Term>{termEndLong}</Term>, unless terminated earlier in accordance with the terms herein. Upon expiration of the initial term, this Agreement shall automatically renew for successive one-year terms unless either party provides written notice of non-renewal. For calendar year 2026, such notice must be provided at least 60 days prior to the end of the then-current term; thereafter, notice must be provided at least 120 days prior to the end of the then-current term. This advance notice requirement ensures adequate lead time to close the calendar and prevent unfillable bookings.
+            This Agreement shall commence on <DateOrBlank value={termStartLong} /> and continue through <DateOrBlank value={termEndLong} />, unless terminated earlier in accordance with the terms herein. Upon expiration of the initial term, this Agreement shall automatically renew for successive one-year terms unless either party provides written notice of non-renewal. For calendar year 2026, such notice must be provided at least 60 days prior to the end of the then-current term; thereafter, notice must be provided at least 120 days prior to the end of the then-current term. This advance notice requirement ensures adequate lead time to close the calendar and prevent unfillable bookings.
           </p>
 
           <SectionTitle title="Property Manager's Responsibilities" />
@@ -263,37 +264,18 @@ export function ContractDocument({
 
           <SectionTitle title="Signatures" />
           <div className="rt-c-sig-grid">
-            <div className="rt-c-sig">
-              <div className="rt-c-sig-row"><span className="rt-c-sig-label">Owner&rsquo;s Name</span><span className="rt-c-sig-val"><Term>{ownerName}</Term></span></div>
-              <div className="rt-c-sig-row">
-                <span className="rt-c-sig-label">Owner&rsquo;s Signature</span>
-                {signedName ? (
-                  <span className="rt-c-sig-signed">{signedName}</span>
-                ) : (
-                  <span className="rt-c-sig-line" />
-                )}
-              </div>
-              <div className="rt-c-sig-row">
-                <span className="rt-c-sig-label">Date</span>
-                {effectiveDate ? (
-                  <span className="rt-c-sig-signed-date">{effectiveDate}</span>
-                ) : (
-                  <span className="rt-c-sig-line" />
-                )}
-              </div>
-            </div>
-            <div className="rt-c-sig">
-              <div className="rt-c-sig-row"><span className="rt-c-sig-label">Rising Tide STR, LLC<br /><span className="rt-c-sig-sub">Representative</span></span><span className="rt-c-sig-val">Allie O&rsquo;Brien</span></div>
-              <div className="rt-c-sig-row"><span className="rt-c-sig-label">Representative Signature</span><span className="rt-c-sig-line" /></div>
-              <div className="rt-c-sig-row">
-                <span className="rt-c-sig-label">Date</span>
-                {effectiveDate ? (
-                  <span className="rt-c-sig-signed-date">{effectiveDate}</span>
-                ) : (
-                  <span className="rt-c-sig-line" />
-                )}
-              </div>
-            </div>
+            <SignerBlock
+              eyebrow="Owner"
+              printedName={ownerName}
+              signedName={signedName}
+              dateValue={effectiveDate}
+            />
+            <SignerBlock
+              eyebrow="Property Manager"
+              printedName="Allie O'Brien, Rising Tide STR, LLC"
+              signedName={null}
+              dateValue={effectiveDate}
+            />
           </div>
           {signedName && signedAt && (
             <div className="rt-c-audit">
@@ -345,6 +327,47 @@ function SectionTitle({ title }: { title: string }) {
 
 function Term({ children }: { children: React.ReactNode }) {
   return <span className="rt-c-term">{children}</span>;
+}
+
+/** Renders a Term-style date when present, or a fillable underline blank. */
+function DateOrBlank({ value }: { value: string | null }) {
+  if (value) return <Term>{value}</Term>;
+  return <span className="rt-c-blank" aria-label="date blank" />;
+}
+
+/** A stacked signature block: printed name, signature, date — each on its own
+ *  full-width line with a caption beneath. Used for both the Owner column and
+ *  the Property Manager column on the signatures page. */
+function SignerBlock({
+  eyebrow,
+  printedName,
+  signedName,
+  dateValue,
+}: {
+  eyebrow: string;
+  printedName: string;
+  signedName: string | null;
+  dateValue: string | null;
+}) {
+  return (
+    <div className="rt-c-signer">
+      <div className="rt-c-signer-eyebrow">{eyebrow}</div>
+      <div className="rt-c-signer-field">
+        <div className="rt-c-signer-line">{printedName}</div>
+        <div className="rt-c-signer-cap">Printed Name</div>
+      </div>
+      <div className="rt-c-signer-field">
+        <div className="rt-c-signer-line">
+          {signedName ? <span className="rt-c-signer-signed">{signedName}</span> : null}
+        </div>
+        <div className="rt-c-signer-cap">Signature</div>
+      </div>
+      <div className="rt-c-signer-field">
+        <div className="rt-c-signer-line rt-c-signer-line-mono">{dateValue || ''}</div>
+        <div className="rt-c-signer-cap">Date</div>
+      </div>
+    </div>
+  );
 }
 
 function DocFooter({ pageNum }: { pageNum: number }) {
@@ -462,7 +485,25 @@ const contractCss = `
   .rt-c-section:first-child { margin-top: 0; }
   .rt-c-section-mark { color: var(--signal); font-size: 12px; }
 
-  .rt-c-body { margin: 0 0 12px; font-size: 11px; line-height: 1.6; color: var(--ink); max-width: 660px; }
+  .rt-c-body {
+    margin: 0 0 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink);
+    max-width: 660px;
+    text-indent: 24px;       /* tab in like a traditional contract paragraph */
+  }
+
+  /* Fillable underline blank — used inline in body paragraphs when a date or
+     other deal-specific term is not yet filled in. */
+  .rt-c-blank {
+    display: inline-block;
+    width: 130px;
+    border-bottom: 1px solid var(--ink-3);
+    height: 1em;
+    vertical-align: text-bottom;
+    margin: 0 2px;
+  }
 
   .rt-c-bullets { margin: 0 0 12px 18px; padding: 0; font-size: 11px; line-height: 1.6; color: var(--ink); }
   .rt-c-bullets li { padding: 3px 0; max-width: 640px; }
@@ -499,44 +540,55 @@ const contractCss = `
     white-space: nowrap;
   }
 
-  .rt-c-sig-grid { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
-  .rt-c-sig { display: flex; flex-direction: column; gap: 18px; }
-  .rt-c-sig-row { display: grid; grid-template-columns: 140px 1fr; gap: 16px; align-items: end; }
-  .rt-c-sig-label {
-    font-size: 10px;
+  /* Signature block — two stacked signers with full-width lines + captions.
+     Replaces the old side-by-side label/value rows that read as cramped. */
+  .rt-c-sig-grid {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px;
+  }
+  .rt-c-signer { display: flex; flex-direction: column; gap: 20px; }
+  .rt-c-signer-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .rt-c-signer-field { display: flex; flex-direction: column; }
+  .rt-c-signer-line {
+    border-bottom: 1px solid var(--ink);
+    height: 30px;
+    display: flex;
+    align-items: flex-end;
+    padding: 0 2px 4px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 400;
+    line-height: 1;
+  }
+  .rt-c-signer-line-mono {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-size: 12px;
+  }
+  .rt-c-signer-signed {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--signal);
+    line-height: 1;
+    font-weight: 400;
+  }
+  .rt-c-signer-cap {
+    margin-top: 5px;
+    font-size: 9px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--ink-4);
     font-weight: 500;
-    line-height: 1.3;
-  }
-  .rt-c-sig-sub { font-size: 9px; letter-spacing: 0.06em; text-transform: none; color: var(--ink-3); font-weight: 400; }
-  .rt-c-sig-val {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 14px;
-    color: var(--ink);
-    border-bottom: 1px solid var(--ink);
-    padding-bottom: 4px;
-  }
-  .rt-c-sig-line { height: 22px; border-bottom: 1px solid var(--ink); }
-
-  /* Signed signature: typed name in Fraunces italic, mimics a signed-over line. */
-  .rt-c-sig-signed {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-style: italic;
-    font-size: 22px;
-    color: var(--signal);
-    border-bottom: 1px solid var(--ink);
-    padding-bottom: 2px;
-    line-height: 1.1;
-    font-weight: 400;
-  }
-  .rt-c-sig-signed-date {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 14px;
-    color: var(--ink);
-    border-bottom: 1px solid var(--ink);
-    padding-bottom: 4px;
   }
   .rt-c-audit {
     margin-top: 14px;
