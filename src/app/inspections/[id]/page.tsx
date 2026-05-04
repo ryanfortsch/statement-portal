@@ -27,17 +27,30 @@ async function getInspection(id: string): Promise<{
     .maybeSingle();
   if (error || !inspection) return null;
 
+  const insp = inspection as InspectionRow;
+
+  // The deck for this inspection: 10 ordered item ids snapshotted at
+  // startInspection time. Older inspections (created before the deck
+  // system landed) won't have ordered_item_ids, so we fall back to the
+  // full template item list for those.
+  const deckIds = insp.ordered_item_ids ?? null;
+
   const [{ data: property }, { data: items }, { data: results }] = await Promise.all([
     supabase
       .from('properties')
       .select('id, name, title, city')
-      .eq('id', (inspection as InspectionRow).property_id)
+      .eq('id', insp.property_id)
       .maybeSingle(),
-    supabase
-      .from('inspection_items')
-      .select('id, template_id, category, title, description, sort_order')
-      .eq('template_id', (inspection as InspectionRow).template_id)
-      .order('sort_order'),
+    deckIds && deckIds.length > 0
+      ? supabase
+          .from('inspection_items')
+          .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
+          .in('id', deckIds)
+      : supabase
+          .from('inspection_items')
+          .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
+          .eq('template_id', insp.template_id)
+          .order('sort_order'),
     supabase
       .from('inspection_results')
       .select('id, inspection_id, item_id, status, notes, photo_urls, created_at')
@@ -46,10 +59,19 @@ async function getInspection(id: string): Promise<{
 
   if (!property) return null;
 
+  // Preserve the deck order (ordered_item_ids), not sort_order
+  let orderedItems = (items ?? []) as InspectionItemRow[];
+  if (deckIds && deckIds.length > 0) {
+    const itemMap = new Map(orderedItems.map((it) => [it.id, it]));
+    orderedItems = deckIds
+      .map((iid) => itemMap.get(iid))
+      .filter((x): x is InspectionItemRow => x != null);
+  }
+
   return {
-    inspection: inspection as InspectionRow,
+    inspection: insp,
     property: property as PropertyShape,
-    items: (items ?? []) as InspectionItemRow[],
+    items: orderedItems,
     results: (results ?? []) as InspectionResultRow[],
   };
 }
