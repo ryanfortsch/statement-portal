@@ -113,12 +113,31 @@ export type Turnover = {
   inspectionStatus: InspectionStatus;
 };
 
+export type CalendarCell = {
+  date: string;
+  reservation: ReservationRow | null;
+  isCheckIn: boolean;
+  isContinuation: boolean;
+};
+
+export type CalendarRow = {
+  property: PropertyMini;
+  cells: CalendarCell[];
+};
+
+export type CalendarData = {
+  days: string[];
+  rows: CalendarRow[];
+  todayIndex: number;
+};
+
 export type OperationsData = {
   rangeStart: string;
   rangeEnd: string;
   turnovers: Turnover[];
   totalCount: number;
   inspectionDoneCount: number;
+  calendar: CalendarData;
 };
 
 /**
@@ -133,18 +152,27 @@ export async function loadOperationsData(range: Range): Promise<OperationsData> 
   const days = RANGE_DAYS[range];
   const rangeEnd = addDaysStr(rangeStart, days);
 
-  // Lookback 30 days so we can resolve previous checkouts; lookahead +1 so
-  // ranges that include "today" still match reservations on the boundary.
-  const fetchStart = addDaysStr(rangeStart, -30);
-  const fetchEnd = addDaysStr(rangeEnd, 1);
+  // Calendar window: always show at least a week of context even on the
+  // "today" tab so the operator can see what's coming.
+  const calendarDays = Math.max(days, 7);
+  const calendarEnd = addDaysStr(rangeStart, calendarDays);
 
+  // Lookback 30 days so we can resolve previous checkouts; lookahead through
+  // calendarEnd + 1 so we capture every reservation overlapping the calendar.
+  const fetchStart = addDaysStr(rangeStart, -30);
+  const fetchEnd = addDaysStr(calendarEnd, 1);
+
+  // Overlap-based query: a reservation overlaps [fetchStart, fetchEnd] iff
+  //   check_in <= fetchEnd  AND  check_out >= fetchStart.
+  // Catches stays already in progress when the window opens, which the
+  // calendar needs to show occupancy on day 0.
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
     .select(
       'guesty_reservation_id, property_id, guest_name, channel, guesty_channel_id, check_in, check_out, nights, status'
     )
-    .gte('check_in', fetchStart)
     .lte('check_in', fetchEnd)
+    .gte('check_out', fetchStart)
     .order('check_in', { ascending: true });
 
   if (resErr) {
@@ -168,20 +196,17 @@ export async function loadOperationsData(range: Range): Promise<OperationsData> 
 
   const inspections = (inspData ?? []) as InspectionRow[];
 
-  // Property metadata for display (active only — but we still want to surface
-  // any reservation pointing at a property we know about).
-  const propertyIds = Array.from(new Set(reservations.map((r) => r.property_id)));
-  let properties: PropertyMini[] = [];
-  if (propertyIds.length > 0) {
-    const { data: propData, error: propErr } = await supabase
-      .from('properties')
-      .select('id, name, title, city')
-      .in('id', propertyIds);
-    if (propErr) {
-      throw new Error(`Failed to load properties: ${propErr.message}`);
-    }
-    properties = (propData ?? []) as PropertyMini[];
+  // All active properties — drives the calendar's row list (so vacant
+  // properties show up as empty rows, which is the whole point of the grid).
+  const { data: propData, error: propErr } = await supabase
+    .from('properties')
+    .select('id, name, title, city')
+    .eq('is_active', true)
+    .order('name');
+  if (propErr) {
+    throw new Error(`Failed to load properties: ${propErr.message}`);
   }
+  const properties = (propData ?? []) as PropertyMini[];
   const propertyById = new Map(properties.map((p) => [p.id, p]));
 
   // Build a per-property checkout-date index so we can resolve previous
@@ -259,11 +284,48 @@ export async function loadOperationsData(range: Range): Promise<OperationsData> 
 
   const inspectionDoneCount = turnovers.filter((t) => t.inspectionStatus === 'complete').length;
 
+  // ── Calendar ──────────────────────────────────────────────────────────
+  // One row per active property, columns = `calendarDays` consecutive dates
+  // starting from today. Each cell either has a reservation occupying that
+  // night (check_in <= date < check_out) or is empty (vacant).
+  const calendarDayList: string[] = [];
+  for (let i = 0; i < calendarDays; i += 1) {
+    calendarDayList.push(addDaysStr(rangeStart, i));
+  }
+
+  const reservationsByProperty = new Map<string, ReservationRow[]>();
+  for (const r of reservations) {
+    const arr = reservationsByProperty.get(r.property_id) ?? [];
+    arr.push(r);
+    reservationsByProperty.set(r.property_id, arr);
+  }
+
+  const calendarRows: CalendarRow[] = properties.map((property) => {
+    const propertyReservations = reservationsByProperty.get(property.id) ?? [];
+    const cells: CalendarCell[] = calendarDayList.map((date) => {
+      const occupying = propertyReservations.find(
+        (r) => r.check_in <= date && date < r.check_out
+      ) ?? null;
+      return {
+        date,
+        reservation: occupying,
+        isCheckIn: !!occupying && occupying.check_in === date,
+        isContinuation: !!occupying && occupying.check_in !== date,
+      };
+    });
+    return { property, cells };
+  });
+
   return {
     rangeStart,
     rangeEnd,
     turnovers,
     totalCount: turnovers.length,
     inspectionDoneCount,
+    calendar: {
+      days: calendarDayList,
+      rows: calendarRows,
+      todayIndex: 0,
+    },
   };
 }

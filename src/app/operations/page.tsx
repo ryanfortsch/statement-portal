@@ -7,6 +7,7 @@ import {
   loadOperationsData,
   RANGE_LABEL,
   VALID_RANGES,
+  type CalendarData,
   type Range,
   type Turnover,
 } from '@/lib/operations';
@@ -170,7 +171,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       </section>
 
       {/* TURNOVER LIST */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         {data.totalCount === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
             Pick a wider range to see upcoming check-ins.
@@ -182,6 +183,23 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             ))}
           </div>
         )}
+      </section>
+
+      {/* OCCUPANCY CALENDAR */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="font-serif" style={{
+            fontSize: 22,
+            fontWeight: 400,
+            letterSpacing: '-0.01em',
+            color: 'var(--ink)',
+            margin: 0,
+          }}>
+            On the calendar
+          </h2>
+          <span className="eyebrow">{data.calendar.days.length} day{data.calendar.days.length === 1 ? '' : 's'}</span>
+        </div>
+        <CalendarGrid calendar={data.calendar} />
       </section>
 
       {/* FOOTER */}
@@ -345,6 +363,218 @@ function TurnoverRow({ turnover: t }: { turnover: Turnover }) {
       )}
     </div>
   );
+}
+
+function CalendarGrid({ calendar }: { calendar: CalendarData }) {
+  const { days, rows, todayIndex } = calendar;
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
+        No active properties.
+      </div>
+    );
+  }
+
+  const propertyColWidth = 144;
+  const dayColMin = 40;
+  const gridTemplate = `${propertyColWidth}px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
+  const headerHeight = 48;
+  const rowHeight = 36;
+
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--ink)',
+        borderBottom: '1px solid var(--ink)',
+        overflowX: 'auto',
+      }}
+    >
+      <div style={{ minWidth: 'max-content', display: 'grid', gridTemplateColumns: gridTemplate }}>
+        {/* HEADER ROW */}
+        <div
+          style={{
+            height: headerHeight,
+            borderBottom: '1px solid var(--rule)',
+            background: 'var(--paper)',
+          }}
+        />
+        {days.map((d, i) => {
+          const isToday = i === todayIndex;
+          const dt = new Date(`${d}T00:00:00`);
+          const dow = dt.toLocaleDateString('en-US', { weekday: 'short' });
+          const dn = dt.getDate();
+          return (
+            <div
+              key={d}
+              style={{
+                height: headerHeight,
+                borderBottom: '1px solid var(--rule)',
+                borderLeft: '1px solid var(--rule-soft)',
+                background: isToday ? 'var(--paper-2)' : 'var(--paper)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px 2px',
+                position: 'relative',
+              }}
+            >
+              {isToday && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    background: 'var(--signal)',
+                  }}
+                />
+              )}
+              <div
+                style={{
+                  fontSize: 9,
+                  letterSpacing: '0.16em',
+                  textTransform: 'uppercase',
+                  color: isToday ? 'var(--signal)' : 'var(--ink-4)',
+                  fontWeight: 500,
+                }}
+              >
+                {dow}
+              </div>
+              <div
+                className="font-serif tabular-nums"
+                style={{
+                  fontSize: 16,
+                  fontWeight: 400,
+                  lineHeight: 1.1,
+                  color: isToday ? 'var(--signal)' : 'var(--ink)',
+                  marginTop: 2,
+                }}
+              >
+                {dn}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* PROPERTY ROWS */}
+        {rows.map((row, rowIndex) => {
+          const isLastRow = rowIndex === rows.length - 1;
+          return (
+            <PropertyCalendarRow
+              key={row.property.id}
+              row={row}
+              days={days}
+              todayIndex={todayIndex}
+              rowHeight={rowHeight}
+              isLastRow={isLastRow}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PropertyCalendarRow({
+  row,
+  days,
+  todayIndex,
+  rowHeight,
+  isLastRow,
+}: {
+  row: CalendarData['rows'][number];
+  days: string[];
+  todayIndex: number;
+  rowHeight: number;
+  isLastRow: boolean;
+}) {
+  const rowBorder = isLastRow ? 'none' : '1px solid var(--rule-soft)';
+  return (
+    <>
+      <div
+        style={{
+          height: rowHeight,
+          borderBottom: rowBorder,
+          padding: '0 14px',
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: 13,
+          color: 'var(--ink)',
+          background: 'var(--paper)',
+        }}
+      >
+        {row.property.name}
+      </div>
+      {row.cells.map((cell, i) => {
+        const isToday = i === todayIndex;
+        const occupied = !!cell.reservation;
+        // Connect adjacent cells of the same reservation: only the FIRST cell
+        // of a reservation gets a left rule, so the visual block reads as one.
+        const prevCell = i > 0 ? row.cells[i - 1] : null;
+        const sameAsPrev =
+          occupied &&
+          !!prevCell?.reservation &&
+          prevCell.reservation.guesty_reservation_id === cell.reservation!.guesty_reservation_id;
+
+        const bg = occupied
+          ? isToday
+            ? 'var(--paper-3)'
+            : 'var(--paper-2)'
+          : isToday
+            ? 'rgba(232, 184, 165, 0.18)' // signal-soft @ 18% for today vacancy
+            : 'transparent';
+
+        return (
+          <div
+            key={cell.date}
+            style={{
+              height: rowHeight,
+              borderBottom: rowBorder,
+              borderLeft: sameAsPrev ? 'none' : '1px solid var(--rule-soft)',
+              background: bg,
+              padding: '0 6px',
+              display: 'flex',
+              alignItems: 'center',
+              fontSize: 11,
+              color: 'var(--ink)',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+              minWidth: 0,
+            }}
+            title={
+              occupied && cell.reservation
+                ? `${cell.reservation.guest_name ?? 'Guest'} · ${cell.reservation.check_in} → ${cell.reservation.check_out}`
+                : undefined
+            }
+          >
+            {cell.isCheckIn && cell.reservation ? (
+              <span
+                style={{
+                  fontWeight: 500,
+                  color: 'var(--ink)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {firstName(cell.reservation.guest_name)}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function firstName(fullName: string | null): string {
+  if (!fullName) return 'Guest';
+  const trimmed = fullName.trim();
+  if (!trimmed) return 'Guest';
+  return trimmed.split(/\s+/)[0];
 }
 
 function formatDateLong(value: string): string {
