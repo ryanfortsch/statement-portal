@@ -159,7 +159,7 @@ function defaultFundsSentDate(statementMonth: string): string {
  * accountant used to assemble by hand each close cycle:
  *
  *   1. TAX -> *9928:   per property, sum of taxes collected this month on
- *      Stay Collections / VRBO / Booking reservations. Move these dollars
+ *      Stay Cape Ann / VRBO / Booking reservations. Move these dollars
  *      out of the property account into the shared tax-holding account
  *      so MassTaxConnect can debit them when filings post.
  *
@@ -1671,7 +1671,7 @@ function DashboardContent() {
    * Build the per-property remittance rows for the current month. Pulls
    * reservations + their matching guesty_reservations rows (for tax +
    * commission), then per property computes:
-   *   - taxToRemit = sum of total_taxes across Stay Collections / VRBO /
+   *   - taxToRemit = sum of total_taxes across Stay Cape Ann / VRBO /
    *     Booking reservations (Airbnb's tax is handled on their side)
    *   - vrboCommissionSweep = 5% of each VRBO stay's pre-tax revenue
    *   - bookingAutoDebit = Booking.com's channel_commission (FYI only)
