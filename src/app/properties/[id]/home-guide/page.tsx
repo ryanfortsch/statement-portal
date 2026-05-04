@@ -34,12 +34,11 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
       <style>{guideCss}</style>
       <div className="rt-doc">
         <article className="rt-page">
-          {/* Top eyebrow */}
+          {/* Top: SCA logo mark + display headline */}
           <header className="rt-head">
-            <div className="rt-eyebrow">
-              <span>Stay Cape Ann</span>
-              <span className="rt-eyebrow-dot" aria-hidden="true">•</span>
-              <span>Welcome Guide</span>
+            <div className="rt-mark-wrap">
+              <ScaMark />
+              <div className="rt-mark-line">Stay Cape Ann</div>
             </div>
             <h1 className="rt-display">
               Welcome <em>home.</em>
@@ -47,7 +46,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
             <p className="rt-tag">
               We&rsquo;re glad you&rsquo;re here at{' '}
               <strong>{stayName}</strong>
-              {p.address ? ` — ${p.address}, ${cityShort}.` : '.'}
+              {p.address ? `. ${p.address}, ${cityShort}.` : '.'}
             </p>
           </header>
 
@@ -135,7 +134,10 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
               <h2 className="rt-foot-h">Hassle-free departure.</h2>
               <p>No chores required. Just lock the door and travel safely.</p>
             </div>
-            <div className="rt-mark">— Stay Cape Ann —</div>
+            <div className="rt-foot-mark">
+              <ScaMark size={32} />
+              <div className="rt-foot-domain">staycapeann.com</div>
+            </div>
             {p.address && (
               <div className="rt-mark-sub">
                 {stayName} &middot; {p.address}{p.city ? `, ${p.city}` : ''}
@@ -160,15 +162,42 @@ function Cell({ num, title, children }: { num: string; title: string; children: 
   );
 }
 
-/** Lower-cases an enum-y value for inline prose (e.g. "Central A/C" → "central a/c"). */
+/** Lower-cases an enum-y value for inline prose (e.g. "Central A/C" -> "central a/c"). */
 function humanize(s: string | null | undefined): string {
   if (!s) return '';
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
+/**
+ * Stay Cape Ann logo mark (cream circle dropped, just the navy house +
+ * tan sun + horizon + water band). Sits naturally on the cream guide
+ * page without the outer ring fighting the background.
+ *
+ * Source of truth: /Users/maguire/Developer/stay-cape-ann/app/icon.svg
+ */
+function ScaMark({ size = 44 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 200 200" width={size} height={size} aria-hidden="true">
+      <circle cx="100" cy="82" r="28" fill="#B89B6E" />
+      <path d="M100 48 L138 82 L138 112 L62 112 L62 82 Z" fill="#0F2A44" />
+      <line x1="40" y1="118" x2="160" y2="118" stroke="#B89B6E" strokeWidth="5" />
+      <path d="M18 145 L182 145 A95 95 0 0 1 18 145 Z" fill="#0F2A44" />
+    </svg>
+  );
+}
+
 const guideCss = `
+  /* Stay Cape Ann brand palette pulled directly from the consumer site
+     (tailwind.config.ts in /Users/maguire/Developer/stay-cape-ann). */
+  :root {
+    --sca-navy: #0F2A44;
+    --sca-cream: #F4ECD8;
+    --sca-tan: #B89B6E;
+    --sca-fog: #8A9AA6;
+  }
+
   @page { size: 8.5in 11in; margin: 0; }
-  html, body { background: var(--ink); margin: 0; padding: 0; }
+  html, body { background: #0e1a1f; margin: 0; padding: 0; }
   .rt-doc {
     display: flex;
     justify-content: center;
@@ -179,8 +208,8 @@ const guideCss = `
   .rt-page {
     width: 816px;
     height: 1056px;
-    background: var(--paper);
-    color: var(--ink);
+    background: var(--sca-cream);
+    color: var(--sca-navy);
     padding: 64px 64px 56px;
     box-sizing: border-box;
     display: flex;
@@ -189,46 +218,50 @@ const guideCss = `
     box-shadow: 0 12px 40px rgba(0,0,0,0.18);
   }
   @media print {
-    html, body { background: var(--paper); }
-    .rt-doc { background: var(--paper); padding: 0; display: block; }
+    html, body { background: var(--sca-cream); }
+    .rt-doc { background: var(--sca-cream); padding: 0; display: block; }
     .rt-page { box-shadow: none; }
   }
 
   /* Header */
-  .rt-head { padding-bottom: 28px; border-bottom: 1px solid var(--ink); }
-  .rt-eyebrow {
+  .rt-head { padding-bottom: 28px; border-bottom: 1px solid var(--sca-navy); }
+  .rt-mark-wrap {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--signal);
-    font-weight: 600;
+    gap: 12px;
   }
-  .rt-eyebrow-dot { color: var(--ink-4); font-size: 14px; line-height: 1; }
+  .rt-mark-line {
+    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
+    font-size: 14px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--sca-navy);
+    font-weight: 500;
+  }
   .rt-display {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
     font-size: 56px;
     line-height: 1;
     font-weight: 300;
-    color: var(--ink);
+    color: var(--sca-navy);
     letter-spacing: -0.025em;
-    margin: 14px 0 0;
+    margin: 18px 0 0;
   }
-  .rt-display em { font-style: italic; color: var(--tide-deep); font-weight: 400; }
+  .rt-display em { font-style: italic; font-weight: 400; }
   .rt-tag {
     margin: 16px 0 0;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--ink-3);
+    color: var(--sca-navy);
+    opacity: 0.75;
     max-width: 600px;
   }
   .rt-tag strong {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-family: var(--font-fraunces), Georgia, serif;
     font-style: italic;
     font-weight: 400;
-    color: var(--ink);
+    color: var(--sca-navy);
+    opacity: 1;
     font-size: 15px;
   }
 
@@ -245,7 +278,7 @@ const guideCss = `
   .rt-cell {
     display: flex;
     flex-direction: column;
-    border-top: 2px solid var(--ink);
+    border-top: 1.5px solid var(--sca-navy);
     padding-top: 12px;
   }
   .rt-cell-head {
@@ -257,22 +290,22 @@ const guideCss = `
   .rt-cell-num {
     font-family: var(--font-mono-dash), ui-monospace, monospace;
     font-size: 10px;
-    color: var(--signal);
+    color: var(--sca-tan);
     letter-spacing: 0.08em;
-    font-weight: 500;
+    font-weight: 600;
   }
   .rt-cell-title {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
     font-size: 18px;
-    font-weight: 400;
+    font-weight: 500;
     letter-spacing: -0.01em;
-    color: var(--ink);
+    color: var(--sca-navy);
     margin: 0;
   }
-  .rt-cell-body { font-size: 11.5px; line-height: 1.55; color: var(--ink); }
+  .rt-cell-body { font-size: 11.5px; line-height: 1.55; color: var(--sca-navy); }
   .rt-cell-body p { margin: 0 0 6px; }
   .rt-cell-body p:last-child { margin-bottom: 0; }
-  .rt-aside { color: var(--ink-3); font-size: 10.5px; font-style: italic; }
+  .rt-aside { color: var(--sca-navy); opacity: 0.65; font-size: 10.5px; font-style: italic; }
 
   /* Wi-Fi key/value rows */
   .rt-k {
@@ -281,49 +314,63 @@ const guideCss = `
     font-size: 9.5px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--ink-4);
-    font-weight: 500;
+    color: var(--sca-navy);
+    opacity: 0.65;
+    font-weight: 600;
   }
-  .rt-v { color: var(--ink); }
+  .rt-v { color: var(--sca-navy); }
   .rt-mono {
     font-family: var(--font-mono-dash), ui-monospace, monospace;
     font-size: 11.5px;
-    color: var(--ink);
-    background: var(--paper-2);
+    color: var(--sca-navy);
+    background: rgba(15, 42, 68, 0.06);
     padding: 1px 6px;
     border-radius: 2px;
   }
 
   /* Footer */
   .rt-foot { margin-top: 32px; }
-  .rt-foot-rule { height: 2px; background: var(--ink); margin-bottom: 18px; }
+  .rt-foot-rule { height: 1.5px; background: var(--sca-navy); margin-bottom: 22px; }
   .rt-foot-message { text-align: center; }
   .rt-foot-h {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 22px;
+    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
+    font-size: 24px;
     line-height: 1.1;
     font-weight: 400;
-    color: var(--ink);
-    margin: 0 0 4px;
+    color: var(--sca-navy);
+    margin: 0 0 6px;
     letter-spacing: -0.01em;
   }
-  .rt-foot-message p { margin: 0; font-size: 13px; color: var(--ink-3); font-style: italic; }
-  .rt-mark {
+  .rt-foot-message p {
+    margin: 0;
+    font-family: var(--font-fraunces), Georgia, serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--sca-navy);
+    opacity: 0.7;
+  }
+  .rt-foot-mark {
     margin-top: 22px;
-    text-align: center;
-    font-size: 10px;
-    letter-spacing: 0.32em;
-    text-transform: uppercase;
-    color: var(--signal);
-    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .rt-foot-domain {
+    font-family: var(--font-fraunces), Georgia, serif;
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--sca-navy);
   }
   .rt-mark-sub {
-    margin-top: 4px;
+    margin-top: 8px;
     text-align: center;
     font-size: 9px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--ink-4);
+    color: var(--sca-navy);
+    opacity: 0.55;
     font-weight: 500;
   }
 `;

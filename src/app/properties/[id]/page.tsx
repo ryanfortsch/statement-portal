@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
-import { DownloadWifiQrButton } from '@/components/properties/DownloadWifiQrButton';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 
@@ -225,9 +224,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   Open ↗
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
-                {p.wifi_name && p.wifi_password ? (
-                  <DownloadWifiQrButton propertyId={p.id} format="png" label="Download QR" />
-                ) : null}
               </div>
             </div>
             {/* Information Note tile */}
