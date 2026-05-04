@@ -16,7 +16,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard'];
+const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note'];
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {

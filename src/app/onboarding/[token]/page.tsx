@@ -150,6 +150,54 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
             </Row>
           </Section>
 
+          {/* ── Inspection & Safety ── */}
+          {/*
+            Required for the Gloucester STR permit inspection (a posted
+            "Information Note" inside every short-term rental). Also useful
+            for Operations + emergency response in any jurisdiction.
+          */}
+          <Section eyebrow="07" title="Inspection & Safety">
+            <Row>
+              <Field name="trash_day" label="Trash pickup day" defaultValue={ob.trash_day} hint="e.g. Tuesday" />
+              <Field name="recycling_day" label="Recycling pickup day" defaultValue={ob.recycling_day} hint="e.g. Tuesday (alternating weeks)" />
+            </Row>
+            <Field name="trash_notes" label="Trash & recycling notes" defaultValue={ob.trash_notes} hint="Bin location, opt-out, special instructions" textarea />
+            <Field
+              name="parking_regulations"
+              label="Parking regulations"
+              defaultValue={ob.parking_regulations}
+              hint="Resident-only zones, street sweeping schedule, snow emergencies, permit info"
+              textarea
+            />
+            <Row>
+              <Field name="gas_shutoff_location" label="Gas shutoff location" defaultValue={ob.gas_shutoff_location} hint="e.g. basement, behind the boiler" />
+              <Field name="water_shutoff_location" label="Water shutoff location" defaultValue={ob.water_shutoff_location} hint="e.g. basement, near the meter" />
+            </Row>
+            <Field name="electrical_panel_location" label="Electrical panel location" defaultValue={ob.electrical_panel_location} hint="e.g. basement utility room" />
+            <Field
+              name="fire_extinguisher_locations"
+              label="Fire extinguisher locations"
+              defaultValue={ob.fire_extinguisher_locations}
+              hint="Comma-separated, e.g. kitchen under sink, basement"
+              textarea
+            />
+            <Field
+              name="smoke_detector_locations"
+              label="Smoke / CO detector locations"
+              defaultValue={ob.smoke_detector_locations}
+              hint="Each floor / hallway / bedroom"
+              textarea
+            />
+            <Field
+              name="fire_exit_locations"
+              label="Fire exits"
+              defaultValue={ob.fire_exit_locations}
+              hint="Primary + secondary egress (front door, back deck, etc.)"
+              textarea
+            />
+            <Field name="str_permit_expires" label="STR permit expiration" defaultValue={ob.str_permit_expires} hint="If known. e.g. 2027-04-30" />
+          </Section>
+
           <div className="rt-pub-submit">
             <button type="submit">Submit form</button>
             <p>Once you submit, we&rsquo;ll take it from here. Questions? Reach Allie at <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or (978) 865-2387.</p>

@@ -279,6 +279,19 @@ export async function promoteToProperty(projectionId: string) {
     emergency_contact_phone: ob.emergency_phone || null,
     emergency_contact_email: ob.emergency_email || null,
 
+    // Inspection & safety (Gloucester STR permit Information Note)
+    trash_day: ob.trash_day || null,
+    recycling_day: ob.recycling_day || null,
+    trash_notes: ob.trash_notes || null,
+    parking_regulations: ob.parking_regulations || null,
+    gas_shutoff_location: ob.gas_shutoff_location || null,
+    water_shutoff_location: ob.water_shutoff_location || null,
+    electrical_panel_location: ob.electrical_panel_location || null,
+    fire_extinguisher_locations: ob.fire_extinguisher_locations || null,
+    smoke_detector_locations: ob.smoke_detector_locations || null,
+    fire_exit_locations: ob.fire_exit_locations || null,
+    str_permit_expires: ob.str_permit_expires || null,
+
     projection_id: projectionId,
   };
 
@@ -413,6 +426,10 @@ export async function submitOnboarding(formData: FormData) {
     'guest_access_method', 'smart_lock_brand', 'smart_lock_code', 'security_cameras',
     'key_code_location', 'alarm_system', 'known_issues', 'upcoming_maintenance', 'notes',
     'emergency_name', 'emergency_relationship', 'emergency_phone', 'emergency_email',
+    'trash_day', 'recycling_day', 'trash_notes', 'parking_regulations',
+    'gas_shutoff_location', 'water_shutoff_location', 'electrical_panel_location',
+    'fire_extinguisher_locations', 'smoke_detector_locations', 'fire_exit_locations',
+    'str_permit_expires',
   ];
 
   const data: OnboardingData = {};
