@@ -1,4 +1,5 @@
 import type { ProjectionRow } from '@/lib/projections-types';
+import { CustomClausesField } from './CustomClausesField';
 
 /**
  * Shared input form for new + edit projections. Submits to a server action
@@ -135,7 +136,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
             </select>
           </Field>
           <Field label="Home value" required hint="Zillow-equivalent">
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="home_value"
               required
               type="number"
@@ -143,8 +144,8 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               step={1000}
               defaultValue={v.home_value ?? ''}
               placeholder="850000"
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
           </Field>
         </Row>
         <Row>
@@ -247,32 +248,85 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
         </Row>
         <Row>
           <Field label="Base cleaning ($)" required hint="Per turnover">
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="base_cleaning"
               required
               type="number"
               min={0}
               step={5}
               defaultValue={v.base_cleaning ?? 200}
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
           </Field>
           <Field label="Add'l per BR > 2 ($)" required>
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="addl_cleaning_per_br"
               required
               type="number"
               min={0}
               step={5}
               defaultValue={v.addl_cleaning_per_br ?? 50}
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
+          </Field>
+        </Row>
+      </Section>
+
+      {/* ─── Overrides (optional) ──────────────────────────────────────────── */}
+      <Section eyebrow="04" title="Overrides (optional)">
+        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
+          Leave blank to use the model. Set revenue overrides to bypass the
+          50/50 blend. Set hero overrides to control the cover-page range
+          directly (otherwise it shows ramped Year 1 → full Year 1).
+        </p>
+        <Row>
+          <Field label="Revenue override — Low ($)">
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+              name="revenue_override_low"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.revenue_override_low ?? ''}
+              style={moneyInputStyle}
+            /></div>
+          </Field>
+          <Field label="Revenue override — High ($)">
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+              name="revenue_override_high"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.revenue_override_high ?? ''}
+              style={moneyInputStyle}
+            /></div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Hero range — Low ($)" hint="Cover page lower bound">
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+              name="hero_low_override"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.hero_low_override ?? ''}
+              style={moneyInputStyle}
+            /></div>
+          </Field>
+          <Field label="Hero range — High ($)" hint="Cover page upper bound">
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+              name="hero_high_override"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={v.hero_high_override ?? ''}
+              style={moneyInputStyle}
+            /></div>
           </Field>
         </Row>
       </Section>
 
       {/* ─── Contract terms ────────────────────────────────────────────────── */}
-      <Section eyebrow="04" title="Contract terms">
+      <Section eyebrow="05" title="Contract terms">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Defaults match Rising Tide&rsquo;s standard contract. Edit per-deal terms
           below; they flow through to the contract render. Boilerplate clauses
@@ -299,37 +353,37 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
         </Row>
         <Row>
           <Field label="Initial deposit ($)" required>
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="initial_deposit"
               required
               type="number"
               min={0}
               step={100}
               defaultValue={v.initial_deposit ?? 2000}
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
           </Field>
           <Field label="Min account balance ($)" required>
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="min_account_balance"
               required
               type="number"
               min={0}
               step={100}
               defaultValue={v.min_account_balance ?? 2000}
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
           </Field>
           <Field label="Reputation damages ($)" required hint="If owner sells without notice">
-            <input
+            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
               name="reputation_fee"
               required
               type="number"
               min={0}
               step={500}
               defaultValue={v.reputation_fee ?? 5000}
-              style={inputStyle}
-            />
+              style={moneyInputStyle}
+            /></div>
           </Field>
         </Row>
         <Row>
@@ -359,58 +413,17 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
         </Row>
       </Section>
 
-      {/* ─── Overrides (optional) ──────────────────────────────────────────── */}
-      <Section eyebrow="05" title="Overrides (optional)">
+      {/* ─── Custom clauses (optional, per-deal) ────────────────────────── */}
+      <Section eyebrow="06" title="Custom clauses (optional)">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
-          Leave blank to use the model. Set revenue overrides to bypass the
-          50/50 blend. Set hero overrides to control the cover-page range
-          directly (otherwise it shows ramped Year 1 → full Year 1).
+          Per-deal addenda that get rendered as a &ldquo;Rider&rdquo; page after Sale
+          Protection in the contract. Add as many as the deal requires; leave
+          empty for the standard contract.
         </p>
-        <Row>
-          <Field label="Revenue override — Low ($)">
-            <input
-              name="revenue_override_low"
-              type="number"
-              min={0}
-              step={1000}
-              defaultValue={v.revenue_override_low ?? ''}
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Revenue override — High ($)">
-            <input
-              name="revenue_override_high"
-              type="number"
-              min={0}
-              step={1000}
-              defaultValue={v.revenue_override_high ?? ''}
-              style={inputStyle}
-            />
-          </Field>
-        </Row>
-        <Row>
-          <Field label="Hero range — Low ($)" hint="Cover page lower bound">
-            <input
-              name="hero_low_override"
-              type="number"
-              min={0}
-              step={1000}
-              defaultValue={v.hero_low_override ?? ''}
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Hero range — High ($)" hint="Cover page upper bound">
-            <input
-              name="hero_high_override"
-              type="number"
-              min={0}
-              step={1000}
-              defaultValue={v.hero_high_override ?? ''}
-              style={inputStyle}
-            />
-          </Field>
-        </Row>
+        <CustomClausesField initial={v.custom_clauses ?? null} />
       </Section>
+
+      
 
       <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 12 }}>
         <button
@@ -477,6 +490,33 @@ const inputStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 400,
   padding: '10px 12px',
+  outline: 'none',
+  width: '100%',
+};
+
+
+const moneyWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  display: 'block',
+  width: '100%',
+};
+const moneyPrefixStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 12,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  fontSize: 14,
+  color: 'var(--ink-3)',
+  pointerEvents: 'none',
+  fontFamily: 'var(--font-fraunces), "Times New Roman", serif',
+};
+const moneyInputStyle: React.CSSProperties = {
+  background: 'var(--paper)',
+  border: '1px solid var(--rule)',
+  color: 'var(--ink)',
+  fontSize: 14,
+  fontWeight: 400,
+  padding: '10px 12px 10px 24px',
   outline: 'none',
   width: '100%',
 };

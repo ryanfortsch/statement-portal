@@ -202,6 +202,30 @@ export function ContractDocument({
           <DocFooter pageNum={5} />
         </section>
 
+        {/* Rider — per-deal addenda, only rendered if custom_clauses is non-empty */}
+        {projection.custom_clauses && projection.custom_clauses.length > 0 && (
+          <section className="rt-doc-page">
+            <SectionTitle title="Rider — Additional Terms" />
+            <p className="rt-c-body">
+              The following additional terms have been agreed between the
+              Parties and form part of this Agreement. They are read
+              alongside the standard terms above; in the event of conflict,
+              these additional terms shall control.
+            </p>
+            {projection.custom_clauses.map((clause, idx) => (
+              <div key={idx} className="rt-c-clause">
+                <h3 className="rt-c-clause-title">
+                  {String(idx + 1).padStart(2, '0')}. {clause.title || 'Untitled clause'}
+                </h3>
+                {clause.body.split(/\n+/).map((para, pi) => (
+                  <p key={pi} className="rt-c-body">{para}</p>
+                ))}
+              </div>
+            ))}
+            <DocFooter pageNum={6} />
+          </section>
+        )}
+
         {/* Page 6 — liability, insurance, force majeure, dispute resolution, severability, governing law, signatures */}
         <section className="rt-doc-page">
           <SectionTitle title="Liability and Indemnification" />
@@ -274,7 +298,7 @@ export function ContractDocument({
             <b>Thank you for choosing Rising Tide.</b><br />
             Questions? Reach Allie directly at allie@risingtidestr.com or (978) 865-2387.
           </p>
-          <DocFooter pageNum={6} />
+          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 7 : 6} />
         </section>
 
         {/* Public-facing signing form, only when not yet signed. Hidden in print. */}
@@ -436,6 +460,24 @@ const contractCss = `
   .rt-c-bullets li { padding: 3px 0; max-width: 640px; }
   .rt-c-bullets ul { margin: 4px 0 0 18px; padding: 0; }
   .rt-c-bullets ul li { padding: 2px 0; }
+
+  /* Rider clauses (per-deal addenda) */
+  .rt-c-clause {
+    margin: 0 0 18px;
+    padding: 12px 16px 6px;
+    background: var(--paper-2);
+    border-left: 3px solid var(--signal);
+  }
+  .rt-c-clause-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .rt-c-clause .rt-c-body { margin-bottom: 6px; }
+  .rt-c-clause .rt-c-body:last-child { margin-bottom: 0; }
 
   .rt-c-kv { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0 0 16px; }
   .rt-c-kv > div { display: grid; grid-template-columns: 180px 1fr; gap: 16px; padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: 12px; color: var(--ink); }
