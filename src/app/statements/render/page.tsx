@@ -27,13 +27,13 @@ function daysInMonth(m: string) { const [y, mo] = m.split('-').map(Number); retu
 // the shape /api/ingest writes into the reservations table) and raw Guesty
 // API identifiers (airbnb2, homeaway2, manual, bookingcom, the shape that
 // guesty_reservations.guesty_channel_id stores) to the owner-facing label.
-// "Stay Collections" is Rising Tide's direct-booking brand; manual / direct
-// always means a booking taken off-platform through Stay Collections.
+// "Stay Cape Ann" is Rising Tide's direct-booking brand; manual / direct
+// always means a booking taken off-platform through Stay Cape Ann.
 function chLabel(p: string) {
   const key = (p || '').toLowerCase().trim();
   if (key === 'airbnb' || key === 'airbnb2') return 'Airbnb';
   if (key === 'homeaway' || key === 'homeaway2' || key === 'vrbo') return 'VRBO';
-  if (key === 'manual' || key === 'direct') return 'Stay Collections';
+  if (key === 'manual' || key === 'direct') return 'Stay Cape Ann';
   if (key === 'booking' || key === 'booking.com' || key === 'bookingcom') return 'Booking.com';
   return p;
 }
@@ -352,7 +352,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const totRev = Object.values(chRev).reduce((a, b) => a + b, 0);
   const mix = Object.entries(chRev).map(([c, v]) => ({ ch: c, pct: totRev > 0 ? (v / totRev) * 100 : 0 })).sort((a, b) => b.pct - a.pct);
 
-  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', 'Booking.com': '#003580', 'Stay Collections': '#4a6b3a' };
+  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', 'Booking.com': '#003580', 'Stay Cape Ann': '#4a6b3a' };
 
   // Donut arcs
   let offset = 25;
@@ -722,7 +722,7 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .channel[data-ch="Airbnb"] .dot { background:#ff5a5f; }
 .channel[data-ch="VRBO"] .dot { background:#245abc; }
 .channel[data-ch="Booking.com"] .dot { background:#003580; }
-.channel[data-ch="Stay Collections"] .dot { background:#4a6b3a; }
+.channel[data-ch="Stay Cape Ann"] .dot { background:#4a6b3a; }
 
 /* FINANCIALS */
 .fin-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
