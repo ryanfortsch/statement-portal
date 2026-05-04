@@ -76,11 +76,7 @@ function SlideCover({
             {projection.property_address} is an exceptional home.
           </p>
           <p className="rt-cover-body">
-            We are vacation rental management
-            <br />
-            for exceptional homes
-            <br />
-            across Cape Ann.
+            We specialize in vacation rental management for exceptional homes across Cape Ann.
           </p>
         </div>
         <div className="rt-cover-right">
