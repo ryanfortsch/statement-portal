@@ -111,6 +111,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: true,
   },
+  {
+    id: 'marketing',
+    href: '/marketing',
+    number: '11',
+    title: 'Marketing',
+    description: 'GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
+    status: 'active',
+    primary: false,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
