@@ -31,11 +31,19 @@ const PUBLIC_PATH_PREFIXES = [
  */
 const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract)(\/.*)?$/;
 
+/** Same pattern for the Properties module — guest-facing deliverables (the
+ * Home Guide and the WiFi placard) need to be public so puppeteer can render
+ * them to PDF. The property edit page at `/properties/<id>` itself stays
+ * auth-gated. Property IDs are TEXT slugs (e.g. "21_horton") so the character
+ * class is wider than UUIDs. */
+const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard)(\/.*)?$/;
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
   if (PROJECTION_DELIVERABLE_RE.test(pathname)) return;
+  if (PROPERTY_DELIVERABLE_RE.test(pathname)) return;
   if (pathname.startsWith("/api/")) return;
 
   if (!req.auth) {
