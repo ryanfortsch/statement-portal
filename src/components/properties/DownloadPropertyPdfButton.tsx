@@ -45,7 +45,9 @@ export function DownloadPropertyPdfButton({
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(url);
+          // Some browsers cancel the download if the blob URL is revoked
+          // before the download dialog is committed. Defer the revoke.
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
         } catch (err) {
           alert(`Download failed: ${err instanceof Error ? err.message : err}`);
         } finally {

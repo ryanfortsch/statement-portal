@@ -44,7 +44,7 @@ export function DownloadWifiQrButton({
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(url);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
         } catch (err) {
           alert(`QR download failed: ${err instanceof Error ? err.message : err}`);
         } finally {
