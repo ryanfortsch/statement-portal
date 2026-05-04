@@ -32,6 +32,15 @@ export const RANGE_LABEL: Record<Range, string> = {
 
 export const VALID_RANGES: Range[] = ['today', '3d', '7d', '14d', '30d'];
 
+// Properties Rising Tide doesn't physically inspect (out-of-region, owner
+// handles cleaning + turnovers locally). They stay in the registry for
+// statements/revenue but are hidden from the turnover pipeline + calendar
+// so the operator's view isn't cluttered with rows they can't act on.
+const NON_OPERATIONS_PROPERTY_IDS = new Set<string>([
+  '65_calderwood',
+  '3246_ne_27th',
+]);
+
 const ALLOWED_STATUSES = new Set([
   'confirmed',
   'reserved',
@@ -180,7 +189,12 @@ export async function loadOperationsData(range: Range): Promise<OperationsData> 
   }
 
   const reservations = ((resData ?? []) as ReservationRow[]).filter(
-    (r) => r.property_id && r.check_in && r.check_out && isAllowed(r.status)
+    (r) =>
+      r.property_id &&
+      r.check_in &&
+      r.check_out &&
+      isAllowed(r.status) &&
+      !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id)
   );
 
   // Pull inspections in the same window for matching.
@@ -206,7 +220,9 @@ export async function loadOperationsData(range: Range): Promise<OperationsData> 
   if (propErr) {
     throw new Error(`Failed to load properties: ${propErr.message}`);
   }
-  const properties = (propData ?? []) as PropertyMini[];
+  const properties = ((propData ?? []) as PropertyMini[]).filter(
+    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id)
+  );
   const propertyById = new Map(properties.map((p) => [p.id, p]));
 
   // Build a per-property checkout-date index so we can resolve previous
