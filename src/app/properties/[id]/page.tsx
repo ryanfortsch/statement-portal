@@ -82,8 +82,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="properties" />
 
-      {/* BACK */}
-      <div className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
+      {/* BACK + EDIT */}
+      <div
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 24, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
         <Link
           href="/properties"
           style={{
@@ -95,6 +98,21 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           }}
         >
           ← All Properties
+        </Link>
+        <Link
+          href={`/properties/${p.id}/edit`}
+          style={{
+            fontSize: 11,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            color: 'var(--ink)',
+            textDecoration: 'none',
+            border: '1px solid var(--rule)',
+            padding: '8px 14px',
+            fontWeight: 500,
+          }}
+        >
+          Edit operational data
         </Link>
       </div>
 
