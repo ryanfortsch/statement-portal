@@ -21,10 +21,20 @@ const PUBLIC_PATH_PREFIXES = [
   "/onboarding/",
 ];
 
+/**
+ * The Projections module's deliverable render pages (deck / partnership guide /
+ * contract) need to be reachable by the headless Chromium that generates PDFs
+ * for download. They live under `/projections/<uuid>/...`, so a prefix match
+ * isn't precise enough (it would expose the auth-gated edit page). Use a regex
+ * that matches *only* the deliverable sub-routes.
+ */
+const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract)(\/.*)?$/;
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
+  if (PROJECTION_DELIVERABLE_RE.test(pathname)) return;
   if (pathname.startsWith("/api/")) return;
 
   if (!req.auth) {
