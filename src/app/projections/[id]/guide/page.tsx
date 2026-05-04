@@ -140,7 +140,7 @@ function PageOnboarding() {
     { n: '02', title: 'Contract & Deposit', body: 'Review and e-sign the management agreement. A $2,000 working capital deposit covers initial setup.', timeline: 'Timeline: Completed prior to setup' },
     { n: '03', title: 'Onboarding Form', body: 'Complete the onboarding form with your property details, utilities, and access information. This is the foundation for everything we do behind the scenes.', timeline: 'Timeline: Completed during setup phase' },
     { n: '04', title: 'Property Setup', body: 'Rising Tide outfits and prepares your property to our hospitality standards — photography, listing creation, smart lock installation, supplies, and staging as needed.', timeline: 'Timeline: 1–4 weeks depending on scope' },
-    { n: '05', title: 'Launch', body: 'Your property goes live on Airbnb, VRBO, the Rising Tide direct booking website (staycollections.com), and additional channels. Now the fun part begins.', timeline: 'Timeline: 1–3 days to go live' },
+    { n: '05', title: 'Launch', body: 'Your property goes live on Airbnb, VRBO, the Rising Tide direct booking website (staycapeann.com), and additional channels. Now the fun part begins.', timeline: 'Timeline: 1–3 days to go live' },
   ];
   return (
     <section className="rt-doc-page">
