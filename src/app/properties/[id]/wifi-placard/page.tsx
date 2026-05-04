@@ -15,29 +15,32 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  * code, network name, and password. Slips into the glass case at the
  * property.
  *
- * QR encoding follows the well-known WIFI: URI format used by both iOS
- * Camera and the Android scanner. When scanned, the phone offers to
- * auto-join the network.
+ * Brand palette pulled directly from the Stay Cape Ann logo: navy #0F2A44
+ * on a cream #F4ECD8 ground, with a tan #B89B6E sun accent. Logo mark
+ * inlined at the top so the whole card reads as Stay Cape Ann at a glance.
+ *
+ * QR encoding follows the WIFI: URI format used by both iOS Camera and
+ * the Android scanner. When scanned, the phone offers to auto-join the
+ * network.
  */
 export default async function WifiPlacardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const p = await getProperty(id);
   if (!p) notFound();
 
-  // Build the WIFI URI. Default to WPA2 (T:WPA). Escape backslashes,
-  // semicolons, commas, colons, and double quotes per spec.
   const ssid = p.wifi_name || '';
   const pass = p.wifi_password || '';
   const wifiUri = `WIFI:T:WPA;S:${escapeWifi(ssid)};P:${escapeWifi(pass)};H:false;;`;
 
-  // Render the QR as an inline SVG string. ECC level Q gives a good
-  // balance between size and resilience to print scuffs.
+  // QR rendered onto cream so it prints with no transparency artifacts.
+  // ECC level Q balances density against resilience to scuffs in a printed
+  // glass-case context.
   const qrSvg = ssid && pass
     ? await QRCode.toString(wifiUri, {
         type: 'svg',
         errorCorrectionLevel: 'Q',
         margin: 0,
-        color: { dark: '#0a3a64', light: '#FFFFFF00' },
+        color: { dark: '#0F2A44', light: '#F4ECD8' },
       })
     : '';
 
@@ -46,68 +49,78 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
       <style>{placardCss}</style>
       <div className="rt-doc">
         <article className="rt-card">
-          {/* Inner white panel */}
+          {/* Cream inner panel */}
           <div className="rt-panel">
-            {/* Wi-Fi signal glyph + title */}
-            <div className="rt-glyph" aria-hidden="true">
-              <svg viewBox="0 0 80 56" width="64" height="44">
-                <path d="M40 46a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" fill="#0F2A44" />
-                <path d="M28 36c3.4-3.4 7.6-5.1 12-5.1S48.6 32.6 52 36" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
-                <path d="M19 27.6c5.7-5.7 13.2-8.6 21-8.6s15.3 2.9 21 8.6" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
-                <path d="M10 19.2C18.1 11.1 28.7 7 40 7s21.9 4.1 30 12.2" stroke="#0F2A44" strokeWidth="4" strokeLinecap="round" fill="none" />
-              </svg>
-            </div>
-            <h1 className="rt-title">Wi-Fi</h1>
-            <div className="rt-rule" />
+            <ScaMark />
 
-            {/* QR — scannable to auto-connect */}
+            <div className="rt-eyebrow">Wi-Fi</div>
+
             <div className="rt-qr">
               {qrSvg ? (
                 <span dangerouslySetInnerHTML={{ __html: qrSvg }} />
               ) : (
                 <div className="rt-qr-empty">
-                  <div className="rt-qr-empty-h">QR not generated</div>
-                  <div>Add a Wi-Fi name and password<br />to this property in Helm.</div>
+                  <div className="rt-qr-empty-h">Add a Wi-Fi name and password</div>
+                  <div>to this property in Helm to render the QR.</div>
                 </div>
               )}
             </div>
 
-            {/* Network */}
-            <div className="rt-field">
-              <div className="rt-field-label">Network</div>
-              <div className="rt-field-box">{ssid || ' '}</div>
-            </div>
-
-            {/* Password */}
-            <div className="rt-field">
-              <div className="rt-field-label">Password</div>
-              <div className="rt-field-box">{pass || ' '}</div>
-            </div>
+            {/* Network + password as stacked editorial rows, not boxed inputs */}
+            <dl className="rt-fields">
+              <div className="rt-row">
+                <dt>Network</dt>
+                <dd>{ssid || ' '}</dd>
+              </div>
+              <div className="rt-row">
+                <dt>Password</dt>
+                <dd>{pass || ' '}</dd>
+              </div>
+            </dl>
           </div>
 
-          {/* Stay Cape Ann domain footer (over the navy band) */}
-          <div className="rt-tag">staycapeann.com</div>
+          {/* Navy footer band */}
+          <div className="rt-footer">staycapeann.com</div>
         </article>
       </div>
     </>
   );
 }
 
-/** Escape per the WIFI: URI spec. */
+/**
+ * Inlined Stay Cape Ann logo mark — simplified version of the full logo
+ * (cream circle, tan sun, navy house, horizon line, navy water band).
+ * Source of truth: /Users/maguire/Developer/stay-cape-ann/app/icon.svg.
+ * Sits on the cream panel without a stroke ring so it reads as a quiet
+ * brand stamp rather than a logo lockup.
+ */
+function ScaMark() {
+  return (
+    <div className="rt-mark" aria-hidden="true">
+      <svg viewBox="0 0 200 200" width="48" height="48">
+        <circle cx="100" cy="82" r="28" fill="#B89B6E" />
+        <path d="M100 48 L138 82 L138 112 L62 112 L62 82 Z" fill="#0F2A44" />
+        <line x1="40" y1="118" x2="160" y2="118" stroke="#B89B6E" strokeWidth="5" />
+        <path d="M18 145 L182 145 A95 95 0 0 1 18 145 Z" fill="#0F2A44" />
+      </svg>
+    </div>
+  );
+}
+
 function escapeWifi(s: string): string {
   return s.replace(/([\\;,":])/g, '\\$1');
 }
 
 const placardCss = `
-  /* 4 × 6 inch placard, portrait */
+  /* 4 x 6 inch placard, portrait. */
   @page { size: 4in 6in; margin: 0; }
   html, body { background: #0e1a1f; margin: 0; padding: 0; }
 
-  /* Brand palette — Stay Cape Ann navy, deeper than the previous bright blue */
   :root {
     --sca-navy: #0F2A44;
-    --sca-ink: #0F2A44;
-    --sca-paper: #ffffff;
+    --sca-cream: #F4ECD8;
+    --sca-tan: #B89B6E;
+    --sca-fog: #8A9AA6;
   }
 
   .rt-doc {
@@ -118,18 +131,16 @@ const placardCss = `
     padding: 24px;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
+  /* 4in × 6in @ 96dpi = 384 × 576 px */
   .rt-card {
-    /* 4in × 6in @ 96dpi = 384 × 576 px */
     width: 384px;
     height: 576px;
     background: var(--sca-navy);
-    border-radius: 12px;
-    padding: 12px;
+    padding: 14px 14px 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    box-shadow: 0 18px 48px rgba(0,0,0,0.32);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   }
   @media print {
     html, body { background: white; }
@@ -137,37 +148,33 @@ const placardCss = `
     .rt-card { box-shadow: none; }
   }
 
-  /* Inner white panel */
+  /* Cream inner panel */
   .rt-panel {
     flex: 1;
-    background: var(--sca-paper);
-    border-radius: 6px;
-    padding: 22px 24px 18px;
+    background: var(--sca-cream);
+    padding: 22px 24px 26px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    color: var(--sca-ink);
     text-align: center;
+    color: var(--sca-navy);
   }
-  .rt-glyph { margin-top: 2px; line-height: 0; }
-  .rt-title {
-    margin: 4px 0 0;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 38px;
-    font-weight: 400;
-    letter-spacing: -0.01em;
-    color: var(--sca-ink);
-    line-height: 1;
-  }
-  .rt-rule {
-    width: 36px;
-    height: 1.5px;
-    background: var(--sca-ink);
-    margin: 12px 0 4px;
-    opacity: 0.7;
-  }
-  .rt-qr {
+
+  .rt-mark { line-height: 0; margin-top: 4px; }
+
+  .rt-eyebrow {
     margin-top: 14px;
+    font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
+    font-size: 28px;
+    line-height: 1;
+    font-weight: 400;
+    color: var(--sca-navy);
+    letter-spacing: -0.01em;
+  }
+
+  /* QR — square, no chrome, sits naturally on the cream */
+  .rt-qr {
+    margin-top: 22px;
     width: 200px;
     height: 200px;
     display: flex;
@@ -176,7 +183,7 @@ const placardCss = `
   }
   .rt-qr svg { width: 100%; height: 100%; }
   .rt-qr-empty {
-    color: var(--sca-ink);
+    color: var(--sca-navy);
     text-align: center;
     padding: 0 12px;
     font-size: 11px;
@@ -186,50 +193,55 @@ const placardCss = `
   }
   .rt-qr-empty-h {
     font-style: normal;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-family: var(--font-fraunces), Georgia, serif;
     font-size: 14px;
     margin-bottom: 6px;
     opacity: 0.85;
   }
 
-  /* Network / password fields — fieldset-style label that hangs over the box edge */
-  .rt-field { width: 100%; margin-top: 14px; position: relative; }
-  .rt-field-label {
-    position: absolute;
-    top: -7px;
-    left: 16px;
-    background: var(--sca-paper);
-    padding: 0 8px;
+  /* Network + password fields — editorial stacked rows divided by a
+     hairline rule. Cleaner and more on-brand than fieldset-style boxes. */
+  .rt-fields {
+    margin: 22px 0 0;
+    padding: 0;
+    width: 100%;
+    border-top: 1px solid var(--sca-navy);
+  }
+  .rt-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--sca-navy);
+    gap: 4px;
+  }
+  .rt-row dt {
     font-size: 9px;
     letter-spacing: 0.28em;
     text-transform: uppercase;
-    color: var(--sca-ink);
+    color: var(--sca-navy);
     font-weight: 600;
+    opacity: 0.7;
+    margin: 0;
   }
-  .rt-field-box {
-    border: 1px solid var(--sca-ink);
-    border-radius: 3px;
-    padding: 13px 14px 11px;
-    min-height: 14px;
+  .rt-row dd {
+    margin: 0;
+    font-family: var(--font-mono-dash), ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 14px;
-    color: var(--sca-ink);
-    text-align: center;
-    font-family: var(--font-mono-dash), ui-monospace, monospace;
-    overflow-wrap: break-word;
+    color: var(--sca-navy);
     word-break: break-all;
+    overflow-wrap: break-word;
     line-height: 1.2;
   }
 
-  /* Bottom tag (over the navy band of the card) — staycapeann.com */
-  .rt-tag {
-    color: var(--sca-paper);
+  /* Navy footer band — staycapeann.com */
+  .rt-footer {
+    color: var(--sca-cream);
     text-align: center;
-    font-size: 12px;
-    letter-spacing: 0.18em;
-    font-weight: 500;
-    padding: 10px 0 6px;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-family: var(--font-fraunces), Georgia, serif;
     font-style: italic;
-    opacity: 0.95;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    padding: 14px 0 12px;
   }
 `;
