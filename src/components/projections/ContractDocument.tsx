@@ -494,11 +494,11 @@ const contractCss = `
 
   .rt-c-body {
     margin: 0 0 12px;
+    padding-left: 24px;      /* whole block indented; wrapped lines stay aligned */
     font-size: 11px;
     line-height: 1.6;
     color: var(--ink);
-    max-width: 660px;
-    text-indent: 24px;       /* tab in like a traditional contract paragraph */
+    max-width: 684px;        /* 660 + 24 padding so the right edge matches bullets */
   }
 
   /* Fillable underline blank — used inline in body paragraphs when a date or
