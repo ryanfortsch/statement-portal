@@ -49,15 +49,16 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
           {/* Inner white panel */}
           <div className="rt-panel">
             {/* Wi-Fi signal glyph + title */}
-            <div className="rt-icon" aria-hidden="true">
-              <svg viewBox="0 0 64 64" width="56" height="56">
-                <path d="M32 50.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" fill="#0a3a64" />
-                <path d="M21 39.5c3-3 7-4.6 11-4.6s8 1.6 11 4.6" stroke="#0a3a64" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                <path d="M14 32.4c4.8-4.8 11.2-7.4 18-7.4s13.2 2.6 18 7.4" stroke="#0a3a64" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                <path d="M7 25.4C13.7 18.6 22.6 15 32 15s18.3 3.6 25 10.4" stroke="#0a3a64" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+            <div className="rt-glyph" aria-hidden="true">
+              <svg viewBox="0 0 80 56" width="64" height="44">
+                <path d="M40 46a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" fill="#0e3a6e" />
+                <path d="M28 36c3.4-3.4 7.6-5.1 12-5.1S48.6 32.6 52 36" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <path d="M19 27.6c5.7-5.7 13.2-8.6 21-8.6s15.3 2.9 21 8.6" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <path d="M10 19.2C18.1 11.1 28.7 7 40 7s21.9 4.1 30 12.2" stroke="#0e3a6e" strokeWidth="4" strokeLinecap="round" fill="none" />
               </svg>
             </div>
-            <h1 className="rt-title">WIFI</h1>
+            <h1 className="rt-title">Wi-Fi</h1>
+            <div className="rt-rule" />
 
             {/* QR — scannable to auto-connect */}
             <div className="rt-qr">
@@ -65,7 +66,8 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
                 <span dangerouslySetInnerHTML={{ __html: qrSvg }} />
               ) : (
                 <div className="rt-qr-empty">
-                  Add WiFi name + password to this property to generate the QR code.
+                  <div className="rt-qr-empty-h">QR not generated</div>
+                  <div>Add a Wi-Fi name and password<br />to this property in Helm.</div>
                 </div>
               )}
             </div>
@@ -83,8 +85,8 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
             </div>
           </div>
 
-          {/* Tag at the very bottom of the card (over the blue band) */}
-          <div className="rt-tag">@stay_collections</div>
+          {/* Stay Cape Ann domain footer (over the navy band) */}
+          <div className="rt-tag">staycapeann.com</div>
         </article>
       </div>
     </>
@@ -101,6 +103,13 @@ const placardCss = `
   @page { size: 4in 6in; margin: 0; }
   html, body { background: #0e1a1f; margin: 0; padding: 0; }
 
+  /* Brand palette — Stay Cape Ann navy, deeper than the previous bright blue */
+  :root {
+    --sca-navy: #0e3a6e;
+    --sca-ink: #0e3a6e;
+    --sca-paper: #ffffff;
+  }
+
   .rt-doc {
     display: flex;
     justify-content: center;
@@ -113,14 +122,14 @@ const placardCss = `
     /* 4in × 6in @ 96dpi = 384 × 576 px */
     width: 384px;
     height: 576px;
-    background: #2152a8;
-    border-radius: 14px;
-    padding: 14px;
+    background: var(--sca-navy);
+    border-radius: 12px;
+    padding: 12px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.32);
   }
   @media print {
     html, body { background: white; }
@@ -131,26 +140,34 @@ const placardCss = `
   /* Inner white panel */
   .rt-panel {
     flex: 1;
-    background: #ffffff;
-    border-radius: 8px;
-    padding: 20px 22px 18px;
+    background: var(--sca-paper);
+    border-radius: 6px;
+    padding: 22px 24px 18px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    color: #0a3a64;
+    color: var(--sca-ink);
+    text-align: center;
   }
-  .rt-icon { margin-top: 4px; }
+  .rt-glyph { margin-top: 2px; line-height: 0; }
   .rt-title {
-    margin: 6px 0 0;
+    margin: 4px 0 0;
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 56px;
+    font-size: 38px;
     font-weight: 400;
-    letter-spacing: 0.04em;
-    color: #0a3a64;
+    letter-spacing: -0.01em;
+    color: var(--sca-ink);
     line-height: 1;
   }
+  .rt-rule {
+    width: 36px;
+    height: 1.5px;
+    background: var(--sca-ink);
+    margin: 12px 0 4px;
+    opacity: 0.7;
+  }
   .rt-qr {
-    margin-top: 18px;
+    margin-top: 14px;
     width: 200px;
     height: 200px;
     display: flex;
@@ -159,52 +176,60 @@ const placardCss = `
   }
   .rt-qr svg { width: 100%; height: 100%; }
   .rt-qr-empty {
-    border: 1px dashed #0a3a64;
-    color: #0a3a64;
-    font-size: 11px;
+    color: var(--sca-ink);
     text-align: center;
-    padding: 22px 14px;
-    line-height: 1.4;
+    padding: 0 12px;
+    font-size: 11px;
+    line-height: 1.55;
     font-style: italic;
+    opacity: 0.65;
+  }
+  .rt-qr-empty-h {
+    font-style: normal;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 14px;
+    margin-bottom: 6px;
+    opacity: 0.85;
   }
 
-  /* Network / password fields */
-  .rt-field { width: 100%; margin-top: 16px; position: relative; }
+  /* Network / password fields — fieldset-style label that hangs over the box edge */
+  .rt-field { width: 100%; margin-top: 14px; position: relative; }
   .rt-field-label {
     position: absolute;
     top: -7px;
-    left: 18px;
-    background: #ffffff;
+    left: 16px;
+    background: var(--sca-paper);
     padding: 0 8px;
-    font-size: 11px;
-    letter-spacing: 0.32em;
+    font-size: 9px;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
-    color: #0a3a64;
-    font-weight: 500;
+    color: var(--sca-ink);
+    font-weight: 600;
   }
   .rt-field-box {
-    border: 1px solid #0a3a64;
-    border-radius: 2px;
-    padding: 12px 14px;
+    border: 1px solid var(--sca-ink);
+    border-radius: 3px;
+    padding: 13px 14px 11px;
     min-height: 14px;
     font-size: 14px;
-    color: #0a3a64;
+    color: var(--sca-ink);
     text-align: center;
     font-family: var(--font-mono-dash), ui-monospace, monospace;
     overflow-wrap: break-word;
     word-break: break-all;
-    line-height: 1.3;
+    line-height: 1.2;
   }
 
-  /* Bottom tag (over the blue band of the card) */
+  /* Bottom tag (over the navy band of the card) — staycapeann.com */
   .rt-tag {
-    color: #ffffff;
+    color: var(--sca-paper);
     text-align: center;
     font-size: 12px;
-    letter-spacing: 0.32em;
-    text-transform: uppercase;
+    letter-spacing: 0.18em;
     font-weight: 500;
-    padding: 8px 0 6px;
-    font-family: var(--font-mono-dash), ui-monospace, monospace;
+    padding: 10px 0 6px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    opacity: 0.95;
   }
 `;
