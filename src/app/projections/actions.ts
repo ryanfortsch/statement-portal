@@ -6,7 +6,7 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData } from '@/lib/projections-types';
+import type { OnboardingData, CustomClause } from '@/lib/projections-types';
 
 /** 32-hex-char random token for the public onboarding link. */
 function newOnboardingToken(): string {
@@ -86,7 +86,25 @@ function buildPayload(formData: FormData) {
     min_availability_days: num(formData, 'min_availability_days'),
     sale_notification_days: num(formData, 'sale_notification_days'),
     reputation_fee: num(formData, 'reputation_fee'),
+
+    // Custom clauses (per-deal addenda). The form submits parallel arrays:
+    // `custom_clause_title[]` + `custom_clause_body[]`. Zip them into the
+    // jsonb shape and drop any rows where both fields are empty.
+    custom_clauses: parseCustomClauses(formData),
   };
+}
+
+function parseCustomClauses(formData: FormData): CustomClause[] | null {
+  const titles = formData.getAll('custom_clause_title').map((v) => String(v).trim());
+  const bodies = formData.getAll('custom_clause_body').map((v) => String(v).trim());
+  const len = Math.max(titles.length, bodies.length);
+  const out: CustomClause[] = [];
+  for (let i = 0; i < len; i++) {
+    const title = titles[i] || '';
+    const body = bodies[i] || '';
+    if (title || body) out.push({ title, body });
+  }
+  return out.length ? out : null;
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────

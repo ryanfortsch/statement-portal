@@ -53,6 +53,10 @@ export type ProjectionRow = {
   status: 'draft' | 'sent';
   sent_at: string | null;
 
+  // Per-deal contract addenda. Rendered as a "Rider" page after Sale
+  // Protection. Null/empty when there are none.
+  custom_clauses: CustomClause[] | null;
+
   // Owner onboarding intake (public form @ /onboarding/<token>)
   onboarding_token: string;
   onboarding_submitted_at: string | null;
@@ -70,6 +74,12 @@ export type ProjectionRow = {
 
   created_at: string | null;
   updated_at: string | null;
+};
+
+/** A single per-deal addendum rendered on the contract Rider page. */
+export type CustomClause = {
+  title: string;
+  body: string;
 };
 
 /**
