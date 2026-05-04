@@ -115,10 +115,17 @@ export const PROPERTIES: Record<string, Property> = {
     // listing -- no direct MassTaxConnect filing required.
     tax_cert_id: null,
   },
+  '3_locust': {
+    id: '3_locust', name: '3 Locust', address: '3 Locust Lane', city: 'Gloucester, MA',
+    owner_last: 'Lucas', owner_full: 'The Lucas Family', owner_greeting: 'Lucas',
+    owner_emails: [],
+    fee_pct: 25, bank_last4: null, listing_match: '3 locust',
+    tax_cert_id: null,
+  },
 };
 
-// 65 Calderwood Ln, 3 Locust St, and 3246 NE 27th Ave are Ryan's personal
-// properties and intentionally excluded from the portal.
+// 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
+// intentionally excluded from the portal.
 
 export const PROPERTY_IDS = Object.keys(PROPERTIES);
 

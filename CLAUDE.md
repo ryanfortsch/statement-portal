@@ -139,10 +139,10 @@ Internal name is the street address WITHOUT the suffix (`St`, `Ave`, `Rd`, `Ln`)
 | 73_rocky_neck | 73 Rocky Neck | 73 Rocky Neck Avenue, Gloucester MA | Stay at Smith Cove | Moynahan | 25% | 3227 |
 | 17_beach_rd | 17 Beach | 17 Beach Road, Gloucester MA | (none) | Nolan | 22% | 5621 |
 | 65_calderwood | 65 Calderwood | 65 Calderwood Lane, Fairfield CT | Stay at Black Rock Harbor | Liu | 25% | - |
-| 3_locust | 3 Locust | 3 Locust Street, Gloucester MA | Stay at Niles Beach | Lucas | 25% | - |
+| 3_locust | 3 Locust | 3 Locust Lane, Gloucester MA | Stay at Niles Beach | Lucas | 25% | - |
 | 3246_ne_27th | 3246 NE 27th | 3246 NE 27th Avenue, Lighthouse Point FL | Stay At Lighthouse Point | Enriquez | 25% | - |
 
-The last three (65_calderwood, 3_locust, 3246_ne_27th) are newer and appear in the statement renderer but may not yet be in the ingest route's PROPERTIES config.
+3 Locust is now seeded in the Helm `properties` table (Lucas, 25%) and in `lib/properties.ts` PROPERTIES (no owner emails yet — backfill when Allie has them). 65 Calderwood and 3246 NE 27th remain Ryan's personal properties and are intentionally excluded from Helm.
 
 ## Guesty Listing Name Mapping
 
