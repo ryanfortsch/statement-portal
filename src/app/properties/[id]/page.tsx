@@ -4,6 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { SyncCommsButton } from './SyncCommsButton';
+import { PropertyAnchorNav } from './PropertyAnchorNav';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -256,7 +257,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       </section>
 
       {/* STAT GRID */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
@@ -264,14 +265,28 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               label="Cleaning Est"
               value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
             />
-            <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} />
+            <Stat label="Bank" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} />
             <Stat label="Owner" value={p.owner_last} last />
           </div>
         </div>
       </section>
 
+      {/* IN-PAGE ANCHOR NAV (sticky below masthead) */}
+      <PropertyAnchorNav
+        anchors={[
+          { id: 'statements',  label: 'Statements',  show: true },
+          { id: 'stays',       label: 'Stays',       show: true },
+          { id: 'inspections', label: 'Inspections', show: true },
+          { id: 'owner',       label: 'Owner',       show: true },
+          { id: 'comms',       label: 'Comms',       show: true },
+          { id: 'details',     label: 'Details',     show: true },
+          { id: 'activity',    label: 'Activity',    show: true },
+        ]}
+      />
+
       {/* RECENT STATEMENTS (Helm-native) */}
       <Section
+        id="statements"
         title="Recent Statements"
         eyebrow="Helm"
         empty={statements.length === 0}
@@ -314,6 +329,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
       {/* RECENT STAYS (Helm-native via reservations.property_id) */}
       <Section
+        id="stays"
         title="Recent Stays"
         eyebrow="Helm"
         empty={reservations.length === 0}
@@ -356,6 +372,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
       {/* INSPECTIONS (Helm-native) */}
       <Section
+        id="inspections"
         title="Inspections"
         eyebrow="Helm"
         empty={inspections.length === 0}
@@ -406,40 +423,65 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       </Section>
 
       {/* OWNER */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+      <section
+        id="owner"
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 24, paddingBottom: 48, width: '100%', scrollMarginTop: 100 }}
+      >
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
             Owner
           </h2>
           <span className="eyebrow">Helm</span>
         </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
-          <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-            <Detail term="Owner" definition={owner?.name_full ?? p.owner_full} />
-            <Detail term="Greeting" definition={owner?.name_greeting ?? p.owner_greeting} />
-            <Detail
-              term="Emails"
-              definition={(() => {
-                const emails = owner?.emails ?? p.owner_emails;
-                return emails.length > 0 ? emails.join(', ') : '—';
-              })()}
-              mono
-            />
-            <Detail
-              term="Phones"
-              definition={(owner?.phones && owner.phones.length > 0) ? owner.phones.join(', ') : '—'}
-              mono
-            />
-            <Detail term="Phone" definition={p.owner_phone || '—'} mono />
-            <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
-            <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
-            <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
-          </dl>
-        </div>
+        {(() => {
+          const emails = owner?.emails ?? p.owner_emails;
+          const allPhones = owner?.phones ?? [];
+          const primaryPhone = p.owner_phone || allPhones[0] || null;
+          const alsoMatched = allPhones.filter((ph) => ph !== primaryPhone);
+          return (
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              <OwnerSubBlock eyebrow="Identity">
+                <Detail term="Owner" definition={owner?.name_full ?? p.owner_full} />
+                <Detail term="Greeting" definition={owner?.name_greeting ?? p.owner_greeting} />
+              </OwnerSubBlock>
+
+              <OwnerSubBlock eyebrow="Contact">
+                <DetailWithSub
+                  term="Phone"
+                  definition={primaryPhone || '—'}
+                  sub={alsoMatched.length > 0 ? `Also matched: ${alsoMatched.join(', ')}` : null}
+                  mono
+                />
+                <Detail
+                  term="Email"
+                  definition={emails.length > 0 ? emails.join(', ') : '—'}
+                  mono
+                />
+                <Detail
+                  term="Mailing address"
+                  definition={p.owner_mailing_address || '—'}
+                />
+                <Detail
+                  term="Preferred contact"
+                  definition={p.owner_preferred_contact || '—'}
+                />
+              </OwnerSubBlock>
+
+              <OwnerSubBlock eyebrow="Admin" last>
+                <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
+              </OwnerSubBlock>
+            </div>
+          );
+        })()}
       </section>
 
       {/* RECENT COMMS (Helm-native via comms table; sourced from Quo today) */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+      <section
+        id="comms"
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 24, paddingBottom: 48, width: '100%', scrollMarginTop: 100 }}
+      >
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
             Recent Comms
@@ -489,7 +531,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       <OperationalSections p={p} />
 
       {/* DETAILS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+      <section
+        id="details"
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 24, paddingBottom: 56, width: '100%', scrollMarginTop: 100 }}
+      >
         <div className="eyebrow" style={{ marginBottom: 18 }}>Details</div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
           <Detail term="Helm ID" definition={p.id} mono />
@@ -511,7 +557,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       </section>
 
       {/* ACTIVITY */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
+      <section
+        id="activity"
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 24, paddingBottom: 56, flex: 1, width: '100%', scrollMarginTop: 100 }}
+      >
         <div className="eyebrow" style={{ marginBottom: 18 }}>Activity</div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
           <Detail term="Activated" definition={formatDate(p.activated_at)} />
@@ -630,12 +680,14 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
 }
 
 function Section({
+  id,
   title,
   eyebrow,
   empty,
   emptyMessage,
   children,
 }: {
+  id?: string;
   title: string;
   eyebrow: string;
   empty: boolean;
@@ -643,7 +695,11 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+    <section
+      id={id}
+      className="max-w-[1100px] mx-auto px-10"
+      style={{ paddingTop: 24, paddingBottom: 48, width: '100%', scrollMarginTop: 100 }}
+    >
       <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
         <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
           {title}
@@ -673,6 +729,59 @@ function Stat({ label, value, last = false }: { label: string; value: string; la
       <div className="font-serif tabular-nums" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)' }}>
         {value}
       </div>
+    </div>
+  );
+}
+
+function OwnerSubBlock({
+  eyebrow,
+  last = false,
+  children,
+}: {
+  eyebrow: string;
+  last?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: '20px 0 22px',
+        borderBottom: last ? 'none' : '1px solid var(--rule)',
+      }}
+    >
+      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--ink-3)' }}>{eyebrow}</div>
+      <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, margin: 0 }}>
+        {children}
+      </dl>
+    </div>
+  );
+}
+
+function DetailWithSub({
+  term,
+  definition,
+  sub,
+  mono = false,
+}: {
+  term: string;
+  definition: string;
+  sub: string | null;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <dt className="eyebrow" style={{ marginBottom: 4 }}>{term}</dt>
+      <dd
+        className={mono ? 'font-mono' : ''}
+        style={{ color: 'var(--ink)', fontSize: mono ? 12 : 14, margin: 0 }}
+      >
+        {definition}
+      </dd>
+      {sub && (
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
