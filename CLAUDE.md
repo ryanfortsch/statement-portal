@@ -14,6 +14,17 @@ Each month, Ryan uploads three data files per property. The Statements module in
 
 Live at: `rising-tide-statements-*.vercel.app` (Vercel Hobby plan; domain rename to follow)
 
+## Sister projects (other Rising Tide repos)
+
+These three repos sit next to this one on disk. You can read files from any of them for context (schema, types, copy voice, brand decisions). Don't write into another repo from inside this one — switch to that repo first.
+
+- **Helm** (this repo) — `/Users/maguire/Developer/statement-portal` — the internal ops hub. Statements, Properties, Inspections, Projections, Revenue, Comms (CRM seed). Supabase-backed. Where Dotti and Allie run the business.
+- **Rising Tide STR website** — `/Users/maguire/Developer/rising-tide-str` — risingtidestr.com. Owner-facing marketing site (income estimator, about, approach, markets map). Next.js 14 App Router. Same brand voice, same hard rules (no em dashes, no property counts, "Cape Ann" not "North Shore").
+- **Stay Cape Ann** — `/Users/maguire/Developer/stay-cape-ann` — staycapeann.com. Guest-facing rental brand site, listing pages, editorial content. Next.js. Same writing rules apply.
+- **Perfection (Lovable clone, reference only)** — `/Users/maguire/Developer/perfection` — schema reference for porting modules into Helm. Read SQL in `supabase/migrations/` to understand original column shapes. Don't modify; this is being replaced module by module.
+
+When something is shared cross-repo (an owner's name, a property's title, brand copy), the canonical source is whichever repo "owns" that concept: properties + owner records live in Helm's Supabase, brand copy lives in the rising-tide-str repo, listing detail copy lives in stay-cape-ann.
+
 ## Tech Stack
 
 - **Framework**: Next.js 16.2.4 (App Router), React 19, TypeScript
