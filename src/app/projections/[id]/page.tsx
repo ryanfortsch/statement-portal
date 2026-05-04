@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
+import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import {
@@ -101,28 +102,27 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
 
       {/* DELIVERABLE LINKS + STATE ACTIONS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <Link
-            href={`/projections/${id}/render`}
-            target="_blank"
-            style={primaryActionStyle}
-          >
-            Projection ↗
-          </Link>
-          <Link
-            href={`/projections/${id}/guide`}
-            target="_blank"
-            style={secondaryActionStyle}
-          >
-            Partnership Guide ↗
-          </Link>
-          <Link
-            href={`/projections/${id}/contract`}
-            target="_blank"
-            style={secondaryActionStyle}
-          >
-            Contract ↗
-          </Link>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Open in browser */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+            <Link href={`/projections/${id}/render`} target="_blank" style={primaryActionStyle}>
+              Projection ↗
+            </Link>
+            <Link href={`/projections/${id}/guide`} target="_blank" style={secondaryActionStyle}>
+              Partnership Guide ↗
+            </Link>
+            <Link href={`/projections/${id}/contract`} target="_blank" style={secondaryActionStyle}>
+              Contract ↗
+            </Link>
+          </div>
+          {/* Download PDFs (server-rendered via Puppeteer) */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+            <DownloadPdfButton projectionId={id} type="projection" label="Download Projection" />
+            <DownloadPdfButton projectionId={id} type="guide" label="Download Guide" />
+            <DownloadPdfButton projectionId={id} type="contract" label="Download Contract" />
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 18 }}>
           {projection.status === 'draft' ? (
             <form action={send}>
               <button
