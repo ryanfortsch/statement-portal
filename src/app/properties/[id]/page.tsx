@@ -212,59 +212,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </section>
 
-      {/* GUEST DELIVERABLES — Stay Collections home guide + WiFi placard */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Guest Deliverables
-          </h2>
-          <span className="eyebrow">Stay Collections</span>
-        </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 22 }}>
-          <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-            Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-            (Wi-Fi, parking, climate, etc). Edit operational data below to refresh.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Welcome Guide</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Stay Collections home guide
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                One-page editorial guide. Wi-Fi, climate, kitchen, parking, trash, hassle-free departure.
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
-              </div>
-            </div>
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Wi-Fi Placard</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                4 × 6 placard with QR code
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
-                {!p.wifi_name || !p.wifi_password ? (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    Add Wi-Fi name + password to this property to generate the QR.
-                  </span>
-                ) : null}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* RECENT STATEMENTS (Helm-native) */}
       <Section
         title="Recent Statements"
