@@ -66,9 +66,10 @@ export type ProjectionComputed = {
   year2: PayoutBreakdown;
 
   // Monthly arrays
-  seasonality: number[];     // 12 entries summing to ~1.0
-  monthlyYear1: MonthRow[];  // ramped
-  monthlyYear2: MonthRow[];  // full
+  seasonality: number[];                  // 12 entries summing to ~1.0
+  monthlyYear1: MonthRow[];               // full year, no ramp (Year 1 Perf chart)
+  monthlyYear1Ramped: MonthRow[];         // with ramp applied (Launch ramp slide)
+  monthlyYear2: MonthRow[];               // full year
 
   // Hero range used on the cover page
   heroLow: Money;
@@ -246,28 +247,39 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
   const year2Gross = (year2NetMid + cleaning) / (1 - inputs.mgmt_fee_pct);
   const year2 = payoutFor(year2Gross, inputs.mgmt_fee_pct, cleaning);
 
-  // Year 1 monthly. Ramp is opt-in (apply_ramp). When off, full seasonality
-  // from Jan — matches the standard "Property Analyzer" template. When on,
-  // months before start = 0, then 0.2 / 0.5 / 1.0 for the next three months
-  // (legacy 36 Granite-style binary cutoff with a smoothing curve).
-  // Cleaning is split by *seasonality* not evenly: more turnovers happen in
-  // peak months. Matches spreadsheet C13 = annual_cleaning × seasonality[m].
-  const ramps = inputs.apply_ramp ? rampMultipliers(inputs.start_month) : Array(12).fill(1);
-  const monthlyYear1 = MONTH_LABELS.map((label, m) => {
-    const monthGross = grossMid * seasonality[m] * ramps[m];
-    const monthMgmt = monthGross * inputs.mgmt_fee_pct;
-    const monthClean = cleaning * seasonality[m] * ramps[m];
-    return {
-      monthIndex: m,
-      monthLabel: label,
-      rampMultiplier: ramps[m],
-      grossRevenue: monthGross,
-      managementFee: monthMgmt,
-      cleaningExpense: monthClean,
-      netPayout: monthGross - monthMgmt - monthClean,
-    } satisfies MonthRow;
-  });
-  const rampedTotal = monthlyYear1.reduce(
+  // Year 1 monthly. Compute two parallel arrays:
+  //   monthlyYear1       — full year, no ramp. Used on the Year 1 Performance
+  //                        slide so the chart and big number reflect the
+  //                        property's *run rate* (steady-state earning power).
+  //   monthlyYear1Ramped — actual ramp applied when apply_ramp is on (months
+  //                        before start = 0, then 0.2 / 0.5 / 1.0). Drives
+  //                        the launch-year ramp slide and the year1Ramped
+  //                        totals on the prospect detail page.
+  // When apply_ramp is off the two arrays are identical.
+  // Cleaning splits by *seasonality* not evenly: more turnovers in peak
+  // months. Matches spreadsheet C13 = annual_cleaning × seasonality[m].
+  const buildMonthly = (ramps: number[]): MonthRow[] =>
+    MONTH_LABELS.map((label, m) => {
+      const monthGross = grossMid * seasonality[m] * ramps[m];
+      const monthMgmt = monthGross * inputs.mgmt_fee_pct;
+      const monthClean = cleaning * seasonality[m] * ramps[m];
+      return {
+        monthIndex: m,
+        monthLabel: label,
+        rampMultiplier: ramps[m],
+        grossRevenue: monthGross,
+        managementFee: monthMgmt,
+        cleaningExpense: monthClean,
+        netPayout: monthGross - monthMgmt - monthClean,
+      } satisfies MonthRow;
+    });
+
+  const fullRamps = Array(12).fill(1);
+  const launchRamps = inputs.apply_ramp ? rampMultipliers(inputs.start_month) : fullRamps;
+  const monthlyYear1 = buildMonthly(fullRamps);
+  const monthlyYear1Ramped = buildMonthly(launchRamps);
+
+  const rampedTotal = monthlyYear1Ramped.reduce(
     (acc, m) => ({
       grossRevenue: acc.grossRevenue + m.grossRevenue,
       managementFee: acc.managementFee + m.managementFee,
@@ -276,8 +288,8 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
     }),
     { grossRevenue: 0, managementFee: 0, cleaningExpense: 0, netPayout: 0 },
   );
-  const activeMonthCount = ramps.filter((r) => r > 0).length;
-  const effectiveAnnualizedMultiplier = ramps.reduce((s, r, i) => s + r * seasonality[i], 0);
+  const activeMonthCount = launchRamps.filter((r) => r > 0).length;
+  const effectiveAnnualizedMultiplier = launchRamps.reduce((s, r, i) => s + r * seasonality[i], 0);
 
   // Year 2 monthly forecast — full year, cleaning by seasonality.
   const monthlyYear2 = MONTH_LABELS.map((label, m) => {
@@ -295,14 +307,13 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
     } satisfies MonthRow;
   });
 
-  // Hero range default depends on whether ramp is applied:
-  //   ramp on  → ramped Year 1 net  →  full Year 1 mid (matches the old
-  //              "what you'll earn this year ramping vs steady state" framing)
-  //   ramp off → Year 1 low  →  Year 1 high (a simple range)
-  const heroLow = inputs.hero_low_override
-    ?? (inputs.apply_ramp ? rampedTotal.netPayout : year1Low.netPayout);
-  const heroHigh = inputs.hero_high_override
-    ?? (inputs.apply_ramp ? year1Mid.netPayout : year1High.netPayout);
+  // Hero range default: always the full Year 1 run rate (Low → High),
+  // regardless of whether ramp is applied. This is what the property earns
+  // at full operation. The launch-year ramp story (calendar-year reality)
+  // gets its own conditional slide later in the deck so the cover stays
+  // focused on the steady-state expectation.
+  const heroLow = inputs.hero_low_override ?? year1Low.netPayout;
+  const heroHigh = inputs.hero_high_override ?? year1High.netPayout;
 
   return {
     inputs,
@@ -316,6 +327,7 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
     year2,
     seasonality,
     monthlyYear1,
+    monthlyYear1Ramped,
     monthlyYear2,
     heroLow,
     heroHigh,
