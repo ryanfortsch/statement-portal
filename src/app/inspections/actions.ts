@@ -4,7 +4,8 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import { STANDARD_TEMPLATE_ID, type InspectionStatus } from '@/lib/inspections-types';
+import { HELM_CORE_TEMPLATE_ID, type InspectionStatus } from '@/lib/inspections-types';
+import { generateDeck } from '@/lib/inspection-deck';
 
 export async function startInspection(formData: FormData) {
   const session = await auth();
@@ -17,13 +18,21 @@ export async function startInspection(formData: FormData) {
     session.user.name?.trim() ||
     session.user.email.split('@')[0].replace(/^./, (c) => c.toUpperCase());
 
+  // Generate the 10-card deck for this property + active template
+  const deck = await generateDeck({
+    templateId: HELM_CORE_TEMPLATE_ID,
+    propertyId,
+    client: supabase,
+  });
+
   const { data, error } = await supabase
     .from('inspections')
     .insert({
       property_id: propertyId,
-      template_id: STANDARD_TEMPLATE_ID,
+      template_id: HELM_CORE_TEMPLATE_ID,
       inspector_email: session.user.email,
       inspector_name: inspectorName,
+      ordered_item_ids: deck.itemIds,
     })
     .select('id')
     .single();
@@ -40,7 +49,6 @@ export async function completeInspection(inspectionId: string, formData: FormDat
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  // Parse all status_<itemId> + notes_<itemId> entries from the form
   const items: SubmittedItem[] = [];
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith('status_')) continue;
@@ -70,6 +78,61 @@ export async function completeInspection(inspectionId: string, formData: FormDat
   const passCount = items.filter((i) => i.status === 'pass').length;
   const issueCount = items.filter((i) => i.status === 'issue').length;
   const naCount = items.filter((i) => i.status === 'na').length;
+
+  // Look up the property + template + which items are intermittent so we
+  // can (a) record per-property history for any intermittent items just
+  // completed and (b) bump the per-property "inspections since last
+  // intermittent" counter (or reset to 0 when an intermittent ran).
+  const { data: insp } = await supabase
+    .from('inspections')
+    .select('property_id, template_id')
+    .eq('id', inspectionId)
+    .maybeSingle();
+
+  if (insp) {
+    const itemIds = items.map((i) => i.itemId);
+    const { data: itemRows } = await supabase
+      .from('inspection_items')
+      .select('id, item_category')
+      .in('id', itemIds);
+
+    const intermittentItemIds = new Set(
+      (itemRows ?? [])
+        .filter((r: { item_category: string | null }) => r.item_category === 'INTERMITTENT')
+        .map((r: { id: string }) => r.id)
+    );
+
+    if (intermittentItemIds.size > 0) {
+      const nowIso = new Date().toISOString();
+      await supabase.from('property_inspection_item_history').upsert(
+        Array.from(intermittentItemIds).map((iid) => ({
+          property_id: (insp as { property_id: string }).property_id,
+          inspection_item_id: iid,
+          last_completed_at: nowIso,
+          last_inspection_id: inspectionId,
+        })),
+        { onConflict: 'property_id,inspection_item_id' }
+      );
+
+      // Reset spacing counter -- an intermittent just ran.
+      await supabase
+        .from('properties')
+        .update({ inspections_since_last_intermittent: 0 })
+        .eq('id', (insp as { property_id: string }).property_id);
+    } else {
+      // Bump the spacing counter -- this inspection had no intermittent.
+      const { data: prop } = await supabase
+        .from('properties')
+        .select('inspections_since_last_intermittent')
+        .eq('id', (insp as { property_id: string }).property_id)
+        .maybeSingle();
+      const next = ((prop as { inspections_since_last_intermittent: number } | null)?.inspections_since_last_intermittent ?? 0) + 1;
+      await supabase
+        .from('properties')
+        .update({ inspections_since_last_intermittent: next })
+        .eq('id', (insp as { property_id: string }).property_id);
+    }
+  }
 
   const { error: updateError } = await supabase
     .from('inspections')
