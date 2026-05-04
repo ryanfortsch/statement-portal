@@ -40,6 +40,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlidePillars footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
+        {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
         <SlideYear2 computed={c} footer={footerLabel} />
         <SlideServices footer={footerLabel} />
         <SlideLocal footer={footerLabel} />
@@ -240,6 +241,65 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
     </section>
   );
 }
+
+/**
+ * Launch ramp slide. Conditionally rendered when apply_ramp is true. Walks
+ * the prospect through the calendar-year reality of starting mid-year:
+ * partial seasonal capture this year, run-rate from Year 2.
+ */
+function SlideRamp({
+  projection,
+  computed,
+  footer,
+}: {
+  projection: ProjectionRow;
+  computed: ProjectionComputed;
+  footer: string;
+}) {
+  const calendarNet = Math.round(computed.year1Ramped.netPayout);
+  const runRateNet = Math.round(computed.year1.mid.netPayout);
+  const activeMonths = computed.year1Ramped.activeMonthCount;
+  const fraction = computed.year1Ramped.effectiveAnnualizedMultiplier;
+  const startMonthLabel = MONTH_NAMES[(projection.start_month - 1) % 12] ?? 'mid-year';
+  const presentationYear = (() => {
+    const y = projection.presentation_month?.split('-')[0];
+    return y ? Number(y) : new Date().getFullYear();
+  })();
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <h2 className="rt-section-title">Launch year</h2>
+        <p className="rt-y2-lead">
+          {projection.property_address} goes live in {startMonthLabel} {presentationYear}. Your first calendar year captures partial seasonality &mdash; about {Math.round(fraction * 100)}% of a full seasonal year, across {activeMonths} active months. From Year 2 onward, the property operates at full run rate.
+        </p>
+
+        <div className="rt-y2-compare">
+          <div className="rt-y2-side">
+            <div className="rt-y2-cap">CALENDAR {presentationYear}</div>
+            <div className="rt-y2-amt">{fmtMoney(calendarNet)}</div>
+            <div className="rt-y2-sub">{activeMonths} active months</div>
+          </div>
+
+          <div className="rt-y2-arrow-wrap" aria-hidden="true">
+            <div className="rt-y2-arrow-line" />
+            <div className="rt-y2-arrow-pill">RUN&nbsp;RATE</div>
+            <div className="rt-y2-arrow-head" />
+          </div>
+
+          <div className="rt-y2-side rt-y2-side-rt">
+            <div className="rt-y2-cap rt-y2-cap-rt">YEAR 1 RUN RATE</div>
+            <div className="rt-y2-amt rt-y2-amt-rt">{fmtMoney(runRateNet)}</div>
+            <div className="rt-y2-sub">full seasonal year</div>
+          </div>
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
   // Show actual values, not rounded.
