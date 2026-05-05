@@ -32,6 +32,28 @@ export const RANGE_LABEL: Record<Range, string> = {
 
 export const VALID_RANGES: Range[] = ['today', '3d', '7d', '14d', '30d'];
 
+/**
+ * Calendar window is independent of the turnover-list range so the operator
+ * can keep the list focused on the next few days while looking further ahead
+ * on the grid for planning. 30d is wide enough to overflow the 1100px
+ * container -- the grid wrapper has overflowX: auto so it scrolls naturally.
+ */
+export type CalendarRange = '7d' | '14d' | '30d';
+
+export const CALENDAR_RANGE_DAYS: Record<CalendarRange, number> = {
+  '7d': 7,
+  '14d': 14,
+  '30d': 30,
+};
+
+export const CALENDAR_RANGE_LABEL: Record<CalendarRange, string> = {
+  '7d': '7 days',
+  '14d': '14 days',
+  '30d': '30 days',
+};
+
+export const VALID_CALENDAR_RANGES: CalendarRange[] = ['7d', '14d', '30d'];
+
 // Properties Rising Tide doesn't physically inspect (out-of-region, owner
 // handles cleaning + turnovers locally). They stay in the registry for
 // statements/revenue but are hidden from the turnover pipeline + calendar
@@ -156,14 +178,19 @@ export type OperationsData = {
  * see reservations in the surrounding window, so we fetch a wider slice and
  * then narrow down at the end.
  */
-export async function loadOperationsData(range: Range): Promise<OperationsData> {
+export async function loadOperationsData(
+  range: Range,
+  calendarRange: CalendarRange = '7d'
+): Promise<OperationsData> {
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
   const rangeEnd = addDaysStr(rangeStart, days);
 
-  // Calendar window: always show at least a week of context even on the
-  // "today" tab so the operator can see what's coming.
-  const calendarDays = Math.max(days, 7);
+  // Calendar window is independent of the list range. Operator can keep the
+  // list short ("today") while looking 14 or 30 days ahead on the calendar.
+  // We still floor at the list-range size so the calendar never shows less
+  // than the list does.
+  const calendarDays = Math.max(days, CALENDAR_RANGE_DAYS[calendarRange]);
   const calendarEnd = addDaysStr(rangeStart, calendarDays);
 
   // Lookback 30 days so we can resolve previous checkouts; lookahead through
