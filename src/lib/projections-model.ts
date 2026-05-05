@@ -168,8 +168,18 @@ function airdnaSeasonality(market: AirDnaMarket, br: number, lastFullYear: numbe
 }
 
 // ─── Cleaning expense (annual) ──────────────────────────────────────────────
+/**
+ * Per-turnover cleaning fees stay in a $200–$325 range across Rising Tide's
+ * portfolio. The base + per-BR formula scales naturally for 2–4BR but would
+ * generate $350+ for 5+BR properties without a cap. Bound the per-turn value
+ * to MAX_CLEANING_PER_TURN so projections never advertise above-market
+ * cleaning expenses.
+ */
+const MAX_CLEANING_PER_TURN = 325;
+
 function annualCleaning(input: Pick<ProjectionRow, 'base_cleaning' | 'addl_cleaning_per_br' | 'bedrooms' | 'turnovers_per_year'>): Money {
-  const perTurn = input.base_cleaning + Math.max(0, input.bedrooms - 2) * input.addl_cleaning_per_br;
+  const formulaPerTurn = input.base_cleaning + Math.max(0, input.bedrooms - 2) * input.addl_cleaning_per_br;
+  const perTurn = Math.min(MAX_CLEANING_PER_TURN, formulaPerTurn);
   return perTurn * input.turnovers_per_year;
 }
 
