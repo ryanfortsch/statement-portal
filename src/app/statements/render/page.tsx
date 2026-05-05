@@ -161,6 +161,27 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const guestyByCode = new Map<string, { guest_name: string | null; channel: string | null; guesty_channel_id: string | null }>();
   (guestyLookups || []).forEach(r => { if (r.confirmation_code) guestyByCode.set(r.confirmation_code, r); });
 
+  // Per-reservation notes (out-of-band context, e.g. "Allie refunded
+  // half because Guesty auto-charged"). Tolerates the table not
+  // existing yet -- statements just render without notes when
+  // supabase-schema-reservation-notes.sql hasn't been applied.
+  const notesByCode = new Map<string, string>();
+  if (confirmationCodes.length > 0) {
+    const { data: notes, error: notesErr } = await supabase
+      .from('reservation_notes')
+      .select('confirmation_code, body, created_at')
+      .in('confirmation_code', confirmationCodes)
+      .order('created_at', { ascending: false });
+    const isMissingTable = notesErr && (notesErr.code === 'PGRST205' || /does not exist|relation|Could not find the table/i.test(notesErr.message || ''));
+    if (notesErr && !isMissingTable) {
+      console.warn('reservation_notes lookup failed:', notesErr.message);
+    } else if (notes) {
+      for (const n of notes as { confirmation_code: string; body: string; created_at: string }[]) {
+        if (!notesByCode.has(n.confirmation_code)) notesByCode.set(n.confirmation_code, n.body);
+      }
+    }
+  }
+
   // A guest_name that looks like a Guesty/VRBO/Airbnb confirmation code is
   // almost certainly a fallback, not a real name. Prefer the CSV-sourced one.
   const looksLikeConfirmationCode = (s: string | null | undefined) =>
@@ -343,7 +364,8 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     const displayPlatform = (!r.platform || r.platform.toLowerCase() === 'unknown')
       ? (lookup?.guesty_channel_id || lookup?.channel || r.platform || 'Direct')
       : r.platform;
-    return { ...r, guest_name: displayName, platform: displayPlatform, nts, perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0 };
+    const note = r.confirmation_code ? notesByCode.get(r.confirmation_code) : undefined;
+    return { ...r, guest_name: displayName, platform: displayPlatform, nts, perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0, note };
   });
 
   // Channel mix (uses enriched platform values from rows)
@@ -479,6 +501,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                         <td>
                           <div className="guest">{titleCase(r.guest_name)}</div>
                           <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
+                          {r.note && (
+                            <div className="guest-note">{r.note}</div>
+                          )}
                         </td>
                         <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
                         <td><span className="channel" data-ch={chLabel(r.platform)}><span className="dot" />{chLabel(r.platform)}</span></td>
@@ -716,6 +741,7 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .res-table tbody td.num { text-align:right; font-family:var(--serif); font-size:14px; }
 .guest { font-family:var(--serif); font-weight:500; font-size:13px; color:var(--ink); line-height:1.2; }
 .guest-sub { font-size:10px; color:var(--ink-4); font-family:var(--sans); margin-top:1px; }
+.guest-note { font-size:10px; color:var(--ink-3); font-family:var(--serif); font-style:italic; margin-top:3px; max-width:240px; line-height:1.35; border-left:1px solid var(--rule); padding-left:6px; }
 .stay-dates { font-size:12px; color:var(--ink-2); font-weight:500; }
 .channel { display:inline-flex; align-items:center; gap:6px; padding:2px 7px 2px 6px; border:1px solid var(--rule); background:var(--paper-2); border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-2); }
 .channel .dot { width:6px; height:6px; border-radius:50%; }
