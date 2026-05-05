@@ -7,7 +7,10 @@ import {
   loadOperationsData,
   RANGE_LABEL,
   VALID_RANGES,
+  CALENDAR_RANGE_LABEL,
+  VALID_CALENDAR_RANGES,
   type CalendarData,
+  type CalendarRange,
   type Range,
   type Turnover,
 } from '@/lib/operations';
@@ -37,7 +40,7 @@ function formatRelative(date: Date | null): string {
 }
 
 type PageProps = {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; cal?: string }>;
 };
 
 export default async function OperationsPage({ searchParams }: PageProps) {
@@ -47,6 +50,12 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     rangeParam && (VALID_RANGES as string[]).includes(rangeParam)
       ? (rangeParam as Range)
       : 'today';
+
+  const calParam = params?.cal;
+  const calRange: CalendarRange =
+    calParam && (VALID_CALENDAR_RANGES as string[]).includes(calParam)
+      ? (calParam as CalendarRange)
+      : '7d';
 
   if (!isHelmConfigured) {
     return (
@@ -63,7 +72,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   }
 
   const { lastSyncedAt, isStale } = await readSyncStatus();
-  const data = await loadOperationsData(range);
+  const data = await loadOperationsData(range, calRange);
   const initialFooter = lastSyncedAt
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
@@ -120,7 +129,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               return (
                 <Link
                   key={r}
-                  href={`/operations?range=${r}`}
+                  href={`/operations?range=${r}&cal=${calRange}`}
                   style={{
                     color: active ? 'var(--ink)' : 'var(--ink-3)',
                     textDecoration: 'none',
@@ -187,7 +196,10 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
       {/* OCCUPANCY CALENDAR */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <div
+          className="flex items-baseline justify-between flex-wrap gap-3"
+          style={{ marginBottom: 14 }}
+        >
           <h2 className="font-serif" style={{
             fontSize: 22,
             fontWeight: 400,
@@ -197,8 +209,44 @@ export default async function OperationsPage({ searchParams }: PageProps) {
           }}>
             On the calendar
           </h2>
-          <span className="eyebrow">{data.calendar.days.length} day{data.calendar.days.length === 1 ? '' : 's'}</span>
+          <nav className="flex items-baseline gap-4" style={{
+            fontSize: 11,
+            letterSpacing: '0.16em',
+            textTransform: 'uppercase',
+            fontWeight: 500,
+          }}>
+            {VALID_CALENDAR_RANGES.map((cr) => {
+              const active = cr === calRange;
+              return (
+                <Link
+                  key={cr}
+                  href={`/operations?range=${range}&cal=${cr}`}
+                  style={{
+                    color: active ? 'var(--ink)' : 'var(--ink-4)',
+                    textDecoration: 'none',
+                    borderBottom: active ? '2px solid var(--signal)' : '2px solid transparent',
+                    paddingBottom: 3,
+                  }}
+                >
+                  {CALENDAR_RANGE_LABEL[cr]}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
+        {data.calendar.days.length > 7 && (
+          <p
+            style={{
+              fontSize: 11,
+              color: 'var(--ink-4)',
+              letterSpacing: '0.04em',
+              marginBottom: 10,
+              fontStyle: 'italic',
+            }}
+          >
+            Scroll the grid sideways to see all {data.calendar.days.length} days &rarr;
+          </p>
+        )}
         <CalendarGrid calendar={data.calendar} />
       </section>
 
