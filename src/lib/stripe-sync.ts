@@ -333,11 +333,46 @@ export async function syncPropertyStripe(opts: {
       .eq('property_statement_id', stmt.id)
       .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_missing_charge', 'stripe_orphan_charge']);
 
+    // Pull any reservation_notes for the codes we're about to flag, so
+    // gap descriptions inherit the durable context that arrived
+    // out-of-band (e.g., "Allie refunded half because Guesty
+    // auto-charged"). Notes are keyed on confirmation_code so they
+    // survive ingest re-runs even though reservation UUIDs don't.
+    // Tolerates the table not existing yet (PGRST205) -- gaps just
+    // ship without notes when the migration hasn't run.
+    const flaggedCodes = new Set<string>([
+      ...result.refunds_detected.map(r => r.code),
+      ...result.gross_mismatches.map(m => m.code),
+      ...result.reservations_missing_charge.map(mc => mc.code),
+    ]);
+    const notesByCode = new Map<string, { body: string; created_at: string }>();
+    if (flaggedCodes.size > 0) {
+      const { data: notes, error: notesErr } = await supabase
+        .from('reservation_notes')
+        .select('confirmation_code, body, created_at')
+        .in('confirmation_code', Array.from(flaggedCodes))
+        .order('created_at', { ascending: false });
+      if (notesErr && notesErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(notesErr.message || '')) {
+        console.warn('reservation_notes lookup failed:', notesErr.message);
+      } else if (notes) {
+        // Latest note per code wins (we ordered desc, so first occurrence is newest).
+        for (const n of notes as { confirmation_code: string; body: string; created_at: string }[]) {
+          if (!notesByCode.has(n.confirmation_code)) {
+            notesByCode.set(n.confirmation_code, { body: n.body, created_at: n.created_at });
+          }
+        }
+      }
+    }
+    const noteSuffix = (code: string): string => {
+      const note = notesByCode.get(code);
+      return note ? ` Note: ${note.body}` : '';
+    };
+
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
     for (const r of result.refunds_detected) {
       newGaps.push({
         gap_type: 'stripe_refund_detected',
-        description: `Stripe shows $${r.amount.toFixed(2)} refunded on ${r.guest} (${r.code}). Owner payout may need adjustment.`,
+        description: `Stripe shows $${r.amount.toFixed(2)} refunded on ${r.guest} (${r.code}). Owner payout may need adjustment.${noteSuffix(r.code)}`,
         severity: 'warning',
         expected_data: `Confirm whether the refund is in-period and update the statement manually`,
       });
@@ -345,7 +380,7 @@ export async function syncPropertyStripe(opts: {
     for (const m of result.gross_mismatches) {
       newGaps.push({
         gap_type: 'stripe_gross_mismatch',
-        description: `Stripe gross $${m.stripe.toFixed(2)} disagrees with Guesty TOTAL_PAID $${m.guesty.toFixed(2)} for ${m.guest} (${m.code})`,
+        description: `Stripe gross $${m.stripe.toFixed(2)} disagrees with Guesty TOTAL_PAID $${m.guesty.toFixed(2)} for ${m.guest} (${m.code}).${noteSuffix(m.code)}`,
         severity: 'info',
         expected_data: `Re-check the Guesty reservation amount for this stay`,
       });
@@ -353,7 +388,7 @@ export async function syncPropertyStripe(opts: {
     for (const mc of result.reservations_missing_charge) {
       newGaps.push({
         gap_type: 'stripe_missing_charge',
-        description: `No Stripe charge found for ${mc.guest} (${mc.code}) expected $${mc.expected.toFixed(2)}`,
+        description: `No Stripe charge found for ${mc.guest} (${mc.code}) expected $${mc.expected.toFixed(2)}.${noteSuffix(mc.code)}`,
         severity: 'info',
         expected_data: `Check Stripe dashboard for this confirmation code`,
       });
