@@ -154,7 +154,7 @@ export function ForecastClient() {
           className="max-w-[1100px] mx-auto px-10"
           style={{ paddingBottom: 36, width: '100%' }}
         >
-          <SectionTitle title="2026 actual revenue" tag="Bank-visible inflows by posting month · Chase ...5130" />
+          <SectionTitle title="2026 actual mgmt fee" tag="By activity month · Chase ...5130 sweep on 1st weekday of next month" />
           <ActualsByMonth model={year} />
         </section>
       )}
@@ -190,22 +190,45 @@ export function ForecastClient() {
 }
 
 function ActualsByMonth({ model }: { model: YearResult }) {
-  // Only the 2026 rows from the inflows array (Jan-May 2026).
+  // Chase sweeps the prior month's mgmt fees on the first weekday of the
+  // next month. So a transfer posted "May 4" represents APRIL activity, not
+  // May. We display by activity month — what most people mean when they
+  // ask "how much did we make in April".
   const fmtCents = (n: number) =>
     `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const rows2026 = ACTUALS_INFLOWS_BY_MONTH.filter((r) => r.month.startsWith('2026-'));
-  // Map posting month → activity month (lag = 1). e.g. posted "2026-01" represents Dec 2025
-  // activity. We display the posting month and label it accordingly.
-  const totalMgmt = rows2026.reduce((s, r) => s + r.mgmtFeeIn, 0);
-  const totalPlatform = rows2026.reduce((s, r) => s + r.platformRevenue, 0);
-  const totalAll = totalMgmt + totalPlatform;
+  const byPosting = new Map(ACTUALS_INFLOWS_BY_MONTH.map((r) => [r.month, r]));
 
-  // Modeled revenue for the same months (Jan-Apr fully, May-Apr partial). The model's
-  // monthly figures correspond to *activity* month — so for an apples-to-apples comparison
-  // we'd need to lag. Showing both side by side as raw monthly numbers is the simplest
-  // honest comparison without overclaiming alignment.
-  const modeled2026Q1 = model.monthly.slice(0, 4).reduce((s, r) => s + r.rev_total, 0);
+  // Activity month → posting month for the mgmt fee sweep.
+  const activityRows: Array<{
+    activityMonth: string; // YYYY-MM
+    postingMonth: string;  // YYYY-MM
+    mgmtFee: number;
+    isPartial: boolean;
+  }> = [
+    { activityMonth: '2026-01', postingMonth: '2026-02', mgmtFee: 0, isPartial: false },
+    { activityMonth: '2026-02', postingMonth: '2026-03', mgmtFee: 0, isPartial: false },
+    { activityMonth: '2026-03', postingMonth: '2026-04', mgmtFee: 0, isPartial: false },
+    { activityMonth: '2026-04', postingMonth: '2026-05', mgmtFee: 0, isPartial: false },
+  ].map((r) => {
+    const post = byPosting.get(r.postingMonth);
+    return {
+      ...r,
+      mgmtFee: post?.mgmtFeeIn ?? 0,
+      isPartial: post?.isPartial ?? false,
+    };
+  });
+
+  const totalActual = activityRows.reduce((s, r) => s + r.mgmtFee, 0);
+
+  // Modeled mgmt fee revenue for Jan-Apr from the year's monthly array.
+  // Months 1..4 = Jan..Apr inclusive.
+  const modelByMonth: Record<string, number> = {};
+  for (let i = 0; i < 4; i++) {
+    const r = model.monthly[i];
+    modelByMonth[`2026-${String(i + 1).padStart(2, '0')}`] = r.rev_current + r.rev_presigned + r.rev_new;
+  }
+  const totalModel = Object.values(modelByMonth).reduce((s, v) => s + v, 0);
 
   return (
     <div
@@ -219,59 +242,59 @@ function ActualsByMonth({ model }: { model: YearResult }) {
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: 'var(--paper)' }}>
         <thead>
           <tr>
-            <th style={rcThStyle('left', 160)}>Posting month</th>
-            <th style={rcThStyle('right', 150)}>Mgmt fee → 5130</th>
-            <th style={rcThStyle('right', 150)}>Platform direct</th>
-            <th style={rcThStyle('right', 130)}>Combined</th>
-            <th style={rcThStyle('left')}>Note</th>
+            <th style={rcThStyle('left', 160)}>Activity month</th>
+            <th style={rcThStyle('right', 150)}>Mgmt fee · actual</th>
+            <th style={rcThStyle('right', 150)}>Mgmt fee · modeled</th>
+            <th style={rcThStyle('right', 100)}>Variance</th>
+            <th style={rcThStyle('left')}>Sweep</th>
           </tr>
         </thead>
         <tbody>
-          {rows2026.map((r) => {
-            const combined = r.mgmtFeeIn + r.platformRevenue;
-            const [, mm] = r.month.split('-');
+          {activityRows.map((r) => {
+            const [, mm] = r.activityMonth.split('-');
             const monthName = MONTH_LABELS[parseInt(mm, 10) - 1];
+            const [, pmm] = r.postingMonth.split('-');
+            const postingMonthName = MONTH_LABELS[parseInt(pmm, 10) - 1];
+            const modelVal = modelByMonth[r.activityMonth] ?? 0;
+            const variance = r.mgmtFee - modelVal;
+            const variancePct = modelVal > 0 ? (variance / modelVal) * 100 : null;
             return (
-              <tr key={r.month}>
+              <tr key={r.activityMonth}>
                 <td style={rcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
-                  {monthName} 2026 {r.isPartial && <span style={{ fontSize: 10, color: 'var(--ink-4)', fontStyle: 'italic' }}> (partial)</span>}
+                  {monthName} 2026
                 </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right' })}>
-                  {fmtCents(r.mgmtFeeIn)}
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', fontWeight: 600 })}>
+                  {fmtCents(r.mgmtFee)}
+                  {r.isPartial && <span style={{ fontSize: 10, color: 'var(--ink-4)', fontStyle: 'italic', marginLeft: 6 }}>(partial)</span>}
                 </td>
                 <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: 'var(--ink-3)' })}>
-                  {r.platformRevenue > 0 ? fmtCents(r.platformRevenue) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                  {fmtCents(modelVal)}
                 </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 600, textAlign: 'right' })}>
-                  {fmtCents(combined)}
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: variance >= 0 ? 'var(--positive)' : 'var(--negative)' })}>
+                  {variancePct != null ? `${variance >= 0 ? '+' : ''}${variancePct.toFixed(0)}%` : '—'}
                 </td>
                 <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
-                  {r.month === '2026-01' && 'Reflects Dec 2025 activity (statement-cycle lag).'}
-                  {r.month === '2026-02' && 'Reflects Jan 2026 activity.'}
-                  {r.month === '2026-03' && 'Reflects Feb 2026 activity.'}
-                  {r.month === '2026-04' && 'Reflects Mar 2026 activity.'}
-                  {r.month === '2026-05' && 'Reflects Apr 2026 activity. Bank export only through May 4 — figure will rise.'}
+                  Posted early {postingMonthName}{r.isPartial ? ' (export through May 4)' : ''}
                 </td>
               </tr>
             );
           })}
           <tr>
             <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Through {rows2026[rows2026.length - 1]?.month.split('-')[1] === '05' ? 'May 4' : 'April'}
+              Jan-Apr 2026 (YTD)
             </td>
             <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              {fmtCents(totalMgmt)}
+              {fmtCents(totalActual)}
             </td>
             <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)', color: 'var(--ink-3)' })}>
-              {fmtCents(totalPlatform)}
+              {fmtCents(totalModel)}
             </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              {fmtCents(totalAll)}
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)', color: totalActual - totalModel >= 0 ? 'var(--positive)' : 'var(--negative)' })}>
+              {totalModel > 0 ? `${totalActual - totalModel >= 0 ? '+' : ''}${(((totalActual - totalModel) / totalModel) * 100).toFixed(0)}%` : '—'}
             </td>
             <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              For comparison: model projected ${modeled2026Q1.toLocaleString()} for Q1 2026 (Jan-Apr).
-              Bank-visible mgmt fee runs lower because some flows route through ...8203 / ...6966 before
-              reaching the operating account, and the sweep is net of property reimbursements.
+              Sweep convention: Chase batches month-end fees on the 1st-2nd weekday of the next month.
+              Apr 2026 = $7,869.23 swept May 4 (8 properties contributing).
             </td>
           </tr>
         </tbody>
