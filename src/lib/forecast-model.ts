@@ -33,8 +33,11 @@ export type ManagedProperty = {
   start: number;
 };
 
+/** Years the model can render. */
+export type ForecastYear = 2026 | 2027;
+
 /** 9 properties currently under management as of Jan 2026. */
-export const CURRENT: ManagedProperty[] = [
+export const CURRENT_2026: ManagedProperty[] = [
   { name: 'Brier Neck', fee: 21359, type: 'CA', start: 1 },
   { name: 'Beverly', fee: 20500, type: 'LS', start: 1 },
   { name: 'The Neck', fee: 23000, type: 'CA', start: 1 },
@@ -46,19 +49,41 @@ export const CURRENT: ManagedProperty[] = [
   { name: 'Rockport AVH', fee: 32500, type: 'CA', start: 1 },
 ];
 
-/** 3 contracts signed but not yet onboarded — start in Apr / Jun / Jul. */
-export const PRESIGNED: ManagedProperty[] = [
-  { name: 'Pre-signed #1', fee: 25000, type: 'CA', start: 4 },
+/**
+ * 5 contracts signed but not yet fully onboarded.
+ *   - 3 originally pre-signed (Apr/Jun/Jul). Now rescheduled to May/Jun.
+ *   - 79 Main Street: signed; live end of May.
+ *   - 16 Waterman: signing this week; live in June.
+ */
+export const PRESIGNED_2026: ManagedProperty[] = [
+  { name: 'Pre-signed #1', fee: 25000, type: 'CA', start: 5 },
   { name: 'Pre-signed #2', fee: 25000, type: 'CA', start: 6 },
-  { name: 'Pre-signed #3', fee: 25000, type: 'CA', start: 7 },
+  { name: 'Pre-signed #3', fee: 25000, type: 'CA', start: 6 },
+  { name: '79 Main Street', fee: 25000, type: 'CA', start: 5 },
+  { name: '16 Waterman', fee: 25000, type: 'CA', start: 6 },
 ];
 
 /**
- * Order in which hypothetical new properties come online. Months are spread
- * across the year, weighted toward the spring/early-summer onboarding window
- * (Mar/May/Jun/Aug) since that's when owners typically engage.
+ * In 2027 the 9 current + 5 pre-signed all roll forward as fully active
+ * full-year contracts (start month 1).
  */
-export const NEW_PROPERTY_ORDER = [3, 5, 6, 8, 10, 2, 4, 7, 9, 11, 1, 12] as const;
+export const ACTIVE_2027: ManagedProperty[] = [
+  ...CURRENT_2026.map((p) => ({ ...p, start: 1 })),
+  ...PRESIGNED_2026.map((p) => ({ ...p, start: 1 })),
+];
+
+/**
+ * Order in which hypothetical new 2026 properties come online. Sprinkled
+ * across June-Dec since pre-signed already saturate May-June. Default
+ * count = 3 → first three slots: Jul, Sep, Nov (evenly spread).
+ */
+export const NEW_ORDER_2026 = [7, 9, 11, 6, 8, 10, 12] as const;
+
+/**
+ * 2027 — new properties can land any month. Defaults Mar, Jun, Sep for
+ * the first 3, then fill in Q1/Q4 as the count goes up.
+ */
+export const NEW_ORDER_2027 = [3, 6, 9, 1, 5, 7, 11, 4, 8, 10, 12, 2] as const;
 
 /** Each new property is assumed to be a Cape Ann management contract at $25K/yr. */
 export const NEW_PROPERTY_FEE = 25000;
@@ -80,10 +105,8 @@ export const SEASON: Record<SeasonType, number[]> = {
   LS: normalize(LS_RAW),
 };
 
-/** Onboarding cost per pre-signed contract, paid the month it goes live. */
+/** Onboarding cost per contract, paid the month it goes live. */
 export const ONBOARDING_COST = 3000;
-/** Months the 3 pre-signed contracts trigger onboarding cost. */
-export const PRESIGNED_ONBOARD_MONTHS = [4, 6, 7];
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -144,10 +167,56 @@ export const MONTH_LABELS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ] as const;
 
-export function officeCost(month: number): number {
-  if (month < OFFICE_START_MONTH) return 0;
+export function officeCost(month: number, startMonth: number): number {
+  if (month < startMonth) return 0;
   const dumpster = WINTER_MONTHS.has(month) ? DUMPSTER_WINTER : DUMPSTER_SUMMER;
   return OFFICE_RENT_MONTHLY + dumpster;
+}
+
+/**
+ * Per-year configuration. `getYearConfig(2026)` returns the layout used by
+ * the live model — 9 current + 5 pre-signed (May/Jun) + N new (Jun-Dec).
+ * `getYearConfig(2027)` returns 14 active props (the 9 + 5 ex-presigned
+ * carried forward) + N new spread across the year, no debt service, hire
+ * continues all year.
+ */
+export type YearConfig = {
+  year: ForecastYear;
+  /** Properties already producing revenue this year. */
+  current: ManagedProperty[];
+  /** Properties signed but onboarding mid-year. Empty in 2027. */
+  presigned: ManagedProperty[];
+  /** Order in which the slider adds new properties this year. */
+  newOrder: readonly number[];
+  /** Last month MH Partners debt is paid (1-12), or null if retired. */
+  debtLastMonth: number | null;
+  /** First month new hire shows up in the budget (1-12). */
+  hireStartMonth: number;
+  /** First month office rent kicks in (1 if continuous from prior year). */
+  officeStartMonth: number;
+};
+
+export function getYearConfig(year: ForecastYear): YearConfig {
+  if (year === 2026) {
+    return {
+      year: 2026,
+      current: CURRENT_2026,
+      presigned: PRESIGNED_2026,
+      newOrder: NEW_ORDER_2026,
+      debtLastMonth: 5, // Loan retired June 2026
+      hireStartMonth: 10, // Hire starts Oct 2026
+      officeStartMonth: 3, // Office lease started Mar 2026
+    };
+  }
+  return {
+    year: 2027,
+    current: ACTIVE_2027,
+    presigned: [],
+    newOrder: NEW_ORDER_2027,
+    debtLastMonth: null, // No debt service in 2027
+    hireStartMonth: 1, // Hire continues from 2026
+    officeStartMonth: 1, // Office continues from 2026
+  };
 }
 
 export type MonthRow = {
@@ -205,12 +274,15 @@ export type YearResult = {
 };
 
 /**
- * Compute the 12-month forecast for a given count of hypothetical new
- * properties. `numNew` is clamped to 0-10.
+ * Compute the 12-month forecast for a given year and count of hypothetical
+ * new properties. `numNew` is clamped to [0, length of that year's
+ * newOrder array].
  */
-export function calcYear(numNew: number): YearResult {
-  const n = Math.max(0, Math.min(10, Math.round(numNew)));
-  const newStartMonths: number[] = NEW_PROPERTY_ORDER.slice(0, n);
+export function calcYear(numNew: number, year: ForecastYear = 2026): YearResult {
+  const config = getYearConfig(year);
+  const maxNew = config.newOrder.length;
+  const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
+  const newStartMonths: number[] = config.newOrder.slice(0, n);
 
   const monthly: MonthRow[] = [];
   for (let m = 1; m <= 12; m++) {
@@ -221,10 +293,10 @@ export function calcYear(numNew: number): YearResult {
     let rev_presigned = 0;
     let rev_new = 0;
 
-    for (const p of CURRENT) {
+    for (const p of config.current) {
       if (m >= p.start) rev_current += p.fee * dist[p.type];
     }
-    for (const p of PRESIGNED) {
+    for (const p of config.presigned) {
       if (m >= p.start) rev_presigned += p.fee * dist[p.type];
     }
     for (const start of newStartMonths) {
@@ -233,16 +305,25 @@ export function calcYear(numNew: number): YearResult {
 
     const rev_total = Math.round(rev_current + rev_presigned + rev_new);
 
-    const exp_office = officeCost(m);
+    // Count contracts whose start month equals this month → multiply by
+    // the per-contract onboarding cost. This handles the case where two
+    // pre-signeds land the same month (e.g. May 2026 has two starts).
+    const presignedStartCount = config.presigned.filter((p) => p.start === m).length;
+    const newStartCount = newStartMonths.filter((s) => s === m).length;
+
+    const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = SOFTWARE_MONTHLY;
-    const exp_debt = m <= DEBT_LAST_MONTH ? DEBT_SERVICE_MONTHLY : 0;
+    const exp_debt =
+      config.debtLastMonth != null && m <= config.debtLastMonth
+        ? DEBT_SERVICE_MONTHLY
+        : 0;
     const exp_insurance = INSURANCE_MONTHLY;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = CC_OPERATING_MONTHLY;
-    const exp_hire = m >= HIRE_START_MONTH ? HIRE_MONTHLY : 0;
-    const exp_onboard_presigned = PRESIGNED_ONBOARD_MONTHS.includes(m) ? ONBOARDING_COST : 0;
-    const exp_onboard_new = newStartMonths.includes(m) ? ONBOARDING_COST : 0;
+    const exp_hire = m >= config.hireStartMonth ? HIRE_MONTHLY : 0;
+    const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
+    const exp_onboard_new = newStartCount * ONBOARDING_COST;
     const exp_total =
       exp_office +
       exp_software +

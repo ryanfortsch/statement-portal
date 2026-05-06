@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   calcYear,
+  getYearConfig,
   fmtDollar,
   fmtNum,
   fmtCompact,
@@ -14,13 +15,14 @@ import {
   ACCOUNTING_MONTHLY,
   BANK_FEES_MONTHLY,
   CC_OPERATING_MONTHLY,
+  type ForecastYear,
   type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
 import {
   ACTUALS_TRAILING_12MO,
-  ACTUAL_INSCOPE_AVG_MONTHLY,
   ACTUALS_INFLOWS_TRAILING_12MO,
+  ACTUALS_INFLOWS_BY_MONTH,
   ACTUALS_WINDOW,
   type ExpenseLine,
 } from '@/lib/forecast-actuals';
@@ -29,12 +31,21 @@ const SCENARIO_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 
 export function ForecastClient() {
   const [numNew, setNumNew] = useState<number>(3);
+  const [yearKey, setYearKey] = useState<ForecastYear>(2026);
 
-  const year = useMemo(() => calcYear(numNew), [numNew]);
+  const yearConfig = useMemo(() => getYearConfig(yearKey), [yearKey]);
+  const year = useMemo(() => calcYear(numNew, yearKey), [numNew, yearKey]);
   const scenarios = useMemo(
-    () => SCENARIO_RANGE.map((n) => ({ n, year: calcYear(n) })),
-    []
+    () => SCENARIO_RANGE.map((n) => ({ n, year: calcYear(n, yearKey) })),
+    [yearKey]
   );
+
+  /** Switch year, clamping numNew to the new year's max if needed. */
+  const setYearKeyClamped = (y: ForecastYear) => {
+    const maxForYear = getYearConfig(y).newOrder.length;
+    if (numNew > maxForYear) setNumNew(maxForYear);
+    setYearKey(y);
+  };
 
   const newStartMonthsLabel =
     year.newStartMonths.length === 0
@@ -43,11 +54,19 @@ export function ForecastClient() {
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
   const posMonths = year.monthly.filter((r) => r.net_business > 0);
-  const totalManaged = 9 + 3 + numNew;
+  // Total managed = current properties + presigned in this year + N new
+  const totalManaged = yearConfig.current.length + yearConfig.presigned.length + numNew;
 
   return (
     <>
-      <ScenarioControl numNew={numNew} setNumNew={setNumNew} startMonths={newStartMonthsLabel} />
+      <ScenarioControl
+        numNew={numNew}
+        setNumNew={setNumNew}
+        startMonths={newStartMonthsLabel}
+        yearKey={yearKey}
+        setYearKey={setYearKeyClamped}
+        maxNew={yearConfig.newOrder.length}
+      />
 
       <section
         className="max-w-[1100px] mx-auto px-10"
@@ -60,6 +79,9 @@ export function ForecastClient() {
           springTrough={springTrough}
           posMonthsCount={posMonths.length}
           posMonthsLabel={posMonths.map((r) => MONTH_LABELS[r.month - 1]).join(', ')}
+          yearKey={yearKey}
+          currentCount={yearConfig.current.length}
+          presignedCount={yearConfig.presigned.length}
         />
 
         <Banner
@@ -68,6 +90,12 @@ export function ForecastClient() {
           totalManaged={totalManaged}
           netBusiness={year.totals.net_business}
           springTrough={springTrough}
+          yearKey={yearKey}
+          baseLine={
+            yearKey === 2026
+              ? '9 current + 5 pre-signed only'
+              : '14 active properties'
+          }
         />
       </section>
 
@@ -109,7 +137,7 @@ export function ForecastClient() {
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 80, width: '100%' }}
       >
-        <SectionTitle title="Monthly Detail" tag="2026" />
+        <SectionTitle title="Monthly Detail" tag={String(yearKey)} />
         <div
           style={{
             border: '1px solid var(--rule)',
@@ -117,9 +145,19 @@ export function ForecastClient() {
             overflowX: 'auto',
           }}
         >
-          <ForecastTable year={year} />
+          <ForecastTable year={year} yearKey={yearKey} currentCount={yearConfig.current.length} presignedCount={yearConfig.presigned.length} />
         </div>
       </section>
+
+      {yearKey === 2026 && (
+        <section
+          className="max-w-[1100px] mx-auto px-10"
+          style={{ paddingBottom: 36, width: '100%' }}
+        >
+          <SectionTitle title="2026 actual revenue" tag="Bank-visible inflows by posting month · Chase ...5130" />
+          <ActualsByMonth model={year} />
+        </section>
+      )}
 
       <section
         className="max-w-[1100px] mx-auto px-10"
@@ -133,8 +171,8 @@ export function ForecastClient() {
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 80, width: '100%' }}
       >
-        <SectionTitle title="Assumptions" tag="What's baked in" />
-        <Assumptions />
+        <SectionTitle title="Assumptions" tag={`What's baked in for ${yearKey}`} />
+        <Assumptions yearKey={yearKey} />
       </section>
 
       <style jsx>{`
@@ -148,6 +186,97 @@ export function ForecastClient() {
         }
       `}</style>
     </>
+  );
+}
+
+function ActualsByMonth({ model }: { model: YearResult }) {
+  // Only the 2026 rows from the inflows array (Jan-May 2026).
+  const fmtCents = (n: number) =>
+    `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const rows2026 = ACTUALS_INFLOWS_BY_MONTH.filter((r) => r.month.startsWith('2026-'));
+  // Map posting month → activity month (lag = 1). e.g. posted "2026-01" represents Dec 2025
+  // activity. We display the posting month and label it accordingly.
+  const totalMgmt = rows2026.reduce((s, r) => s + r.mgmtFeeIn, 0);
+  const totalPlatform = rows2026.reduce((s, r) => s + r.platformRevenue, 0);
+  const totalAll = totalMgmt + totalPlatform;
+
+  // Modeled revenue for the same months (Jan-Apr fully, May-Apr partial). The model's
+  // monthly figures correspond to *activity* month — so for an apples-to-apples comparison
+  // we'd need to lag. Showing both side by side as raw monthly numbers is the simplest
+  // honest comparison without overclaiming alignment.
+  const modeled2026Q1 = model.monthly.slice(0, 4).reduce((s, r) => s + r.rev_total, 0);
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper)',
+        overflowX: 'auto',
+      }}
+    >
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: 'var(--paper)' }}>
+        <thead>
+          <tr>
+            <th style={rcThStyle('left', 160)}>Posting month</th>
+            <th style={rcThStyle('right', 150)}>Mgmt fee → 5130</th>
+            <th style={rcThStyle('right', 150)}>Platform direct</th>
+            <th style={rcThStyle('right', 130)}>Combined</th>
+            <th style={rcThStyle('left')}>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows2026.map((r) => {
+            const combined = r.mgmtFeeIn + r.platformRevenue;
+            const [, mm] = r.month.split('-');
+            const monthName = MONTH_LABELS[parseInt(mm, 10) - 1];
+            return (
+              <tr key={r.month}>
+                <td style={rcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
+                  {monthName} 2026 {r.isPartial && <span style={{ fontSize: 10, color: 'var(--ink-4)', fontStyle: 'italic' }}> (partial)</span>}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right' })}>
+                  {fmtCents(r.mgmtFeeIn)}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: 'var(--ink-3)' })}>
+                  {r.platformRevenue > 0 ? fmtCents(r.platformRevenue) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 600, textAlign: 'right' })}>
+                  {fmtCents(combined)}
+                </td>
+                <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
+                  {r.month === '2026-01' && 'Reflects Dec 2025 activity (statement-cycle lag).'}
+                  {r.month === '2026-02' && 'Reflects Jan 2026 activity.'}
+                  {r.month === '2026-03' && 'Reflects Feb 2026 activity.'}
+                  {r.month === '2026-04' && 'Reflects Mar 2026 activity.'}
+                  {r.month === '2026-05' && 'Reflects Apr 2026 activity. Bank export only through May 4 — figure will rise.'}
+                </td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
+              Through {rows2026[rows2026.length - 1]?.month.split('-')[1] === '05' ? 'May 4' : 'April'}
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
+              {fmtCents(totalMgmt)}
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)', color: 'var(--ink-3)' })}>
+              {fmtCents(totalPlatform)}
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
+              {fmtCents(totalAll)}
+            </td>
+            <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
+              For comparison: model projected ${modeled2026Q1.toLocaleString()} for Q1 2026 (Jan-Apr).
+              Bank-visible mgmt fee runs lower because some flows route through ...8203 / ...6966 before
+              reaching the operating account, and the sweep is net of property reimbursements.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -325,11 +454,11 @@ function rcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
   };
 }
 
-function Assumptions() {
-  const items: Array<{ label: string; value: string }> = [
+function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
+  const items2026: Array<{ label: string; value: string }> = [
     { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
-    { label: 'Pre-signed', value: '3 contracts at $25K/yr starting Apr · Jun · Jul' },
-    { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, ordered Mar→Dec' },
+    { label: 'Pre-signed', value: '5 contracts at $25K/yr — 2 May (incl. 79 Main St), 3 June (incl. 16 Waterman)' },
+    { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, default 3 sprinkled Jul · Sep · Nov' },
     { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
     { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
     { label: 'MH Partners debt', value: '$1,000/mo Jan-May only — loan retired June 2026 ($5K total)' },
@@ -341,6 +470,21 @@ function Assumptions() {
     { label: 'Onboarding', value: '$3,000 one-time per new contract, paid the start month' },
     { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, ATM/debit-card personal, federal/state taxes, capex, distributions' },
   ];
+  const items2027: Array<{ label: string; value: string }> = [
+    { label: 'Active portfolio (Jan 1)', value: '14 properties full-year (9 original + 5 ex-presigned including 79 Main, 16 Waterman)' },
+    { label: 'New mandates', value: '$25K/yr each, default 3 sprinkled Mar · Jun · Sep' },
+    { label: 'Office', value: '$750/mo all year + dumpster ($50 winter, $200 summer)' },
+    { label: 'Software / SaaS', value: '$200/mo' },
+    { label: 'MH Partners debt', value: '$0 — loan retired Jun 2026' },
+    { label: 'Insurance', value: '$440/mo smoothed' },
+    { label: 'Accounting', value: '$720/mo smoothed' },
+    { label: 'Bank fees', value: '$100/mo' },
+    { label: 'Operating CC', value: '$5,900/mo (carried over from 2026 actuals — needs re-calibration with 2026 actual data once the year is closed)' },
+    { label: 'Hire continues', value: '$5,000/mo all year ($60K) — assumes the Oct 2026 hire stays' },
+    { label: 'Onboarding', value: '$3,000 one-time per new contract' },
+    { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
+  ];
+  const items = yearKey === 2026 ? items2026 : items2027;
   return (
     <div
       style={{
@@ -379,11 +523,21 @@ function ScenarioControl({
   numNew,
   setNumNew,
   startMonths,
+  yearKey,
+  setYearKey,
+  maxNew,
 }: {
   numNew: number;
   setNumNew: (n: number) => void;
   startMonths: string;
+  yearKey: ForecastYear;
+  setYearKey: (y: ForecastYear) => void;
+  maxNew: number;
 }) {
+  const subLabel =
+    yearKey === 2026
+      ? 'beyond 9 current + 5 pre-signed'
+      : 'beyond the 14 active by Jan 2027';
   return (
     <section
       className="max-w-[1100px] mx-auto px-10"
@@ -405,7 +559,26 @@ function ScenarioControl({
           gap: 24,
         }}
       >
-        <div style={{ flex: '0 0 auto' }}>
+        {/* Year toggle */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 auto' }}>
+          <div
+            className="font-mono"
+            style={{
+              fontSize: 10,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-4)',
+            }}
+          >
+            Forecast year
+          </div>
+          <div style={{ display: 'flex', gap: 0 }}>
+            <YearTab year={2026} active={yearKey === 2026} onClick={() => setYearKey(2026)} />
+            <YearTab year={2027} active={yearKey === 2027} onClick={() => setYearKey(2027)} />
+          </div>
+        </div>
+
+        <div style={{ flex: '0 0 auto', minWidth: 130 }}>
           <div
             className="font-mono"
             style={{
@@ -416,10 +589,10 @@ function ScenarioControl({
               marginBottom: 4,
             }}
           >
-            New props in 2026
+            New props in {yearKey}
           </div>
           <div style={{ fontSize: 11, color: 'var(--paper-2)', opacity: 0.7 }}>
-            beyond the 9 current + 3 pre-signed
+            {subLabel}
           </div>
         </div>
 
@@ -457,7 +630,7 @@ function ScenarioControl({
         <input
           type="range"
           min={0}
-          max={10}
+          max={maxNew}
           value={numNew}
           onChange={(e) => setNumNew(+e.target.value)}
           aria-label="Number of new properties"
@@ -481,6 +654,37 @@ function ScenarioControl({
         </div>
       </div>
     </section>
+  );
+}
+
+function YearTab({
+  year,
+  active,
+  onClick,
+}: {
+  year: ForecastYear;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? 'var(--signal)' : 'transparent',
+        color: active ? 'var(--paper)' : 'var(--paper-2)',
+        border: '1px solid',
+        borderColor: active ? 'var(--signal)' : 'var(--ink-3)',
+        padding: '6px 14px',
+        fontSize: 12,
+        fontWeight: 500,
+        letterSpacing: '.04em',
+        cursor: 'pointer',
+        transition: 'all .15s',
+      }}
+    >
+      {year}
+    </button>
   );
 }
 
@@ -508,6 +712,9 @@ function KpiStrip({
   springTrough,
   posMonthsCount,
   posMonthsLabel,
+  yearKey,
+  currentCount,
+  presignedCount,
 }: {
   year: YearResult;
   numNew: number;
@@ -515,8 +722,19 @@ function KpiStrip({
   springTrough: number;
   posMonthsCount: number;
   posMonthsLabel: string;
+  yearKey: ForecastYear;
+  currentCount: number;
+  presignedCount: number;
 }) {
   const { totals } = year;
+  const portfolioBreakdown =
+    yearKey === 2026
+      ? `${currentCount} current + ${presignedCount} pre-signed + ${numNew} new`
+      : `${currentCount} active + ${numNew} new`;
+  const revBreakdown =
+    yearKey === 2026
+      ? `cur ${fmtCompactSimple(totals.rev_current)} · pre ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
+      : `active ${fmtCompactSimple(totals.rev_current)} · new ${fmtCompactSimple(totals.rev_new)}`;
 
   return (
     <div
@@ -538,7 +756,7 @@ function KpiStrip({
       <KpiCell
         label="Total revenue"
         value={fmtDollar(totals.rev_total)}
-        sub={`9 cur ${fmtCompactSimple(totals.rev_current)} · pre ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`}
+        sub={revBreakdown}
       />
       <KpiCell
         label="Total expenses"
@@ -548,8 +766,8 @@ function KpiStrip({
       />
       <KpiCell
         label="Managed at year-end"
-        value={String(9 + 3 + numNew)}
-        sub={`9 current + 3 pre-signed + ${numNew} new`}
+        value={String(totalManaged)}
+        sub={portfolioBreakdown}
         topBorder
         valueAccent="signal"
       />
@@ -642,12 +860,16 @@ function Banner({
   totalManaged,
   netBusiness,
   springTrough,
+  yearKey,
+  baseLine,
 }: {
   numNew: number;
   newStartMonthsLabel: string;
   totalManaged: number;
   netBusiness: number;
   springTrough: number;
+  yearKey: ForecastYear;
+  baseLine: string;
 }) {
   return (
     <div
@@ -663,14 +885,14 @@ function Banner({
     >
       {numNew === 0 ? (
         <>
-          <strong style={{ color: 'var(--ink)' }}>No new properties:</strong> running on
-          9 current + 3 pre-signed only. Net business:{' '}
+          <strong style={{ color: 'var(--ink)' }}>{yearKey} · no new properties:</strong>{' '}
+          running on {baseLine}. Net business:{' '}
           <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netBusiness)}</strong>.
         </>
       ) : (
         <>
           <strong style={{ color: 'var(--ink)' }}>
-            +{numNew} new {numNew === 1 ? 'property' : 'properties'}
+            {yearKey} · +{numNew} new {numNew === 1 ? 'property' : 'properties'}
           </strong>{' '}
           onboarded in {newStartMonthsLabel}. {totalManaged} managed properties by year-end.
           Net business:{' '}
@@ -930,8 +1152,23 @@ function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
 
 /* ----------------------------------------------------------------- Table */
 
-function ForecastTable({ year }: { year: YearResult }) {
+function ForecastTable({
+  year,
+  yearKey,
+  currentCount,
+  presignedCount,
+}: {
+  year: YearResult;
+  yearKey: ForecastYear;
+  currentCount: number;
+  presignedCount: number;
+}) {
   const { monthly, cumulative, totals } = year;
+  const currentLabel =
+    yearKey === 2026
+      ? `${currentCount} current properties`
+      : `${currentCount} active properties (full year)`;
+  const presignedLabel = '5 pre-signed (May · Jun)';
 
   return (
     <table
@@ -953,8 +1190,10 @@ function ForecastTable({ year }: { year: YearResult }) {
       </thead>
       <tbody>
         <SectionRow label="Revenue" />
-        <DataRow label="9 current properties" values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
-        <DataRow label="3 pre-signed (Apr · Jun · Jul)" values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
+        <DataRow label={currentLabel} values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
+        {presignedCount > 0 && (
+          <DataRow label={presignedLabel} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
+        )}
         <DataRow label="N new properties" values={monthly.map((r) => r.rev_new)} fy={totals.rev_new} highlight />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 

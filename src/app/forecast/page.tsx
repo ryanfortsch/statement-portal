@@ -15,9 +15,9 @@ export default function ForecastPage() {
 
       <HelmHero
         eyebrow="Helm · Forecast"
-        title="The 2026 plan,"
+        title="The two-year plan,"
         emphasis="calibrated to the bank."
-        description="Slide the lever to see what each new contract does to the year. Expense lines are calibrated to 12 months of Chase ...5130 actuals — office rent, MH Partners debt, insurance, accounting, software, and the operating CC pass-through, all itemized from real outflows. Management business only: RT-owned units, personal draw, and healthcare are out of scope."
+        description="Toggle 2026 / 2027 and slide the lever to see what each new contract does to the year. Expense lines are calibrated to 12 months of Chase ...5130 actuals — office rent, MH Partners debt (retiring June 2026), insurance, accounting, software, and the operating CC pass-through. Pre-signed for 2026: 5 contracts (incl. 79 Main and 16 Waterman) landing May/Jun. Management business only — RT-owned units, personal draw, and healthcare are out of scope."
       />
 
       <ForecastClient />

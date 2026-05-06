@@ -221,6 +221,43 @@ export const ACTUALS_INFLOWS_TRAILING_12MO = {
   internal_xfer: -2795.01,
 } as const;
 
+export type MonthlyInflow = {
+  /** Posting month, YYYY-MM. */
+  month: string;
+  /** Mgmt fee transfers from property accounts → 5130 (precise). */
+  mgmtFeeIn: number;
+  /** Direct deposits from Booking.com / Airbnb / Stripe (pass-through). */
+  platformRevenue: number;
+  /** True when the bank export ended mid-month (only May 2026). */
+  isPartial: boolean;
+};
+
+/**
+ * Monthly inflows by posting month from Chase ...5130. Posting lags
+ * activity by ~1 month — e.g. the $4,591 posted Jan 2026 represents Dec
+ * 2025 activity that closed on owner statements the first week of Jan.
+ *
+ * Use these for "actual revenue through April 2026" reality-checks. Note
+ * the bank-visible mgmt fee is meaningfully smaller than the model's
+ * gross fee because (a) statements net out reimbursements before the
+ * sweep, (b) some payments route through other RT accounts (...8203,
+ * ...6966) before reaching ...5130.
+ */
+export const ACTUALS_INFLOWS_BY_MONTH: MonthlyInflow[] = [
+  { month: '2025-06', mgmtFeeIn: 7889.91, platformRevenue: 0, isPartial: false },
+  { month: '2025-07', mgmtFeeIn: 8117.57, platformRevenue: 3569.60, isPartial: false },
+  { month: '2025-08', mgmtFeeIn: 29835.69, platformRevenue: 0, isPartial: false },
+  { month: '2025-09', mgmtFeeIn: 27537.47, platformRevenue: 2575.16, isPartial: false },
+  { month: '2025-10', mgmtFeeIn: 12076.24, platformRevenue: 25229.86, isPartial: false },
+  { month: '2025-11', mgmtFeeIn: 20076.86, platformRevenue: 3202.40, isPartial: false },
+  { month: '2025-12', mgmtFeeIn: 7488.22, platformRevenue: 4907.76, isPartial: false },
+  { month: '2026-01', mgmtFeeIn: 4591.44, platformRevenue: 8447.13, isPartial: false },
+  { month: '2026-02', mgmtFeeIn: 2165.90, platformRevenue: 6502.95, isPartial: false },
+  { month: '2026-03', mgmtFeeIn: 1828.16, platformRevenue: 2191.93, isPartial: false },
+  { month: '2026-04', mgmtFeeIn: 2395.25, platformRevenue: 11971.11, isPartial: false },
+  { month: '2026-05', mgmtFeeIn: 7869.23, platformRevenue: 0, isPartial: true },
+];
+
 /**
  * Statement window (the dataset this calibration came from).
  * Update when the parser is re-run on a fresh export.
