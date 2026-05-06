@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactType } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import type { LastTouch } from './page';
 import { createContact } from './actions';
 
 type PropertyMini = { id: string; name: string };
@@ -13,11 +14,12 @@ type Props = {
   contacts: ContactRow[];
   properties: PropertyMini[];
   counts: Record<ContactType | 'all', number>;
+  lastTouchByContact: Record<string, LastTouch>;
 };
 
 type FilterId = 'all' | ContactType;
 
-export function CrmListClient({ contacts, properties, counts }: Props) {
+export function CrmListClient({ contacts, properties, counts, lastTouchByContact }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<FilterId>('all');
   const [query, setQuery] = useState('');
@@ -142,6 +144,15 @@ export function CrmListClient({ contacts, properties, counts }: Props) {
                         </>
                       )}
                     </div>
+                    {lastTouchByContact[c.id] && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                        <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>{lastTouchByContact[c.id].channel}</span>
+                        {' · '}
+                        &ldquo;{truncate(lastTouchByContact[c.id].summary, 80)}&rdquo;
+                        {' · '}
+                        {formatRelative(lastTouchByContact[c.id].at)}
+                      </div>
+                    )}
                   </div>
                   <span
                     style={{
@@ -477,4 +488,26 @@ function selectStyle(): React.CSSProperties {
     ...inputStyle(),
     appearance: 'none',
   };
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return '';
+  return s.length > n ? `${s.slice(0, n).trim()}…` : s;
+}
+
+function formatRelative(iso: string): string {
+  try {
+    const then = new Date(iso);
+    const diffMs = Date.now() - then.getTime();
+    const mins = Math.floor(diffMs / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
 }
