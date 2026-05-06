@@ -14,6 +14,7 @@ import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { PropertyActivity } from './PropertyActivity';
+import { MarketContext } from '@/components/properties/MarketContext';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -692,6 +693,22 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         )}
       </section>
+
+      {/* MARKET CONTEXT — quiet AirDNA comp for the most recent statement.
+          Hidden when no statements exist, no market is set, or no AirDNA
+          observations cover the trailing window. */}
+      <MarketContext
+        property={p}
+        latestStatement={
+          statements.length > 0
+            ? {
+                month: statements[0].month,
+                rental_revenue: statements[0].rental_revenue,
+                owner_payout: statements[0].owner_payout,
+              }
+            : null
+        }
+      />
 
       {/* RECENT STATEMENTS (Helm-native) */}
       <Section
