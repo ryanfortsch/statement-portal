@@ -11,6 +11,7 @@ import { StatusChanger } from './StatusChanger';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipComments } from './SlipComments';
+import { SnoozeButton } from './SnoozeButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -246,7 +247,17 @@ export default async function WorkSlipDetailPage({
       )}
 
       {/* STATUS + RESOLUTION */}
-      <Section title="Update" eyebrow="Mark progress">
+      <Section
+        title="Update"
+        eyebrow={
+          slip.snoozed_until && slip.snoozed_until > new Date().toISOString().slice(0, 10)
+            ? `Snoozed until ${slip.snoozed_until}`
+            : 'Mark progress'
+        }
+      >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <SnoozeButton slipId={slip.id} initialSnoozedUntil={slip.snoozed_until ?? null} />
+        </div>
         <StatusChanger
           workSlipId={slip.id}
           initialStatus={slip.status}

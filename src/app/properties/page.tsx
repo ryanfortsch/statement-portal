@@ -37,10 +37,12 @@ async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: 
 async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
   if (!isHelmConfigured) return {};
   try {
+    const todayIso = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase
       .from('work_slips')
       .select('property_id, owner_action_required')
-      .in('status', ACTIVE_WORK_SLIP_STATUSES);
+      .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`);
     if (error) throw error;
 
     const counts: Record<string, WorkCounts> = {};

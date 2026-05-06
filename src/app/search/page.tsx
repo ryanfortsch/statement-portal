@@ -45,7 +45,7 @@ async function search(q: string): Promise<SearchResults> {
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
       .or(`title.ilike.${like},description.ilike.${like},location.ilike.${like}`)
       .order('priority', { ascending: false })
-      .limit(20),
+      .limit(40),     // pull a few extra so post-snooze filter can still hit limit 20
     supabase
       .from('tasks')
       .select('*')
@@ -59,14 +59,18 @@ async function search(q: string): Promise<SearchResults> {
   const propertyMap = new Map<string, string>(
     ((propMapRes.data ?? []) as Array<{ id: string; name: string }>).map((p) => [p.id, p.name])
   );
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   return {
     properties: (propRes.data ?? []) as HelmPropertyRow[],
     contacts: (contactRes.data ?? []) as ContactRow[],
-    slips: ((slipRes.data ?? []) as WorkSlipRow[]).map((s) => ({
-      ...s,
-      property_name: propertyMap.get(s.property_id) ?? s.property_id,
-    })),
+    slips: ((slipRes.data ?? []) as WorkSlipRow[])
+      .filter((s) => !s.snoozed_until || s.snoozed_until <= todayIso)
+      .slice(0, 20)
+      .map((s) => ({
+        ...s,
+        property_name: propertyMap.get(s.property_id) ?? s.property_id,
+      })),
     tasks: (taskRes.data ?? []) as TaskRow[],
   };
 }

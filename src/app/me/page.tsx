@@ -53,12 +53,14 @@ async function getMineData(myEmail: string): Promise<{
   // "what I've been doing", not so deep that it dominates the page.
   const touchesCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [slipRes, taskRes, planRes, propRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
       .select('*')
       .eq('assigned_to_email', myEmail)
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
       .order('priority', { ascending: false })
       .order('scheduled_date', { ascending: true }),
     supabase
