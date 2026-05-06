@@ -46,13 +46,37 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
   // 2027 is fully projected.
   const actualsForYear = yearKey === 2026 ? ACTUALS_2026 : undefined;
   const actualsThrough = yearKey === 2026 ? ACTUALS_2026_THROUGH_MONTH : undefined;
+
+  // Smart Forecast → forward-month override map (month-of-year → mgmt fee).
+  // Sums projected RT mgmt fee across all properties for each forward month.
+  const smartOverride = useMemo(() => {
+    const data = yearKey === 2026 ? smart2026 : smart2027;
+    if (!data) return undefined;
+    const map = new Map<number, number>();
+    for (const ym of data.months) {
+      const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+      if (y !== yearKey) continue;
+      let total = 0;
+      for (const p of data.properties) {
+        const cell = p.monthly.find((c) => c.month === ym);
+        if (cell) total += cell.projectedMgmtFee;
+      }
+      if (total > 0) map.set(m, total);
+    }
+    return map;
+  }, [smart2026, smart2027, yearKey]);
+
   const year = useMemo(
-    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough),
-    [numNew, yearKey, actualsForYear, actualsThrough]
+    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride),
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride]
   );
   const scenarios = useMemo(
-    () => SCENARIO_RANGE.map((n) => ({ n, year: calcYear(n, yearKey, actualsForYear, actualsThrough) })),
-    [yearKey, actualsForYear, actualsThrough]
+    () =>
+      SCENARIO_RANGE.map((n) => ({
+        n,
+        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride),
+      })),
+    [yearKey, actualsForYear, actualsThrough, smartOverride]
   );
 
   /** Switch year, clamping numNew to the new year's max if needed. */
@@ -1471,11 +1495,15 @@ function ForecastTable({
   presignedCount: number;
 }) {
   const { monthly, cumulative, totals } = year;
+  // For 2026 forward months, rev_current is the Smart Forecast total
+  // (real Guesty bookings × Gloucester pacing × per-property fee). For
+  // past months (Jan-Apr) it's the bank actual. The seasonality
+  // heuristic only kicks in if Smart Forecast data is unavailable.
   const currentLabel =
     yearKey === 2026
-      ? `${currentCount} current properties`
-      : `${currentCount} active properties (full year)`;
-  const presignedLabel = '5 pre-signed (May · Jun)';
+      ? `Current 9 + presigned (smart forecast)`
+      : `${currentCount} active properties (smart forecast)`;
+  const presignedLabel = '5 pre-signed (May · Jun) [folded into Current row when smart data exists]';
 
   return (
     <table

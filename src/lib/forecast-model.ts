@@ -309,6 +309,18 @@ export type ActualsByMonth = ReadonlyArray<{
 }>;
 
 /**
+ * Optional forward-month override sourced from the Smart Forecast (Guesty
+ * bookings × Gloucester pacing × per-property mgmt fee). When provided,
+ * the model uses these numbers for rev_current+rev_presigned in forward
+ * months instead of the seasonality heuristic. rev_new from the slider
+ * still adds on top.
+ *
+ * Map: month-of-year (1-12) → total RT mgmt fee for that month across
+ * all properties already on Guesty.
+ */
+export type SmartForwardOverride = ReadonlyMap<number, number>;
+
+/**
  * Compute the 12-month forecast for a given year and count of hypothetical
  * new properties. `numNew` is clamped to [0, length of that year's
  * newOrder array].
@@ -322,7 +334,8 @@ export function calcYear(
   numNew: number,
   year: ForecastYear = 2026,
   actuals?: ActualsByMonth,
-  actualsThroughMonth?: number
+  actualsThroughMonth?: number,
+  smartOverride?: SmartForwardOverride
 ): YearResult {
   const config = getYearConfig(year);
   const maxNew = config.newOrder.length;
@@ -373,16 +386,33 @@ export function calcYear(
     const i = m - 1;
     const dist = { CA: SEASON.CA[i], FL: SEASON.FL[i], LS: SEASON.LS[i] };
 
+    // If we have a Smart Forecast value for this month, that becomes
+    // rev_current — booked + projected from real Guesty data, with each
+    // property's actual mgmt fee. rev_presigned goes to zero because the
+    // smart forecast already includes any presigneds that are on Guesty.
+    // If no smart value, fall back to the seasonality heuristic.
+    const smartFee = smartOverride?.get(m);
+    const useSmart = smartFee != null && smartFee > 0;
+
     let rev_current = 0;
     let rev_presigned = 0;
     let rev_new = 0;
 
-    for (const p of config.current) {
-      if (m >= p.start) rev_current += p.fee * dist[p.type];
+    if (useSmart) {
+      // Smart Forecast owns current + presigned line for this month.
+      rev_current = smartFee;
+      // rev_presigned stays 0 — already folded into smartFee.
+    } else {
+      // Seasonality heuristic.
+      for (const p of config.current) {
+        if (m >= p.start) rev_current += p.fee * dist[p.type];
+      }
+      for (const p of config.presigned) {
+        if (m >= p.start) rev_presigned += p.fee * dist[p.type];
+      }
     }
-    for (const p of config.presigned) {
-      if (m >= p.start) rev_presigned += p.fee * dist[p.type];
-    }
+    // N new properties always come from the seasonality model (hypothetical
+    // — no Guesty record yet). Same for both the smart and heuristic paths.
     for (const start of newStartMonths) {
       if (m >= start) rev_new += NEW_PROPERTY_FEE * SEASON[NEW_PROPERTY_TYPE][i];
     }
