@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { WorkSlipRow } from '@/lib/work-types';
 import {
@@ -8,6 +9,7 @@ import {
 } from '@/lib/work-types';
 import { StatusChanger } from './StatusChanger';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
+import { SlipAssignEditor } from './SlipAssignEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,8 +70,9 @@ export default async function WorkSlipDetailPage({
   params: Promise<Params>;
 }) {
   const { id } = await params;
-  const data = await getWorkSlip(id);
+  const [data, session] = await Promise.all([getWorkSlip(id), auth()]);
   if (!data) notFound();
+  const myEmail = session?.user?.email ?? '';
 
   const { slip, property, inspection, inspectionItem } = data;
 
@@ -176,6 +179,18 @@ export default async function WorkSlipDetailPage({
           )}
         </Section>
       )}
+
+      {/* ASSIGNMENT */}
+      <Section
+        title="Assignment"
+        eyebrow={slip.assigned_to_email ? 'Claimed' : 'Unclaimed'}
+      >
+        <SlipAssignEditor
+          slipId={slip.id}
+          initialAssignedToEmail={slip.assigned_to_email}
+          myEmail={myEmail}
+        />
+      </Section>
 
       {/* PHOTOS */}
       <Section

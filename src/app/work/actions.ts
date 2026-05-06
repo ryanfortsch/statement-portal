@@ -139,6 +139,46 @@ export async function updateWorkSlipPhotos(args: {
 }
 
 /**
+ * Reassign a single work slip from the slip detail page. Takes the
+ * canonical email (or null) and updates assigned_to_email +
+ * assigned_to_type together so the queue's "Unclaimed" filter and the
+ * "team / unassigned / owner" pill stay in sync.
+ *
+ * Unlike the bulk path, this also stamps claimed_at when the slip
+ * goes from unassigned → assigned so we can show "claimed Apr 30" on
+ * the row.
+ */
+export async function updateWorkSlipAssignment(args: {
+  id: string;
+  assigned_to_email: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const email = args.assigned_to_email?.trim() || null;
+  const patch: Record<string, unknown> = {
+    assigned_to_email: email,
+    assigned_to_type: email ? 'team' : 'unassigned',
+  };
+  if (email) {
+    // Lightly stamp claimed_at when transitioning into a claimed state.
+    // Reading the current row first would be one extra round trip; the
+    // upsert-style behavior here will overwrite a previous claim with
+    // a new timestamp on every reassign which is fine for now.
+    patch.claimed_at = new Date().toISOString();
+  } else {
+    patch.claimed_at = null;
+  }
+
+  const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
  * Bulk-update many work slips in one round trip. Accepts only the small
  * set of fields safe to set across many rows from the queue's bulk bar:
  * status, priority, assigned_to_email. Empty string assigned_to_email
