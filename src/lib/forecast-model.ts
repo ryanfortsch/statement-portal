@@ -53,11 +53,19 @@ export const PRESIGNED: ManagedProperty[] = [
   { name: 'Pre-signed #3', fee: 25000, type: 'CA', start: 7 },
 ];
 
-/** 3 Rising Tide-owned properties — gross revenue flows to the business. */
+/**
+ * 3 Rising Tide-owned units — handled separately from the management book
+ * because gross revenue (not just the management fee) flows back to the
+ * business. These are the three RT treats apart from the owner-statement
+ * pipeline:
+ *   - 3 Locust         — Cape Ann (Niles Beach), Lucas family
+ *   - Lighthouse Point — 3246 NE 27th, Lighthouse Point FL
+ *   - 65 Calderwood    — Calderwood Lane, Fairfield CT (less-seasonal)
+ */
 export const OWNED: OwnedProperty[] = [
-  { name: 'Owned · Cape Ann', rev: 25000, type: 'CA' },
-  { name: 'Owned · Florida', rev: 40000, type: 'FL' },
-  { name: 'Owned · Bridgeport', rev: 25000, type: 'LS' },
+  { name: '3 Locust', rev: 25000, type: 'CA' },
+  { name: 'Lighthouse Point', rev: 40000, type: 'FL' },
+  { name: '65 Calderwood', rev: 25000, type: 'LS' },
 ];
 
 /**

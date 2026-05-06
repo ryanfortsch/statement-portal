@@ -134,7 +134,7 @@ function Assumptions() {
     { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
     { label: 'Pre-signed', value: '3 contracts at $25K/yr starting Apr · Jun · Jul' },
     { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, ordered Mar→Dec' },
-    { label: 'Owned units', value: '3 RT-owned (Cape Ann $25K · FL $40K · Bridgeport $25K, gross)' },
+    { label: 'Owned units', value: '3 RT-owned: 3 Locust ($25K, Cape Ann) · Lighthouse Point ($40K, FL) · 65 Calderwood ($25K, less-seasonal). Gross revenue, not management fee.' },
     { label: 'Corp overhead', value: '$4,000/mo (software, accounting, insurance)' },
     { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
     { label: 'New hire', value: '$5,000/mo from October' },
@@ -758,7 +758,7 @@ function ForecastTable({ year }: { year: YearResult }) {
         <DataRow label="9 current properties" values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
         <DataRow label="3 pre-signed (Apr · Jun · Jul)" values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow label="N new properties" values={monthly.map((r) => r.rev_new)} fy={totals.rev_new} highlight />
-        <DataRow label="3 owned (Cape Ann · FL · Bridgeport)" values={monthly.map((r) => r.rev_owned)} fy={totals.rev_owned} />
+        <DataRow label="3 owned (3 Locust · Lighthouse Pt · 65 Calderwood)" values={monthly.map((r) => r.rev_owned)} fy={totals.rev_owned} />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
         <SectionRow label="Expenses" />

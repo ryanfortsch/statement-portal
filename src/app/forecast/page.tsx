@@ -16,8 +16,8 @@ export default function ForecastPage() {
       <HelmHero
         eyebrow="Helm · Forecast"
         title="The 2026 plan,"
-        emphasis="if everything works."
-        description="Slide the lever to see what each new contract does to the year. The model layers nine current properties, three pre-signed contracts, three Rising Tide-owned units, and however many new mandates we choose to chase."
+        emphasis="modeled live."
+        description="Slide the lever to see what each new contract does to the year. The model layers nine current managed properties, three pre-signed contracts, three Rising Tide-owned units (3 Locust, Lighthouse Point, 65 Calderwood), and however many new mandates we choose to chase."
       />
 
       <ForecastClient />
