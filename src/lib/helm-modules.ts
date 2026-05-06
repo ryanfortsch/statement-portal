@@ -120,6 +120,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  {
+    id: 'forecast',
+    href: '/forecast',
+    number: '12',
+    title: 'Forecast',
+    description: 'The 2026 business plan as an interactive model. Slide the lever to see how new contracts move the year — revenue, expenses, spring crunch, cash-positive months.',
+    status: 'active',
+    primary: false,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
