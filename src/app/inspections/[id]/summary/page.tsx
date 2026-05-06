@@ -17,10 +17,33 @@ type ResultWithItem = {
   item: InspectionItemRow;
 };
 
+type SummaryNote = {
+  id: string;
+  inspection_item_id: string | null;
+  note_text: string;
+  note_type: 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
+  author_email: string;
+  created_at: string;
+};
+
+type SummaryWorkSlip = {
+  id: string;
+  inspection_item_id: string | null;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: string;
+  location: string | null;
+  created_at: string;
+};
+
 async function getInspection(id: string): Promise<{
   inspection: InspectionRow;
   property: PropertyShape;
   results: ResultWithItem[];
+  notes: SummaryNote[];
+  workSlips: SummaryWorkSlip[];
+  itemMap: Map<string, InspectionItemRow>;
 } | null> {
   const { data: inspection } = await supabase
     .from('inspections')
@@ -31,7 +54,7 @@ async function getInspection(id: string): Promise<{
 
   const insp = inspection as InspectionRow;
 
-  const [{ data: property }, { data: results }, { data: items }] = await Promise.all([
+  const [{ data: property }, { data: results }, { data: items }, { data: notesData }, { data: workSlipsData }] = await Promise.all([
     supabase
       .from('properties')
       .select('id, name, title, city')
@@ -45,6 +68,16 @@ async function getInspection(id: string): Promise<{
       .from('inspection_items')
       .select('id, template_id, category, title, description, sort_order')
       .eq('template_id', insp.template_id),
+    supabase
+      .from('inspection_notes')
+      .select('id, inspection_item_id, note_text, note_type, author_email, created_at')
+      .eq('inspection_id', id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('work_slips')
+      .select('id, inspection_item_id, title, description, category, priority, location, created_at')
+      .eq('inspection_id', id)
+      .order('created_at', { ascending: true }),
   ]);
 
   if (!property) return null;
@@ -67,6 +100,9 @@ async function getInspection(id: string): Promise<{
     inspection: insp,
     property: property as PropertyShape,
     results: merged,
+    notes: (notesData ?? []) as SummaryNote[],
+    workSlips: (workSlipsData ?? []) as SummaryWorkSlip[],
+    itemMap,
   };
 }
 
@@ -81,10 +117,12 @@ export default async function InspectionSummaryPage({
   const data = await getInspection(id);
   if (!data) notFound();
 
-  const { inspection, property, results } = data;
+  const { inspection, property, results, notes, workSlips, itemMap } = data;
   const issues = results.filter((r) => r.result.status === 'issue');
   const passes = results.filter((r) => r.result.status === 'pass');
   const nas = results.filter((r) => r.result.status === 'na');
+  const propertyNotes = notes.filter((n) => n.note_type === 'PROPERTY_NOTE');
+  const inspectionNotes = notes.filter((n) => n.note_type === 'INSPECTION_NOTE');
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -152,6 +190,141 @@ export default async function InspectionSummaryPage({
           ))}
         </div>
       </Section>
+
+      {/* WORK SLIPS CREATED THIS INSPECTION */}
+      {workSlips.length > 0 && (
+        <Section
+          title="Work Slips Created"
+          eyebrow={`${workSlips.length} new`}
+          empty={false}
+          emptyMessage=""
+        >
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {workSlips.map((ws) => {
+              const item = ws.inspection_item_id ? itemMap.get(ws.inspection_item_id) : null;
+              return (
+                <div
+                  key={ws.id}
+                  style={{
+                    padding: '16px 0',
+                    borderBottom: '1px solid var(--rule)',
+                    display: 'grid',
+                    gridTemplateColumns: '160px 1fr auto',
+                    gap: 24,
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: '.18em',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                      color: 'var(--signal)',
+                    }}
+                  >
+                    {ws.category.replace('_', ' ')}
+                  </span>
+                  <div>
+                    <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{ws.title}</div>
+                    {item && (
+                      <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
+                        From: {item.title}
+                      </div>
+                    )}
+                    {ws.location && (
+                      <div style={{ marginTop: 2, fontSize: 12, color: 'var(--ink-3)' }}>
+                        Location: {ws.location}
+                      </div>
+                    )}
+                    {ws.description && (
+                      <div style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+                        {ws.description}
+                      </div>
+                    )}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: '.18em',
+                      textTransform: 'uppercase',
+                      color: ws.priority === 'high' ? 'var(--negative)' : 'var(--ink-3)',
+                    }}
+                  >
+                    {ws.priority}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* PROPERTY NOTES (pinned to folder) */}
+      {propertyNotes.length > 0 && (
+        <Section
+          title="Property Notes (pinned)"
+          eyebrow={`${propertyNotes.length}`}
+          empty={false}
+          emptyMessage=""
+        >
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {propertyNotes.map((n) => {
+              const item = n.inspection_item_id ? itemMap.get(n.inspection_item_id) : null;
+              return (
+                <div
+                  key={n.id}
+                  style={{
+                    padding: '14px 0',
+                    borderBottom: '1px solid var(--rule)',
+                    borderLeft: '2px solid var(--tide-deep)',
+                    paddingLeft: 14,
+                    marginLeft: -14,
+                  }}
+                >
+                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>{n.note_text}</div>
+                  {item && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>
+                      Re: {item.title}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* INSPECTION-SCOPED NOTES */}
+      {inspectionNotes.length > 0 && (
+        <Section
+          title="Inspection Notes"
+          eyebrow={`${inspectionNotes.length}`}
+          empty={false}
+          emptyMessage=""
+        >
+          <div style={{ borderTop: '1px solid var(--rule)' }}>
+            {inspectionNotes.map((n) => {
+              const item = n.inspection_item_id ? itemMap.get(n.inspection_item_id) : null;
+              return (
+                <div
+                  key={n.id}
+                  style={{ padding: '12px 0', borderBottom: '1px solid var(--rule-soft)' }}
+                >
+                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                    &ldquo;{n.note_text}&rdquo;
+                  </div>
+                  {item && (
+                    <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)' }}>
+                      Re: {item.title}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
 
       {/* COMPLETED ITEMS */}
       <Section

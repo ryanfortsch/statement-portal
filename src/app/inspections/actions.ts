@@ -4,7 +4,13 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import { HELM_CORE_TEMPLATE_ID, type InspectionStatus } from '@/lib/inspections-types';
+import {
+  HELM_CORE_TEMPLATE_ID,
+  type InspectionStatus,
+  type InspectionNoteType,
+  type WorkSlipCategory,
+  type WorkSlipPriority,
+} from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 
 export async function startInspection(formData: FormData) {
@@ -170,4 +176,135 @@ export async function completeInspection(inspectionId: string) {
   revalidatePath('/inspections');
   revalidatePath(`/inspections/${inspectionId}`);
   redirect(`/inspections/${inspectionId}/summary`);
+}
+
+/**
+ * Add a standalone note from inside an inspection. PROPERTY_NOTE notes
+ * pin to the property folder and persist across inspections; the
+ * INSPECTION_NOTE flavor stays scoped to this one inspection.
+ */
+export async function addInspectionNote(args: {
+  inspectionId: string;
+  propertyId: string;
+  itemId?: string | null;
+  text: string;
+  noteType: InspectionNoteType;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const text = args.text.trim();
+  if (!text) return { ok: false, error: 'Note is empty' };
+  if (args.noteType !== 'INSPECTION_NOTE' && args.noteType !== 'PROPERTY_NOTE') {
+    return { ok: false, error: `Invalid note type: ${args.noteType}` };
+  }
+
+  const { data, error } = await supabase
+    .from('inspection_notes')
+    .insert({
+      inspection_id: args.inspectionId,
+      property_id: args.propertyId,
+      inspection_item_id: args.itemId ?? null,
+      author_email: session.user.email,
+      note_text: text,
+      note_type: args.noteType,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) return { ok: false, error: error?.message || 'Insert failed' };
+
+  revalidatePath(`/inspections/${args.inspectionId}`);
+  revalidatePath(`/inspections/${args.inspectionId}/summary`);
+  if (args.noteType === 'PROPERTY_NOTE') {
+    revalidatePath(`/properties/${args.propertyId}`);
+  }
+  return { ok: true, id: (data as { id: string }).id };
+}
+
+/**
+ * Resolve a property note (mark as no-longer-pinned-to-the-folder).
+ * Used by the "x" / "resolve" button on the property folder pinned-notes
+ * section so an old observation doesn't accumulate forever.
+ */
+export async function resolveInspectionNote(noteId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { data: noteRow } = await supabase
+    .from('inspection_notes')
+    .select('property_id')
+    .eq('id', noteId)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from('inspection_notes')
+    .update({
+      resolved_at: new Date().toISOString(),
+      resolved_by_email: session.user.email,
+    })
+    .eq('id', noteId);
+
+  if (error) return { ok: false, error: error.message };
+
+  if (noteRow && (noteRow as { property_id: string }).property_id) {
+    revalidatePath(`/properties/${(noteRow as { property_id: string }).property_id}`);
+  }
+  return { ok: true };
+}
+
+/**
+ * Create a work slip from inside an inspection. The slip lands in
+ * Helm's Work module (`/work`) with `inspection_id` + `inspection_item_id`
+ * preserved so the slip can deep-link back to the source card.
+ */
+export async function createWorkSlipFromInspection(args: {
+  inspectionId: string;
+  propertyId: string;
+  itemId?: string | null;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  category: WorkSlipCategory;
+  priority: WorkSlipPriority;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const title = args.title.trim();
+  if (!title) return { ok: false, error: 'Title is required' };
+
+  const validCategories = ['maintenance', 'owner', 'vendor', 'other', 'rising_tide'] as const;
+  const validPriorities = ['low', 'normal', 'high'] as const;
+  if (!validCategories.includes(args.category)) {
+    return { ok: false, error: `Invalid category: ${args.category}` };
+  }
+  if (!validPriorities.includes(args.priority)) {
+    return { ok: false, error: `Invalid priority: ${args.priority}` };
+  }
+
+  const { data, error } = await supabase
+    .from('work_slips')
+    .insert({
+      property_id: args.propertyId,
+      inspection_id: args.inspectionId,
+      inspection_item_id: args.itemId ?? null,
+      title,
+      description: args.description?.trim() || null,
+      location: args.location?.trim() || null,
+      category: args.category,
+      priority: args.priority,
+      status: 'open',
+      created_by_email: session.user.email,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) return { ok: false, error: error?.message || 'Insert failed' };
+
+  revalidatePath(`/inspections/${args.inspectionId}`);
+  revalidatePath(`/inspections/${args.inspectionId}/summary`);
+  revalidatePath(`/properties/${args.propertyId}`);
+  revalidatePath('/work');
+  return { ok: true, id: (data as { id: string }).id };
 }

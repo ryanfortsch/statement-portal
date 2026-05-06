@@ -3,8 +3,17 @@
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { saveResult, completeInspection } from '../actions';
-import type { InspectionStatus } from '@/lib/inspections-types';
+import {
+  saveResult,
+  completeInspection,
+  addInspectionNote,
+  createWorkSlipFromInspection,
+} from '../actions';
+import type {
+  InspectionStatus,
+  WorkSlipCategory,
+  WorkSlipPriority,
+} from '@/lib/inspections-types';
 
 type StepperItem = {
   id: string;
@@ -20,19 +29,51 @@ type StepperResult = {
   notes: string | null;
 };
 
+type StepperNote = {
+  id: string;
+  inspection_item_id: string | null;
+  note_text: string;
+  note_type: 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
+  author_email: string;
+  created_at: string;
+};
+
+type StepperWorkSlip = {
+  id: string;
+  inspection_item_id: string | null;
+  title: string;
+  category: WorkSlipCategory;
+  priority: WorkSlipPriority;
+  created_at: string;
+};
+
 type Props = {
   inspectionId: string;
+  propertyId: string;
   propertyName: string;
   inspectorName: string;
   items: StepperItem[];
   initialResults: StepperResult[];
+  initialNotes?: StepperNote[];
+  initialWorkSlips?: StepperWorkSlip[];
 };
 
-export function Stepper({ inspectionId, propertyName, inspectorName, items, initialResults }: Props) {
+export function Stepper({
+  inspectionId,
+  propertyId,
+  propertyName,
+  inspectorName,
+  items,
+  initialResults,
+  initialNotes = [],
+  initialWorkSlips = [],
+}: Props) {
   const router = useRouter();
   const [results, setResults] = useState<Map<string, StepperResult>>(
     () => new Map(initialResults.map((r) => [r.item_id, r]))
   );
+  const [notes, setNotesList] = useState<StepperNote[]>(initialNotes);
+  const [workSlips, setWorkSlips] = useState<StepperWorkSlip[]>(initialWorkSlips);
   const [activeIdx, setActiveIdx] = useState<number>(() => {
     const firstUnmarked = items.findIndex((i) => !initialResults.find((r) => r.item_id === i.id));
     return firstUnmarked === -1 ? items.length : firstUnmarked;
@@ -40,7 +81,10 @@ export function Stepper({ inspectionId, propertyName, inspectorName, items, init
   const [, startTransition] = useTransition();
   const [isCompleting, setIsCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
+
+  // Modal state
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showWorkSlipModal, setShowWorkSlipModal] = useState(false);
 
   const total = items.length;
   const markedCount = results.size;
@@ -48,10 +92,13 @@ export function Stepper({ inspectionId, propertyName, inspectorName, items, init
   const activeItem = !showReview ? items[activeIdx] : null;
   const activeResult = activeItem ? results.get(activeItem.id) : null;
 
-  // Reset notes panel when switching cards
-  useEffect(() => {
-    setShowNotes(!!activeResult?.notes);
-  }, [activeIdx, activeResult?.notes]);
+  // Notes / work slips for the active card (filtered from the full lists)
+  const activeNotes = activeItem
+    ? notes.filter((n) => n.inspection_item_id === activeItem.id)
+    : [];
+  const activeWorkSlips = activeItem
+    ? workSlips.filter((ws) => ws.inspection_item_id === activeItem.id)
+    : [];
 
   function applyOptimistic(next: StepperResult) {
     setResults((prev) => {
@@ -87,30 +134,61 @@ export function Stepper({ inspectionId, propertyName, inspectorName, items, init
     setTimeout(() => setActiveIdx((i) => Math.min(i + 1, total)), 180);
   }
 
-  function setNotes(text: string) {
-    if (!activeItem) return;
-    const trimmed = text.trim();
-    const cur = results.get(activeItem.id);
-    if (!cur) {
-      // Notes typed before status — keep locally only
-      const next: StepperResult = {
-        item_id: activeItem.id,
-        status: 'pass' as InspectionStatus,
-        notes: trimmed || null,
-      };
-      // Do NOT auto-mark as pass; just hold the note locally until status is chosen
-      setResults((prev) => {
-        const m = new Map(prev);
-        m.set(activeItem.id, { ...next, status: 'pass' });
-        // Remove the entry if there's no status decision and no notes — sentinel
-        if (!trimmed) m.delete(activeItem.id);
-        return m;
-      });
-      return;
-    }
-    const next: StepperResult = { ...cur, notes: trimmed || null };
-    applyOptimistic(next);
-    persist(next);
+  async function submitNote(text: string, asProperty: boolean): Promise<string | null> {
+    if (!activeItem) return 'No active card';
+    const res = await addInspectionNote({
+      inspectionId,
+      propertyId,
+      itemId: activeItem.id,
+      text,
+      noteType: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
+    });
+    if (!res.ok) return res.error;
+    setNotesList((prev) => [
+      ...prev,
+      {
+        id: res.id,
+        inspection_item_id: activeItem.id,
+        note_text: text.trim(),
+        note_type: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
+        author_email: '',
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    return null;
+  }
+
+  async function submitWorkSlip(input: {
+    title: string;
+    description: string;
+    location: string;
+    category: WorkSlipCategory;
+    priority: WorkSlipPriority;
+  }): Promise<string | null> {
+    if (!activeItem) return 'No active card';
+    const res = await createWorkSlipFromInspection({
+      inspectionId,
+      propertyId,
+      itemId: activeItem.id,
+      title: input.title,
+      description: input.description,
+      location: input.location,
+      category: input.category,
+      priority: input.priority,
+    });
+    if (!res.ok) return res.error;
+    setWorkSlips((prev) => [
+      ...prev,
+      {
+        id: res.id,
+        inspection_item_id: activeItem.id,
+        title: input.title.trim(),
+        category: input.category,
+        priority: input.priority,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    return null;
   }
 
   function goPrev() {
@@ -256,35 +334,124 @@ export function Stepper({ inspectionId, propertyName, inspectorName, items, init
           </div>
         )}
 
-        {/* Notes (collapsible) */}
-        <div style={{ marginTop: 28 }}>
-          {!showNotes ? (
-            <button
-              type="button"
-              onClick={() => setShowNotes(true)}
-              style={{
-                background: 'none',
-                border: '1px solid var(--rule)',
-                padding: '10px 16px',
-                fontSize: 11,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-3)',
-                cursor: 'pointer',
-              }}
-            >
-              + Add note
-            </button>
-          ) : (
-            <NotesField
-              defaultValue={activeResult?.notes ?? ''}
-              onCommit={(t) => setNotes(t)}
-            />
-          )}
+        {/* Notes + work slips already attached to this card */}
+        {(activeNotes.length > 0 || activeWorkSlips.length > 0 || activeResult?.notes) && (
+          <div style={{ marginTop: 24 }}>
+            {activeResult?.notes && (
+              <div
+                style={{
+                  marginBottom: 10,
+                  padding: '10px 14px',
+                  borderLeft: '2px solid var(--ink-4)',
+                  background: 'var(--paper-2)',
+                  fontSize: 13,
+                  color: 'var(--ink-3)',
+                  fontStyle: 'italic',
+                }}
+              >
+                {activeResult.notes}
+              </div>
+            )}
+            {activeNotes.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  marginBottom: 10,
+                  padding: '10px 14px',
+                  borderLeft: `2px solid ${n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)'}`,
+                  background: 'var(--paper-2)',
+                }}
+              >
+                <div style={{ fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)', marginBottom: 4, fontWeight: 600 }}>
+                  {n.note_type === 'PROPERTY_NOTE' ? 'Property Note · pinned to folder' : 'Inspection Note'}
+                </div>
+                <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{n.note_text}</div>
+              </div>
+            ))}
+            {activeWorkSlips.map((ws) => (
+              <div
+                key={ws.id}
+                style={{
+                  marginBottom: 10,
+                  padding: '10px 14px',
+                  borderLeft: '2px solid var(--signal)',
+                  background: 'var(--paper-2)',
+                }}
+              >
+                <div style={{ fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--signal)', marginBottom: 4, fontWeight: 600 }}>
+                  Work Slip · {ws.priority}
+                </div>
+                <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{ws.title}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Action row: + Add note · + Work slip */}
+        <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => setShowNoteModal(true)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--rule)',
+              padding: '10px 16px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+            }}
+          >
+            + Add note
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowWorkSlipModal(true)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--signal)',
+              color: 'var(--signal)',
+              padding: '10px 16px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            + Work slip
+          </button>
         </div>
 
         {error && <ErrorBlock error={error} />}
       </section>
+
+      {/* MODALS */}
+      {showNoteModal && activeItem && (
+        <NoteModal
+          itemTitle={activeItem.title}
+          onClose={() => setShowNoteModal(false)}
+          onSubmit={async (text, asProperty) => {
+            const err = await submitNote(text, asProperty);
+            if (err) return err;
+            setShowNoteModal(false);
+            return null;
+          }}
+        />
+      )}
+      {showWorkSlipModal && activeItem && (
+        <WorkSlipModal
+          itemTitle={activeItem.title}
+          onClose={() => setShowWorkSlipModal(false)}
+          onSubmit={async (input) => {
+            const err = await submitWorkSlip(input);
+            if (err) return err;
+            setShowWorkSlipModal(false);
+            return null;
+          }}
+        />
+      )}
 
       {/* STICKY BOTTOM: 3 big tap targets + nav row */}
       <BottomBar>
@@ -519,37 +686,389 @@ function StatusBadge({ status }: { status: InspectionStatus | null }) {
   );
 }
 
-function NotesField({ defaultValue, onCommit }: { defaultValue: string; onCommit: (text: string) => void }) {
-  const [value, setValue] = useState(defaultValue);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    setValue(defaultValue);
-  }, [defaultValue]);
+function NoteModal({
+  itemTitle,
+  onClose,
+  onSubmit,
+}: {
+  itemTitle: string;
+  onClose: () => void;
+  onSubmit: (text: string, asProperty: boolean) => Promise<string | null>;
+}) {
+  const [text, setText] = useState('');
+  const [asProperty, setAsProperty] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (!text.trim()) return;
+    setErr(null);
+    setSubmitting(true);
+    const e = await onSubmit(text, asProperty);
+    setSubmitting(false);
+    if (e) setErr(e);
+  }
+
   return (
-    <div>
-      <div className="eyebrow" style={{ marginBottom: 6 }}>Note</div>
+    <ModalShell onClose={onClose} title="Add a Note" subtitle={`Re: ${itemTitle}`}>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>Note</div>
       <textarea
-        ref={ref}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => onCommit(value)}
-        placeholder="Anything worth flagging on this card…"
-        rows={3}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        autoFocus
+        rows={4}
+        placeholder="e.g., Owner prefers thermostat at 68°F in winter…"
+        style={modalTextareaStyle()}
+      />
+      <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
+        {text.length} / 1000
+      </div>
+
+      <label
+        style={{
+          marginTop: 16,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+          padding: '12px 14px',
+          border: '1px solid var(--rule)',
+          background: asProperty ? 'var(--paper-2)' : 'transparent',
+          cursor: 'pointer',
+          transition: 'background 0.15s ease',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={asProperty}
+          onChange={(e) => setAsProperty(e.target.checked)}
+          style={{ marginTop: 2, accentColor: 'var(--tide-deep)' }}
+        />
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+            Pin to property folder
+          </div>
+          <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+            Visible on the property folder, persists across inspections so the next inspector sees it on arrival.
+          </div>
+        </div>
+      </label>
+
+      <div
+        style={{
+          marginTop: 14,
+          padding: '8px 12px',
+          background: 'var(--paper-2)',
+          fontSize: 11,
+          color: 'var(--ink-3)',
+          lineHeight: 1.5,
+        }}
+      >
+        Notes are observations only — no action required. They won&apos;t appear in work queues or affect scoring.
+      </div>
+
+      {err && <ErrorBlock error={err} />}
+
+      <ModalActions
+        onCancel={onClose}
+        onSubmit={handleSubmit}
+        submitLabel={submitting ? 'Saving…' : 'Save Note'}
+        submitDisabled={submitting || !text.trim()}
+      />
+    </ModalShell>
+  );
+}
+
+function WorkSlipModal({
+  itemTitle,
+  onClose,
+  onSubmit,
+}: {
+  itemTitle: string;
+  onClose: () => void;
+  onSubmit: (input: {
+    title: string;
+    description: string;
+    location: string;
+    category: WorkSlipCategory;
+    priority: WorkSlipPriority;
+  }) => Promise<string | null>;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [location, setLocation] = useState('');
+  const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
+  const [priority, setPriority] = useState<WorkSlipPriority>('normal');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (!title.trim()) return;
+    setErr(null);
+    setSubmitting(true);
+    const e = await onSubmit({ title, description, location, category, priority });
+    setSubmitting(false);
+    if (e) setErr(e);
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="New Work Slip" subtitle={`From: ${itemTitle}`}>
+      <FieldLabel>Title</FieldLabel>
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        autoFocus
+        placeholder="Brief description of the issue"
+        style={modalInputStyle()}
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+        <div>
+          <FieldLabel>Category</FieldLabel>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
+            style={modalSelectStyle()}
+          >
+            <option value="maintenance">Maintenance</option>
+            <option value="owner">Owner</option>
+            <option value="vendor">Vendor</option>
+            <option value="rising_tide">Rising Tide</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <FieldLabel>Priority</FieldLabel>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
+            style={modalSelectStyle()}
+          >
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <FieldLabel>Location / Area (optional)</FieldLabel>
+        <input
+          type="text"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="e.g., Kitchen, Primary Bath"
+          style={modalInputStyle()}
+        />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <FieldLabel>Description / Notes</FieldLabel>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="Additional details about the issue…"
+          style={modalTextareaStyle()}
+        />
+      </div>
+
+      {err && <ErrorBlock error={err} />}
+
+      <ModalActions
+        onCancel={onClose}
+        onSubmit={handleSubmit}
+        submitLabel={submitting ? 'Creating…' : 'Create Work Slip'}
+        submitDisabled={submitting || !title.trim()}
+      />
+    </ModalShell>
+  );
+}
+
+// ─── Modal primitives ─────────────────────────────────────────────
+
+function ModalShell({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  // Stop scroll on body while modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(30, 46, 52, 0.55)',
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        padding: 0,
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
         style={{
           width: '100%',
-          background: 'transparent',
-          border: '1px solid var(--rule)',
-          padding: '12px 14px',
-          fontSize: 14,
-          color: 'var(--ink)',
-          outline: 'none',
-          fontFamily: 'inherit',
-          resize: 'vertical',
+          maxWidth: 520,
+          background: 'var(--paper)',
+          borderTop: '1px solid var(--ink)',
+          padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
+          maxHeight: '92vh',
+          overflowY: 'auto',
         }}
-      />
-      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)' }}>Saves when you tap away.</div>
+      >
+        <div className="flex items-start justify-between" style={{ marginBottom: 14 }}>
+          <div>
+            <h2
+              className="font-serif"
+              style={{
+                fontSize: 22,
+                fontWeight: 400,
+                letterSpacing: '-0.01em',
+                color: 'var(--ink)',
+                margin: 0,
+              }}
+            >
+              {title}
+            </h2>
+            {subtitle && (
+              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)' }}>{subtitle}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: 22,
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+              lineHeight: 1,
+              padding: '0 4px',
+            }}
+          >
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
+}
+
+function ModalActions({
+  onCancel,
+  onSubmit,
+  submitLabel,
+  submitDisabled,
+}: {
+  onCancel: () => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  submitDisabled: boolean;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 22,
+        display: 'flex',
+        gap: 10,
+        justifyContent: 'flex-end',
+        borderTop: '1px solid var(--rule)',
+        paddingTop: 16,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onCancel}
+        style={{
+          background: 'transparent',
+          border: '1px solid var(--rule)',
+          padding: '12px 18px',
+          fontSize: 11,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-3)',
+          cursor: 'pointer',
+        }}
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={submitDisabled}
+        style={{
+          background: submitDisabled ? 'var(--ink-4)' : 'var(--ink)',
+          color: 'var(--paper)',
+          border: 'none',
+          padding: '12px 22px',
+          fontSize: 11,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          cursor: submitDisabled ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {submitLabel}
+      </button>
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="eyebrow" style={{ marginBottom: 6 }}>{children}</div>
+  );
+}
+
+function modalInputStyle(): React.CSSProperties {
+  return {
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid var(--rule)',
+    padding: '10px 12px',
+    fontSize: 14,
+    color: 'var(--ink)',
+    outline: 'none',
+    fontFamily: 'inherit',
+  };
+}
+
+function modalSelectStyle(): React.CSSProperties {
+  return {
+    ...modalInputStyle(),
+    cursor: 'pointer',
+  };
+}
+
+function modalTextareaStyle(): React.CSSProperties {
+  return {
+    ...modalInputStyle(),
+    resize: 'vertical' as const,
+    minHeight: 80,
+  };
 }
 
 function ErrorBlock({ error }: { error: string }) {

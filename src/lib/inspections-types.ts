@@ -55,3 +55,43 @@ export type InspectionTemplateRow = {
  * preserved so historical inspection_results stay queryable).
  */
 export const HELM_CORE_TEMPLATE_ID = '00000000-0000-0000-0000-000000000002';
+
+// ─── Inspection notes (Phase 3) ──────────────────────────────────────
+export type InspectionNoteType = 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
+
+export type InspectionNoteRow = {
+  id: string;
+  inspection_id: string | null;
+  property_id: string;
+  inspection_item_id: string | null;
+  author_email: string;
+  note_text: string;
+  note_type: InspectionNoteType;
+  resolved_at: string | null;
+  resolved_by_email: string | null;
+  photo_urls: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+// ─── Work slips (Phase 3 — table already exists in DB) ───────────────
+export type WorkSlipCategory = 'maintenance' | 'owner' | 'vendor' | 'other' | 'rising_tide';
+export type WorkSlipPriority = 'low' | 'normal' | 'high';
+export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked';
+
+export type WorkSlipRow = {
+  id: string;
+  property_id: string;
+  inspection_id: string | null;
+  inspection_item_id: string | null;
+  title: string;
+  description: string | null;
+  action_summary: string | null;
+  location: string | null;
+  category: WorkSlipCategory;
+  priority: WorkSlipPriority;
+  status: WorkSlipStatus;
+  created_by_email: string;
+  created_at: string;
+  updated_at: string;
+};
