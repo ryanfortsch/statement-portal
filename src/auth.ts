@@ -36,5 +36,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   session: {
     strategy: "jwt",
+    // Long-lived sessions so Dotti and Allie don't get bounced back through
+    // Google's 2FA every couple weeks. The default is 30 days, which
+    // combined with iOS Safari's 7-day cookie expiry for sites you haven't
+    // visited recently means a re-OAuth (and therefore a 2FA challenge)
+    // hits roughly once a month on phones. 90 days gives more headroom.
+    maxAge: 90 * 24 * 60 * 60,
+    // Roll the JWT forward whenever the session is read after a day has
+    // passed. Effect: as long as someone opens Helm at least once every
+    // 90 days, the session never expires.
+    updateAge: 24 * 60 * 60,
   },
 });
