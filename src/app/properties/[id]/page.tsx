@@ -29,6 +29,32 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   return (data as HelmPropertyRow) ?? null;
 }
 
+type PropertyNoteRow = {
+  id: string;
+  note_text: string;
+  author_email: string;
+  created_at: string;
+  inspection_id: string | null;
+};
+
+async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteRow[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('inspection_notes')
+      .select('id, note_text, author_email, created_at, inspection_id')
+      .eq('property_id', propertyId)
+      .eq('note_type', 'PROPERTY_NOTE')
+      .is('resolved_at', null)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return (data ?? []) as PropertyNoteRow[];
+  } catch {
+    return [];
+  }
+}
+
 async function getRecentStatements(propertyId: string): Promise<HelmStatementRow[]> {
   if (!isHelmConfigured) return [];
   try {
@@ -70,7 +96,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const statements = await getRecentStatements(p.id);
+  const [statements, pinnedNotes] = await Promise.all([
+    getRecentStatements(p.id),
+    getPinnedPropertyNotes(p.id),
+  ]);
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -251,6 +280,51 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         </div>
       </section>
+
+      {/* PINNED PROPERTY NOTES (from inspections) */}
+      {pinnedNotes.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <h2
+              className="font-serif"
+              style={{
+                fontSize: 22,
+                fontWeight: 400,
+                letterSpacing: '-0.01em',
+                color: 'var(--ink)',
+                margin: 0,
+              }}
+            >
+              Property Notes
+            </h2>
+            <span className="eyebrow">{pinnedNotes.length} pinned</span>
+          </div>
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {pinnedNotes.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  padding: '16px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 16,
+                  alignItems: 'baseline',
+                }}
+              >
+                <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
+                  {n.note_text}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {n.author_email.split('@')[0]}
+                  <br />
+                  <span style={{ fontSize: 10 }}>{formatDate(n.created_at)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* RECENT STATEMENTS (Helm-native) */}
       <Section

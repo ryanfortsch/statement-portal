@@ -6,6 +6,9 @@ import type {
   InspectionRow,
   InspectionItemRow,
   InspectionResultRow,
+  InspectionNoteRow,
+  WorkSlipCategory,
+  WorkSlipPriority,
 } from '@/lib/inspections-types';
 import { Stepper } from './Stepper';
 
@@ -107,6 +110,49 @@ export default async function InspectionInProgressPage({
     );
   }
 
+  // Pull notes + work slips already attached to this inspection so the
+  // stepper can show them as inline chips on the right cards.
+  const [{ data: notesData }, { data: workSlipsData }] = await Promise.all([
+    supabase
+      .from('inspection_notes')
+      .select('id, inspection_item_id, note_text, note_type, author_email, created_at')
+      .eq('inspection_id', id)
+      .is('resolved_at', null)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('work_slips')
+      .select('id, inspection_item_id, title, category, priority, created_at')
+      .eq('inspection_id', id)
+      .order('created_at', { ascending: true }),
+  ]);
+
+  const initialNotes = ((notesData ?? []) as Array<
+    Pick<InspectionNoteRow, 'id' | 'inspection_item_id' | 'note_text' | 'note_type' | 'author_email' | 'created_at'>
+  >).map((n) => ({
+    id: n.id,
+    inspection_item_id: n.inspection_item_id,
+    note_text: n.note_text,
+    note_type: n.note_type,
+    author_email: n.author_email,
+    created_at: n.created_at,
+  }));
+
+  const initialWorkSlips = ((workSlipsData ?? []) as Array<{
+    id: string;
+    inspection_item_id: string | null;
+    title: string;
+    category: WorkSlipCategory;
+    priority: WorkSlipPriority;
+    created_at: string;
+  }>).map((ws) => ({
+    id: ws.id,
+    inspection_item_id: ws.inspection_item_id,
+    title: ws.title,
+    category: ws.category,
+    priority: ws.priority,
+    created_at: ws.created_at,
+  }));
+
   // Mobile-first stepper takes over the viewport. The HelmMasthead is
   // intentionally NOT rendered while in-progress so the inspector sees
   // nothing extraneous while walking the property -- the stepper has its
@@ -114,8 +160,11 @@ export default async function InspectionInProgressPage({
   return (
     <Stepper
       inspectionId={id}
+      propertyId={property.id}
       propertyName={property.name}
       inspectorName={inspection.inspector_name}
+      initialNotes={initialNotes}
+      initialWorkSlips={initialWorkSlips}
       items={items.map((it) => ({
         id: it.id,
         title: it.title,
