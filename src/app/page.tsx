@@ -16,14 +16,88 @@ type DashboardStats = {
   latestStatus: string | null;
   totalPayout: number;
   statementsCount: number;
+  // Operational signals
+  activeSlips: number | null;
+  highPrioritySlips: number | null;
+  ownerActionSlips: number | null;
+  activeTasks: number | null;
+  inspectionsThisWeek: number | null;
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [propertyStats, helmStats] = await Promise.all([
+  const [propertyStats, helmStats, opsStats] = await Promise.all([
     getPropertyStats(),
     getHelmStats(),
+    getOperationalStats(),
   ]);
-  return { ...propertyStats, ...helmStats };
+  return { ...propertyStats, ...helmStats, ...opsStats };
+}
+
+const ACTIVE_SLIP_STATUSES = ['open', 'in_progress', 'scheduled'];
+const ACTIVE_TASK_STATUSES = ['open', 'in_progress', 'blocked'];
+
+async function getOperationalStats() {
+  if (!isHelmConfigured) {
+    return {
+      activeSlips: null,
+      highPrioritySlips: null,
+      ownerActionSlips: null,
+      activeTasks: null,
+      inspectionsThisWeek: null,
+    };
+  }
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const [
+      { count: activeSlips },
+      { count: highSlips },
+      { count: ownerSlips },
+      { count: activeTasks },
+      { count: planned },
+    ] = await Promise.all([
+      supabase
+        .from('work_slips')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ACTIVE_SLIP_STATUSES),
+      supabase
+        .from('work_slips')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ACTIVE_SLIP_STATUSES)
+        .eq('priority', 'high'),
+      supabase
+        .from('work_slips')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ACTIVE_SLIP_STATUSES)
+        .eq('owner_action_required', true),
+      supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ACTIVE_TASK_STATUSES),
+      supabase
+        .from('inspection_plans')
+        .select('*', { count: 'exact', head: true })
+        .gte('planned_for_date', today)
+        .lte('planned_for_date', weekFromNow),
+    ]);
+
+    return {
+      activeSlips: activeSlips ?? 0,
+      highPrioritySlips: highSlips ?? 0,
+      ownerActionSlips: ownerSlips ?? 0,
+      activeTasks: activeTasks ?? 0,
+      inspectionsThisWeek: planned ?? 0,
+    };
+  } catch {
+    return {
+      activeSlips: null,
+      highPrioritySlips: null,
+      ownerActionSlips: null,
+      activeTasks: null,
+      inspectionsThisWeek: null,
+    };
+  }
 }
 
 async function getPropertyStats() {
@@ -87,6 +161,58 @@ export default async function HelmHome() {
         emphasis="one place."
         paddingBottom={36}
       />
+
+      {/* OPERATIONAL SIGNALS STRIP */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Today&rsquo;s signals</div>
+        <div
+          style={{
+            borderTop: '1px solid var(--ink)',
+            borderBottom: '1px solid var(--ink)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+          }}
+        >
+          <Stat
+            label="Open Work Slips"
+            value={stats.activeSlips != null ? String(stats.activeSlips) : '—'}
+            sub={
+              stats.highPrioritySlips != null && stats.highPrioritySlips > 0
+                ? `${stats.highPrioritySlips} high priority`
+                : 'no high-priority slips'
+            }
+            href="/work"
+            size="hero"
+            accent={stats.highPrioritySlips != null && stats.highPrioritySlips > 0}
+          />
+          <Stat
+            label="Owner Action Backlog"
+            value={stats.ownerActionSlips != null ? String(stats.ownerActionSlips) : '—'}
+            sub={
+              stats.ownerActionSlips != null && stats.ownerActionSlips > 0
+                ? 'awaiting owner input'
+                : 'all caught up'
+            }
+            href="/work"
+            size="hero"
+          />
+          <Stat
+            label="Active Tasks"
+            value={stats.activeTasks != null ? String(stats.activeTasks) : '—'}
+            sub="team backlog"
+            href="/work"
+            size="hero"
+          />
+          <Stat
+            label="Inspections This Week"
+            value={stats.inspectionsThisWeek != null ? String(stats.inspectionsThisWeek) : '—'}
+            sub="planned walks, next 7 days"
+            href="/operations"
+            size="hero"
+            last
+          />
+        </div>
+      </section>
 
       {/* TODAY STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
