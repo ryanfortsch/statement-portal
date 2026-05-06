@@ -5,7 +5,11 @@ import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPrope
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import type { WorkSlipRow } from '@/lib/work-types';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import { displayNameForEmail } from '@/lib/team';
 import { ResolveNoteButton } from './ResolveNoteButton';
+import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -85,6 +89,24 @@ async function getRecentInspections(propertyId: string): Promise<RecentInspectio
   }
 }
 
+async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('work_slips')
+      .select('*')
+      .eq('property_id', propertyId)
+      .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return (data ?? []) as WorkSlipRow[];
+  } catch {
+    return [];
+  }
+}
+
 async function getRecentStatements(propertyId: string): Promise<HelmStatementRow[]> {
   if (!isHelmConfigured) return [];
   try {
@@ -126,10 +148,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
+    getOpenWorkSlips(p.id),
   ]);
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -375,6 +398,118 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         </section>
       )}
+
+      {/* OPEN WORK SLIPS */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+        <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
+          <h2
+            className="font-serif"
+            style={{
+              fontSize: 22,
+              fontWeight: 400,
+              letterSpacing: '-0.01em',
+              color: 'var(--ink)',
+              margin: 0,
+            }}
+          >
+            Open Work
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+            <span className="eyebrow">
+              {openSlips.length} {openSlips.length === 1 ? 'slip' : 'slips'}
+              {(() => {
+                const ownerCount = openSlips.filter((s) => s.owner_action_required).length;
+                return ownerCount > 0 ? ` · ${ownerCount} owner action` : '';
+              })()}
+            </span>
+            <PropertyDraftOwnerEmailButton
+              propertyId={p.id}
+              disabled={openSlips.filter((s) => s.owner_action_required).length === 0}
+            />
+          </div>
+        </div>
+
+        {openSlips.length === 0 ? (
+          <div
+            style={{
+              borderTop: '1px solid var(--ink)',
+              padding: '28px 0',
+              textAlign: 'center',
+              color: 'var(--ink-3)',
+              fontSize: 13,
+            }}
+          >
+            No open work for this property.
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {openSlips.map((s) => (
+              <Link
+                key={s.id}
+                href={`/work/${s.id}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    flexShrink: 0,
+                    background:
+                      s.priority === 'high' ? 'var(--negative)' :
+                      s.priority === 'normal' ? 'var(--ink-3)' :
+                      'var(--ink-4)',
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.title}</div>
+                  <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+                    {s.assigned_to_label || (s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed')}
+                    {s.location ? ` · ${s.location}` : ''}
+                    {s.scheduled_date ? ` · scheduled ${s.scheduled_date}` : ''}
+                  </div>
+                </div>
+                {s.owner_action_required && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      letterSpacing: '.16em',
+                      textTransform: 'uppercase',
+                      color: 'var(--signal)',
+                      border: '1px solid var(--signal)',
+                      padding: '2px 8px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Owner
+                  </span>
+                )}
+                <span
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: '.16em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-3)',
+                    border: '1px solid var(--ink-3)',
+                    padding: '2px 8px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {s.status.replace('_', ' ')}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* INSPECTION HISTORY (Helm-native) */}
       {recentInspections.length > 0 && (
