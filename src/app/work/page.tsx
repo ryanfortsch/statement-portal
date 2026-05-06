@@ -1,4 +1,5 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
@@ -62,23 +63,7 @@ export default async function WorkQueuePage() {
         myEmail={myEmail}
       />
 
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Work Queue</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Helm
-          </span>
-        </div>
-      </footer>
+      <HelmFooter module="Work Queue" right="Source: Helm" />
     </div>
   );
 }

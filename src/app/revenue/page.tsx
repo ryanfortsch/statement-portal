@@ -1,4 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
+import { HelmFooter } from '@/components/HelmFooter';
+import { Stat } from '@/components/Stat';
 import { TimeRangePicker } from './TimeRangePicker';
 import { AutoRefresh } from './AutoRefresh';
 import {
@@ -89,24 +92,15 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="revenue" rightContent={<TimeRangePicker value={preset} />} />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 48, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Revenue</div>
-        <h1
-          className="font-serif"
-          style={{
-            fontSize: 44,
-            lineHeight: 1.05,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            maxWidth: 720,
-          }}
-        >
-          {presetTitle} <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>at a glance.</em>
-        </h1>
-        <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</p>
-      </section>
+      <HelmHero
+        eyebrow="Helm · Revenue"
+        title={presetTitle}
+        emphasis="at a glance."
+        paddingTop={48}
+        belowDescription={
+          <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</p>
+        }
+      />
 
       {/* PORTFOLIO SUMMARY */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
@@ -137,24 +131,15 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{
-          padding: '14px 40px',
-          fontSize: 10,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-4)',
-        }}>
+      <HelmFooter
+        left={
           <AutoRefresh
             shouldRefresh={isStale}
             initialLabel={`Synced ${formatRelative(lastSyncedAt)}`}
           />
-          <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>
-            {rangeLabel}
-          </span>
-        </div>
-      </footer>
+        }
+        right={rangeLabel}
+      />
     </div>
   );
 }
@@ -176,35 +161,6 @@ function PortfolioStrip({ totals }: { totals: PortfolioTotals }) {
       <Stat label="Owner Payout" value={fmtCurrency(totals.totalPayout)} accent />
       <Stat label="Rising Tide" value={fmtCurrency(totals.totalManagementFee)} />
       <Stat label="Portfolio Rev" value={fmtCurrency(totals.totalPortfolioRevenue)} last />
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  last = false,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  last?: boolean;
-  accent?: boolean;
-}) {
-  return (
-    <div style={{ padding: '20px 16px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
-      <div
-        className="font-serif tabular-nums"
-        style={{
-          fontSize: 22,
-          fontWeight: 400,
-          color: accent ? 'var(--signal)' : 'var(--ink)',
-          lineHeight: 1.05,
-        }}
-      >
-        {value}
-      </div>
     </div>
   );
 }

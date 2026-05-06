@@ -102,7 +102,7 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 
 .eyebrow {
   font-size: 10px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ink-4);
   font-weight: 500;
