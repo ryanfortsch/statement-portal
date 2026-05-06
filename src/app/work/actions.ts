@@ -107,6 +107,29 @@ export async function updateWorkSlipResolution(args: {
   return { ok: true };
 }
 
+/**
+ * Replace the photo_urls array on a work slip. Called from the slip
+ * detail page after PhotoUploader add/remove. The client passes the full
+ * desired array (not a delta) so the server doesn't have to reconcile.
+ */
+export async function updateWorkSlipPhotos(args: {
+  id: string;
+  photo_urls: string[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('work_slips')
+    .update({ photo_urls: args.photo_urls })
+    .eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
 // ─── Tasks ────────────────────────────────────────────────────────
 
 export async function createTask(args: {
