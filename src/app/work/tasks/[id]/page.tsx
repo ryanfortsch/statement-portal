@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
+import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { TaskRow, TaskCommentRow } from '@/lib/work-types';
 import { TaskDetail } from './TaskDetail';
@@ -40,13 +41,18 @@ type Params = { id: string };
 
 export default async function WorkTaskDetailPage({ params }: { params: Promise<Params> }) {
   const { id } = await params;
-  const data = await getData(id);
+  const [data, session] = await Promise.all([getData(id), auth()]);
   if (!data) notFound();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
-      <TaskDetail task={data.task} comments={data.comments} properties={data.properties} />
+      <TaskDetail
+        task={data.task}
+        comments={data.comments}
+        properties={data.properties}
+        myEmail={session?.user?.email ?? ''}
+      />
       <HelmFooter module="Task" right="Source: Helm" />
     </div>
   );

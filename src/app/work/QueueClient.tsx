@@ -13,6 +13,8 @@ import {
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
 import { createWorkSlip, createTask, updateWorkSlipStatus, updateTaskStatus } from './actions';
+import { TeamPicker } from '@/components/TeamPicker';
+import { displayNameForEmail } from '@/lib/team';
 
 type PropertyForPicker = {
   id: string;
@@ -206,6 +208,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
         <WorkSlipModal
           properties={properties.filter((p) => p.is_active)}
           prefillPropertyId={slipPrefillProperty}
+          myEmail={myEmail}
           onClose={() => {
             setShowSlipModal(false);
             setSlipPrefillProperty(null);
@@ -215,6 +218,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
       {showTaskModal && (
         <TaskModal
           properties={properties.filter((p) => p.is_active)}
+          myEmail={myEmail}
           onClose={() => setShowTaskModal(false)}
         />
       )}
@@ -497,7 +501,7 @@ function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-            {slip.assigned_to_label || (slip.assigned_to_email ? slip.assigned_to_email.split('@')[0] : 'Unclaimed')}
+            {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : 'Unclaimed')}
             {slip.location ? ` · ${slip.location}` : ''}
           </div>
         </div>
@@ -581,7 +585,7 @@ function TaskRowItem({ task }: { task: TaskRow }) {
           )}
           <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-            {task.assigned_to_email ? task.assigned_to_email.split('@')[0] : 'Unassigned'}
+            {displayNameForEmail(task.assigned_to_email)}
             {task.due_date ? ` · due ${task.due_date}` : ''}
           </div>
         </div>
@@ -622,10 +626,12 @@ function EmptyBlock({ message }: { message: string }) {
 function WorkSlipModal({
   properties,
   prefillPropertyId,
+  myEmail,
   onClose,
 }: {
   properties: PropertyForPicker[];
   prefillPropertyId: string | null;
+  myEmail: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -636,6 +642,7 @@ function WorkSlipModal({
   const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -651,6 +658,7 @@ function WorkSlipModal({
       category,
       priority,
       scheduled_date: scheduledDate || null,
+      assigned_to_email: assignedToEmail,
     });
     if (!res.ok) {
       setError(res.error);
@@ -733,6 +741,15 @@ function WorkSlipModal({
           />
         </Field>
 
+        <Field label="Assignee">
+          <TeamPicker
+            value={assignedToEmail}
+            onChange={setAssignedToEmail}
+            myEmail={myEmail}
+            placeholder="Unassigned"
+          />
+        </Field>
+
         <Field label="Description (optional)">
           <textarea
             value={description}
@@ -752,7 +769,15 @@ function WorkSlipModal({
   );
 }
 
-function TaskModal({ properties, onClose }: { properties: PropertyForPicker[]; onClose: () => void }) {
+function TaskModal({
+  properties,
+  myEmail,
+  onClose,
+}: {
+  properties: PropertyForPicker[];
+  myEmail: string;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -761,6 +786,7 @@ function TaskModal({ properties, onClose }: { properties: PropertyForPicker[]; o
   const [dueDate, setDueDate] = useState('');
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [tagsInput, setTagsInput] = useState('');
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -780,6 +806,7 @@ function TaskModal({ properties, onClose }: { properties: PropertyForPicker[]; o
       priority,
       due_date: dueDate || null,
       tags,
+      assigned_to_email: assignedToEmail,
     });
     if (!res.ok) {
       setError(res.error);
@@ -849,6 +876,15 @@ function TaskModal({ properties, onClose }: { properties: PropertyForPicker[]; o
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
             style={inputStyle()}
+          />
+        </Field>
+
+        <Field label="Assignee">
+          <TeamPicker
+            value={assignedToEmail}
+            onChange={setAssignedToEmail}
+            myEmail={myEmail}
+            placeholder="Unassigned"
           />
         </Field>
 
