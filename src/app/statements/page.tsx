@@ -863,7 +863,17 @@ function EditorialButton({
 }
 
 /* ─── Property Card ─── */
-function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; month: string; onRefresh: () => void }) {
+function PropertyCard({
+  prop,
+  month,
+  ownerActionCount,
+  onRefresh,
+}: {
+  prop: PropertyStatement;
+  month: string;
+  ownerActionCount: number;
+  onRefresh: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -924,6 +934,22 @@ function PropertyCard({ prop, month, onRefresh }: { prop: PropertyStatement; mon
                   }}>
                     {prop.drift_bookings!.length} new
                   </span>
+                )}
+                {ownerActionCount > 0 && (
+                  <Link
+                    href="/work?filter=owner-action"
+                    onClick={(e) => e.stopPropagation()}
+                    title={`${ownerActionCount} open work slip${ownerActionCount === 1 ? '' : 's'} flagged for owner input. Click to draft an email from the queue.`}
+                    style={{
+                      fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                      color: 'var(--paper)',
+                      background: 'var(--signal)',
+                      padding: '2px 7px',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    {ownerActionCount} owner action
+                  </Link>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3, letterSpacing: '.02em' }}>
@@ -1382,6 +1408,11 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState('');
+  // Map of legacy property_id ("21_horton") → count of open owner-action
+  // work slips on that property. Loaded once on mount and refreshed
+  // alongside period data, so the per-card badge stays in sync after a
+  // bulk-action or owner-email send.
+  const [ownerActionCounts, setOwnerActionCounts] = useState<Record<string, number>>({});
   // Auth is now handled by Google SSO via middleware. By the time this
   // component renders, the user is signed in. Default authenticated=true
   // so the legacy access-code login screen (further down) never shows;
@@ -1461,6 +1492,45 @@ function DashboardContent() {
     if (!expectedToken) setAuthenticated(true);
   }, [urlToken, expectedToken]);
 
+  // Pulls every active work slip flagged owner_action_required, attaches
+  // the Helm property name via the foreign-key join, and rolls up to a
+  // {legacy_property_id: count} map. The map is keyed by the legacy
+  // statements id (e.g. "21_horton") via a name → legacy-id reverse
+  // lookup against PROPERTIES, so PropertyCard can look up its count
+  // by prop.property_id directly.
+  const loadOwnerActionCounts = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('work_slips')
+        .select('property_id, properties!inner(name)')
+        .in('status', ['open', 'in_progress', 'scheduled'])
+        .eq('owner_action_required', true);
+      if (error) throw error;
+
+      // Build a name → legacy_id reverse map from the legacy PROPERTIES
+      // constant (lower-cased + trimmed for safety against minor casing
+      // drift between systems).
+      const nameToLegacy = new Map<string, string>();
+      for (const [legacyId, p] of Object.entries(PROPERTIES)) {
+        nameToLegacy.set(p.name.toLowerCase().trim(), legacyId);
+      }
+
+      const counts: Record<string, number> = {};
+      for (const row of (data ?? []) as Array<{ properties: { name: string } | { name: string }[] | null }>) {
+        const pname = Array.isArray(row.properties) ? row.properties[0]?.name : row.properties?.name;
+        if (!pname) continue;
+        const legacyId = nameToLegacy.get(pname.toLowerCase().trim());
+        if (!legacyId) continue;
+        counts[legacyId] = (counts[legacyId] ?? 0) + 1;
+      }
+      setOwnerActionCounts(counts);
+    } catch {
+      // Non-fatal: the badge just won't appear. Avoid surfacing this in
+      // the existing setError() since that would tank the whole dashboard.
+      setOwnerActionCounts({});
+    }
+  }, []);
+
   const loadPeriod = useCallback(async (month: string) => {
     setLoading(true);
     try {
@@ -1517,7 +1587,10 @@ function DashboardContent() {
 
       setPeriod({ ...periodData, property_statements: enrichedProps });
       setSelectedMonth(month);
-      await loadCloseState(periodData.id, month);
+      await Promise.all([
+        loadCloseState(periodData.id, month),
+        loadOwnerActionCounts(),
+      ]);
     } catch (err) {
       setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
     } finally {
@@ -2662,7 +2735,15 @@ function DashboardContent() {
           </div>
         ) : (
           <div>
-            {props.map((prop) => <PropertyCard key={prop.id} prop={prop} month={selectedMonth} onRefresh={() => loadPeriod(selectedMonth)} />)}
+            {props.map((prop) => (
+              <PropertyCard
+                key={prop.id}
+                prop={prop}
+                month={selectedMonth}
+                ownerActionCount={ownerActionCounts[prop.property_id] ?? 0}
+                onRefresh={() => loadPeriod(selectedMonth)}
+              />
+            ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />
           </div>
         )}
