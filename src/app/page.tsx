@@ -1,13 +1,16 @@
 import Link from 'next/link';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { auth } from '@/auth';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 60;
+// Personal count needs the live session, so we can't precompute. Drop the
+// 60s revalidate so the home re-renders per-request (auth check is cheap).
+export const revalidate = 0;
 
 type DashboardStats = {
   activeProperties: number | null;
@@ -148,8 +151,40 @@ async function getHelmStats() {
   }
 }
 
+async function getYourCount(myEmail: string): Promise<number | null> {
+  if (!isHelmConfigured || !myEmail) return null;
+  try {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const [{ count: slips }, { count: tasks }, { count: plans }] = await Promise.all([
+      supabase
+        .from('work_slips')
+        .select('*', { count: 'exact', head: true })
+        .eq('assigned_to_email', myEmail)
+        .in('status', ACTIVE_SLIP_STATUSES),
+      supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('assigned_to_email', myEmail)
+        .in('status', ACTIVE_TASK_STATUSES),
+      supabase
+        .from('inspection_plans')
+        .select('*', { count: 'exact', head: true })
+        .eq('assigned_to_email', myEmail)
+        .gte('planned_for_date', todayIso),
+    ]);
+    return (slips ?? 0) + (tasks ?? 0) + (plans ?? 0);
+  } catch {
+    return null;
+  }
+}
+
 export default async function HelmHome() {
-  const stats = await getDashboardStats();
+  const session = await auth();
+  const myEmail = session?.user?.email ?? '';
+  const [stats, yourCount] = await Promise.all([
+    getDashboardStats(),
+    getYourCount(myEmail),
+  ]);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -169,7 +204,7 @@ export default async function HelmHome() {
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 8,
+            gap: 10,
             fontSize: 12,
             letterSpacing: '.18em',
             textTransform: 'uppercase',
@@ -181,7 +216,22 @@ export default async function HelmHome() {
             background: 'var(--paper)',
           }}
         >
-          What&rsquo;s on for you →
+          What&rsquo;s on for you
+          {yourCount != null && yourCount > 0 && (
+            <span
+              style={{
+                background: 'var(--signal)',
+                color: 'var(--paper)',
+                padding: '2px 8px',
+                fontSize: 11,
+                letterSpacing: '.06em',
+                fontWeight: 700,
+              }}
+            >
+              {yourCount}
+            </span>
+          )}
+          <span>→</span>
         </Link>
       </section>
 
