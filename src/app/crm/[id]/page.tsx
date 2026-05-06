@@ -6,16 +6,21 @@ import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import type { WorkSlipRow } from '@/lib/work-types';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { ContactDetail } from './ContactDetail';
 
 export const dynamic = 'force-dynamic';
 
 type PropertyMini = { id: string; name: string };
 
+export type ContactSlip = WorkSlipRow & { property_name: string };
+
 async function getData(id: string): Promise<{
   contact: ContactRow;
   touches: ContactTouchRow[];
   properties: PropertyMini[];
+  linkedSlips: ContactSlip[];
 } | null> {
   const { data: contact } = await supabase
     .from('contacts')
@@ -24,19 +29,42 @@ async function getData(id: string): Promise<{
     .maybeSingle();
   if (!contact) return null;
 
-  const [{ data: touches }, { data: properties }] = await Promise.all([
+  const c = contact as ContactRow;
+  const linkedIds = c.linked_property_ids ?? [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const [{ data: touches }, { data: properties }, { data: slipsData }] = await Promise.all([
     supabase
       .from('contact_touches')
       .select('*')
       .eq('contact_id', id)
       .order('touched_at', { ascending: false }),
     supabase.from('properties').select('id, name').order('name'),
+    linkedIds.length > 0
+      ? supabase
+          .from('work_slips')
+          .select('*')
+          .in('property_id', linkedIds)
+          .in('status', ACTIVE_WORK_SLIP_STATUSES)
+          .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
+          .order('priority', { ascending: false })
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] as WorkSlipRow[] }),
   ]);
 
+  const propertyMap = new Map<string, string>(
+    ((properties ?? []) as PropertyMini[]).map((p) => [p.id, p.name])
+  );
+  const linkedSlips: ContactSlip[] = ((slipsData ?? []) as WorkSlipRow[]).map((s) => ({
+    ...s,
+    property_name: propertyMap.get(s.property_id) ?? s.property_id,
+  }));
+
   return {
-    contact: contact as ContactRow,
+    contact: c,
     touches: (touches ?? []) as ContactTouchRow[],
     properties: (properties ?? []) as PropertyMini[],
+    linkedSlips,
   };
 }
 
@@ -71,6 +99,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
         contact={data.contact}
         touches={data.touches}
         properties={data.properties}
+        linkedSlips={data.linkedSlips}
         myEmail={myEmail}
       />
 
