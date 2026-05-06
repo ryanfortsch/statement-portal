@@ -111,6 +111,26 @@ type LatestOwnerContact = {
  * Whichever is more recent wins. Returns null if no contact has ever been
  * recorded.
  */
+type CrmContactMini = { id: string; name: string; type: string };
+
+async function getCrmContactsForProperty(propertyId: string): Promise<CrmContactMini[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    // contains() works on text[] columns. Returns every contact whose
+    // linked_property_ids array includes this property's id, regardless of
+    // type, so vendors and leads attached to the property surface here too.
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('id, name, type')
+      .contains('linked_property_ids', [propertyId])
+      .order('name');
+    if (error) throw error;
+    return (data ?? []) as CrmContactMini[];
+  } catch {
+    return [];
+  }
+}
+
 async function getLatestOwnerContact(propertyId: string, p: HelmPropertyRow): Promise<LatestOwnerContact> {
   if (!isHelmConfigured) return null;
   try {
@@ -195,12 +215,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id, p),
+    getCrmContactsForProperty(p.id),
     auth(),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -774,6 +795,37 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             </div>
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
+
+          {crmContacts.length > 0 && (
+            <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px dotted var(--rule)' }}>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>In CRM</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {crmContacts.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/crm/${c.id}`}
+                    title={`Open ${c.name} in CRM (touches log, etc.)`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 12px',
+                      border: '1px solid var(--tide-deep)',
+                      color: 'var(--tide-deep)',
+                      textDecoration: 'none',
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', opacity: 0.7 }}>
+                      {c.type}
+                    </span>
+                    {c.name}
+                    <span style={{ opacity: 0.7 }}>→</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
