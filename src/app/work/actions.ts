@@ -138,6 +138,50 @@ export async function updateWorkSlipPhotos(args: {
   return { ok: true };
 }
 
+/**
+ * Bulk-update many work slips in one round trip. Accepts only the small
+ * set of fields safe to set across many rows from the queue's bulk bar:
+ * status, priority, assigned_to_email. Empty string assigned_to_email
+ * unassigns. Caller passes the full set of ids to operate on.
+ */
+export async function bulkUpdateWorkSlips(args: {
+  ids: string[];
+  patch: {
+    status?: WorkSlipStatus;
+    priority?: WorkSlipPriority;
+    assigned_to_email?: string | null;
+  };
+}): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!args.ids || args.ids.length === 0) return { ok: false, error: 'No slips selected' };
+
+  const patch: Record<string, unknown> = {};
+  if (args.patch.status !== undefined) {
+    patch.status = args.patch.status;
+    if (args.patch.status === 'done') {
+      patch.completed_at = new Date().toISOString();
+      patch.closed_by_email = session.user.email;
+    }
+  }
+  if (args.patch.priority !== undefined) {
+    patch.priority = args.patch.priority;
+  }
+  if (args.patch.assigned_to_email !== undefined) {
+    const email = args.patch.assigned_to_email?.trim() || null;
+    patch.assigned_to_email = email;
+    patch.assigned_to_type = email ? 'team' : 'unassigned';
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to update' };
+
+  const { error } = await supabase.from('work_slips').update(patch).in('id', args.ids);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  for (const id of args.ids) revalidatePath(`/work/${id}`);
+  return { ok: true, updated: args.ids.length };
+}
+
 // ─── Tasks ────────────────────────────────────────────────────────
 
 export async function createTask(args: {
@@ -236,6 +280,39 @@ export async function deleteTask(args: { id: string }): Promise<void> {
   if (error) throw new Error(error.message);
   revalidatePath('/work');
   redirect('/work');
+}
+
+/**
+ * Bulk-update many tasks in one round trip. Mirrors bulkUpdateWorkSlips.
+ * Accepts status / priority / assigned_to_email; empty string assignee
+ * unassigns. Caller passes the full id set.
+ */
+export async function bulkUpdateTasks(args: {
+  ids: string[];
+  patch: {
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    assigned_to_email?: string | null;
+  };
+}): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!args.ids || args.ids.length === 0) return { ok: false, error: 'No tasks selected' };
+
+  const patch: Record<string, unknown> = {};
+  if (args.patch.status !== undefined) patch.status = args.patch.status;
+  if (args.patch.priority !== undefined) patch.priority = args.patch.priority;
+  if (args.patch.assigned_to_email !== undefined) {
+    patch.assigned_to_email = args.patch.assigned_to_email?.trim() || null;
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to update' };
+
+  const { error } = await supabase.from('tasks').update(patch).in('id', args.ids);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  for (const id of args.ids) revalidatePath(`/work/tasks/${id}`);
+  return { ok: true, updated: args.ids.length };
 }
 
 export async function addTaskComment(args: {

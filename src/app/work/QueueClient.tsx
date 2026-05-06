@@ -12,7 +12,14 @@ import {
   type TaskPriority,
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
-import { createWorkSlip, createTask, updateWorkSlipStatus, updateTaskStatus } from './actions';
+import {
+  createWorkSlip,
+  createTask,
+  updateWorkSlipStatus,
+  updateTaskStatus,
+  bulkUpdateWorkSlips,
+  bulkUpdateTasks,
+} from './actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 
@@ -34,11 +41,95 @@ type Props = {
 type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed';
 
 export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<'all' | 'slips' | 'tasks'>('all');
   const [filter, setFilter] = useState<FilterId>('all');
   const [showSlipModal, setShowSlipModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [slipPrefillProperty, setSlipPrefillProperty] = useState<string | null>(null);
+
+  // Selection state for bulk actions. Stored as Sets so toggle is O(1).
+  // Selected ids that no longer appear in the current filter aren't pruned
+  // automatically — the bulk bar still operates on them so the user doesn't
+  // lose work when they tweak filters mid-triage.
+  const [selectedSlipIds, setSelectedSlipIds] = useState<Set<string>>(() => new Set());
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkPending, startBulkTransition] = useTransition();
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
+
+  function toggleSlip(id: string) {
+    setSelectedSlipIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleTask(id: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelectedSlipIds(new Set());
+    setSelectedTaskIds(new Set());
+    setBulkErr(null);
+  }
+
+  function runBulk(patch: {
+    status?: 'done';
+    priority?: WorkSlipPriority;
+    assigned_to_email?: string | null;
+  }) {
+    setBulkErr(null);
+    const slipIds = Array.from(selectedSlipIds);
+    const taskIds = Array.from(selectedTaskIds);
+    if (slipIds.length === 0 && taskIds.length === 0) return;
+
+    startBulkTransition(async () => {
+      const ops: Promise<{ ok: boolean; error?: string }>[] = [];
+      if (slipIds.length > 0) {
+        ops.push(
+          bulkUpdateWorkSlips({
+            ids: slipIds,
+            patch: {
+              status: patch.status,
+              priority: patch.priority,
+              assigned_to_email: patch.assigned_to_email,
+            },
+          }) as Promise<{ ok: boolean; error?: string }>,
+        );
+      }
+      if (taskIds.length > 0) {
+        // Tasks share priority shape with slips (low/normal/high vs low/medium/high) —
+        // map normal → medium when bulk-setting from the slip-style picker.
+        const taskPriority: TaskPriority | undefined =
+          patch.priority === 'normal' ? 'medium' : (patch.priority as TaskPriority | undefined);
+        ops.push(
+          bulkUpdateTasks({
+            ids: taskIds,
+            patch: {
+              status: patch.status,
+              priority: taskPriority,
+              assigned_to_email: patch.assigned_to_email,
+            },
+          }) as Promise<{ ok: boolean; error?: string }>,
+        );
+      }
+
+      const results = await Promise.all(ops);
+      const firstErr = results.find((r) => !r.ok);
+      if (firstErr && firstErr.error) {
+        setBulkErr(firstErr.error);
+        return;
+      }
+      clearSelection();
+      router.refresh();
+    });
+  }
 
   const propertyMap = useMemo(() => new Map(properties.map((p) => [p.id, p])), [properties]);
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -172,6 +263,8 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
                   property={propertyMap.get(propId) ?? null}
                   slips={list}
                   myEmail={myEmail}
+                  selectedIds={selectedSlipIds}
+                  onToggleSelect={toggleSlip}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -197,7 +290,12 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
           ) : (
             <div style={{ borderTop: '1px solid var(--ink)' }}>
               {filteredTasks.map((t) => (
-                <TaskRowItem key={t.id} task={t} />
+                <TaskRowItem
+                  key={t.id}
+                  task={t}
+                  selected={selectedTaskIds.has(t.id)}
+                  onToggleSelect={toggleTask}
+                />
               ))}
             </div>
           )}
@@ -220,6 +318,21 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
           properties={properties.filter((p) => p.is_active)}
           myEmail={myEmail}
           onClose={() => setShowTaskModal(false)}
+        />
+      )}
+
+      {(selectedSlipIds.size > 0 || selectedTaskIds.size > 0) && (
+        <BulkActionBar
+          slipCount={selectedSlipIds.size}
+          taskCount={selectedTaskIds.size}
+          pending={bulkPending}
+          err={bulkErr}
+          myEmail={myEmail}
+          onClear={clearSelection}
+          onMarkDone={() => runBulk({ status: 'done' })}
+          onAssignToMe={() => runBulk({ assigned_to_email: myEmail })}
+          onUnassign={() => runBulk({ assigned_to_email: null })}
+          onSetPriority={(p) => runBulk({ priority: p })}
         />
       )}
     </>
@@ -285,11 +398,15 @@ function Pill({
 function PropertyGroup({
   property,
   slips,
+  selectedIds,
+  onToggleSelect,
   onAddSlip,
 }: {
   property: PropertyForPicker | null;
   slips: WorkSlipRow[];
   myEmail: string;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   onAddSlip: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -444,7 +561,12 @@ function PropertyGroup({
       {expanded && (
         <div style={{ paddingBottom: 12 }}>
           {slips.map((s) => (
-            <WorkSlipRowItem key={s.id} slip={s} />
+            <WorkSlipRowItem
+              key={s.id}
+              slip={s}
+              selected={selectedIds.has(s.id)}
+              onToggleSelect={onToggleSelect}
+            />
           ))}
         </div>
       )}
@@ -452,7 +574,15 @@ function PropertyGroup({
   );
 }
 
-function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
+function WorkSlipRowItem({
+  slip,
+  selected,
+  onToggleSelect,
+}: {
+  slip: WorkSlipRow;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
+}) {
   const [, startTransition] = useTransition();
   const router = useRouter();
   const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
@@ -470,10 +600,16 @@ function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
         display: 'flex',
         alignItems: 'center',
         gap: 14,
-        padding: '12px 0 12px 56px',
+        padding: '12px 0 12px 24px',
         borderTop: '1px dotted var(--rule-soft)',
+        background: selected ? 'var(--paper-2)' : 'transparent',
       }}
     >
+      <SelectCheckbox
+        checked={selected}
+        onChange={() => onToggleSelect(slip.id)}
+        ariaLabel={`Select work slip ${slip.title}`}
+      />
       <Link
         href={`/work/${slip.id}`}
         style={{
@@ -533,7 +669,15 @@ function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
   );
 }
 
-function TaskRowItem({ task }: { task: TaskRow }) {
+function TaskRowItem({
+  task,
+  selected,
+  onToggleSelect,
+}: {
+  task: TaskRow;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
+}) {
   const [, startTransition] = useTransition();
   const router = useRouter();
   const isOverdue = !!task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
@@ -551,10 +695,16 @@ function TaskRowItem({ task }: { task: TaskRow }) {
         display: 'flex',
         alignItems: 'center',
         gap: 14,
-        padding: '14px 0',
+        padding: '14px 0 14px 24px',
         borderBottom: '1px solid var(--rule)',
+        background: selected ? 'var(--paper-2)' : 'transparent',
       }}
     >
+      <SelectCheckbox
+        checked={selected}
+        onChange={() => onToggleSelect(task.id)}
+        ariaLabel={`Select task ${task.title}`}
+      />
       <Link
         href={`/work/tasks/${task.id}`}
         style={{
@@ -1073,4 +1223,192 @@ function pillTinyStyle(color: string): React.CSSProperties {
     padding: '2px 8px',
     whiteSpace: 'nowrap',
   };
+}
+
+/**
+ * Square checkbox styled to match Helm's editorial palette. Stops Link
+ * propagation so clicking the checkbox doesn't navigate into the row.
+ */
+function SelectCheckbox({
+  checked,
+  onChange,
+  ariaLabel,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange();
+      }}
+      style={{
+        width: 18,
+        height: 18,
+        flexShrink: 0,
+        background: checked ? 'var(--ink)' : 'var(--paper)',
+        border: `1.5px solid ${checked ? 'var(--ink)' : 'var(--rule)'}`,
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        color: 'var(--paper)',
+        fontSize: 12,
+        lineHeight: 1,
+      }}
+    >
+      {checked ? '✓' : ''}
+    </button>
+  );
+}
+
+function BulkActionBar({
+  slipCount,
+  taskCount,
+  pending,
+  err,
+  myEmail,
+  onClear,
+  onMarkDone,
+  onAssignToMe,
+  onUnassign,
+  onSetPriority,
+}: {
+  slipCount: number;
+  taskCount: number;
+  pending: boolean;
+  err: string | null;
+  myEmail: string;
+  onClear: () => void;
+  onMarkDone: () => void;
+  onAssignToMe: () => void;
+  onUnassign: () => void;
+  onSetPriority: (priority: WorkSlipPriority) => void;
+}) {
+  const total = slipCount + taskCount;
+  const summary = `${total} selected${
+    slipCount && taskCount ? ` (${slipCount} slip${slipCount === 1 ? '' : 's'}, ${taskCount} task${taskCount === 1 ? '' : 's'})` : ''
+  }`;
+
+  return (
+    <div
+      role="region"
+      aria-label="Bulk actions"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 24,
+        transform: 'translateX(-50%)',
+        zIndex: 70,
+        background: 'var(--ink)',
+        color: 'var(--paper)',
+        padding: '12px 18px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        boxShadow: '0 12px 36px rgba(30, 46, 52, 0.28)',
+        maxWidth: 'calc(100vw - 32px)',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span
+          className="font-mono"
+          style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}
+        >
+          ●
+        </span>
+        <span style={{ fontSize: 12, letterSpacing: '.06em' }}>{summary}</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <BulkBtn label="Mark done" onClick={onMarkDone} disabled={pending} />
+        <BulkBtn
+          label="Assign to me"
+          onClick={onAssignToMe}
+          disabled={pending || !myEmail}
+        />
+        <BulkBtn label="Unassign" onClick={onUnassign} disabled={pending} />
+        <BulkBtn label="High" onClick={() => onSetPriority('high')} disabled={pending} accent="var(--negative)" />
+        <BulkBtn label="Normal" onClick={() => onSetPriority('normal')} disabled={pending} />
+        <BulkBtn label="Low" onClick={() => onSetPriority('low')} disabled={pending} muted />
+      </div>
+
+      <button
+        type="button"
+        onClick={onClear}
+        disabled={pending}
+        style={{
+          background: 'transparent',
+          border: '1px solid var(--paper)',
+          color: 'var(--paper)',
+          padding: '6px 12px',
+          fontSize: 10,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          cursor: pending ? 'wait' : 'pointer',
+          opacity: pending ? 0.6 : 1,
+        }}
+      >
+        Clear
+      </button>
+
+      {err && (
+        <div
+          style={{
+            width: '100%',
+            background: 'var(--negative)',
+            color: 'var(--paper)',
+            padding: '6px 10px',
+            fontSize: 11,
+          }}
+        >
+          {err}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkBtn({
+  label,
+  onClick,
+  disabled,
+  accent,
+  muted,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  accent?: string;
+  muted?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: accent ? accent : 'var(--paper)',
+        color: accent ? 'var(--paper)' : 'var(--ink)',
+        border: `1px solid ${accent ?? 'var(--paper)'}`,
+        padding: '6px 10px',
+        fontSize: 10,
+        letterSpacing: '.16em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.6 : muted ? 0.75 : 1,
+      }}
+    >
+      {label}
+    </button>
+  );
 }
