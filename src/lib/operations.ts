@@ -189,7 +189,8 @@ export type OperationsData = {
  */
 export async function loadOperationsData(
   range: Range,
-  calendarRange: CalendarRange = '7d'
+  calendarRange: CalendarRange = '7d',
+  propertyId?: string,
 ): Promise<OperationsData> {
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
@@ -230,7 +231,8 @@ export async function loadOperationsData(
       r.check_in &&
       r.check_out &&
       isAllowed(r.status) &&
-      !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id)
+      !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
+      (!propertyId || r.property_id === propertyId)
   );
 
   // Pull inspections in the same window for matching.
@@ -281,7 +283,7 @@ export async function loadOperationsData(
     throw new Error(`Failed to load properties: ${propErr.message}`);
   }
   const properties = ((propData ?? []) as PropertyMini[]).filter(
-    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id)
+    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id) && (!propertyId || p.id === propertyId)
   );
   const propertyById = new Map(properties.map((p) => [p.id, p]));
 
