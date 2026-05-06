@@ -37,6 +37,7 @@ export type WorkSlipRow = {
   photo_urls: string[];
   snoozed_until: string | null;
   snoozed_by_email: string | null;
+  snoozed_at: string | null;
   created_by_email: string;
   closed_by_email: string | null;
   created_at: string;

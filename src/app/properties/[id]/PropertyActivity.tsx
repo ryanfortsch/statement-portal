@@ -6,6 +6,7 @@ import type { HelmPropertyRow } from '@/lib/properties';
 type ActivityKind =
   | 'slip-created'
   | 'slip-done'
+  | 'slip-snoozed'
   | 'slip-owner-contacted'
   | 'inspection-completed'
   | 'plan-created'
@@ -30,6 +31,7 @@ type Props = {
 const KIND_GLYPH: Record<ActivityKind, string> = {
   'slip-created': '+',
   'slip-done': '✓',
+  'slip-snoozed': 'z',
   'slip-owner-contacted': '→',
   'inspection-completed': '⚑',
   'plan-created': '◷',
@@ -42,6 +44,7 @@ const KIND_GLYPH: Record<ActivityKind, string> = {
 const KIND_COLOR: Record<ActivityKind, string> = {
   'slip-created': 'var(--ink-3)',
   'slip-done': 'var(--positive)',
+  'slip-snoozed': 'var(--tide-deep)',
   'slip-owner-contacted': 'var(--signal)',
   'inspection-completed': 'var(--tide-deep)',
   'plan-created': 'var(--tide-deep)',
@@ -165,9 +168,9 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
   const [slipsRes, inspectionsRes, plansRes, notesRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
-      .select('id, title, status, priority, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at, owner_action_type, owner_action_required')
+      .select('id, title, status, priority, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at, owner_action_type, owner_action_required, snoozed_at, snoozed_until, snoozed_by_email')
       .eq('property_id', p.id)
-      .or(`created_at.gte.${ninetyDaysAgo},completed_at.gte.${ninetyDaysAgo},owner_last_contacted_at.gte.${ninetyDaysAgo}`)
+      .or(`created_at.gte.${ninetyDaysAgo},completed_at.gte.${ninetyDaysAgo},owner_last_contacted_at.gte.${ninetyDaysAgo},snoozed_at.gte.${ninetyDaysAgo}`)
       .limit(60),
     supabase
       .from('inspections')
@@ -213,6 +216,9 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
     owner_last_contacted_at: string | null;
     owner_action_type: string | null;
     owner_action_required: boolean;
+    snoozed_at: string | null;
+    snoozed_until: string | null;
+    snoozed_by_email: string | null;
   }>) {
     if (s.created_at && s.created_at >= ninetyDaysAgo) {
       events.push({
@@ -230,6 +236,15 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
         kind: 'slip-done',
         actor: s.closed_by_email,
         label: `marked done · ${s.title}`,
+        href: `/work/${s.id}`,
+      });
+    }
+    if (s.snoozed_at && s.snoozed_until) {
+      events.push({
+        at: s.snoozed_at,
+        kind: 'slip-snoozed',
+        actor: s.snoozed_by_email,
+        label: `snoozed ${s.title} until ${s.snoozed_until}`,
         href: `/work/${s.id}`,
       });
     }

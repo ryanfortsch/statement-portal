@@ -5,6 +5,7 @@ import { displayNameForEmail } from '@/lib/team';
 type ActivityKind =
   | 'slip-created'
   | 'slip-done'
+  | 'slip-snoozed'
   | 'slip-owner-contacted'
   | 'inspection-completed'
   | 'plan-created'
@@ -24,6 +25,7 @@ type ActivityEvent = {
 const KIND_GLYPH: Record<ActivityKind, string> = {
   'slip-created': '+',
   'slip-done': '✓',
+  'slip-snoozed': 'z',
   'slip-owner-contacted': '→',
   'inspection-completed': '⚑',
   'plan-created': '◷',
@@ -35,6 +37,7 @@ const KIND_GLYPH: Record<ActivityKind, string> = {
 const KIND_COLOR: Record<ActivityKind, string> = {
   'slip-created': 'var(--ink-3)',
   'slip-done': 'var(--positive)',
+  'slip-snoozed': 'var(--tide-deep)',
   'slip-owner-contacted': 'var(--signal)',
   'inspection-completed': 'var(--tide-deep)',
   'plan-created': 'var(--tide-deep)',
@@ -138,8 +141,8 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
   const [slipsRes, inspectionsRes, plansRes, notesRes, contactedPropsRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
-      .select('id, property_id, title, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at')
-      .or(`created_at.gte.${cutoff},completed_at.gte.${cutoff},owner_last_contacted_at.gte.${cutoff}`)
+      .select('id, property_id, title, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at, snoozed_at, snoozed_until, snoozed_by_email')
+      .or(`created_at.gte.${cutoff},completed_at.gte.${cutoff},owner_last_contacted_at.gte.${cutoff},snoozed_at.gte.${cutoff}`)
       .limit(80),
     supabase
       .from('inspections')
@@ -178,6 +181,9 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
     created_at: string; created_by_email: string | null;
     completed_at: string | null; closed_by_email: string | null;
     owner_last_contacted_at: string | null;
+    snoozed_at: string | null;
+    snoozed_until: string | null;
+    snoozed_by_email: string | null;
   }>) {
     const propName = propertyMap.get(s.property_id) ?? '(property)';
     if (s.created_at && s.created_at >= cutoff) {
@@ -207,6 +213,16 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
         actor: null,
         property: propName,
         label: `owner emailed about "${truncate(s.title, 60)}" at`,
+        href: `/work/${s.id}`,
+      });
+    }
+    if (s.snoozed_at && s.snoozed_at >= cutoff && s.snoozed_until) {
+      events.push({
+        at: s.snoozed_at,
+        kind: 'slip-snoozed',
+        actor: s.snoozed_by_email,
+        property: propName,
+        label: `snoozed "${truncate(s.title, 60)}" until ${s.snoozed_until} at`,
         href: `/work/${s.id}`,
       });
     }
