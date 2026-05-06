@@ -181,7 +181,11 @@ export default async function HelmHome() {
                 ? `${stats.highPrioritySlips} high priority`
                 : 'no high-priority slips'
             }
-            href="/work"
+            href={
+              stats.highPrioritySlips != null && stats.highPrioritySlips > 0
+                ? '/work?filter=high'
+                : '/work'
+            }
             size="hero"
             accent={stats.highPrioritySlips != null && stats.highPrioritySlips > 0}
           />
@@ -193,14 +197,14 @@ export default async function HelmHome() {
                 ? 'awaiting owner input'
                 : 'all caught up'
             }
-            href="/work"
+            href="/work?filter=owner-action"
             size="hero"
           />
           <Stat
             label="Active Tasks"
             value={stats.activeTasks != null ? String(stats.activeTasks) : '—'}
             sub="team backlog"
-            href="/work"
+            href="/work?tab=tasks"
             size="hero"
           />
           <Stat
