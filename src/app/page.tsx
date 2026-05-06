@@ -6,6 +6,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
+import { TeamActivity } from '@/components/TeamActivity';
 
 export const dynamic = 'force-dynamic';
 // Personal count needs the live session, so we can't precompute. Drop the
@@ -340,7 +341,7 @@ export default async function HelmHome() {
       </section>
 
       {/* MODULES */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Modules</div>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {HELM_MODULES.map((m) => (
@@ -348,6 +349,11 @@ export default async function HelmHome() {
           ))}
         </div>
       </section>
+
+      {/* TEAM ACTIVITY */}
+      <div style={{ flex: 1 }}>
+        <TeamActivity limit={20} />
+      </div>
 
       <HelmFooter
         left="Rising Tide · 85 Eastern Ave · Gloucester, MA 01930"
