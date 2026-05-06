@@ -66,6 +66,14 @@ export type TaskCommentRow = {
   created_at: string;
 };
 
+export type WorkSlipCommentRow = {
+  id: string;
+  work_slip_id: string;
+  author_email: string;
+  body: string;
+  created_at: string;
+};
+
 /** "open" / "in_progress" / "scheduled" — anything that's still active. */
 export const ACTIVE_WORK_SLIP_STATUSES: WorkSlipStatus[] = ['open', 'in_progress', 'scheduled'];
 export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked'];
