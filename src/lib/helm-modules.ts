@@ -77,11 +77,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'crm',
-    href: '#',
+    href: '/crm',
     number: '07',
     title: 'CRM',
-    description: 'Contacts, households, owners. Comms log via Quo. Pinned notes and tags.',
-    status: 'soon',
+    description: 'Owners, vendors, leads. Every touch logged in one place.',
+    status: 'active',
     primary: true,
   },
   {
