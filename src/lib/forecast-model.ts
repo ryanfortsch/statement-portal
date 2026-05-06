@@ -85,9 +85,12 @@ export const ONBOARDING_COST = 3000;
 /** Months the 3 pre-signed contracts trigger onboarding cost. */
 export const PRESIGNED_ONBOARD_MONTHS = [4, 6, 7];
 
-/** Steady corporate overhead — software, accounting, insurance, etc. */
-export const CORP_OVERHEAD_MONTHLY = 4000;
-/** Office rent. */
+/* --------------------------------------------------------------------- */
+/* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
+/* (Apr 2025 → Apr 2026, 12-mo window). See forecast-actuals.ts.         */
+/* --------------------------------------------------------------------- */
+
+/** Office rent at 85 Eastern Ave. Confirmed: 3 ACHs of $750 in 2026. */
 export const OFFICE_RENT_MONTHLY = 750;
 /** Dumpster swing — heavier in summer turnover season. */
 export const DUMPSTER_WINTER = 50;
@@ -97,7 +100,36 @@ const WINTER_MONTHS = new Set([11, 12, 1, 2, 3, 4]);
 /** Office costs only kick in from March (when the lease begins). */
 export const OFFICE_START_MONTH = 3;
 
-/** New hire ($5K/mo) starts in October. */
+/** Software subs (Gusto + Allie's CC + buffer for AppFolio/PMS). */
+export const SOFTWARE_MONTHLY = 200;
+
+/** MH Partners debt service. Bank shows steady ~$1,000/mo. */
+export const DEBT_SERVICE_MONTHLY = 1000;
+
+/** Insurance (Phillips). Annual $5,264 → smoothed to ~$440/mo. */
+export const INSURANCE_MONTHLY = 440;
+
+/** Accounting (MS Consultants). ~$8,600/yr → smoothed to ~$720/mo. */
+export const ACCOUNTING_MONTHLY = 720;
+
+/** Bank fees, stop payments, returned checks. */
+export const BANK_FEES_MONTHLY = 100;
+
+/**
+ * Operating CC pass-through. The single biggest line in the bank data
+ * (median $5.9K/mo, mean $6.8K/mo over trailing 12 mo). Likely a mix of
+ * SaaS subs not on ACH, supplies, marketing, and some property-level
+ * spend. Needs CC-statement decomposition someday — for now, conservative
+ * median estimate.
+ */
+export const CC_OPERATING_MONTHLY = 5900;
+
+/**
+ * New hire ($5K/mo) starts in October. Calibrated against actuals: payroll
+ * ran ~$3.5K/mo Apr-Oct 2025 + Maggie Butler $2.6K/mo Oct-Dec 2025; the
+ * combined run-rate when fully staffed was ~$6K/mo. $5K is a conservative
+ * mid-point for the new role.
+ */
 export const HIRE_MONTHLY = 5000;
 export const HIRE_START_MONTH = 10;
 
@@ -123,11 +155,27 @@ export type MonthRow = {
   /** All revenue combined. */
   rev_total: number;
 
-  exp_corp: number;
+  /** Office rent + dumpster (from March). */
   exp_office: number;
+  /** Software subscriptions (Gusto + AppFolio/PMS + Allie CC). */
+  exp_software: number;
+  /** MH Partners debt service. */
+  exp_debt: number;
+  /** Insurance (Phillips), smoothed monthly. */
+  exp_insurance: number;
+  /** Accounting (MS Consultants), smoothed monthly. */
+  exp_accounting: number;
+  /** Bank fees, stop payments, returned checks. */
+  exp_bank: number;
+  /** Operating CC pass-through (median of trailing 12 mo). */
+  exp_cc_ops: number;
+  /** New hire from Oct. */
   exp_hire: number;
+  /** $3K onboarding for the 3 pre-signed contracts (Apr/Jun/Jul). */
   exp_onboard_presigned: number;
+  /** $3K onboarding for each new property added via the slider. */
   exp_onboard_new: number;
+  /** Sum of all the above. */
   exp_total: number;
 
   /** Revenue minus business expenses — the bottom line for this model. */
@@ -179,12 +227,27 @@ export function calcYear(numNew: number): YearResult {
 
     const rev_total = Math.round(rev_current + rev_presigned + rev_new);
 
-    const exp_corp = CORP_OVERHEAD_MONTHLY;
     const exp_office = officeCost(m);
+    const exp_software = SOFTWARE_MONTHLY;
+    const exp_debt = DEBT_SERVICE_MONTHLY;
+    const exp_insurance = INSURANCE_MONTHLY;
+    const exp_accounting = ACCOUNTING_MONTHLY;
+    const exp_bank = BANK_FEES_MONTHLY;
+    const exp_cc_ops = CC_OPERATING_MONTHLY;
     const exp_hire = m >= HIRE_START_MONTH ? HIRE_MONTHLY : 0;
     const exp_onboard_presigned = PRESIGNED_ONBOARD_MONTHS.includes(m) ? ONBOARDING_COST : 0;
     const exp_onboard_new = newStartMonths.includes(m) ? ONBOARDING_COST : 0;
-    const exp_total = exp_corp + exp_office + exp_hire + exp_onboard_presigned + exp_onboard_new;
+    const exp_total =
+      exp_office +
+      exp_software +
+      exp_debt +
+      exp_insurance +
+      exp_accounting +
+      exp_bank +
+      exp_cc_ops +
+      exp_hire +
+      exp_onboard_presigned +
+      exp_onboard_new;
 
     const net_business = rev_total - exp_total;
 
@@ -194,8 +257,13 @@ export function calcYear(numNew: number): YearResult {
       rev_presigned: Math.round(rev_presigned),
       rev_new: Math.round(rev_new),
       rev_total,
-      exp_corp,
       exp_office,
+      exp_software,
+      exp_debt,
+      exp_insurance,
+      exp_accounting,
+      exp_bank,
+      exp_cc_ops,
       exp_hire,
       exp_onboard_presigned,
       exp_onboard_new,

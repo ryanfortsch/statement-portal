@@ -7,9 +7,23 @@ import {
   fmtNum,
   fmtCompact,
   MONTH_LABELS,
+  OFFICE_RENT_MONTHLY,
+  SOFTWARE_MONTHLY,
+  DEBT_SERVICE_MONTHLY,
+  INSURANCE_MONTHLY,
+  ACCOUNTING_MONTHLY,
+  BANK_FEES_MONTHLY,
+  CC_OPERATING_MONTHLY,
   type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
+import {
+  ACTUALS_TRAILING_12MO,
+  ACTUAL_INSCOPE_AVG_MONTHLY,
+  ACTUALS_INFLOWS_TRAILING_12MO,
+  ACTUALS_WINDOW,
+  type ExpenseLine,
+} from '@/lib/forecast-actuals';
 
 const SCENARIO_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -109,6 +123,14 @@ export function ForecastClient() {
 
       <section
         className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingBottom: 36, width: '100%' }}
+      >
+        <SectionTitle title="Reality check" tag={`Trailing 12 mo · Chase ...5130 actuals (${ACTUALS_WINDOW.txCount} tx)`} />
+        <RealityCheck />
+      </section>
+
+      <section
+        className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 80, width: '100%' }}
       >
         <SectionTitle title="Assumptions" tag="What's baked in" />
@@ -129,16 +151,210 @@ export function ForecastClient() {
   );
 }
 
+function RealityCheck() {
+  // Compare each itemized model expense against the closest actuals line.
+  // Format: model side (what we're projecting) vs actual side (12-mo avg).
+  type Row = {
+    label: string;
+    modelMonthly: number | null;
+    actualMonthly: number | null;
+    note: string;
+  };
+
+  const findActual = (id: string): ExpenseLine | undefined =>
+    ACTUALS_TRAILING_12MO.find((l) => l.id === id);
+
+  const rows: Row[] = [
+    {
+      label: 'Office rent + dumpster',
+      modelMonthly: OFFICE_RENT_MONTHLY,
+      actualMonthly: findActual('office_rent')?.avgMonthly ?? null,
+      note: '$750/mo started Mar 2026. Dumpster on the CC, not separately visible.',
+    },
+    {
+      label: 'Software / SaaS',
+      modelMonthly: SOFTWARE_MONTHLY,
+      actualMonthly: findActual('payroll_software')?.avgMonthly ?? null,
+      note: 'Bank-visible Gusto fee only ($76/mo). Real total is higher — most SaaS is on the CC.',
+    },
+    {
+      label: 'MH Partners debt service',
+      modelMonthly: DEBT_SERVICE_MONTHLY,
+      actualMonthly: findActual('mh_partners')?.avgMonthly ?? null,
+      note: 'Was $1,155/mo through Sep 2025, dropped to $937/mo in 2026.',
+    },
+    {
+      label: 'Insurance (smoothed)',
+      modelMonthly: INSURANCE_MONTHLY,
+      actualMonthly: findActual('insurance')?.avgMonthly ?? null,
+      note: 'Phillips Insurance $5,264 paid Mar 2026 — annual policy.',
+    },
+    {
+      label: 'Accounting (smoothed)',
+      modelMonthly: ACCOUNTING_MONTHLY,
+      actualMonthly: findActual('accounting')?.avgMonthly ?? null,
+      note: 'MS Consultants — Jan 2025 + Apr 2026 in window. ~$8,600/yr extrapolated.',
+    },
+    {
+      label: 'Bank fees',
+      modelMonthly: BANK_FEES_MONTHLY,
+      actualMonthly: findActual('bank_fees')?.avgMonthly ?? null,
+      note: 'Stop payments + monthly service + returned checks.',
+    },
+    {
+      label: 'Operating CC (Chase ...3878)',
+      modelMonthly: CC_OPERATING_MONTHLY,
+      actualMonthly: findActual('cc_main')?.avgMonthly ?? null,
+      note: 'Range $3K-$16K/mo. Median used for the model. Decomposing the CC statement would sharpen this.',
+    },
+    {
+      label: 'Payroll · Gusto runs',
+      modelMonthly: 0,
+      actualMonthly: findActual('payroll')?.avgMonthly ?? null,
+      note: 'Gusto stopped Oct 2025. Replaced by hire line ($5K/mo from Oct 2026 in the model).',
+    },
+    {
+      label: 'Maggie Butler (weekly Zelle)',
+      modelMonthly: 0,
+      actualMonthly: findActual('staff_zelle')?.avgMonthly ?? null,
+      note: 'Stopped Dec 2025. Folded into hire assumption.',
+    },
+    {
+      label: 'MA DOR (state tax remit)',
+      modelMonthly: 0,
+      actualMonthly: findActual('state_tax')?.avgMonthly ?? null,
+      note: 'Pass-through — owners owe this, RT remits. Out of model scope but visible.',
+    },
+    {
+      label: 'Maintenance (Zelle)',
+      modelMonthly: 0,
+      actualMonthly: findActual('maintenance')?.avgMonthly ?? null,
+      note: 'Ian Drometer + Tomer + Jason etc. Per-property and reimbursed via owner statements.',
+    },
+    {
+      label: 'Subcontractors (Zelle)',
+      modelMonthly: 0,
+      actualMonthly: findActual('subcontractors')?.avgMonthly ?? null,
+      note: 'One-off project work. Project-based, not modeled as recurring.',
+    },
+  ];
+
+  const totalModel = rows.reduce((s, r) => s + (r.modelMonthly ?? 0), 0);
+  const totalActual = rows.reduce((s, r) => s + Math.abs(r.actualMonthly ?? 0), 0);
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper)',
+        overflowX: 'auto',
+      }}
+    >
+      <table
+        style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontSize: 12,
+          background: 'var(--paper)',
+        }}
+      >
+        <thead>
+          <tr>
+            <th style={rcThStyle('left', 280)}>Line</th>
+            <th style={rcThStyle('right', 130)}>Model · monthly</th>
+            <th style={rcThStyle('right', 130)}>Actual · 12-mo avg</th>
+            <th style={rcThStyle('left')}>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const model = r.modelMonthly ?? 0;
+            const actual = Math.abs(r.actualMonthly ?? 0);
+            const delta = actual - model;
+            const deltaPct = model > 0 ? (delta / model) * 100 : null;
+            const deltaColor =
+              !model || !actual ? 'var(--ink-4)' :
+              Math.abs(deltaPct ?? 0) < 25 ? 'var(--positive)' :
+              Math.abs(deltaPct ?? 0) < 75 ? 'var(--ink-3)' :
+              'var(--negative)';
+            return (
+              <tr key={r.label}>
+                <td style={rcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
+                  {r.label}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right' })}>
+                  {model > 0 ? `$${model.toLocaleString()}` : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: deltaColor })}>
+                  {actual > 0 ? `$${Math.round(actual).toLocaleString()}` : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                </td>
+                <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
+                  {r.note}
+                </td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
+              Total monthly burn
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
+              ${totalModel.toLocaleString()}
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
+              ${Math.round(totalActual).toLocaleString()}
+            </td>
+            <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
+              Inflows trailing 12-mo: ${ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in.toLocaleString()} mgmt fee + ${ACTUALS_INFLOWS_TRAILING_12MO.platform_revenue.toLocaleString()} platform pass-through + ${ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion.toLocaleString()} Fidelity infusion.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function rcThStyle(align: 'left' | 'right', width?: number): React.CSSProperties {
+  return {
+    background: 'var(--ink)',
+    color: 'var(--paper)',
+    padding: '9px 12px',
+    textAlign: align,
+    fontWeight: 500,
+    fontSize: 10,
+    letterSpacing: '.08em',
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+    width: width ? `${width}px` : 'auto',
+  };
+}
+
+function rcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return {
+    padding: '8px 12px',
+    borderBottom: '1px solid var(--rule)',
+    fontVariantNumeric: 'tabular-nums',
+    verticalAlign: 'top',
+    ...extra,
+  };
+}
+
 function Assumptions() {
   const items: Array<{ label: string; value: string }> = [
     { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
     { label: 'Pre-signed', value: '3 contracts at $25K/yr starting Apr · Jun · Jul' },
     { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, ordered Mar→Dec' },
-    { label: 'Corp overhead', value: '$4,000/mo (software, accounting, insurance)' },
     { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
-    { label: 'New hire', value: '$5,000/mo from October' },
+    { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
+    { label: 'MH Partners debt', value: '$1,000/mo (calibrated to recurring "CASH CON" ACH)' },
+    { label: 'Insurance', value: '$440/mo smoothed (Phillips $5,264/yr, paid March)' },
+    { label: 'Accounting', value: '$720/mo smoothed (MS Consultants ~$8,600/yr, twice a year)' },
+    { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
+    { label: 'Operating CC', value: '$5,900/mo median Chase ...3878 payment — software, supplies, marketing, partial property pass-through' },
+    { label: 'New hire', value: '$5,000/mo from October (replaces Maggie + Gusto runs)' },
     { label: 'Onboarding', value: '$3,000 one-time per new contract, paid the start month' },
-    { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, federal/state taxes, capex, distributions' },
+    { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, ATM/debit-card personal, federal/state taxes, capex, distributions' },
   ];
   return (
     <div
@@ -757,9 +973,14 @@ function ForecastTable({ year }: { year: YearResult }) {
         <DataRow label="N new properties" values={monthly.map((r) => r.rev_new)} fy={totals.rev_new} highlight />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
-        <SectionRow label="Expenses" />
-        <DataRow label="Corp overhead ($4K/mo)" values={monthly.map((r) => r.exp_corp)} fy={monthly.reduce((a, r) => a + r.exp_corp, 0)} />
+        <SectionRow label="Expenses" tag="calibrated to Chase ...5130 actuals" />
         <DataRow label="Office + dumpster (from Mar)" values={monthly.map((r) => r.exp_office)} fy={monthly.reduce((a, r) => a + r.exp_office, 0)} />
+        <DataRow label="Software / SaaS ($200/mo)" values={monthly.map((r) => r.exp_software)} fy={monthly.reduce((a, r) => a + r.exp_software, 0)} />
+        <DataRow label="MH Partners debt ($1K/mo)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
+        <DataRow label="Insurance · Phillips (smoothed)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
+        <DataRow label="Accounting · MS Consultants" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
+        <DataRow label="Bank fees" values={monthly.map((r) => r.exp_bank)} fy={monthly.reduce((a, r) => a + r.exp_bank, 0)} />
+        <DataRow label="Operating CC pass-through" values={monthly.map((r) => r.exp_cc_ops)} fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)} />
         <DataRow label="New hire ($5K/mo from Oct)" values={monthly.map((r) => r.exp_hire)} fy={monthly.reduce((a, r) => a + r.exp_hire, 0)} />
         <DataRow label="Onboarding · pre-signed" values={monthly.map((r) => r.exp_onboard_presigned)} fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)} />
         <DataRow label="Onboarding · new" values={monthly.map((r) => r.exp_onboard_new)} fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)} highlight />
@@ -803,7 +1024,7 @@ function Th({
   );
 }
 
-function SectionRow({ label }: { label: string }) {
+function SectionRow({ label, tag }: { label: string; tag?: string }) {
   return (
     <tr>
       <td
@@ -821,6 +1042,21 @@ function SectionRow({ label }: { label: string }) {
         }}
       >
         {label}
+        {tag && (
+          <span
+            style={{
+              marginLeft: 10,
+              fontWeight: 400,
+              fontSize: 10,
+              letterSpacing: '.06em',
+              color: 'var(--ink-3)',
+              textTransform: 'none',
+              fontStyle: 'italic',
+            }}
+          >
+            {tag}
+          </span>
+        )}
       </td>
     </tr>
   );

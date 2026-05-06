@@ -16,8 +16,8 @@ export default function ForecastPage() {
       <HelmHero
         eyebrow="Helm · Forecast"
         title="The 2026 plan,"
-        emphasis="modeled live."
-        description="Slide the lever to see what each new contract does to the year. Management business only: nine current managed properties, three pre-signed contracts, and however many new mandates we choose to chase. RT-owned units and personal draw are out of scope."
+        emphasis="calibrated to the bank."
+        description="Slide the lever to see what each new contract does to the year. Expense lines are calibrated to 12 months of Chase ...5130 actuals — office rent, MH Partners debt, insurance, accounting, software, and the operating CC pass-through, all itemized from real outflows. Management business only: RT-owned units, personal draw, and healthcare are out of scope."
       />
 
       <ForecastClient />
