@@ -393,9 +393,11 @@ export function calcYear(
 
     // If we have a Smart Forecast value for this month, that becomes
     // rev_current — booked + projected from real Guesty data, with each
-    // property's actual mgmt fee. rev_presigned goes to zero because the
-    // smart forecast already includes any presigneds that are on Guesty.
-    // If no smart value, fall back to the seasonality heuristic.
+    // property's actual mgmt fee. Pre-signed contracts run through
+    // seasonality regardless: they aren't in Guesty until they actually
+    // onboard, so smart forecast can't see them yet. If a presigned shows
+    // up in Guesty later, it'll start contributing through smart and the
+    // model will overcount — flag for review when that happens.
     const smartFee = smartOverride?.get(m);
     const useSmart = smartFee != null && smartFee > 0;
 
@@ -404,20 +406,20 @@ export function calcYear(
     let rev_new = 0;
 
     if (useSmart) {
-      // Smart Forecast owns current + presigned line for this month.
+      // Smart Forecast owns the current 9 portfolio. Presigned + new
+      // remain on seasonality because they aren't in Guesty yet.
       rev_current = smartFee;
-      // rev_presigned stays 0 — already folded into smartFee.
     } else {
-      // Seasonality heuristic.
+      // No smart data — fall back to seasonality for current too.
       for (const p of config.current) {
         if (m >= p.start) rev_current += p.fee * dist[p.type];
       }
-      for (const p of config.presigned) {
-        if (m >= p.start) rev_presigned += p.fee * dist[p.type];
-      }
     }
-    // N new properties always come from the seasonality model (hypothetical
-    // — no Guesty record yet). Same for both the smart and heuristic paths.
+    // Pre-signed contracts: always seasonality (none in Guesty yet).
+    for (const p of config.presigned) {
+      if (m >= p.start) rev_presigned += p.fee * dist[p.type];
+    }
+    // N new (slider) properties: always seasonality (hypothetical).
     for (const start of newStartMonths) {
       if (m >= start) rev_new += NEW_PROPERTY_FEE * SEASON[NEW_PROPERTY_TYPE][i];
     }

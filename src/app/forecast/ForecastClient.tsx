@@ -1501,9 +1501,9 @@ function ForecastTable({
   // heuristic only kicks in if Smart Forecast data is unavailable.
   const currentLabel =
     yearKey === 2026
-      ? `Current 9 + presigned (smart forecast)`
+      ? `Current 9 properties (smart forecast)`
       : `${currentCount} active properties (smart forecast)`;
-  const presignedLabel = '5 pre-signed (May · Jun) [folded into Current row when smart data exists]';
+  const presignedLabel = '5 pre-signed (May · Jun) — seasonality, not yet in Guesty';
 
   return (
     <table
