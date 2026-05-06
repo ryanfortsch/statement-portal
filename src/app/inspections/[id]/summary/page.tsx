@@ -132,7 +132,18 @@ export default async function InspectionSummaryPage({
       <HelmMasthead current="inspections" />
 
       {/* HEADER */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 16, width: '100%' }}>
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{
+          paddingTop: 32,
+          paddingBottom: 16,
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
         <Link
           href="/inspections"
           style={{
@@ -144,6 +155,23 @@ export default async function InspectionSummaryPage({
           }}
         >
           ← All Inspections
+        </Link>
+        <Link
+          href={`/inspections/${id}/render`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: 11,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            color: 'var(--ink)',
+            textDecoration: 'none',
+            border: '1px solid var(--ink)',
+            padding: '8px 14px',
+            fontWeight: 600,
+          }}
+        >
+          Print / PDF →
         </Link>
       </section>
 
