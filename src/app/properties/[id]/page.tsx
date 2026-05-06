@@ -566,23 +566,55 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       <PropertyActivity property={p} />
 
       {/* INSPECTION HISTORY (Helm-native) */}
-      {recentInspections.length > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-            <h2
-              className="font-serif"
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+        <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
+          <h2
+            className="font-serif"
+            style={{
+              fontSize: 22,
+              fontWeight: 400,
+              letterSpacing: '-0.01em',
+              color: 'var(--ink)',
+              margin: 0,
+            }}
+          >
+            Recent Inspections
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+            <span className="eyebrow">{recentInspections.length === 0 ? 'no history yet' : `last ${recentInspections.length}`}</span>
+            <Link
+              href={`/operations?property=${p.id}`}
+              title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
               style={{
-                fontSize: 22,
-                fontWeight: 400,
-                letterSpacing: '-0.01em',
-                color: 'var(--ink)',
-                margin: 0,
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                color: 'var(--paper)',
+                background: 'var(--ink)',
+                border: '1px solid var(--ink)',
+                padding: '6px 12px',
+                textDecoration: 'none',
               }}
             >
-              Recent Inspections
-            </h2>
-            <span className="eyebrow">last {recentInspections.length}</span>
+              Plan a walk
+            </Link>
           </div>
+        </div>
+        {recentInspections.length === 0 && (
+          <div
+            style={{
+              borderTop: '1px solid var(--ink)',
+              padding: '24px 0',
+              textAlign: 'center',
+              color: 'var(--ink-3)',
+              fontSize: 13,
+            }}
+          >
+            No inspections recorded for this property yet.
+          </div>
+        )}
+        {recentInspections.length > 0 && (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {recentInspections.map((insp) => {
               const isComplete = !!insp.completed_at;
@@ -635,8 +667,8 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               );
             })}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* RECENT STATEMENTS (Helm-native) */}
       <Section

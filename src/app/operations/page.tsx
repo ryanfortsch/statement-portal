@@ -34,6 +34,19 @@ async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: b
   return { lastSyncedAt, isStale };
 }
 
+async function readPropertyName(propertyId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('properties')
+      .select('name')
+      .eq('id', propertyId)
+      .maybeSingle();
+    return (data as { name: string } | null)?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function formatRelative(date: Date | null): string {
   if (!date) return 'never';
   const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
@@ -44,7 +57,7 @@ function formatRelative(date: Date | null): string {
 }
 
 type PageProps = {
-  searchParams: Promise<{ range?: string; cal?: string }>;
+  searchParams: Promise<{ range?: string; cal?: string; property?: string }>;
 };
 
 export default async function OperationsPage({ searchParams }: PageProps) {
@@ -61,6 +74,8 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       ? (calParam as CalendarRange)
       : '7d';
 
+  const propertyFilter = params?.property?.trim() || undefined;
+
   if (!isHelmConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -75,10 +90,11 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, calRange),
+    loadOperationsData(range, calRange, propertyFilter),
     auth(),
+    propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
   ]);
   const myEmail = session?.user?.email ?? '';
   const initialFooter = lastSyncedAt
@@ -97,6 +113,42 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         emphasis="turnover pipeline."
         description="Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections."
       />
+
+      {propertyFilter && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 18 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '10px 14px',
+              border: '1px solid var(--signal)',
+              background: 'rgba(200, 90, 58, 0.06)',
+              fontSize: 12,
+            }}
+          >
+            <span style={{ color: 'var(--signal)', fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', fontSize: 10 }}>
+              Filter
+            </span>
+            <span style={{ color: 'var(--ink)', flex: 1 }}>
+              Showing only <strong>{filterPropertyName ?? propertyFilter}</strong>
+            </span>
+            <Link
+              href={`/operations?range=${range}&cal=${calRange}`}
+              style={{
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+              }}
+            >
+              Clear
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* RANGE TABS + SYNC STATUS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
