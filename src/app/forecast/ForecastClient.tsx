@@ -153,94 +153,71 @@ export function ForecastClient() {
 
 function RealityCheck() {
   // Compare each itemized model expense against the closest actuals line.
-  // Format: model side (what we're projecting) vs actual side (12-mo avg).
+  // Model side: what we're projecting (clean monthly inputs).
+  // Actual side: trailing-12-mo average and exact total from the bank.
   type Row = {
     label: string;
     modelMonthly: number | null;
     actualMonthly: number | null;
+    actualTotal: number | null;
     note: string;
   };
 
   const findActual = (id: string): ExpenseLine | undefined =>
     ACTUALS_TRAILING_12MO.find((l) => l.id === id);
 
+  const buildRow = (
+    label: string,
+    modelMonthly: number,
+    actualId: string,
+    note: string
+  ): Row => {
+    const a = findActual(actualId);
+    return {
+      label,
+      modelMonthly,
+      actualMonthly: a?.avgMonthly ?? null,
+      actualTotal: a?.total12mo ?? null,
+      note,
+    };
+  };
+
   const rows: Row[] = [
-    {
-      label: 'Office rent + dumpster',
-      modelMonthly: OFFICE_RENT_MONTHLY,
-      actualMonthly: findActual('office_rent')?.avgMonthly ?? null,
-      note: '$750/mo started Mar 2026. Dumpster on the CC, not separately visible.',
-    },
-    {
-      label: 'Software / SaaS',
-      modelMonthly: SOFTWARE_MONTHLY,
-      actualMonthly: findActual('payroll_software')?.avgMonthly ?? null,
-      note: 'Bank-visible Gusto fee only ($76/mo). Real total is higher — most SaaS is on the CC.',
-    },
-    {
-      label: 'MH Partners debt service',
-      modelMonthly: DEBT_SERVICE_MONTHLY,
-      actualMonthly: findActual('mh_partners')?.avgMonthly ?? null,
-      note: 'Was $1,155/mo through Sep 2025, $937/mo in 2026. Loan retired June 2026 — line goes to zero from then on.',
-    },
-    {
-      label: 'Insurance (smoothed)',
-      modelMonthly: INSURANCE_MONTHLY,
-      actualMonthly: findActual('insurance')?.avgMonthly ?? null,
-      note: 'Phillips Insurance $5,264 paid Mar 2026 — annual policy.',
-    },
-    {
-      label: 'Accounting (smoothed)',
-      modelMonthly: ACCOUNTING_MONTHLY,
-      actualMonthly: findActual('accounting')?.avgMonthly ?? null,
-      note: 'MS Consultants — Jan 2025 + Apr 2026 in window. ~$8,600/yr extrapolated.',
-    },
-    {
-      label: 'Bank fees',
-      modelMonthly: BANK_FEES_MONTHLY,
-      actualMonthly: findActual('bank_fees')?.avgMonthly ?? null,
-      note: 'Stop payments + monthly service + returned checks.',
-    },
-    {
-      label: 'Operating CC (Chase ...3878)',
-      modelMonthly: CC_OPERATING_MONTHLY,
-      actualMonthly: findActual('cc_main')?.avgMonthly ?? null,
-      note: 'Range $3K-$16K/mo. Median used for the model. Decomposing the CC statement would sharpen this.',
-    },
-    {
-      label: 'Payroll · Gusto runs',
-      modelMonthly: 0,
-      actualMonthly: findActual('payroll')?.avgMonthly ?? null,
-      note: 'Gusto stopped Oct 2025. Replaced by hire line ($5K/mo from Oct 2026 in the model).',
-    },
-    {
-      label: 'Maggie Butler (weekly Zelle)',
-      modelMonthly: 0,
-      actualMonthly: findActual('staff_zelle')?.avgMonthly ?? null,
-      note: 'Stopped Dec 2025. Folded into hire assumption.',
-    },
-    {
-      label: 'MA DOR (state tax remit)',
-      modelMonthly: 0,
-      actualMonthly: findActual('state_tax')?.avgMonthly ?? null,
-      note: 'Pass-through — owners owe this, RT remits. Out of model scope but visible.',
-    },
-    {
-      label: 'Maintenance (Zelle)',
-      modelMonthly: 0,
-      actualMonthly: findActual('maintenance')?.avgMonthly ?? null,
-      note: 'Ian Drometer + Tomer + Jason etc. Per-property and reimbursed via owner statements.',
-    },
-    {
-      label: 'Subcontractors (Zelle)',
-      modelMonthly: 0,
-      actualMonthly: findActual('subcontractors')?.avgMonthly ?? null,
-      note: 'One-off project work. Project-based, not modeled as recurring.',
-    },
+    buildRow('Office rent + dumpster', OFFICE_RENT_MONTHLY, 'office_rent',
+      '$750/mo started Mar 2026. Dumpster on the CC, not separately visible.'),
+    buildRow('Software / SaaS', SOFTWARE_MONTHLY, 'payroll_software',
+      'Bank-visible Gusto fee only. Real total is higher — most SaaS is on the CC.'),
+    buildRow('MH Partners debt service', DEBT_SERVICE_MONTHLY, 'mh_partners',
+      'Was $1,155/mo through Sep 2025, $937.50/mo in 2026. Loan retired June 2026 — line goes to zero from then on.'),
+    buildRow('Insurance (smoothed)', INSURANCE_MONTHLY, 'insurance',
+      'Phillips Insurance $5,263.92 paid 03/02/2026 — annual policy.'),
+    buildRow('Accounting (smoothed)', ACCOUNTING_MONTHLY, 'accounting',
+      'MS Consultants $4,442.96 on 04/15/2026. ~$8,600/yr extrapolated.'),
+    buildRow('Bank fees', BANK_FEES_MONTHLY, 'bank_fees',
+      'Stop payments + monthly service + returned checks (one $1,208.78 returned check Jan 2026).'),
+    buildRow('Operating CC (Chase ...3878)', CC_OPERATING_MONTHLY, 'cc_main',
+      'Range $3,054.42-$16,340.49/mo. Median used for the model. Decomposing the CC statement would sharpen this.'),
+    buildRow('Payroll · Gusto runs', 0, 'payroll',
+      'NET $12,403.25 + TAX $5,895.15. Gusto stopped Oct 2025. Replaced by hire line ($5K/mo from Oct 2026 in the model).'),
+    buildRow('Maggie Butler (weekly Zelle)', 0, 'staff_zelle',
+      'Stopped 12/03/2025. Folded into hire assumption.'),
+    buildRow('MA DOR (state tax remit)', 0, 'state_tax',
+      'Pass-through — owners owe this, RT remits. Out of model scope but visible.'),
+    buildRow('Maintenance (Zelle)', 0, 'maintenance',
+      'Ian Drometer + Tomer + Jason etc. Per-property and reimbursed via owner statements.'),
+    buildRow('Subcontractors (Zelle)', 0, 'subcontractors',
+      'One-off project work. Project-based, not modeled as recurring.'),
   ];
 
-  const totalModel = rows.reduce((s, r) => s + (r.modelMonthly ?? 0), 0);
-  const totalActual = rows.reduce((s, r) => s + Math.abs(r.actualMonthly ?? 0), 0);
+  const totalModelMonthly = rows.reduce((s, r) => s + (r.modelMonthly ?? 0), 0);
+  const totalActualMonthly = rows.reduce((s, r) => s + Math.abs(r.actualMonthly ?? 0), 0);
+  const totalActual12mo = rows.reduce((s, r) => s + Math.abs(r.actualTotal ?? 0), 0);
+
+  // Precise USD with cents and thousands separators — used for actuals,
+  // because the bank knows exactly. Model side keeps round numbers since
+  // those are clean modeling inputs.
+  const fmtCents = (n: number) =>
+    `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
     <div
@@ -261,9 +238,10 @@ function RealityCheck() {
       >
         <thead>
           <tr>
-            <th style={rcThStyle('left', 280)}>Line</th>
-            <th style={rcThStyle('right', 130)}>Model · monthly</th>
+            <th style={rcThStyle('left', 240)}>Line</th>
+            <th style={rcThStyle('right', 120)}>Model · monthly</th>
             <th style={rcThStyle('right', 130)}>Actual · 12-mo avg</th>
+            <th style={rcThStyle('right', 140)}>Actual · 12-mo total</th>
             <th style={rcThStyle('left')}>Notes</th>
           </tr>
         </thead>
@@ -271,6 +249,7 @@ function RealityCheck() {
           {rows.map((r) => {
             const model = r.modelMonthly ?? 0;
             const actual = Math.abs(r.actualMonthly ?? 0);
+            const actualTotal = Math.abs(r.actualTotal ?? 0);
             const delta = actual - model;
             const deltaPct = model > 0 ? (delta / model) * 100 : null;
             const deltaColor =
@@ -287,7 +266,10 @@ function RealityCheck() {
                   {model > 0 ? `$${model.toLocaleString()}` : <span style={{ color: 'var(--ink-4)' }}>—</span>}
                 </td>
                 <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: deltaColor })}>
-                  {actual > 0 ? `$${Math.round(actual).toLocaleString()}` : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                  {actual > 0 ? fmtCents(actual) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
+                </td>
+                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: 'var(--ink-2)' })}>
+                  {actualTotal > 0 ? fmtCents(actualTotal) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
                 </td>
                 <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
                   {r.note}
@@ -297,16 +279,19 @@ function RealityCheck() {
           })}
           <tr>
             <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Total monthly burn
+              Total
             </td>
             <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              ${totalModel.toLocaleString()}
+              ${totalModelMonthly.toLocaleString()}
             </td>
             <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              ${Math.round(totalActual).toLocaleString()}
+              {fmtCents(totalActualMonthly)}
+            </td>
+            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
+              {fmtCents(totalActual12mo)}
             </td>
             <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Inflows trailing 12-mo: ${ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in.toLocaleString()} mgmt fee + ${ACTUALS_INFLOWS_TRAILING_12MO.platform_revenue.toLocaleString()} platform pass-through + ${ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion.toLocaleString()} Fidelity infusion.
+              Inflows trailing 12-mo: {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in)} mgmt fee + {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.platform_revenue)} platform pass-through + {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion)} Fidelity infusion.
             </td>
           </tr>
         </tbody>
