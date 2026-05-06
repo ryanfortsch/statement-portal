@@ -1,14 +1,21 @@
 /**
- * 2026 business financial model for Rising Tide.
+ * 2026 management-business financial model for Rising Tide.
  *
  * Pure functions + constants — no React, no DOM. The /forecast page imports
  * `calcYear` and the typed constants and renders the result.
  *
- * The model layers four revenue streams over a 12-month seasonality curve:
+ * Scope of the model: only the property-management business. Three things
+ * are deliberately OUT of scope:
+ *   - RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood) — those
+ *     have their own P&L, not relevant to "what does another mgmt
+ *     contract do for us?"
+ *   - Personal owner draw — modeled separately by Ryan/Dotti.
+ *   - Federal/state taxes, capex, distributions.
+ *
+ * Three revenue streams layer over a 12-month seasonality curve:
  *   1. CURRENT     — 9 properties already under management
  *   2. PRESIGNED   — 3 contracts signed but not yet onboarded
  *   3. NEW         — N hypothetical adds (the slider — 0 to 10)
- *   4. OWNED       — 3 Rising Tide-owned properties (full revenue, not fee)
  *
  * Each property carries a `type` that selects one of three seasonality
  * curves (CA = Cape Ann, FL = Florida, LS = less-seasonal / inland), and a
@@ -24,13 +31,6 @@ export type ManagedProperty = {
   type: SeasonType;
   /** First month (1-12) the property contributes revenue. */
   start: number;
-};
-
-export type OwnedProperty = {
-  name: string;
-  /** Annual gross rental revenue, not management fee. */
-  rev: number;
-  type: SeasonType;
 };
 
 /** 9 properties currently under management as of Jan 2026. */
@@ -51,21 +51,6 @@ export const PRESIGNED: ManagedProperty[] = [
   { name: 'Pre-signed #1', fee: 25000, type: 'CA', start: 4 },
   { name: 'Pre-signed #2', fee: 25000, type: 'CA', start: 6 },
   { name: 'Pre-signed #3', fee: 25000, type: 'CA', start: 7 },
-];
-
-/**
- * 3 Rising Tide-owned units — handled separately from the management book
- * because gross revenue (not just the management fee) flows back to the
- * business. These are the three RT treats apart from the owner-statement
- * pipeline:
- *   - 3 Locust         — Cape Ann (Niles Beach), Lucas family
- *   - Lighthouse Point — 3246 NE 27th, Lighthouse Point FL
- *   - 65 Calderwood    — Calderwood Lane, Fairfield CT (less-seasonal)
- */
-export const OWNED: OwnedProperty[] = [
-  { name: '3 Locust', rev: 25000, type: 'CA' },
-  { name: 'Lighthouse Point', rev: 40000, type: 'FL' },
-  { name: '65 Calderwood', rev: 25000, type: 'LS' },
 ];
 
 /**
@@ -116,11 +101,6 @@ export const OFFICE_START_MONTH = 3;
 export const HIRE_MONTHLY = 5000;
 export const HIRE_START_MONTH = 10;
 
-/** Personal draw — Ryan's owner draw. Steps up Apr 1. */
-export const PERSONAL_LOW = 12000;
-export const PERSONAL_HIGH = 21200;
-export const PERSONAL_STEP_MONTH = 4;
-
 export const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -132,10 +112,6 @@ export function officeCost(month: number): number {
   return OFFICE_RENT_MONTHLY + dumpster;
 }
 
-export function personalDraw(month: number): number {
-  return month < PERSONAL_STEP_MONTH ? PERSONAL_LOW : PERSONAL_HIGH;
-}
-
 export type MonthRow = {
   month: number;
   /** Revenue from the 9 current properties this month. */
@@ -144,8 +120,6 @@ export type MonthRow = {
   rev_presigned: number;
   /** Revenue from the N hypothetical new properties this month. */
   rev_new: number;
-  /** Revenue from the 3 owned properties (gross, not fee). */
-  rev_owned: number;
   /** All revenue combined. */
   rev_total: number;
 
@@ -156,17 +130,13 @@ export type MonthRow = {
   exp_onboard_new: number;
   exp_total: number;
 
-  /** Revenue minus business expenses, before owner's personal draw. */
+  /** Revenue minus business expenses — the bottom line for this model. */
   net_business: number;
-  /** Personal draw / owner's salary. */
-  personal: number;
-  /** Net cash flow into the bank — the bottom line. */
-  net_cash: number;
 };
 
 export type YearResult = {
   monthly: MonthRow[];
-  /** Cumulative net cash flow at the end of each month. */
+  /** Cumulative net business income at the end of each month. */
   cumulative: number[];
   /** Months in which a new property comes online (1-12). */
   newStartMonths: number[];
@@ -174,12 +144,9 @@ export type YearResult = {
     rev_current: number;
     rev_presigned: number;
     rev_new: number;
-    rev_owned: number;
     rev_total: number;
     exp_total: number;
     net_business: number;
-    personal: number;
-    net_cash: number;
   };
 };
 
@@ -199,7 +166,6 @@ export function calcYear(numNew: number): YearResult {
     let rev_current = 0;
     let rev_presigned = 0;
     let rev_new = 0;
-    let rev_owned = 0;
 
     for (const p of CURRENT) {
       if (m >= p.start) rev_current += p.fee * dist[p.type];
@@ -210,11 +176,8 @@ export function calcYear(numNew: number): YearResult {
     for (const start of newStartMonths) {
       if (m >= start) rev_new += NEW_PROPERTY_FEE * SEASON[NEW_PROPERTY_TYPE][i];
     }
-    for (const p of OWNED) {
-      rev_owned += p.rev * dist[p.type];
-    }
 
-    const rev_total = Math.round(rev_current + rev_presigned + rev_new + rev_owned);
+    const rev_total = Math.round(rev_current + rev_presigned + rev_new);
 
     const exp_corp = CORP_OVERHEAD_MONTHLY;
     const exp_office = officeCost(m);
@@ -224,15 +187,12 @@ export function calcYear(numNew: number): YearResult {
     const exp_total = exp_corp + exp_office + exp_hire + exp_onboard_presigned + exp_onboard_new;
 
     const net_business = rev_total - exp_total;
-    const personal = personalDraw(m);
-    const net_cash = net_business - personal;
 
     monthly.push({
       month: m,
       rev_current: Math.round(rev_current),
       rev_presigned: Math.round(rev_presigned),
       rev_new: Math.round(rev_new),
-      rev_owned: Math.round(rev_owned),
       rev_total,
       exp_corp,
       exp_office,
@@ -241,14 +201,12 @@ export function calcYear(numNew: number): YearResult {
       exp_onboard_new,
       exp_total,
       net_business,
-      personal,
-      net_cash,
     });
   }
 
   let running = 0;
   const cumulative = monthly.map((r) => {
-    running += r.net_cash;
+    running += r.net_business;
     return running;
   });
 
@@ -262,12 +220,9 @@ export function calcYear(numNew: number): YearResult {
       rev_current: sum('rev_current'),
       rev_presigned: sum('rev_presigned'),
       rev_new: sum('rev_new'),
-      rev_owned: sum('rev_owned'),
       rev_total: sum('rev_total'),
       exp_total: sum('exp_total'),
       net_business: sum('net_business'),
-      personal: sum('personal'),
-      net_cash: sum('net_cash'),
     },
   };
 }

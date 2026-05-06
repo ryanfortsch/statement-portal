@@ -17,14 +17,14 @@ export default function ForecastPage() {
         eyebrow="Helm · Forecast"
         title="The 2026 plan,"
         emphasis="modeled live."
-        description="Slide the lever to see what each new contract does to the year. The model layers nine current managed properties, three pre-signed contracts, three Rising Tide-owned units (3 Locust, Lighthouse Point, 65 Calderwood), and however many new mandates we choose to chase."
+        description="Slide the lever to see what each new contract does to the year. Management business only: nine current managed properties, three pre-signed contracts, and however many new mandates we choose to chase. RT-owned units and personal draw are out of scope."
       />
 
       <ForecastClient />
 
       <HelmFooter
         module="Forecast"
-        right="Excludes taxes. Personal draw $12K Jan-Mar, $21.2K Apr-Dec."
+        right="Management business only. Excludes RT-owned units, personal draw, taxes."
       />
     </div>
   );

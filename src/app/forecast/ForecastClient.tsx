@@ -28,7 +28,7 @@ export function ForecastClient() {
       : year.newStartMonths.map((m) => MONTH_LABELS[m - 1]).join(', ');
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
-  const posMonths = year.monthly.filter((r) => r.net_cash > 0);
+  const posMonths = year.monthly.filter((r) => r.net_business > 0);
   const totalManaged = 9 + 3 + numNew;
 
   return (
@@ -52,7 +52,7 @@ export function ForecastClient() {
           numNew={numNew}
           newStartMonthsLabel={newStartMonthsLabel}
           totalManaged={totalManaged}
-          netCash={year.totals.net_cash}
+          netBusiness={year.totals.net_business}
           springTrough={springTrough}
         />
       </section>
@@ -75,7 +75,7 @@ export function ForecastClient() {
             <ScenarioCard
               key={n}
               n={n}
-              netCash={y.totals.net_cash}
+              netBusiness={y.totals.net_business}
               active={n === numNew}
               onClick={() => setNumNew(n)}
             />
@@ -87,7 +87,7 @@ export function ForecastClient() {
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 36, width: '100%' }}
       >
-        <SectionTitle title="Monthly Cash Flow" tag="Net after personal draw" />
+        <SectionTitle title="Monthly Net" tag="Revenue minus business expenses" />
         <CashFlowChart monthly={year.monthly} />
       </section>
 
@@ -134,13 +134,11 @@ function Assumptions() {
     { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
     { label: 'Pre-signed', value: '3 contracts at $25K/yr starting Apr · Jun · Jul' },
     { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, ordered Mar→Dec' },
-    { label: 'Owned units', value: '3 RT-owned: 3 Locust ($25K, Cape Ann) · Lighthouse Point ($40K, FL) · 65 Calderwood ($25K, less-seasonal). Gross revenue, not management fee.' },
     { label: 'Corp overhead', value: '$4,000/mo (software, accounting, insurance)' },
     { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
     { label: 'New hire', value: '$5,000/mo from October' },
     { label: 'Onboarding', value: '$3,000 one-time per new contract, paid the start month' },
-    { label: 'Personal draw', value: '$12,000/mo Jan-Mar, $21,200/mo Apr-Dec' },
-    { label: 'Excludes', value: 'Federal/state taxes, capex, owner distributions' },
+    { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, federal/state taxes, capex, distributions' },
   ];
   return (
     <div
@@ -318,7 +316,6 @@ function KpiStrip({
   posMonthsLabel: string;
 }) {
   const { totals } = year;
-  const ownedDisplay = `${totalManaged} mgmt + 3 owned`;
 
   return (
     <div
@@ -332,26 +329,26 @@ function KpiStrip({
       className="rt-forecast-kpi"
     >
       <KpiCell
-        label="Net cash flow"
-        value={fmtDollar(totals.net_cash)}
-        valueAccent={totals.net_cash >= 0 ? 'positive' : 'negative'}
-        sub={totals.net_cash >= 0 ? 'Year ends cash-positive' : 'Year ends in deficit'}
+        label="Net business income"
+        value={fmtDollar(totals.net_business)}
+        valueAccent={totals.net_business >= 0 ? 'positive' : 'negative'}
+        sub={totals.net_business >= 0 ? 'Year ends in the black' : 'Year ends in deficit'}
       />
       <KpiCell
         label="Total revenue"
         value={fmtDollar(totals.rev_total)}
-        sub={`9 cur · ${fmtCompactSimple(totals.rev_current)} ・ pre · ${fmtCompactSimple(totals.rev_presigned)} ・ new · ${fmtCompactSimple(totals.rev_new)} ・ own · ${fmtCompactSimple(totals.rev_owned)}`}
+        sub={`9 cur ${fmtCompactSimple(totals.rev_current)} · pre ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`}
       />
       <KpiCell
-        label="Net business income"
-        value={fmtDollar(totals.net_business)}
-        sub={`After ${fmtDollar(totals.exp_total)} business expenses`}
+        label="Total expenses"
+        value={fmtDollar(totals.exp_total)}
+        sub="Corp + office + hire + onboarding"
         last
       />
       <KpiCell
-        label="Properties at year-end"
-        value={String(9 + 3 + numNew + 3)}
-        sub={ownedDisplay}
+        label="Managed at year-end"
+        value={String(9 + 3 + numNew)}
+        sub={`9 current + 3 pre-signed + ${numNew} new`}
         topBorder
         valueAccent="signal"
       />
@@ -362,7 +359,7 @@ function KpiStrip({
         topBorder
       />
       <KpiCell
-        label="Cash-positive months"
+        label="Net-positive months"
         value={`${posMonthsCount}`}
         sub={posMonthsCount === 0 ? 'No surplus months' : posMonthsLabel}
         topBorder
@@ -442,13 +439,13 @@ function Banner({
   numNew,
   newStartMonthsLabel,
   totalManaged,
-  netCash,
+  netBusiness,
   springTrough,
 }: {
   numNew: number;
   newStartMonthsLabel: string;
   totalManaged: number;
-  netCash: number;
+  netBusiness: number;
   springTrough: number;
 }) {
   return (
@@ -466,8 +463,8 @@ function Banner({
       {numNew === 0 ? (
         <>
           <strong style={{ color: 'var(--ink)' }}>No new properties:</strong> running on
-          9 current + 3 pre-signed only. Net cash:{' '}
-          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netCash)}</strong>.
+          9 current + 3 pre-signed only. Net business:{' '}
+          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netBusiness)}</strong>.
         </>
       ) : (
         <>
@@ -475,8 +472,8 @@ function Banner({
             +{numNew} new {numNew === 1 ? 'property' : 'properties'}
           </strong>{' '}
           onboarded in {newStartMonthsLabel}. {totalManaged} managed properties by year-end.
-          Net cash:{' '}
-          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netCash)}</strong>. Spring crunch:{' '}
+          Net business:{' '}
+          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netBusiness)}</strong>. Spring crunch:{' '}
           <strong style={{ color: 'var(--ink)' }}>
             {springTrough >= 0 ? 'none' : fmtDollar(springTrough)}
           </strong>
@@ -522,16 +519,16 @@ function SectionTitle({ title, tag }: { title: string; tag?: string }) {
 
 function ScenarioCard({
   n,
-  netCash,
+  netBusiness,
   active,
   onClick,
 }: {
   n: number;
-  netCash: number;
+  netBusiness: number;
   active: boolean;
   onClick: () => void;
 }) {
-  const positive = netCash >= 0;
+  const positive = netBusiness >= 0;
   return (
     <button
       type="button"
@@ -560,7 +557,7 @@ function ScenarioCard({
           marginTop: 2,
         }}
       >
-        {fmtDollar(netCash)}
+        {fmtDollar(netBusiness)}
       </span>
       <span
         className="font-mono"
@@ -582,7 +579,7 @@ function ScenarioCard({
 
 function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
   const HEIGHT = 220;
-  const nets = monthly.map((r) => r.net_cash);
+  const nets = monthly.map((r) => r.net_business);
   const maxPos = Math.max(0, ...nets);
   const maxNeg = Math.max(0, ...nets.map((x) => -x));
   const total = maxPos + maxNeg;
@@ -624,9 +621,9 @@ function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
             }}
           />
           {monthly.map((r, i) => {
-            const isPos = r.net_cash >= 0;
+            const isPos = r.net_business >= 0;
             const barPx = total > 0
-              ? Math.max(2, Math.round((Math.abs(r.net_cash) / total) * HEIGHT))
+              ? Math.max(2, Math.round((Math.abs(r.net_business) / total) * HEIGHT))
               : 2;
             const color = isPos ? 'var(--positive)' : 'var(--negative)';
             return (
@@ -688,7 +685,7 @@ function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
       {/* labels under each bar */}
       <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingRight: 36 }}>
         {monthly.map((r, i) => {
-          const isPos = r.net_cash >= 0;
+          const isPos = r.net_business >= 0;
           return (
             <div
               key={i}
@@ -709,7 +706,7 @@ function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
                   letterSpacing: '.02em',
                 }}
               >
-                {fmtCompact(r.net_cash)}
+                {fmtCompact(r.net_business)}
               </span>
               <span
                 className="font-mono"
@@ -758,7 +755,6 @@ function ForecastTable({ year }: { year: YearResult }) {
         <DataRow label="9 current properties" values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
         <DataRow label="3 pre-signed (Apr · Jun · Jul)" values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow label="N new properties" values={monthly.map((r) => r.rev_new)} fy={totals.rev_new} highlight />
-        <DataRow label="3 owned (3 Locust · Lighthouse Pt · 65 Calderwood)" values={monthly.map((r) => r.rev_owned)} fy={totals.rev_owned} />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
         <SectionRow label="Expenses" />
@@ -769,17 +765,7 @@ function ForecastTable({ year }: { year: YearResult }) {
         <DataRow label="Onboarding · new" values={monthly.map((r) => r.exp_onboard_new)} fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)} highlight />
         <SubtotalRow label="Total expenses" values={monthly.map((r) => r.exp_total)} fy={totals.exp_total} variant="expense" />
 
-        <NetRow label="Net business income" values={monthly.map((r) => r.net_business)} fy={totals.net_business} />
-
-        <SectionRow label="Personal draw" />
-        <DataRow
-          label="Owner draw ($12K Jan-Mar · $21.2K Apr-Dec)"
-          values={monthly.map((r) => r.personal)}
-          fy={totals.personal}
-          dim
-        />
-
-        <BottomLineRow label="Net cash flow" values={monthly.map((r) => r.net_cash)} fy={totals.net_cash} />
+        <BottomLineRow label="Net business income" values={monthly.map((r) => r.net_business)} fy={totals.net_business} />
         <CumulativeRow label="Cumulative YTD" values={cumulative} />
       </tbody>
     </table>
@@ -953,34 +939,6 @@ function SubtotalRow({
       ))}
       <td style={cellStyle({ fontWeight: 700, color: 'var(--ink)', background: 'rgba(138, 58, 46, 0.08)' })}>
         {fmtNum(fy)}
-      </td>
-    </tr>
-  );
-}
-
-function NetRow({ label, values, fy }: { label: string; values: number[]; fy: number }) {
-  return (
-    <tr style={{ background: 'rgba(58, 107, 74, 0.06)' }}>
-      <td style={labelCellStyle({ fontWeight: 600, color: 'var(--positive)' })}>{label}</td>
-      {values.map((v, i) => (
-        <td
-          key={i}
-          style={cellStyle({
-            color: v >= 0 ? 'var(--positive)' : 'var(--negative)',
-            fontWeight: 500,
-          })}
-        >
-          {v >= 0 ? fmtNum(v) : `(${fmtNum(Math.abs(v))})`}
-        </td>
-      ))}
-      <td
-        style={cellStyle({
-          fontWeight: 700,
-          color: fy >= 0 ? 'var(--positive)' : 'var(--negative)',
-          background: 'rgba(58, 107, 74, 0.12)',
-        })}
-      >
-        {fy >= 0 ? fmtNum(fy) : `(${fmtNum(Math.abs(fy))})`}
       </td>
     </tr>
   );
