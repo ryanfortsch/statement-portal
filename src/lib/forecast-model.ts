@@ -115,11 +115,8 @@ export const ONBOARDING_COST = 3000;
 
 /** Office rent at 85 Eastern Ave. Confirmed: 3 ACHs of $750 in 2026. */
 export const OFFICE_RENT_MONTHLY = 750;
-/** Dumpster swing — heavier in summer turnover season. */
-export const DUMPSTER_WINTER = 50;
-export const DUMPSTER_SUMMER = 200;
-/** Months considered "winter" (low dumpster cost). */
-const WINTER_MONTHS = new Set([11, 12, 1, 2, 3, 4]);
+/** Dumpster — flat $50/mo year-round (no summer surcharge). */
+export const DUMPSTER_MONTHLY = 50;
 /** Office costs only kick in from March (when the lease begins). */
 export const OFFICE_START_MONTH = 3;
 
@@ -127,19 +124,24 @@ export const OFFICE_START_MONTH = 3;
 export const SOFTWARE_MONTHLY = 200;
 
 /**
- * MH Partners debt service. Bank shows steady ~$1,000/mo through 2025
- * ($1,155 most months, $937 in 2026). Loan is paid off in June 2026 —
- * after that the line is zero.
+ * MH Partners — RT's outside bookkeeper. Steady ~$1,000/mo retainer
+ * through April 2026, with a final $1,800 wrap-up payment in May 2026.
+ * Zero from June 2026 onward (engagement ends).
  */
-export const DEBT_SERVICE_MONTHLY = 1000;
-/** Last month MH Partners debt is paid (1-12). Loan retired after May 2026. */
-export const DEBT_LAST_MONTH = 5;
+export const BOOKKEEPER_MONTHLY = 1000;
+/** Final month bookkeeper is paid (1-12). May 2026 — engagement winds down. */
+export const BOOKKEEPER_LAST_MONTH = 5;
+/** Larger final payment in the wrap-up month. */
+export const BOOKKEEPER_FINAL_AMOUNT = 1800;
 
 /** Insurance (Phillips). Annual $5,264 → smoothed to ~$440/mo. */
 export const INSURANCE_MONTHLY = 440;
 
-/** Accounting (MS Consultants). ~$8,600/yr → smoothed to ~$720/mo. */
-export const ACCOUNTING_MONTHLY = 720;
+/**
+ * Accounting — historically MS Consultants. The $4,442.96 paid 4/15/2026
+ * was a one-time engagement; not recurring. Forward run rate is $0.
+ */
+export const ACCOUNTING_MONTHLY = 0;
 
 /** Bank fees, stop payments, returned checks. */
 export const BANK_FEES_MONTHLY = 100;
@@ -169,8 +171,19 @@ export const MONTH_LABELS = [
 
 export function officeCost(month: number, startMonth: number): number {
   if (month < startMonth) return 0;
-  const dumpster = WINTER_MONTHS.has(month) ? DUMPSTER_WINTER : DUMPSTER_SUMMER;
-  return OFFICE_RENT_MONTHLY + dumpster;
+  return OFFICE_RENT_MONTHLY + DUMPSTER_MONTHLY;
+}
+
+/**
+ * Bookkeeper cost for a given month under a given year config. Returns
+ * the regular retainer through the wrap-up month, the larger final
+ * payment in that month, and zero after.
+ */
+export function bookkeeperCost(month: number, lastMonth: number | null): number {
+  if (lastMonth == null) return 0; // engagement already ended (e.g. 2027)
+  if (month < lastMonth) return BOOKKEEPER_MONTHLY;
+  if (month === lastMonth) return BOOKKEEPER_FINAL_AMOUNT;
+  return 0;
 }
 
 /**
@@ -188,8 +201,8 @@ export type YearConfig = {
   presigned: ManagedProperty[];
   /** Order in which the slider adds new properties this year. */
   newOrder: readonly number[];
-  /** Last month MH Partners debt is paid (1-12), or null if retired. */
-  debtLastMonth: number | null;
+  /** Last month bookkeeper retainer is paid (1-12), or null if engagement ended. */
+  bookkeeperLastMonth: number | null;
   /** First month new hire shows up in the budget (1-12). */
   hireStartMonth: number;
   /** First month office rent kicks in (1 if continuous from prior year). */
@@ -203,7 +216,7 @@ export function getYearConfig(year: ForecastYear): YearConfig {
       current: CURRENT_2026,
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
-      debtLastMonth: 5, // Loan retired June 2026
+      bookkeeperLastMonth: 5, // MH Partners final $1,800 in May 2026
       hireStartMonth: 10, // Hire starts Oct 2026
       officeStartMonth: 3, // Office lease started Mar 2026
     };
@@ -213,7 +226,7 @@ export function getYearConfig(year: ForecastYear): YearConfig {
     current: ACTIVE_2027,
     presigned: [],
     newOrder: NEW_ORDER_2027,
-    debtLastMonth: null, // No debt service in 2027
+    bookkeeperLastMonth: null, // Engagement ended May 2026
     hireStartMonth: 1, // Hire continues from 2026
     officeStartMonth: 1, // Office continues from 2026
   };
@@ -384,10 +397,7 @@ export function calcYear(
 
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = SOFTWARE_MONTHLY;
-    const exp_debt =
-      config.debtLastMonth != null && m <= config.debtLastMonth
-        ? DEBT_SERVICE_MONTHLY
-        : 0;
+    const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = INSURANCE_MONTHLY;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;

@@ -51,10 +51,10 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
   },
   {
     id: 'mh_partners',
-    label: 'MH Partners debt service',
+    label: 'MH Partners (bookkeeper)',
     total12mo: -12603.92,
     avgMonthly: -1050.33,
-    note: 'Monthly ACH labeled "CASH CON". Was $1,155/mo through Sep 2025, dropped to $937.50/mo in 2026. Loan retired June 2026.',
+    note: 'Outside bookkeeper retainer (not debt — descriptor "CASH CON" is misleading). $1,155/mo through Sep 2025, $937.50/mo Jan-Apr 2026, $1,800 final wrap-up payment in May 2026, then $0.',
     inScope: true,
   },
   {
@@ -75,10 +75,10 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
   },
   {
     id: 'accounting',
-    label: 'MS Consultants (accounting)',
+    label: 'MS Consultants (one-time)',
     total12mo: -4442.96,
     avgMonthly: -370.25,
-    note: 'One $4,442.96 ACH on 04/15/2026. Older $4,156.62 in Jan 2025 was outside the trailing window. ~$8,600/yr extrapolated.',
+    note: 'One $4,442.96 ACH on 04/15/2026 — one-time engagement, not recurring. The model zeros this line going forward.',
     inScope: true,
   },
   {

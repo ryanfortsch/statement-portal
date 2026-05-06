@@ -10,7 +10,7 @@ import {
   MONTH_LABELS,
   OFFICE_RENT_MONTHLY,
   SOFTWARE_MONTHLY,
-  DEBT_SERVICE_MONTHLY,
+  BOOKKEEPER_MONTHLY,
   INSURANCE_MONTHLY,
   ACCOUNTING_MONTHLY,
   BANK_FEES_MONTHLY,
@@ -619,16 +619,16 @@ function RealityCheck() {
   };
 
   const rows: Row[] = [
-    buildRow('Office rent + dumpster', OFFICE_RENT_MONTHLY, 'office_rent',
-      '$750/mo started Mar 2026. Dumpster on the CC, not separately visible.'),
+    buildRow('Office rent + dumpster', OFFICE_RENT_MONTHLY + 50, 'office_rent',
+      '$750/mo rent started Mar 2026 + $50/mo dumpster (flat year-round).'),
     buildRow('Software / SaaS', SOFTWARE_MONTHLY, 'payroll_software',
       'Bank-visible Gusto fee only. Real total is higher — most SaaS is on the CC.'),
-    buildRow('MH Partners debt service', DEBT_SERVICE_MONTHLY, 'mh_partners',
-      'Was $1,155/mo through Sep 2025, $937.50/mo in 2026. Loan retired June 2026 — line goes to zero from then on.'),
+    buildRow('MH Partners (bookkeeper)', BOOKKEEPER_MONTHLY, 'mh_partners',
+      "Outside bookkeeper retainer. ~$1K/mo through Apr, final $1,800 wrap-up in May 2026, then $0."),
     buildRow('Insurance (smoothed)', INSURANCE_MONTHLY, 'insurance',
       'Phillips Insurance $5,263.92 paid 03/02/2026 — annual policy.'),
-    buildRow('Accounting (smoothed)', ACCOUNTING_MONTHLY, 'accounting',
-      'MS Consultants $4,442.96 on 04/15/2026. ~$8,600/yr extrapolated.'),
+    buildRow('Accounting (one-time)', 0, 'accounting',
+      'MS Consultants $4,442.96 on 04/15/2026 was a one-time engagement, not recurring.'),
     buildRow('Bank fees', BANK_FEES_MONTHLY, 'bank_fees',
       'Stop payments + monthly service + returned checks (one $1,208.78 returned check Jan 2026).'),
     buildRow('Operating CC (Chase ...3878)', CC_OPERATING_MONTHLY, 'cc_main',
@@ -766,11 +766,11 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
     { label: 'Pre-signed', value: '5 contracts at $25K/yr — 2 May (incl. 79 Main St), 3 June (incl. 16 Waterman)' },
     { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, default 3 sprinkled Jul · Sep · Nov' },
-    { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
+    { label: 'Office', value: '$750/mo rent from March + $50/mo dumpster (flat year-round)' },
     { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
-    { label: 'MH Partners debt', value: '$1,000/mo Jan-May only — loan retired June 2026 ($5K total)' },
+    { label: 'MH Partners (bookkeeper)', value: '~$1K/mo Jan-Apr + $1,800 final wrap-up in May, then $0 (engagement ends)' },
     { label: 'Insurance', value: '$440/mo smoothed (Phillips $5,264/yr, paid March)' },
-    { label: 'Accounting', value: '$720/mo smoothed (MS Consultants ~$8,600/yr, twice a year)' },
+    { label: 'Accounting', value: 'One-time MS Consultants $4,443 in April; $0 going forward' },
     { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
     { label: 'Operating CC', value: '$5,900/mo median Chase ...3878 payment — software, supplies, marketing, partial property pass-through' },
     { label: 'New hire', value: '$5,000/mo from October (replaces Maggie + Gusto runs)' },
@@ -780,11 +780,11 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   const items2027: Array<{ label: string; value: string }> = [
     { label: 'Active portfolio (Jan 1)', value: '14 properties full-year (9 original + 5 ex-presigned including 79 Main, 16 Waterman)' },
     { label: 'New mandates', value: '$25K/yr each, default 3 sprinkled Mar · Jun · Sep' },
-    { label: 'Office', value: '$750/mo all year + dumpster ($50 winter, $200 summer)' },
+    { label: 'Office', value: '$750/mo rent all year + $50/mo dumpster' },
     { label: 'Software / SaaS', value: '$200/mo' },
-    { label: 'MH Partners debt', value: '$0 — loan retired Jun 2026' },
+    { label: 'MH Partners (bookkeeper)', value: '$0 — engagement ended May 2026' },
     { label: 'Insurance', value: '$440/mo smoothed' },
-    { label: 'Accounting', value: '$720/mo smoothed' },
+    { label: 'Accounting', value: '$0 (no recurring engagement)' },
     { label: 'Bank fees', value: '$100/mo' },
     { label: 'Operating CC', value: '$5,900/mo (carried over from 2026 actuals — needs re-calibration with 2026 actual data once the year is closed)' },
     { label: 'Hire continues', value: '$5,000/mo all year ($60K) — assumes the Oct 2026 hire stays' },
@@ -1507,9 +1507,9 @@ function ForecastTable({
         <SectionRow label="Expenses" tag="calibrated to Chase ...5130 actuals" />
         <DataRow label="Office + dumpster (from Mar)" values={monthly.map((r) => r.exp_office)} fy={monthly.reduce((a, r) => a + r.exp_office, 0)} />
         <DataRow label="Software / SaaS ($200/mo)" values={monthly.map((r) => r.exp_software)} fy={monthly.reduce((a, r) => a + r.exp_software, 0)} />
-        <DataRow label="MH Partners debt ($1K/mo · ends May)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
+        <DataRow label="MH Partners bookkeeper (ends May $1.8K)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
         <DataRow label="Insurance · Phillips (smoothed)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
-        <DataRow label="Accounting · MS Consultants" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
+        <DataRow label="Accounting (MS Consultants · one-time)" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
         <DataRow label="Bank fees" values={monthly.map((r) => r.exp_bank)} fy={monthly.reduce((a, r) => a + r.exp_bank, 0)} />
         <DataRow label="Operating CC pass-through" values={monthly.map((r) => r.exp_cc_ops)} fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)} />
         <DataRow label="New hire ($5K/mo from Oct)" values={monthly.map((r) => r.exp_hire)} fy={monthly.reduce((a, r) => a + r.exp_hire, 0)} />
