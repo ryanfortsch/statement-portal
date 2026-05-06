@@ -89,6 +89,24 @@ async function getRecentInspections(propertyId: string): Promise<RecentInspectio
   }
 }
 
+async function getLatestOwnerContact(propertyId: string): Promise<string | null> {
+  if (!isHelmConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('work_slips')
+      .select('owner_last_contacted_at')
+      .eq('property_id', propertyId)
+      .not('owner_last_contacted_at', 'is', null)
+      .order('owner_last_contacted_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const row = (data ?? [])[0] as { owner_last_contacted_at: string | null } | undefined;
+    return row?.owner_last_contacted_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
   if (!isHelmConfigured) return [];
   try {
@@ -148,11 +166,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
+    getLatestOwnerContact(p.id),
   ]);
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -638,14 +657,44 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
             <Detail term="Owner" definition={p.owner_full} />
             <Detail term="Greeting" definition={p.owner_greeting} />
-            <Detail
-              term="Emails"
-              definition={p.owner_emails.length > 0 ? p.owner_emails.join(', ') : '—'}
-              mono
-            />
-            <Detail term="Phone" definition={p.owner_phone || '—'} mono />
+
+            <div>
+              <dt className="eyebrow" style={{ marginBottom: 4 }}>Emails</dt>
+              <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0, lineHeight: 1.7 }}>
+                {p.owner_emails.length === 0 ? '—' : p.owner_emails.map((e, i) => (
+                  <span key={e}>
+                    {i > 0 && <span style={{ color: 'var(--ink-4)' }}>, </span>}
+                    <a
+                      href={`mailto:${e}`}
+                      style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                    >
+                      {e}
+                    </a>
+                  </span>
+                ))}
+              </dd>
+            </div>
+
+            <div>
+              <dt className="eyebrow" style={{ marginBottom: 4 }}>Phone</dt>
+              <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0 }}>
+                {p.owner_phone ? (
+                  <a
+                    href={`tel:${p.owner_phone.replace(/[^+\d]/g, '')}`}
+                    style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                  >
+                    {p.owner_phone}
+                  </a>
+                ) : '—'}
+              </dd>
+            </div>
+
             <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
             <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
+            <Detail
+              term="Last contacted"
+              definition={latestOwnerContact ? formatRelativeOrAbsolute(latestOwnerContact) : '—'}
+            />
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
         </div>
@@ -945,6 +994,26 @@ function formatDate(value: string | null): string {
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return value;
+  }
+}
+
+/**
+ * "today / yesterday / N days ago / Mar 12" — favors a glanceable relative
+ * label inside the recent window, falls back to absolute past that.
+ */
+function formatRelativeOrAbsolute(iso: string): string {
+  try {
+    const then = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - then.getTime();
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (diffDays < 0) return formatDate(iso);
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 14) return `${diffDays} days ago`;
+    return formatDate(iso);
+  } catch {
+    return iso;
   }
 }
 
