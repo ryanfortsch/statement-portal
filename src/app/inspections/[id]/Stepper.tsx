@@ -360,23 +360,35 @@ export function Stepper({
                 {activeResult.notes}
               </div>
             )}
-            {activeNotes.map((n) => (
-              <div
-                key={n.id}
-                style={{
-                  marginBottom: 10,
-                  padding: '10px 14px',
-                  borderLeft: `2px solid ${n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)'}`,
-                  background: 'var(--paper-2)',
-                }}
-              >
-                <div style={{ fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)', marginBottom: 4, fontWeight: 600 }}>
-                  {n.note_type === 'PROPERTY_NOTE' ? 'Property Note · pinned to folder' : 'Inspection Note'}
+            {activeNotes.map((n) => {
+              const isPhotoOnly = n.note_text === '(photo)' && (n.photo_urls?.length ?? 0) > 0;
+              const label = isPhotoOnly
+                ? n.note_type === 'PROPERTY_NOTE'
+                  ? 'Property Photo · pinned to folder'
+                  : 'Photo'
+                : n.note_type === 'PROPERTY_NOTE'
+                  ? 'Property Note · pinned to folder'
+                  : 'Inspection Note';
+              return (
+                <div
+                  key={n.id}
+                  style={{
+                    marginBottom: 10,
+                    padding: '10px 14px',
+                    borderLeft: `2px solid ${n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)'}`,
+                    background: 'var(--paper-2)',
+                  }}
+                >
+                  <div style={{ fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: n.note_type === 'PROPERTY_NOTE' ? 'var(--tide-deep)' : 'var(--ink-4)', marginBottom: 4, fontWeight: 600 }}>
+                    {label}
+                  </div>
+                  {!isPhotoOnly && (
+                    <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{n.note_text}</div>
+                  )}
+                  {n.photo_urls && n.photo_urls.length > 0 && <PhotoThumbs urls={n.photo_urls} size={64} />}
                 </div>
-                <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{n.note_text}</div>
-                {n.photo_urls && n.photo_urls.length > 0 && <PhotoThumbs urls={n.photo_urls} size={64} />}
-              </div>
-            ))}
+              );
+            })}
             {activeWorkSlips.map((ws) => (
               <div
                 key={ws.id}
@@ -397,7 +409,7 @@ export function Stepper({
           </div>
         )}
 
-        {/* Action row: + Add note · + Work slip */}
+        {/* Action row: + Add note · + Photo · + Work slip */}
         <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -415,6 +427,10 @@ export function Stepper({
           >
             + Add note
           </button>
+          <QuickPhotoButton
+            folder={`inspections/${inspectionId.slice(0, 8)}/quick`}
+            onPhoto={(url) => submitNote('', false, [url])}
+          />
           <button
             type="button"
             onClick={() => setShowWorkSlipModal(true)}
@@ -1126,5 +1142,102 @@ function ErrorBlock({ error }: { error: string }) {
     >
       {error}
     </div>
+  );
+}
+
+/**
+ * One-shot camera/photo button. Tapping opens the device camera (or the
+ * file picker on desktop), uploads the chosen image to /api/upload, then
+ * fires `onPhoto(url)` so the parent can persist it.
+ *
+ * Used on the inspection card as a frictionless "just snap it" shortcut
+ * — no modal, no text required. The parent attaches the URL to a
+ * photo-only inspection note via the existing addInspectionNote action.
+ */
+function QuickPhotoButton({
+  onPhoto,
+  folder,
+  disabled,
+}: {
+  onPhoto: (url: string) => Promise<string | null>;
+  folder?: string;
+  disabled?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setErr(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (folder) fd.append('folder', folder);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        setErr(body.error || `Upload failed (HTTP ${res.status})`);
+      } else {
+        const persistErr = await onPhoto(body.url);
+        if (persistErr) setErr(persistErr);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        disabled={disabled || uploading}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={disabled || uploading}
+        style={{
+          background: 'none',
+          border: '1px solid var(--tide-deep)',
+          color: 'var(--tide-deep)',
+          padding: '10px 16px',
+          fontSize: 11,
+          letterSpacing: '.16em',
+          textTransform: 'uppercase',
+          cursor: uploading ? 'wait' : 'pointer',
+          fontWeight: 600,
+        }}
+      >
+        {uploading ? 'Uploading…' : '+ Photo'}
+      </button>
+      {err && (
+        <div
+          role="alert"
+          style={{
+            flexBasis: '100%',
+            marginTop: 8,
+            padding: '8px 12px',
+            borderLeft: '3px solid var(--negative)',
+            background: 'var(--paper-2)',
+            fontSize: 12,
+            color: 'var(--negative)',
+          }}
+        >
+          {err}
+        </div>
+      )}
+    </>
   );
 }
