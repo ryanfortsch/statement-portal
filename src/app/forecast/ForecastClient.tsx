@@ -28,10 +28,16 @@ import {
   ACTUALS_2026_THROUGH_MONTH,
   type ExpenseLine,
 } from '@/lib/forecast-actuals';
+import type { SmartForecast } from '@/lib/forecast-smart';
 
 const SCENARIO_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 
-export function ForecastClient() {
+type Props = {
+  smart2026: SmartForecast | null;
+  smart2027: SmartForecast | null;
+};
+
+export function ForecastClient({ smart2026, smart2027 }: Props) {
   const [numNew, setNumNew] = useState<number>(3);
   const [yearKey, setYearKey] = useState<ForecastYear>(2026);
 
@@ -172,6 +178,17 @@ export function ForecastClient() {
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 36, width: '100%' }}
       >
+        <SectionTitle
+          title="Smart forecast"
+          tag={`Per-property · forward bookings × Gloucester pacing × each property's mgmt fee`}
+        />
+        <SmartForecastPanel data={yearKey === 2026 ? smart2026 : smart2027} />
+      </section>
+
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingBottom: 36, width: '100%' }}
+      >
         <SectionTitle title="Reality check" tag={`Trailing 12 mo · Chase ...5130 actuals (${ACTUALS_WINDOW.txCount} tx)`} />
         <RealityCheck />
       </section>
@@ -195,6 +212,264 @@ export function ForecastClient() {
         }
       `}</style>
     </>
+  );
+}
+
+function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
+  const fmtUsd = (n: number) =>
+    n === 0 ? '—' : `$${Math.round(n).toLocaleString()}`;
+  const fmtUsdCents = (n: number) =>
+    n === 0 ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (!data) {
+    return (
+      <div
+        style={{
+          marginTop: 14,
+          border: '1px solid var(--rule)',
+          background: 'var(--paper)',
+          padding: '24px',
+          color: 'var(--ink-3)',
+          fontSize: 13,
+          fontStyle: 'italic',
+        }}
+      >
+        Smart forecast unavailable. Either Supabase isn&apos;t configured, the
+        guesty_reservations table is empty, or the live fetch failed (see
+        server logs). Falls back gracefully — the seasonality-based projection
+        still works.
+      </div>
+    );
+  }
+
+  if (data.months.length === 0) {
+    return (
+      <div
+        style={{
+          marginTop: 14,
+          border: '1px solid var(--rule)',
+          background: 'var(--paper)',
+          padding: '24px',
+          color: 'var(--ink-3)',
+          fontSize: 13,
+        }}
+      >
+        No forward months remaining for this year.
+      </div>
+    );
+  }
+
+  // Format a YYYY-MM as "Jul 26" for compact column headers.
+  const fmtMonth = (ym: string) => {
+    const [, m] = ym.split('-');
+    return MONTH_LABELS[parseInt(m, 10) - 1];
+  };
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper)',
+        overflowX: 'auto',
+      }}
+    >
+      <table
+        style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontSize: 11.5,
+          background: 'var(--paper)',
+        }}
+      >
+        <thead>
+          <tr>
+            <Th first>&nbsp;</Th>
+            <Th>Fee %</Th>
+            {data.months.map((m) => (
+              <Th key={m}>{fmtMonth(m)}</Th>
+            ))}
+            <Th totals>Mgmt fee</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* Pacing row — portfolio-level current vs historical. */}
+          <tr style={{ background: 'rgba(58, 107, 74, 0.04)' }}>
+            <td style={labelCellStyle({ fontWeight: 600, color: 'var(--ink-2)' })}>
+              Portfolio pacing
+            </td>
+            <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+            {data.monthInputs.map((mi) => (
+              <td
+                key={mi.month}
+                style={cellStyle({
+                  color: mi.pacingPct < mi.historicalAvgPct ? 'var(--ink-2)' : 'var(--positive)',
+                  fontSize: 10,
+                })}
+              >
+                {mi.pacingPct.toFixed(0)}% / {mi.historicalAvgPct.toFixed(0)}%
+              </td>
+            ))}
+            <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+          </tr>
+          {/* Multiplier row */}
+          <tr>
+            <td style={labelCellStyle({ fontWeight: 500, color: 'var(--ink-3)', fontStyle: 'italic' })}>
+              ↳ projection multiplier
+            </td>
+            <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+            {data.monthInputs.map((mi) => (
+              <td
+                key={mi.month}
+                style={cellStyle({
+                  color: 'var(--ink-3)',
+                  fontStyle: 'italic',
+                  fontSize: 10,
+                })}
+              >
+                {mi.multiplier > 1 ? `${mi.multiplier.toFixed(1)}×` : '1×'}
+              </td>
+            ))}
+            <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+          </tr>
+
+          <SectionRow label="Booked revenue (already on the books)" />
+          {data.properties.map((p) => (
+            <tr key={`booked-${p.property.id}`}>
+              <td style={labelCellStyle({ color: 'var(--ink-2)' })}>{p.property.name}</td>
+              <td style={cellStyle({ color: 'var(--ink-3)' })}>
+                {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
+              </td>
+              {p.monthly.map((m) => (
+                <td key={m.month} style={cellStyle({ color: m.bookedRevenue === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: m.bookedRevenue === 0 ? 0.4 : 1 })}>
+                  {fmtUsd(m.bookedRevenue)}
+                </td>
+              ))}
+              <td style={cellStyle({ fontWeight: 600, background: 'var(--paper-2)' })}>
+                {fmtUsd(p.totals.bookedRevenue)}
+              </td>
+            </tr>
+          ))}
+
+          <SectionRow label="Projected gross (booked × multiplier)" />
+          {data.properties.map((p) => (
+            <tr key={`proj-${p.property.id}`}>
+              <td style={labelCellStyle({ color: 'var(--ink-2)' })}>{p.property.name}</td>
+              <td style={cellStyle({ color: 'var(--ink-3)' })}>
+                {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
+              </td>
+              {p.monthly.map((m) => (
+                <td key={m.month} style={cellStyle({ color: m.projectedGross === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: m.projectedGross === 0 ? 0.4 : 1 })}>
+                  {fmtUsd(m.projectedGross)}
+                </td>
+              ))}
+              <td style={cellStyle({ fontWeight: 600, background: 'var(--paper-2)' })}>
+                {fmtUsd(p.totals.projectedGross)}
+              </td>
+            </tr>
+          ))}
+
+          <SectionRow label="Projected RT mgmt fee (gross × fee %)" tag="this is what hits the operating account" />
+          {data.properties.map((p) => (
+            <tr key={`fee-${p.property.id}`} style={{ background: 'rgba(200, 90, 58, 0.03)' }}>
+              <td style={labelCellStyle({ color: 'var(--ink-2)', fontWeight: 500 })}>{p.property.name}</td>
+              <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
+                {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
+              </td>
+              {p.monthly.map((m) => (
+                <td
+                  key={m.month}
+                  style={cellStyle({
+                    color: m.projectedMgmtFee === 0 ? 'var(--ink-4)' : 'var(--positive)',
+                    opacity: m.projectedMgmtFee === 0 ? 0.4 : 1,
+                    fontWeight: m.projectedMgmtFee > 0 ? 600 : 400,
+                  })}
+                >
+                  {fmtUsd(m.projectedMgmtFee)}
+                </td>
+              ))}
+              <td
+                style={cellStyle({
+                  fontWeight: 700,
+                  color: 'var(--positive)',
+                  background: 'rgba(58, 107, 74, 0.08)',
+                })}
+              >
+                {fmtUsdCents(p.totals.projectedMgmtFee)}
+              </td>
+            </tr>
+          ))}
+
+          {/* Total row */}
+          <tr>
+            <td
+              style={labelCellStyle({
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                fontWeight: 700,
+              })}
+            >
+              ◆ Portfolio mgmt fee
+            </td>
+            <td
+              style={cellStyle({
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                fontWeight: 700,
+              })}
+            >
+              —
+            </td>
+            {data.months.map((ym) => {
+              const sum = data.properties.reduce((s, p) => {
+                const cell = p.monthly.find((mm) => mm.month === ym);
+                return s + (cell?.projectedMgmtFee ?? 0);
+              }, 0);
+              return (
+                <td
+                  key={ym}
+                  style={cellStyle({
+                    background: 'var(--ink)',
+                    color: '#9bd1ad',
+                    fontWeight: 600,
+                  })}
+                >
+                  {fmtUsd(sum)}
+                </td>
+              );
+            })}
+            <td
+              style={cellStyle({
+                background: 'var(--ink-2)',
+                color: '#9bd1ad',
+                fontWeight: 700,
+              })}
+            >
+              {fmtUsdCents(data.totals.projectedMgmtFee)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div
+        style={{
+          padding: '12px 18px',
+          fontSize: 11,
+          lineHeight: 1.55,
+          color: 'var(--ink-3)',
+          borderTop: '1px solid var(--rule)',
+          background: 'var(--paper-2)',
+        }}
+      >
+        <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong>{' '}
+        Every active reservation in <code>guesty_reservations</code> with check-in in a
+        forward month contributes its pro-rated revenue. Portfolio pacing = booked
+        nights ÷ (days × active properties). Projection multiplier = Gloucester
+        historical avg occupancy ÷ portfolio pacing (4-yr post-pandemic baseline,
+        floored at 1×). Each property&apos;s gross is then multiplied by its own
+        management fee percentage.
+      </div>
+    </div>
   );
 }
 
