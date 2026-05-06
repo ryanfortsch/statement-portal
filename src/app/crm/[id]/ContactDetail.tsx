@@ -13,6 +13,7 @@ import {
   addContactTouch,
   deleteContactTouch,
 } from '../actions';
+import { ContactDraftEmailButton } from './ContactDraftEmailButton';
 
 type PropertyMini = { id: string; name: string };
 
@@ -414,13 +415,25 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       {/* OPEN WORK ACROSS LINKED PROPERTIES */}
       {(contact.linked_property_ids ?? []).length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
             <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Open Work
             </h2>
-            <span className="eyebrow">
-              {linkedSlips.length} active across {(contact.linked_property_ids ?? []).length} propert{(contact.linked_property_ids ?? []).length === 1 ? 'y' : 'ies'}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+              <span className="eyebrow">
+                {linkedSlips.length} active across {(contact.linked_property_ids ?? []).length} propert{(contact.linked_property_ids ?? []).length === 1 ? 'y' : 'ies'}
+                {(() => {
+                  const ownerCount = linkedSlips.filter((s) => s.owner_action_required).length;
+                  return ownerCount > 0 ? ` · ${ownerCount} owner action` : '';
+                })()}
+              </span>
+              {contact.type === 'owner' && (
+                <ContactDraftEmailButton
+                  contactId={contact.id}
+                  disabled={linkedSlips.filter((s) => s.owner_action_required).length === 0}
+                />
+              )}
+            </div>
           </div>
           {linkedSlips.length === 0 ? (
             <div
