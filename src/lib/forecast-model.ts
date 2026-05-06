@@ -134,8 +134,13 @@ export const BOOKKEEPER_LAST_MONTH = 5;
 /** Larger final payment in the wrap-up month. */
 export const BOOKKEEPER_FINAL_AMOUNT = 1800;
 
-/** Insurance (Phillips). Annual $5,264 → smoothed to ~$440/mo. */
-export const INSURANCE_MONTHLY = 440;
+/**
+ * Insurance (Phillips). Annual policy paid as a single lump sum in March.
+ * 2026: $5,263.92 was paid 03/02/2026 (already in the actuals).
+ * 2027: model assumes the same March renewal at the same amount.
+ */
+export const INSURANCE_ANNUAL = 5264;
+export const INSURANCE_MONTH = 3;
 
 /**
  * Accounting — historically MS Consultants. The $4,442.96 paid 4/15/2026
@@ -428,7 +433,7 @@ export function calcYear(
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = SOFTWARE_MONTHLY;
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
-    const exp_insurance = INSURANCE_MONTHLY;
+    const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = CC_OPERATING_MONTHLY;

@@ -62,7 +62,7 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
     label: 'Phillips Insurance',
     total12mo: -5263.92,
     avgMonthly: -438.66,
-    note: 'One $5,263.92 ACH on 03/02/2026. Likely annual policy.',
+    note: 'One $5,263.92 ACH on 03/02/2026 — annual policy paid as a lump sum, not monthly. The model now hits this once a year in March only.',
     inScope: true,
   },
   {

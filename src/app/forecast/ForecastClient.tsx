@@ -11,7 +11,7 @@ import {
   OFFICE_RENT_MONTHLY,
   SOFTWARE_MONTHLY,
   BOOKKEEPER_MONTHLY,
-  INSURANCE_MONTHLY,
+  INSURANCE_ANNUAL,
   ACCOUNTING_MONTHLY,
   BANK_FEES_MONTHLY,
   CC_OPERATING_MONTHLY,
@@ -649,8 +649,8 @@ function RealityCheck() {
       'Bank-visible Gusto fee only. Real total is higher — most SaaS is on the CC.'),
     buildRow('MH Partners (bookkeeper)', BOOKKEEPER_MONTHLY, 'mh_partners',
       "Outside bookkeeper retainer. ~$1K/mo through Apr, final $1,800 wrap-up in May 2026, then $0."),
-    buildRow('Insurance (smoothed)', INSURANCE_MONTHLY, 'insurance',
-      'Phillips Insurance $5,263.92 paid 03/02/2026 — annual policy.'),
+    buildRow('Insurance (annual lump in March)', INSURANCE_ANNUAL / 12, 'insurance',
+      'Phillips Insurance $5,263.92 paid 03/02/2026 — annual policy, no further payments until next March renewal.'),
     buildRow('Accounting (one-time)', 0, 'accounting',
       'MS Consultants $4,442.96 on 04/15/2026 was a one-time engagement, not recurring.'),
     buildRow('Bank fees', BANK_FEES_MONTHLY, 'bank_fees',
@@ -793,7 +793,7 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Office', value: '$750/mo rent from March + $50/mo dumpster (flat year-round)' },
     { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
     { label: 'MH Partners (bookkeeper)', value: '~$1K/mo Jan-Apr + $1,800 final wrap-up in May, then $0 (engagement ends)' },
-    { label: 'Insurance', value: '$440/mo smoothed (Phillips $5,264/yr, paid March)' },
+    { label: 'Insurance', value: 'Phillips $5,263.92 paid as a lump sum in March; $0 every other month' },
     { label: 'Accounting', value: 'One-time MS Consultants $4,443 in April; $0 going forward' },
     { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
     { label: 'Operating CC', value: '$5,900/mo median Chase ...3878 payment — software, supplies, marketing, partial property pass-through' },
@@ -807,7 +807,7 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Office', value: '$750/mo rent all year + $50/mo dumpster' },
     { label: 'Software / SaaS', value: '$200/mo' },
     { label: 'MH Partners (bookkeeper)', value: '$0 — engagement ended May 2026' },
-    { label: 'Insurance', value: '$440/mo smoothed' },
+    { label: 'Insurance', value: 'Phillips ~$5,264 lump sum in March (annual renewal); $0 every other month' },
     { label: 'Accounting', value: '$0 (no recurring engagement)' },
     { label: 'Bank fees', value: '$100/mo' },
     { label: 'Operating CC', value: '$5,900/mo (carried over from 2026 actuals — needs re-calibration with 2026 actual data once the year is closed)' },
@@ -1536,7 +1536,7 @@ function ForecastTable({
         <DataRow label="Office + dumpster (from Mar)" values={monthly.map((r) => r.exp_office)} fy={monthly.reduce((a, r) => a + r.exp_office, 0)} />
         <DataRow label="Software / SaaS ($200/mo)" values={monthly.map((r) => r.exp_software)} fy={monthly.reduce((a, r) => a + r.exp_software, 0)} />
         <DataRow label="MH Partners bookkeeper (ends May $1.8K)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
-        <DataRow label="Insurance · Phillips (smoothed)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
+        <DataRow label="Insurance · Phillips (annual lump March)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
         <DataRow label="Accounting (MS Consultants · one-time)" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
         <DataRow label="Bank fees" values={monthly.map((r) => r.exp_bank)} fy={monthly.reduce((a, r) => a + r.exp_bank, 0)} />
         <DataRow label="Operating CC pass-through" values={monthly.map((r) => r.exp_cc_ops)} fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)} />
