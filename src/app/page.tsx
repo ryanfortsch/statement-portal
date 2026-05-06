@@ -198,8 +198,11 @@ export default async function HelmHome() {
         paddingBottom={20}
       />
 
-      {/* PERSONAL JUMP-OFF */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+      {/* PERSONAL JUMP-OFF + SEARCH */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ width: '100%', paddingBottom: 28, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}
+      >
         <Link
           href="/me"
           style={{
@@ -234,6 +237,23 @@ export default async function HelmHome() {
           )}
           <span>→</span>
         </Link>
+
+        <form action="/search" method="get" style={{ flex: 1, minWidth: 240 }}>
+          <input
+            type="search"
+            name="q"
+            placeholder="Search properties, owners, slips, tasks…"
+            style={{
+              width: '100%',
+              padding: '8px 14px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper)',
+              fontSize: 13,
+              color: 'var(--ink)',
+              fontFamily: 'inherit',
+            }}
+          />
+        </form>
       </section>
 
       {/* OPERATIONAL SIGNALS STRIP */}
