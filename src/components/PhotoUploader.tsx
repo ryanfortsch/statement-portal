@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { compressImage } from '@/lib/image-compress';
 
 type Props = {
   /** Photos already uploaded (their public URLs). */
@@ -29,15 +30,16 @@ export function PhotoUploader({ value, onChange, folder, disabled }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function handleFile(file: File) {
+  async function handleFile(rawFile: File) {
     setErr(null);
     setUploading(true);
 
-    const fd = new FormData();
-    fd.append('file', file);
-    if (folder) fd.append('folder', folder);
-
     try {
+      const file = await compressImage(rawFile);
+      const fd = new FormData();
+      fd.append('file', file);
+      if (folder) fd.append('folder', folder);
+
       const res = await fetch('/api/upload', { method: 'POST', body: fd });
       const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
       if (!res.ok || !body.url) {
