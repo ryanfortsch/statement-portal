@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactTouchRow, ContactType, TouchChannel } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS, TOUCH_CHANNEL_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
+import type { ContactSlip } from './page';
 import {
   updateContact,
   deleteContact,
@@ -19,10 +20,11 @@ type Props = {
   contact: ContactRow;
   touches: ContactTouchRow[];
   properties: PropertyMini[];
+  linkedSlips: ContactSlip[];
   myEmail: string;
 };
 
-export function ContactDetail({ contact, touches, properties, myEmail }: Props) {
+export function ContactDetail({ contact, touches, properties, linkedSlips, myEmail }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -408,6 +410,94 @@ export function ContactDetail({ contact, touches, properties, myEmail }: Props) 
           )}
         </div>
       </section>
+
+      {/* OPEN WORK ACROSS LINKED PROPERTIES */}
+      {(contact.linked_property_ids ?? []).length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              Open Work
+            </h2>
+            <span className="eyebrow">
+              {linkedSlips.length} active across {(contact.linked_property_ids ?? []).length} propert{(contact.linked_property_ids ?? []).length === 1 ? 'y' : 'ies'}
+            </span>
+          </div>
+          {linkedSlips.length === 0 ? (
+            <div
+              style={{
+                borderTop: '1px solid var(--ink)',
+                padding: '24px 0',
+                textAlign: 'center',
+                color: 'var(--ink-3)',
+                fontSize: 13,
+              }}
+            >
+              No open work across this contact&rsquo;s linked properties.
+            </div>
+          ) : (
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              {linkedSlips.map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/work/${s.id}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '14px 0',
+                    borderBottom: '1px solid var(--rule)',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      flexShrink: 0,
+                      background:
+                        s.priority === 'high' ? 'var(--negative)' :
+                        s.priority === 'normal' ? 'var(--ink-3)' :
+                        'var(--ink-4)',
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.title}</div>
+                    <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+                      {s.property_name}
+                      {s.assigned_to_email ? ` · ${displayNameForEmail(s.assigned_to_email)}` : ' · Unclaimed'}
+                      {s.location ? ` · ${s.location}` : ''}
+                    </div>
+                  </div>
+                  {s.owner_action_required && (
+                    <span
+                      style={{
+                        fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase',
+                        color: 'var(--signal)',
+                        border: '1px solid var(--signal)',
+                        padding: '2px 7px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Owner
+                    </span>
+                  )}
+                  <span
+                    style={{
+                      fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase',
+                      color: 'var(--ink-3)',
+                      border: '1px solid var(--ink-3)',
+                      padding: '2px 7px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {s.status.replace('_', ' ')}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* TOUCHES LOG */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
