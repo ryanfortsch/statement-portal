@@ -13,6 +13,7 @@ import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
+import { PropertyActivity } from './PropertyActivity';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -560,6 +561,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         )}
       </section>
+
+      {/* ACTIVITY FEED */}
+      <PropertyActivity property={p} />
 
       {/* INSPECTION HISTORY (Helm-native) */}
       {recentInspections.length > 0 && (
