@@ -9,13 +9,14 @@ type ActivityKind =
   | 'inspection-completed'
   | 'plan-created'
   | 'property-note-created'
-  | 'property-contacted';
+  | 'property-contacted'
+  | 'contact-touch';
 
 type ActivityEvent = {
   at: string;
   kind: ActivityKind;
   actor: string | null;
-  property: string;       // display name
+  property: string;       // display name (for contact-touch: contact name)
   label: string;          // verb phrase, e.g. "filed kitchen leak"
   href?: string;
 };
@@ -28,6 +29,7 @@ const KIND_GLYPH: Record<ActivityKind, string> = {
   'plan-created': '◷',
   'property-note-created': '✎',
   'property-contacted': '☎',
+  'contact-touch': '☎',
 };
 
 const KIND_COLOR: Record<ActivityKind, string> = {
@@ -38,6 +40,7 @@ const KIND_COLOR: Record<ActivityKind, string> = {
   'plan-created': 'var(--tide-deep)',
   'property-note-created': 'var(--ink-3)',
   'property-contacted': 'var(--signal)',
+  'contact-touch': 'var(--signal)',
 };
 
 type Props = { limit?: number };
@@ -132,7 +135,7 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
   const propertyMap = new Map<string, string>();
   for (const p of (propRes.data ?? []) as PropMini[]) propertyMap.set(p.id, p.name);
 
-  const [slipsRes, inspectionsRes, plansRes, notesRes, contactedPropsRes] = await Promise.all([
+  const [slipsRes, inspectionsRes, plansRes, notesRes, contactedPropsRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
       .select('id, property_id, title, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at')
@@ -162,6 +165,12 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
       .from('properties')
       .select('id, name, owner_last_contacted_at, owner_last_contacted_via, owner_last_contacted_by_email')
       .gte('owner_last_contacted_at', cutoff),
+    supabase
+      .from('contact_touches')
+      .select('id, contact_id, touched_at, channel, summary, by_email, contacts!inner(id, name, type)')
+      .gte('touched_at', cutoff)
+      .order('touched_at', { ascending: false })
+      .limit(40),
   ]);
 
   for (const s of (slipsRes.data ?? []) as Array<{
@@ -259,6 +268,31 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
       property: p.name,
       label: `noted owner contact (${channel}) at`,
       href: `/properties/${p.id}`,
+    });
+  }
+
+  // CRM contact touches — surface every recent touch logged via /crm/[id].
+  // The "property" slot here holds the contact name (vendors/leads don't
+  // necessarily have a property; owners often have one or more).
+  for (const t of (touchesRes.data ?? []) as Array<{
+    id: string;
+    contact_id: string;
+    touched_at: string;
+    channel: string;
+    summary: string;
+    by_email: string;
+    contacts: { id: string; name: string; type: string } | { id: string; name: string; type: string }[] | null;
+  }>) {
+    const contact = Array.isArray(t.contacts) ? t.contacts[0] : t.contacts;
+    if (!contact) continue;
+    const channel = t.channel.replace('_', ' ');
+    events.push({
+      at: t.touched_at,
+      kind: 'contact-touch',
+      actor: t.by_email,
+      property: contact.name,
+      label: `logged ${channel} touch ("${truncate(t.summary, 60)}") with`,
+      href: `/crm/${t.contact_id}`,
     });
   }
 
