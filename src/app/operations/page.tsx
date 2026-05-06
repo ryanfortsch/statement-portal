@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
+import { HelmFooter } from '@/components/HelmFooter';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
@@ -83,26 +85,12 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="operations" />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Operations</div>
-        <h1
-          className="font-serif"
-          style={{
-            fontSize: 44,
-            lineHeight: 1.05,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            maxWidth: 720,
-          }}
-        >
-          The <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>turnover pipeline.</em>
-        </h1>
-        <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections.
-        </p>
-      </section>
+      <HelmHero
+        eyebrow="Helm · Operations"
+        title="The"
+        emphasis="turnover pipeline."
+        description="Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections."
+      />
 
       {/* RANGE TABS + SYNC STATUS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
@@ -250,24 +238,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         <CalendarGrid calendar={data.calendar} />
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Operations</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Guesty + Helm inspections
-          </span>
-        </div>
-      </footer>
+      <HelmFooter module="Operations" right="Source: Guesty + Helm inspections" />
     </div>
   );
 }

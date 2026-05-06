@@ -1,4 +1,5 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
 import {
   getStatTotals,
   getTrafficSeries,
@@ -48,27 +49,13 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="marketing" />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Marketing</div>
-        <h1
-          className="font-serif"
-          style={{
-            fontSize: 44,
-            lineHeight: 1.05,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            maxWidth: 720,
-          }}
-        >
-          How the <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>sites</em> are doing.
-        </h1>
-        <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed
-          nightly from Google Analytics and Vercel Speed Insights.
-        </p>
-      </section>
+      <HelmHero
+        eyebrow="Helm · Marketing"
+        title="How the"
+        emphasis="sites"
+        titleSuffix="are doing."
+        description="GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
+      />
 
       {/* CONTROLS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>

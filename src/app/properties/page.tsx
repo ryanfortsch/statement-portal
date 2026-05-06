@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
+import { HelmFooter } from '@/components/HelmFooter';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 
@@ -32,28 +34,16 @@ export default async function PropertiesPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="properties" />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Properties</div>
-        <h1
-          className="font-serif"
-          style={{
-            fontSize: 44,
-            lineHeight: 1.05,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            maxWidth: 720,
-          }}
-        >
-          All Rising Tide <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>properties.</em>
-        </h1>
-        {!error && (
-          <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-            {active.length} active{inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.
-          </p>
-        )}
-      </section>
+      <HelmHero
+        eyebrow="Helm · Properties"
+        title="All Rising Tide"
+        emphasis="properties."
+        description={
+          !error
+            ? `${active.length} active${inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.`
+            : undefined
+        }
+      />
 
       {/* LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
@@ -88,24 +78,7 @@ export default async function PropertiesPage() {
         )}
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Properties</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Helm
-          </span>
-        </div>
-      </footer>
+      <HelmFooter module="Properties" right="Source: Helm" />
     </div>
   );
 }

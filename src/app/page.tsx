@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { UserMenu } from '@/components/UserMenu';
+import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
+import { HelmFooter } from '@/components/HelmFooter';
+import { Stat } from '@/components/Stat';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -76,39 +79,14 @@ export default async function HelmHome() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      {/* MASTHEAD */}
-      <header style={{ borderBottom: '1px solid var(--ink)' }}>
-        <div className="max-w-[1100px] mx-auto px-10" style={{ padding: '20px 40px 18px' }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
-              <span className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Helm</span>
-            </div>
-            <div className="flex items-center gap-6">
-              <span style={{ fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 500 }}>
-                Rising Tide &middot; Internal Operations
-              </span>
-              <UserMenu />
-            </div>
-          </div>
-        </div>
-      </header>
+      <HelmMasthead />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 36, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>The Bridge</div>
-        <h1 className="font-serif" style={{
-          fontSize: 52,
-          lineHeight: 1.05,
-          fontWeight: 300,
-          letterSpacing: '-0.02em',
-          color: 'var(--ink)',
-          maxWidth: 720,
-        }}>
-          Run Rising Tide from <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>one place.</em>
-        </h1>
-      </section>
+      <HelmHero
+        eyebrow="The Bridge"
+        title="Run Rising Tide from"
+        emphasis="one place."
+        paddingBottom={36}
+      />
 
       {/* TODAY STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
@@ -130,24 +108,28 @@ export default async function HelmHome() {
                 : 'configure env vars'
             }
             href="/properties"
+            size="hero"
           />
           <Stat
             label="Latest Period"
             value={stats.latestMonth ? formatMonth(stats.latestMonth) : '—'}
             sub={stats.latestStatus ? statusLabel(stats.latestStatus) : 'no statements yet'}
             href="/statements"
+            size="hero"
           />
           <Stat
             label="Statements"
             value={stats.statementsCount > 0 ? String(stats.statementsCount) : '—'}
             sub={stats.latestMonth ? 'in latest period' : ''}
             href="/statements"
+            size="hero"
           />
           <Stat
             label="Owner Payouts"
             value={stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—'}
             sub={stats.latestMonth ? 'latest period total' : ''}
             href="/statements"
+            size="hero"
             last
             accent
           />
@@ -164,73 +146,11 @@ export default async function HelmHome() {
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{
-          padding: '14px 40px',
-          fontSize: 10,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-4)',
-        }}>
-          <span>Rising Tide &middot; 85 Eastern Ave &middot; Gloucester, MA 01930</span>
-          <span className="font-serif" style={{ textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: 'var(--ink-3)', fontSize: 11 }}>
-            &ldquo;We care for your home as if it were our own.&rdquo;
-          </span>
-        </div>
-      </footer>
+      <HelmFooter
+        left="Rising Tide · 85 Eastern Ave · Gloucester, MA 01930"
+      />
     </div>
   );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  href,
-  last = false,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  href?: string;
-  last?: boolean;
-  accent?: boolean;
-}) {
-  const inner = (
-    <div
-      style={{
-        padding: '20px 22px',
-        borderRight: last ? 'none' : '1px solid var(--rule)',
-      }}
-    >
-      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
-      <div
-        className="font-serif tabular-nums"
-        style={{
-          fontSize: 28,
-          fontWeight: 400,
-          color: accent ? 'var(--signal)' : 'var(--ink)',
-          lineHeight: 1.05,
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>
-      )}
-    </div>
-  );
-
-  if (href) {
-    return (
-      <Link href={href} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-        {inner}
-      </Link>
-    );
-  }
-  return inner;
 }
 
 function ModuleRow({ module: m }: { module: HelmModule }) {
