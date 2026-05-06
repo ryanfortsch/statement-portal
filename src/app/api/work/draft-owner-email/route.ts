@@ -192,12 +192,14 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    const todayIso = new Date().toISOString().slice(0, 10);
     const { data: slipsRaw, error: slipsErr } = await sb
       .from('work_slips')
       .select('*')
       .eq('property_id', propertyId)
       .eq('owner_action_required', true)
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: true });
 

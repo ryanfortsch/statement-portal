@@ -23,11 +23,13 @@ async function getData(): Promise<{
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
 }> {
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [{ data: ws }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
     supabase
       .from('work_slips')
       .select('*')
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false }),
     supabase

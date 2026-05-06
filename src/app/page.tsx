@@ -64,16 +64,19 @@ async function getOperationalStats() {
       supabase
         .from('work_slips')
         .select('*', { count: 'exact', head: true })
-        .in('status', ACTIVE_SLIP_STATUSES),
+        .in('status', ACTIVE_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`),
       supabase
         .from('work_slips')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
         .eq('priority', 'high'),
       supabase
         .from('work_slips')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
         .eq('owner_action_required', true),
       supabase
         .from('tasks')
@@ -161,7 +164,8 @@ async function getYourCount(myEmail: string): Promise<number | null> {
         .from('work_slips')
         .select('*', { count: 'exact', head: true })
         .eq('assigned_to_email', myEmail)
-        .in('status', ACTIVE_SLIP_STATUSES),
+        .in('status', ACTIVE_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`),
       supabase
         .from('tasks')
         .select('*', { count: 'exact', head: true })

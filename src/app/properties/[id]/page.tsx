@@ -159,11 +159,13 @@ async function getLatestOwnerContact(propertyId: string, p: HelmPropertyRow): Pr
 async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
   if (!isHelmConfigured) return [];
   try {
+    const todayIso = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase
       .from('work_slips')
       .select('*')
       .eq('property_id', propertyId)
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(20);

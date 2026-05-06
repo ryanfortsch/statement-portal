@@ -1500,11 +1500,13 @@ function DashboardContent() {
   // by prop.property_id directly.
   const loadOwnerActionCounts = useCallback(async () => {
     try {
+      const todayIso = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from('work_slips')
         .select('property_id, properties!inner(name)')
         .in('status', ['open', 'in_progress', 'scheduled'])
-        .eq('owner_action_required', true);
+        .eq('owner_action_required', true)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`);
       if (error) throw error;
 
       // Build a name → legacy_id reverse map from the legacy PROPERTIES

@@ -179,6 +179,34 @@ export async function updateWorkSlipAssignment(args: {
 }
 
 /**
+ * Snooze a slip until a chosen date. The slip stays in its current
+ * status; snoozed_until is a presentation hint that hides it from
+ * the active queue / home / property page until the date passes.
+ *
+ * Pass null to un-snooze immediately (the row reappears in the
+ * active queue right away).
+ */
+export async function snoozeWorkSlip(args: {
+  id: string;
+  until: string | null;     // YYYY-MM-DD or null
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const patch: Record<string, unknown> = {
+    snoozed_until: args.until || null,
+    snoozed_by_email: args.until ? session.user.email : null,
+  };
+
+  const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
  * Bulk-update many work slips in one round trip. Accepts only the small
  * set of fields safe to set across many rows from the queue's bulk bar:
  * status, priority, assigned_to_email. Empty string assigned_to_email
