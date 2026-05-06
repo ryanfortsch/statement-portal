@@ -6,6 +6,8 @@ import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, WORK_SLIP_CATEGORY_LABELS } from '@/lib/work-types';
+import type { ContactTouchRow, TouchChannel } from '@/lib/crm';
+import { TOUCH_CHANNEL_LABELS } from '@/lib/crm';
 import { displayNameForEmail, getTeamMember } from '@/lib/team';
 
 export const dynamic = 'force-dynamic';
@@ -37,14 +39,21 @@ type ResolvedPlan = {
 type ResolvedSlip = WorkSlipRow & { property_name: string };
 type ResolvedTask = TaskRow & { property_names: string[] };
 
+type RecentTouch = ContactTouchRow & { contact_name: string };
+
 async function getMineData(myEmail: string): Promise<{
   slips: ResolvedSlip[];
   tasks: ResolvedTask[];
   plans: ResolvedPlan[];
+  recentTouches: RecentTouch[];
 }> {
-  if (!isHelmConfigured) return { slips: [], tasks: [], plans: [] };
+  if (!isHelmConfigured) return { slips: [], tasks: [], plans: [], recentTouches: [] };
 
-  const [slipRes, taskRes, planRes, propRes] = await Promise.all([
+  // 14-day hot window for touches — recent enough to be useful as
+  // "what I've been doing", not so deep that it dominates the page.
+  const touchesCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [slipRes, taskRes, planRes, propRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
       .select('*')
@@ -66,6 +75,13 @@ async function getMineData(myEmail: string): Promise<{
       .gte('planned_for_date', new Date().toISOString().slice(0, 10))
       .order('planned_for_date', { ascending: true }),
     supabase.from('properties').select('id, name'),
+    supabase
+      .from('contact_touches')
+      .select('id, contact_id, touched_at, channel, summary, notes, by_email, created_at, contacts!inner(id, name)')
+      .eq('by_email', myEmail)
+      .gte('touched_at', touchesCutoff)
+      .order('touched_at', { ascending: false })
+      .limit(20),
   ]);
 
   const propertyMap = new Map<string, string>();
@@ -95,7 +111,24 @@ async function getMineData(myEmail: string): Promise<{
     };
   });
 
-  return { slips, tasks, plans };
+  const recentTouches: RecentTouch[] = ((touchesRes.data ?? []) as Array<
+    ContactTouchRow & { contacts: { id: string; name: string } | { id: string; name: string }[] | null }
+  >).map((t) => {
+    const c = Array.isArray(t.contacts) ? t.contacts[0] : t.contacts;
+    return {
+      id: t.id,
+      contact_id: t.contact_id,
+      touched_at: t.touched_at,
+      channel: t.channel,
+      summary: t.summary,
+      notes: t.notes,
+      by_email: t.by_email,
+      created_at: t.created_at,
+      contact_name: c?.name ?? '(contact)',
+    };
+  });
+
+  return { slips, tasks, plans, recentTouches };
 }
 
 export default async function MePage() {
@@ -103,7 +136,7 @@ export default async function MePage() {
   const myEmail = session?.user?.email ?? '';
   if (!myEmail) redirect('/auth/signin?callbackUrl=/me');
 
-  const { slips, tasks, plans } = await getMineData(myEmail);
+  const { slips, tasks, plans, recentTouches } = await getMineData(myEmail);
   const teamMember = getTeamMember(myEmail);
   const greeting = teamMember?.short ?? myEmail.split('@')[0];
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -123,6 +156,9 @@ export default async function MePage() {
         <p style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-3)' }}>
           {slips.length} slip{slips.length === 1 ? '' : 's'} &middot; {tasks.length} task
           {tasks.length === 1 ? '' : 's'} &middot; {plans.length} planned walk{plans.length === 1 ? '' : 's'}
+          {recentTouches.length > 0 && (
+            <> &middot; {recentTouches.length} recent touch{recentTouches.length === 1 ? '' : 'es'}</>
+          )}
         </p>
       </section>
 
@@ -279,6 +315,50 @@ export default async function MePage() {
         )}
       </Section>
 
+      {/* RECENT TOUCHES (CRM) */}
+      <Section title="Your Recent Touches" eyebrow={`${recentTouches.length} in last 14 days`}>
+        {recentTouches.length === 0 ? (
+          <Empty message="No CRM touches logged in the last two weeks. Visit /crm to record one." />
+        ) : (
+          <div>
+            {recentTouches.map((t) => (
+              <Link
+                key={t.id}
+                href={`/crm/${t.contact_id}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                    color: 'var(--tide-deep)',
+                    border: '1px solid var(--tide-deep)',
+                    padding: '2px 7px',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {TOUCH_CHANNEL_LABELS[t.channel as TouchChannel] ?? t.channel}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{t.summary}</div>
+                  <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+                    {t.contact_name} &middot; {formatTouchDate(t.touched_at)}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Section>
+
       <HelmFooter module="You" right={`Signed in as ${displayNameForEmail(myEmail)}`} />
     </div>
   );
@@ -317,4 +397,21 @@ function pillStyle(color: string): React.CSSProperties {
     padding: '2px 8px',
     whiteSpace: 'nowrap',
   };
+}
+
+function formatTouchDate(iso: string): string {
+  try {
+    const then = new Date(iso);
+    const diffMs = Date.now() - then.getTime();
+    const mins = Math.floor(diffMs / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
 }
