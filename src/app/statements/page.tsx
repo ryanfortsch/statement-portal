@@ -9,6 +9,7 @@ import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmModuleNav } from '@/components/HelmModuleNav';
+import { AddNoteModal } from '@/components/AddNoteModal';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -1427,6 +1428,7 @@ function DashboardContent() {
   >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
+  const [addNoteOpen, setAddNoteOpen] = useState(false);
   const [remittanceRows, setRemittanceRows] = useState<Array<{
     propertyName: string;
     propertyShort: string;
@@ -2039,6 +2041,16 @@ function DashboardContent() {
                 meta={lastSync['stripe'] ? relativeTime(lastSync['stripe']) : undefined}
                 icon={<IconSync className="w-3 h-3" />}
               />
+              <EditorialButton
+                onClick={() => setAddNoteOpen(true)}
+                label="Add Note"
+                meta="reservation eccentricity"
+                icon={
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                }
+              />
               <label
                 title={lastSync['csv-fallback']
                   ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'])}`
@@ -2487,6 +2499,14 @@ function DashboardContent() {
             );
           })()}
         </PreviewModal>
+      )}
+
+      {/* Add note modal -- captures Allie's "FYI" emails as structured rows */}
+      {addNoteOpen && (
+        <AddNoteModal
+          onClose={() => setAddNoteOpen(false)}
+          defaultAuthor="helm-portal"
+        />
       )}
 
       {/* Remittance instructions modal */}
