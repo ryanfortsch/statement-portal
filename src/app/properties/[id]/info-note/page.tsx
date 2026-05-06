@@ -30,6 +30,14 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
   if (!p) notFound();
 
   const cityShort = (p.city || '').split(',')[0].trim();
+
+  // The Information Note is framed around the Gloucester STR ordinance —
+  // it cites that ordinance in the subtitle, prints the Gloucester-issued
+  // permit ID in the footer, and pulls a Gloucester-only street-keyed
+  // trash schedule. For Rockport, Beverly, or out-of-state properties this
+  // would render a misleading doc, so the route 404s instead.
+  if (cityShort.toLowerCase() !== 'gloucester') notFound();
+
   const civic = civicForProperty(p);
 
   const operator = LOCAL_CONTACTS_24HR.operator;
