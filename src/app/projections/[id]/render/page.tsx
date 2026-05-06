@@ -39,11 +39,11 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
+        <SlideLocal footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
         <SlideYear2 computed={c} footer={footerLabel} />
         <SlideServices footer={footerLabel} />
-        <SlideLocal footer={footerLabel} />
         <SlideOwnerControl footer={footerLabel} />
         <SlideClose footer={footerLabel} />
         <SlideEndnotes footer={footerLabel} />
@@ -67,6 +67,7 @@ function SlideCover({
     <section className="rt-slide rt-slide-cover">
       <div className="rt-cover-grid">
         <div className="rt-cover-left">
+          <div className="rt-eyebrow rt-eyebrow-light" style={{ marginBottom: 8 }}>Prepared for {projection.prospect_name}</div>
           <div className="rt-eyebrow rt-eyebrow-light">{monthYear}</div>
           <h1 className="rt-cover-title">
             {projection.property_address}
@@ -106,12 +107,18 @@ function SlideHero({
   greetingName: string;
 }) {
   const range = fmtMoneyRange(computed.heroLow, computed.heroHigh);
+  // Monthly anchor: approximate per-month range so the prospect has a
+  // concrete monthly number to react to alongside the annual range.
+  const monthlyLow = Math.round(computed.heroLow / 12 / 100) * 100;
+  const monthlyHigh = Math.round(computed.heroHigh / 12 / 100) * 100;
+  const monthlyAnchor = `roughly ${fmtMoney(monthlyLow)} to ${fmtMoney(monthlyHigh)} per month`;
   return (
     <section className="rt-slide">
       <Header label={`${monthYear} | ${projection.property_address.toUpperCase()}${projection.property_city ? `, ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`} />
       <div className="rt-hero-block">
         <div className="rt-hero-number">{range}</div>
         <div className="rt-hero-eyebrow">PROJECTED ANNUAL NET PAYOUTS TO {greetingName}</div>
+        <div className="rt-hero-monthly">{monthlyAnchor}</div>
         <p className="rt-hero-disclaimer">
           Year 1 estimate, net of management fees and cleaning expenses, based on comparable property performance. <sup>(1)</sup>
         </p>
@@ -172,7 +179,7 @@ function SlideRatings({ footer }: { footer: string }) {
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
-              Five-star service is what we obsess over. It is also what compounds, year after year, into stronger bookings and higher rates.
+              Five-star service is what we obsess over. It is also what builds stronger bookings and higher rates, year after year.
             </p>
           </div>
 
@@ -208,7 +215,7 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
     <section className="rt-slide">
       <Header label={footer} />
       <div className="rt-content-pad">
-        <h2 className="rt-section-title">Performance &mdash; Year 1</h2>
+        <h2 className="rt-section-title">Year 1 Performance</h2>
         <div className="rt-year-stat">
           <div className="rt-eyebrow">PROJECTED AVERAGE MONTHLY PAYOUT</div>
           <div className="rt-year-number">{fmtMoney(monthly)} <span className="rt-year-unit">/ mo.</span></div>
@@ -271,7 +278,7 @@ function SlideRamp({
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Launch year</h2>
         <p className="rt-y2-lead">
-          {projection.property_address} goes live in {startMonthLabel} {presentationYear}. Your first calendar year captures partial seasonality &mdash; about {Math.round(fraction * 100)}% of a full seasonal year, across {activeMonths} active months. From Year 2 onward, the property operates at full run rate.
+          {projection.property_address} goes live in {startMonthLabel} {presentationYear}. Your first calendar year captures partial seasonality. About {Math.round(fraction * 100)}% of a full seasonal year, across {activeMonths} active months. From Year 2 onward, the property operates at full run rate.
         </p>
 
         <div className="rt-y2-compare">
@@ -312,9 +319,9 @@ function SlideYear2({ computed, footer }: { computed: ProjectionComputed; footer
     <section className="rt-slide">
       <Header label={footer} />
       <div className="rt-content-pad">
-        <h2 className="rt-section-title">Performance &mdash; Year 2</h2>
+        <h2 className="rt-section-title">Year 2 Performance</h2>
         <p className="rt-y2-lead">
-          After the first year, revenue typically improves as the property builds a strong review profile across platforms, generates repeat and direct bookings, and benefits from more refined pricing.
+          Year 2 typically sees +10%. By then your home has a stronger review profile, more direct and repeat bookings, and pricing tightened with a year of real data behind it.
         </p>
 
         <div className="rt-y2-compare">
@@ -348,19 +355,19 @@ function SlideServices({ footer }: { footer: string }) {
       num: '01',
       eyebrow: 'Guests',
       lead: 'Every traveler vetted, welcomed, and supported around the clock.',
-      items: ['Guest screening and verification', '24/7 messaging and on-call support', 'Curated welcome and arrival experience', 'Five-star hospitality, every stay'],
+      items: ['Guest screening and verification', '24/7 messaging and on-call support', 'Five-star hospitality, every stay'],
     },
     {
       num: '02',
       eyebrow: 'Property',
       lead: 'The home stays in the condition your guests expect, and you do too.',
-      items: ['Professional turnover and laundry', 'Routine inspections and maintenance', 'Inventory, supplies, and consumables', 'Vendor coordination on your behalf'],
+      items: ['Professional turnover and laundry', 'Routine inspections and maintenance', 'Inventory, supplies, and consumables'],
     },
     {
       num: '03',
       eyebrow: 'Marketing',
       lead: 'Listed where guests look, priced where the market lands.',
-      items: ['Airbnb, Vrbo, and direct channels', 'Dynamic, market-based pricing', 'Professional photography and copy', 'Direct-booking platform and SEO'],
+      items: ['Airbnb, Vrbo, and direct channels', 'Dynamic, market-based pricing', 'Professional photography and copy'],
     },
   ];
   return (
@@ -404,7 +411,7 @@ function SlideLocal({ footer }: { footer: string }) {
   const items: { title: string; body: string }[] = [
     {
       title: 'HQ in the heart of Cape Ann.',
-      body: 'Rising Tide is based at 85 Eastern Ave in Gloucester — minutes from every home we manage.',
+      body: 'Rising Tide is based at 85 Eastern Ave in Gloucester. Minutes from every home we manage.',
     },
     {
       title: 'Supplies staged and ready.',
@@ -461,10 +468,9 @@ function SlideLocal({ footer }: { footer: string }) {
 
 function SlideOwnerControl({ footer }: { footer: string }) {
   const items = [
-    'Schedule owner stays',
-    'Detailed monthly reporting',
-    'Track property performance',
-    'Visibility into future payouts',
+    'Block dates and schedule owner stays via the Owner Portal',
+    'Net payout deposited monthly via ACH',
+    'Real-time bookings and performance dashboard',
   ];
   return (
     <section className="rt-slide">
@@ -529,7 +535,7 @@ function StatementPreview() {
         </div>
         <div>
           <div className="rt-stmt-cell-label">Period</div>
-          <div className="rt-stmt-cell-val">Apr 1 &mdash; Apr 30, 2026</div>
+          <div className="rt-stmt-cell-val">Apr 1 to Apr 30, 2026</div>
           <div className="rt-stmt-cell-sub">30 days &middot; 16 nights booked</div>
         </div>
         <div>
@@ -622,6 +628,12 @@ function SlideClose({ footer }: { footer: string }) {
             <p className="rt-close-body">
               Thank you for considering Rising Tide for full-service property management. As a North Shore Massachusetts native, I care deeply about how homes are cared for and how this region is experienced by those who visit. We look forward to the possibility of working together and are happy to answer any questions.
             </p>
+            <div className="rt-cta">
+              <div className="rt-cta-label">Next step</div>
+              <div className="rt-cta-body">
+                Reply to this email or call <span className="rt-cta-num">(978) 865-2387</span> to schedule a property walkthrough.
+              </div>
+            </div>
             <div className="rt-signature">
               <div className="rt-sig-name">ALLIE O&rsquo;BRIEN</div>
               <div className="rt-sig-title">OWNER, RISING TIDE</div>
@@ -826,6 +838,14 @@ const deckCss = `
     text-transform: uppercase;
     color: var(--signal);
     font-weight: 600;
+  }
+  .rt-hero-monthly {
+    margin-top: 12px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 22px;
+    color: var(--ink-3);
+    font-weight: 300;
   }
   .rt-hero-disclaimer {
     margin-top: 28px;
@@ -1587,6 +1607,32 @@ const deckCss = `
     max-width: 560px;
   }
   .rt-close-body { margin-top: 22px; font-size: 14px; line-height: 1.65; color: var(--ink-3); max-width: 560px; }
+  .rt-cta {
+    margin-top: 28px;
+    padding: 16px 18px;
+    background: var(--paper-2);
+    border-left: 3px solid var(--signal);
+    max-width: 560px;
+  }
+  .rt-cta-label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .rt-cta-body {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .rt-cta-num {
+    color: var(--signal);
+    white-space: nowrap;
+  }
   .rt-signature { margin-top: 32px; }
   .rt-sig-name {
     font-size: 14px;
