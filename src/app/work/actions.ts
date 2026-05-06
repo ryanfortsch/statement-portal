@@ -25,11 +25,17 @@ export async function createWorkSlip(args: {
   scheduled_date?: string | null;
   inspection_id?: string;
   inspection_item_id?: string;
+  assigned_to_email?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   if (!args.title?.trim()) return { ok: false, error: 'Title is required' };
   if (!args.property_id) return { ok: false, error: 'Pick a property' };
+
+  const assignedEmail = args.assigned_to_email?.trim() || null;
+  // If we have an assignee, mark the slip as team-claimed; otherwise stay
+  // unassigned. Owner-action assignment is handled separately.
+  const assignedType = assignedEmail ? 'team' : 'unassigned';
 
   const { data, error } = await supabase
     .from('work_slips')
@@ -44,6 +50,8 @@ export async function createWorkSlip(args: {
       inspection_id: args.inspection_id || null,
       inspection_item_id: args.inspection_item_id || null,
       created_by_email: session.user.email,
+      assigned_to_email: assignedEmail,
+      assigned_to_type: assignedType,
     })
     .select('id')
     .single();
@@ -140,6 +148,7 @@ export async function createTask(args: {
   priority?: TaskPriority;
   due_date?: string | null;
   tags?: string[];
+  assigned_to_email?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -156,6 +165,7 @@ export async function createTask(args: {
       due_date: args.due_date || null,
       tags: args.tags && args.tags.length > 0 ? args.tags : null,
       created_by_email: session.user.email,
+      assigned_to_email: args.assigned_to_email?.trim() || null,
     })
     .select('id')
     .single();

@@ -11,6 +11,7 @@ import {
   type TaskStatus,
 } from '@/lib/work-types';
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
+import { TeamPicker } from '@/components/TeamPicker';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -18,9 +19,10 @@ type Props = {
   task: TaskRow;
   comments: TaskCommentRow[];
   properties: PropertyForPicker[];
+  myEmail: string;
 };
 
-export function TaskDetail({ task, comments, properties }: Props) {
+export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
@@ -33,7 +35,7 @@ export function TaskDetail({ task, comments, properties }: Props) {
   const [scope, setScope] = useState<TaskScope>(task.scope);
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [status, setStatus] = useState<TaskStatus>(task.status);
-  const [assignedToEmail, setAssignedToEmail] = useState(task.assigned_to_email ?? '');
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(task.assigned_to_email ?? null);
   const [dueDate, setDueDate] = useState(task.due_date ?? '');
   const [propertyIds, setPropertyIds] = useState<string[]>(task.property_ids ?? []);
   const [tagsInput, setTagsInput] = useState((task.tags ?? []).join(', '));
@@ -53,7 +55,7 @@ export function TaskDetail({ task, comments, properties }: Props) {
       description: description || null,
       scope,
       property_ids: scope === 'property' ? propertyIds : null,
-      assigned_to_email: assignedToEmail || null,
+      assigned_to_email: assignedToEmail,
       priority,
       status,
       due_date: dueDate || null,
@@ -217,13 +219,12 @@ export function TaskDetail({ task, comments, properties }: Props) {
 
         <div className="flex gap-3">
           <div style={{ flex: 1 }}>
-            <Field label="Assigned to (email)">
-              <input
-                type="email"
+            <Field label="Assignee">
+              <TeamPicker
                 value={assignedToEmail}
-                onChange={(e) => setAssignedToEmail(e.target.value)}
-                placeholder="ryan@risingtidestr.com"
-                style={inputStyle()}
+                onChange={setAssignedToEmail}
+                myEmail={myEmail}
+                placeholder="Unassigned"
               />
             </Field>
           </div>
