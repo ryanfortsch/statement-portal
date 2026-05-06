@@ -103,8 +103,14 @@ export const OFFICE_START_MONTH = 3;
 /** Software subs (Gusto + Allie's CC + buffer for AppFolio/PMS). */
 export const SOFTWARE_MONTHLY = 200;
 
-/** MH Partners debt service. Bank shows steady ~$1,000/mo. */
+/**
+ * MH Partners debt service. Bank shows steady ~$1,000/mo through 2025
+ * ($1,155 most months, $937 in 2026). Loan is paid off in June 2026 —
+ * after that the line is zero.
+ */
 export const DEBT_SERVICE_MONTHLY = 1000;
+/** Last month MH Partners debt is paid (1-12). Loan retired after May 2026. */
+export const DEBT_LAST_MONTH = 5;
 
 /** Insurance (Phillips). Annual $5,264 → smoothed to ~$440/mo. */
 export const INSURANCE_MONTHLY = 440;
@@ -229,7 +235,7 @@ export function calcYear(numNew: number): YearResult {
 
     const exp_office = officeCost(m);
     const exp_software = SOFTWARE_MONTHLY;
-    const exp_debt = DEBT_SERVICE_MONTHLY;
+    const exp_debt = m <= DEBT_LAST_MONTH ? DEBT_SERVICE_MONTHLY : 0;
     const exp_insurance = INSURANCE_MONTHLY;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;

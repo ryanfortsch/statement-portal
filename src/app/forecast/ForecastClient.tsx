@@ -181,7 +181,7 @@ function RealityCheck() {
       label: 'MH Partners debt service',
       modelMonthly: DEBT_SERVICE_MONTHLY,
       actualMonthly: findActual('mh_partners')?.avgMonthly ?? null,
-      note: 'Was $1,155/mo through Sep 2025, dropped to $937/mo in 2026.',
+      note: 'Was $1,155/mo through Sep 2025, $937/mo in 2026. Loan retired June 2026 — line goes to zero from then on.',
     },
     {
       label: 'Insurance (smoothed)',
@@ -347,7 +347,7 @@ function Assumptions() {
     { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, ordered Mar→Dec' },
     { label: 'Office', value: '$750/mo from March + dumpster ($50 winter, $200 summer)' },
     { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
-    { label: 'MH Partners debt', value: '$1,000/mo (calibrated to recurring "CASH CON" ACH)' },
+    { label: 'MH Partners debt', value: '$1,000/mo Jan-May only — loan retired June 2026 ($5K total)' },
     { label: 'Insurance', value: '$440/mo smoothed (Phillips $5,264/yr, paid March)' },
     { label: 'Accounting', value: '$720/mo smoothed (MS Consultants ~$8,600/yr, twice a year)' },
     { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
@@ -976,7 +976,7 @@ function ForecastTable({ year }: { year: YearResult }) {
         <SectionRow label="Expenses" tag="calibrated to Chase ...5130 actuals" />
         <DataRow label="Office + dumpster (from Mar)" values={monthly.map((r) => r.exp_office)} fy={monthly.reduce((a, r) => a + r.exp_office, 0)} />
         <DataRow label="Software / SaaS ($200/mo)" values={monthly.map((r) => r.exp_software)} fy={monthly.reduce((a, r) => a + r.exp_software, 0)} />
-        <DataRow label="MH Partners debt ($1K/mo)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
+        <DataRow label="MH Partners debt ($1K/mo · ends May)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
         <DataRow label="Insurance · Phillips (smoothed)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
         <DataRow label="Accounting · MS Consultants" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
         <DataRow label="Bank fees" values={monthly.map((r) => r.exp_bank)} fy={monthly.reduce((a, r) => a + r.exp_bank, 0)} />
