@@ -136,7 +136,7 @@ const placardCss = `
     width: 384px;
     height: 576px;
     background: var(--sca-navy);
-    padding: 14px 14px 0;
+    padding: 20px 20px 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -152,7 +152,7 @@ const placardCss = `
   .rt-panel {
     flex: 1;
     background: var(--sca-cream);
-    padding: 22px 24px 26px;
+    padding: 28px 28px 30px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -172,11 +172,13 @@ const placardCss = `
     letter-spacing: -0.01em;
   }
 
-  /* QR — square, no chrome, sits naturally on the cream */
+  /* QR — square, no chrome, sits naturally on the cream. Sized so it
+     scans cleanly from arm's length while leaving the cream panel
+     enough breathing room for the editorial network/password rows. */
   .rt-qr {
-    margin-top: 22px;
-    width: 200px;
-    height: 200px;
+    margin-top: 30px;
+    width: 140px;
+    height: 140px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -202,7 +204,7 @@ const placardCss = `
   /* Network + password fields — editorial stacked rows divided by a
      hairline rule. Cleaner and more on-brand than fieldset-style boxes. */
   .rt-fields {
-    margin: 22px 0 0;
+    margin: 30px 0 0;
     padding: 0;
     width: 100%;
     border-top: 1px solid var(--sca-navy);
