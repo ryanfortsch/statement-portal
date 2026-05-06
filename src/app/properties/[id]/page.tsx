@@ -78,6 +78,14 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const display = p.name;
   const subtitle = p.title || '';
 
+  // The Information Note (House & civic info) is framed around the Gloucester
+  // STR permit ordinance — it cites that ordinance in the header, references
+  // the city-issued STR permit ID in the footer, and pulls a Gloucester-only
+  // street-keyed trash schedule. For Rockport / Beverly / out-of-state
+  // properties it's the wrong document, so we hide the tile (and the
+  // /info-note route 404s) anywhere outside Gloucester.
+  const isGloucester = (p.city || '').split(',')[0].trim().toLowerCase() === 'gloucester';
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="properties" />
@@ -226,28 +234,33 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
               </div>
             </div>
-            {/* Information Note tile */}
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Information Note</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Posted house &amp; civic info
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
-                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
-                {missingInfoNoteFields(p).length > 0 ? (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    Missing: {missingInfoNoteFields(p).join(', ')}.
-                  </span>
-                ) : null}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
+            {/* Information Note tile — Gloucester-only. The note cites the
+                Gloucester STR ordinance and renders a Gloucester-issued
+                permit ID in the footer, so it's not a fit for Rockport,
+                Beverly, or out-of-state properties. */}
+            {isGloucester && (
+              <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="eyebrow">Information Note</div>
+                <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                  Posted house &amp; civic info
+                </h3>
+                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                  Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
+                  noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
+                  {missingInfoNoteFields(p).length > 0 ? (
+                    <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                      Missing: {missingInfoNoteFields(p).join(', ')}.
+                    </span>
+                  ) : null}
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                  <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
+                    Open ↗
+                  </Link>
+                  <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </section>

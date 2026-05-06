@@ -37,12 +37,28 @@ export async function GET(request: NextRequest) {
     }
 
     let propertyName = id;
+    let propertyCity = '';
     try {
       const sb = getSupabase();
-      const { data } = await sb.from('properties').select('name').eq('id', id).maybeSingle();
+      const { data } = await sb.from('properties').select('name, city').eq('id', id).maybeSingle();
       if (data?.name) propertyName = data.name as string;
+      if (data?.city) propertyCity = data.city as string;
     } catch {
       // best-effort
+    }
+
+    // Information Note is Gloucester-only — the doc cites the Gloucester
+    // STR ordinance and prints a Gloucester-issued permit ID. For other
+    // cities the route 404s; fail this endpoint cleanly so the download
+    // button surfaces a useful error instead of "PDF rendering failed".
+    if (type === 'info-note') {
+      const cityShort = propertyCity.split(',')[0].trim().toLowerCase();
+      if (cityShort && cityShort !== 'gloucester') {
+        return NextResponse.json(
+          { error: 'Information Note is only available for Gloucester properties.' },
+          { status: 400 },
+        );
+      }
     }
 
     const origin = request.nextUrl.origin;
