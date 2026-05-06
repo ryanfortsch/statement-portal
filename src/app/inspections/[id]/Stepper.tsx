@@ -15,6 +15,7 @@ import type {
   WorkSlipPriority,
 } from '@/lib/inspections-types';
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
+import { compressImage } from '@/lib/image-compress';
 
 type StepperItem = {
   id: string;
@@ -1167,10 +1168,11 @@ function QuickPhotoButton({
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function handleFile(file: File) {
+  async function handleFile(rawFile: File) {
     setErr(null);
     setUploading(true);
     try {
+      const file = await compressImage(rawFile);
       const fd = new FormData();
       fd.append('file', file);
       if (folder) fd.append('folder', folder);
