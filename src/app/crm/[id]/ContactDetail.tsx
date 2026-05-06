@@ -103,6 +103,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       summary,
       notes: touchNotes.trim() || null,
       by_email: myEmail,
+      direction: 'outbound',
+      gmail_message_id: null,
       created_at: new Date().toISOString(),
     };
     setTouchList((prev) => [optimistic, ...prev]);
@@ -587,60 +589,72 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
             </div>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {touchList.map((t) => (
-                <li
-                  key={t.id}
-                  style={{
-                    padding: '14px 0',
-                    borderBottom: '1px solid var(--rule)',
-                    display: 'flex',
-                    gap: 14,
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <span style={{
-                    fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
-                    color: 'var(--tide-deep)',
-                    border: '1px solid var(--tide-deep)',
-                    padding: '2px 7px',
-                    flexShrink: 0,
-                    marginTop: 2,
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {TOUCH_CHANNEL_LABELS[t.channel]}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, color: 'var(--ink)' }}>{t.summary}</div>
-                    {t.notes && (
-                      <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                        {t.notes}
+              {touchList.map((t) => {
+                const isInbound = t.direction === 'inbound';
+                // Inbound touches use the contact's own name as actor and
+                // tint the row + pill so an owner reply visually pops vs.
+                // a team-logged outbound touch.
+                const accent = isInbound ? 'var(--signal)' : 'var(--tide-deep)';
+                return (
+                  <li
+                    key={t.id}
+                    style={{
+                      padding: '14px 0',
+                      paddingLeft: isInbound ? 12 : 0,
+                      borderBottom: '1px solid var(--rule)',
+                      borderLeft: isInbound ? `3px solid ${accent}` : 'none',
+                      background: isInbound ? 'rgba(200, 90, 58, 0.04)' : 'transparent',
+                      display: 'flex',
+                      gap: 14,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                      color: accent,
+                      border: `1px solid ${accent}`,
+                      padding: '2px 7px',
+                      flexShrink: 0,
+                      marginTop: 2,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {isInbound ? `${TOUCH_CHANNEL_LABELS[t.channel]} reply` : TOUCH_CHANNEL_LABELS[t.channel]}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: 'var(--ink)' }}>{t.summary}</div>
+                      {t.notes && (
+                        <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                          {t.notes}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                        {isInbound
+                          ? <>{contact.name} replied &middot; {formatRelative(t.touched_at)}</>
+                          : <>{displayNameForEmail(t.by_email)} &middot; {formatRelative(t.touched_at)}</>}
                       </div>
-                    )}
-                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-                      {displayNameForEmail(t.by_email)} · {formatRelative(t.touched_at)}
                     </div>
-                  </div>
-                  {t.by_email === myEmail && (
-                    <button
-                      type="button"
-                      onClick={() => removeTouch(t.id)}
-                      aria-label="Delete touch"
-                      title="Delete (only you can delete your own touches)"
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--ink-4)',
-                        fontSize: 14,
-                        padding: 0,
-                        lineHeight: 1,
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
-                </li>
-              ))}
+                    {!isInbound && t.by_email === myEmail && (
+                      <button
+                        type="button"
+                        onClick={() => removeTouch(t.id)}
+                        aria-label="Delete touch"
+                        title="Delete (only you can delete your own touches)"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--ink-4)',
+                          fontSize: 14,
+                          padding: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

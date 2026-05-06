@@ -40,6 +40,8 @@ export type ContactRow = {
   updated_at: string;
 };
 
+export type TouchDirection = 'outbound' | 'inbound';
+
 export type ContactTouchRow = {
   id: string;
   contact_id: string;
@@ -48,5 +50,7 @@ export type ContactTouchRow = {
   summary: string;
   notes: string | null;
   by_email: string;
+  direction: TouchDirection;
+  gmail_message_id: string | null;
   created_at: string;
 };

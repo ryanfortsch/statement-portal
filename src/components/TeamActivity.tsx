@@ -170,7 +170,7 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
       .gte('owner_last_contacted_at', cutoff),
     supabase
       .from('contact_touches')
-      .select('id, contact_id, touched_at, channel, summary, by_email, contacts!inner(id, name, type)')
+      .select('id, contact_id, touched_at, channel, summary, by_email, direction, contacts!inner(id, name, type)')
       .gte('touched_at', cutoff)
       .order('touched_at', { ascending: false })
       .limit(40),
@@ -287,9 +287,11 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
     });
   }
 
-  // CRM contact touches — surface every recent touch logged via /crm/[id].
-  // The "property" slot here holds the contact name (vendors/leads don't
-  // necessarily have a property; owners often have one or more).
+  // CRM contact touches — surface every recent touch logged via /crm/[id]
+  // OR captured inbound via the Gmail sync cron (#172). The "property"
+  // slot here holds the contact name; for outbound touches the actor is
+  // the team member who logged it, for inbound replies the actor is null
+  // and the contact name itself takes the "who" slot.
   for (const t of (touchesRes.data ?? []) as Array<{
     id: string;
     contact_id: string;
@@ -297,19 +299,31 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
     channel: string;
     summary: string;
     by_email: string;
+    direction: 'outbound' | 'inbound';
     contacts: { id: string; name: string; type: string } | { id: string; name: string; type: string }[] | null;
   }>) {
     const contact = Array.isArray(t.contacts) ? t.contacts[0] : t.contacts;
     if (!contact) continue;
     const channel = t.channel.replace('_', ' ');
-    events.push({
-      at: t.touched_at,
-      kind: 'contact-touch',
-      actor: t.by_email,
-      property: contact.name,
-      label: `logged ${channel} touch ("${truncate(t.summary, 60)}") with`,
-      href: `/crm/${t.contact_id}`,
-    });
+    if (t.direction === 'inbound') {
+      events.push({
+        at: t.touched_at,
+        kind: 'contact-touch',
+        actor: null,
+        property: contact.name,
+        label: `replied via ${channel} ("${truncate(t.summary, 60)}") —`,
+        href: `/crm/${t.contact_id}`,
+      });
+    } else {
+      events.push({
+        at: t.touched_at,
+        kind: 'contact-touch',
+        actor: t.by_email,
+        property: contact.name,
+        label: `logged ${channel} touch ("${truncate(t.summary, 60)}") with`,
+        href: `/crm/${t.contact_id}`,
+      });
+    }
   }
 
   events.sort((a, b) => b.at.localeCompare(a.at));

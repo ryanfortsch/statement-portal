@@ -79,8 +79,9 @@ async function getMineData(myEmail: string): Promise<{
     supabase.from('properties').select('id, name'),
     supabase
       .from('contact_touches')
-      .select('id, contact_id, touched_at, channel, summary, notes, by_email, created_at, contacts!inner(id, name)')
+      .select('id, contact_id, touched_at, channel, summary, notes, by_email, direction, gmail_message_id, created_at, contacts!inner(id, name)')
       .eq('by_email', myEmail)
+      .eq('direction', 'outbound')   // /me is "what I did", not inbound replies (those have by_email=system)
       .gte('touched_at', touchesCutoff)
       .order('touched_at', { ascending: false })
       .limit(20),
@@ -125,6 +126,8 @@ async function getMineData(myEmail: string): Promise<{
       summary: t.summary,
       notes: t.notes,
       by_email: t.by_email,
+      direction: t.direction,
+      gmail_message_id: t.gmail_message_id,
       created_at: t.created_at,
       contact_name: c?.name ?? '(contact)',
     };
