@@ -173,6 +173,10 @@ export type HelmPropertyRow = {
   bank_last4: string | null;
   tax_cert_id: string | null;
 
+  // AirDNA market for revenue benchmarking. One of: gloucester, rockport,
+  // beverly. Null when no benchmark applies.
+  market: string | null;
+
   // Property characteristics (from onboarding intake)
   bedrooms: number | null;
   bathrooms: number | null;
