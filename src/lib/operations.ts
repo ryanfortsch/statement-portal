@@ -127,6 +127,13 @@ export type PropertyMini = {
   city: string | null;
 };
 
+export type InspectionPlanMini = {
+  id: string;
+  planned_for_date: string | null;
+  notes: string | null;
+  planned_by_email: string;
+};
+
 export type Turnover = {
   reservationId: string;
   propertyId: string;
@@ -142,6 +149,7 @@ export type Turnover = {
   previousCheckout: string | null;
   inspection: InspectionRow | null;
   inspectionStatus: InspectionStatus;
+  plan: InspectionPlanMini | null;
 };
 
 export type CalendarCell = {
@@ -237,6 +245,29 @@ export async function loadOperationsData(
 
   const inspections = (inspData ?? []) as InspectionRow[];
 
+  // Pull inspection plans for any reservations in the visible window.
+  const visibleReservationIds = ((resData ?? []) as ReservationRow[])
+    .map((r) => r.guesty_reservation_id)
+    .filter(Boolean);
+  const plansByReservation = new Map<string, InspectionPlanMini>();
+  if (visibleReservationIds.length > 0) {
+    const { data: planData, error: planErr } = await supabase
+      .from('inspection_plans')
+      .select('id, guesty_reservation_id, planned_for_date, notes, planned_by_email')
+      .in('guesty_reservation_id', visibleReservationIds);
+    if (planErr) {
+      throw new Error(`Failed to load inspection plans: ${planErr.message}`);
+    }
+    for (const p of (planData ?? []) as Array<{ guesty_reservation_id: string } & InspectionPlanMini>) {
+      plansByReservation.set(p.guesty_reservation_id, {
+        id: p.id,
+        planned_for_date: p.planned_for_date,
+        notes: p.notes,
+        planned_by_email: p.planned_by_email,
+      });
+    }
+  }
+
   // All active properties — drives the calendar's row list (so vacant
   // properties show up as empty rows, which is the whole point of the grid).
   const { data: propData, error: propErr } = await supabase
@@ -315,6 +346,7 @@ export async function loadOperationsData(
       previousCheckout,
       inspection: matchingInspection,
       inspectionStatus,
+      plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
     });
   }
 
