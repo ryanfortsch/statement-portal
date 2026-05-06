@@ -1495,15 +1495,14 @@ function ForecastTable({
   presignedCount: number;
 }) {
   const { monthly, cumulative, totals } = year;
-  // For 2026 forward months, rev_current is the Smart Forecast total
-  // (real Guesty bookings × Gloucester pacing × per-property fee). For
-  // past months (Jan-Apr) it's the bank actual. The seasonality
-  // heuristic only kicks in if Smart Forecast data is unavailable.
-  const currentLabel =
+  const currentLabel = yearKey === 2026 ? `Current 9` : `Active ${currentCount}`;
+  const currentInfo =
     yearKey === 2026
-      ? `Current 9 properties (smart forecast)`
-      : `${currentCount} active properties (smart forecast)`;
-  const presignedLabel = '5 pre-signed (May · Jun) — seasonality, not yet in Guesty';
+      ? 'Past months (Jan-Apr) are bank actuals from Chase ...5130. Forward months use the Smart Forecast: real Guesty bookings × Gloucester pacing multiplier × each property\'s actual mgmt fee %. Falls back to seasonality if Guesty data is unavailable.'
+      : 'All 14 active properties full year (the original 9 + the 5 ex-presigned rolled forward). Smart Forecast where Guesty has data, seasonality otherwise.';
+  const presignedLabel = 'Pre-signed 5';
+  const presignedInfo =
+    'Five contracts signed but not yet onboarded: Pre-signed #1, #2, #3, 79 Main Street, 16 Waterman. Two go live in May, three in June. Uses seasonality projection because they are not yet listed in Guesty.';
 
   return (
     <table
@@ -1525,24 +1524,81 @@ function ForecastTable({
       </thead>
       <tbody>
         <SectionRow label="Revenue" />
-        <DataRow label={currentLabel} values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
+        <DataRow label={currentLabel} info={currentInfo} values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
         {presignedCount > 0 && (
-          <DataRow label={presignedLabel} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
+          <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         )}
-        <DataRow label="N new properties" values={monthly.map((r) => r.rev_new)} fy={totals.rev_new} highlight />
+        <DataRow
+          label="New"
+          info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption. Each onboarding triggers a $3K cost in its start month."
+          values={monthly.map((r) => r.rev_new)}
+          fy={totals.rev_new}
+          highlight
+        />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
         <SectionRow label="Expenses" tag="calibrated to Chase ...5130 actuals" />
-        <DataRow label="Office + dumpster (from Mar)" values={monthly.map((r) => r.exp_office)} fy={monthly.reduce((a, r) => a + r.exp_office, 0)} />
-        <DataRow label="Software / SaaS ($200/mo)" values={monthly.map((r) => r.exp_software)} fy={monthly.reduce((a, r) => a + r.exp_software, 0)} />
-        <DataRow label="MH Partners bookkeeper (ends May $1.8K)" values={monthly.map((r) => r.exp_debt)} fy={monthly.reduce((a, r) => a + r.exp_debt, 0)} />
-        <DataRow label="Insurance · Phillips (annual lump March)" values={monthly.map((r) => r.exp_insurance)} fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)} />
-        <DataRow label="Accounting (MS Consultants · one-time)" values={monthly.map((r) => r.exp_accounting)} fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)} />
-        <DataRow label="Bank fees" values={monthly.map((r) => r.exp_bank)} fy={monthly.reduce((a, r) => a + r.exp_bank, 0)} />
-        <DataRow label="Operating CC pass-through" values={monthly.map((r) => r.exp_cc_ops)} fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)} />
-        <DataRow label="New hire ($5K/mo from Oct)" values={monthly.map((r) => r.exp_hire)} fy={monthly.reduce((a, r) => a + r.exp_hire, 0)} />
-        <DataRow label="Onboarding · pre-signed" values={monthly.map((r) => r.exp_onboard_presigned)} fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)} />
-        <DataRow label="Onboarding · new" values={monthly.map((r) => r.exp_onboard_new)} fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)} highlight />
+        <DataRow
+          label="Office"
+          info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
+          values={monthly.map((r) => r.exp_office)}
+          fy={monthly.reduce((a, r) => a + r.exp_office, 0)}
+        />
+        <DataRow
+          label="Software"
+          info="$200/mo — Gusto payroll fee plus a buffer for AppFolio/Hospitable/other SaaS that lives on the operating CC."
+          values={monthly.map((r) => r.exp_software)}
+          fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
+        />
+        <DataRow
+          label="Bookkeeper"
+          info="MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends."
+          values={monthly.map((r) => r.exp_debt)}
+          fy={monthly.reduce((a, r) => a + r.exp_debt, 0)}
+        />
+        <DataRow
+          label="Insurance"
+          info="Phillips Insurance annual policy paid as one lump sum in March. $5,263.92 in 2026; same renewal assumed for 2027."
+          values={monthly.map((r) => r.exp_insurance)}
+          fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
+        />
+        <DataRow
+          label="Accounting"
+          info="MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward."
+          values={monthly.map((r) => r.exp_accounting)}
+          fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)}
+        />
+        <DataRow
+          label="Bank fees"
+          info="Stop payments, monthly service charges, returned-check fees. Trailing 12-mo actuals averaged ~$112/mo."
+          values={monthly.map((r) => r.exp_bank)}
+          fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
+        />
+        <DataRow
+          label="Operating CC"
+          info="Monthly Chase ...3878 credit-card payment. Median $5,900/mo over the trailing 12 months (range $3K-$16K). Covers software, supplies, marketing, and some property-level pass-through. Decomposing the CC statement would sharpen this further."
+          values={monthly.map((r) => r.exp_cc_ops)}
+          fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
+        />
+        <DataRow
+          label="New hire"
+          info="$5,000/mo from October 2026 forward. Replaces the Maggie Butler weekly Zelle and the bi-weekly Gusto runs that ran through Q3 2025."
+          values={monthly.map((r) => r.exp_hire)}
+          fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
+        />
+        <DataRow
+          label="Onboarding · presigned"
+          info="$3,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $15K total."
+          values={monthly.map((r) => r.exp_onboard_presigned)}
+          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
+        />
+        <DataRow
+          label="Onboarding · new"
+          info="$3,000 one-time per new contract added via the slider, paid its start month."
+          values={monthly.map((r) => r.exp_onboard_new)}
+          fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
+          highlight
+        />
         <SubtotalRow label="Total expenses" values={monthly.map((r) => r.exp_total)} fy={totals.exp_total} variant="expense" />
 
         <BottomLineRow label="Net business income" values={monthly.map((r) => r.net_business)} fy={totals.net_business} />
@@ -1665,12 +1721,14 @@ function labelCellStyle(extra?: React.CSSProperties): React.CSSProperties {
 
 function DataRow({
   label,
+  info,
   values,
   fy,
   highlight,
   dim,
 }: {
   label: string;
+  info?: string;
   values: number[];
   fy: number;
   highlight?: boolean;
@@ -1679,7 +1737,10 @@ function DataRow({
   const rowBg = highlight ? 'rgba(200, 90, 58, 0.04)' : dim ? 'rgba(255, 252, 235, 0.5)' : 'transparent';
   return (
     <tr style={{ background: rowBg }}>
-      <td style={labelCellStyle({ color: dim ? 'var(--ink-3)' : 'var(--ink-2)' })}>{label}</td>
+      <td style={labelCellStyle({ color: dim ? 'var(--ink-3)' : 'var(--ink-2)' })}>
+        {label}
+        {info && <InfoIcon text={info} />}
+      </td>
       {values.map((v, i) => (
         <td key={i} style={cellStyle({ color: v === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: v === 0 ? 0.5 : 1 })}>
           {v === 0 ? '—' : fmtNum(v)}
@@ -1689,6 +1750,29 @@ function DataRow({
         {fmtNum(fy)}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Small "ⓘ" icon next to a row label. Hover for the explanation via the
+ * native title attribute — light-touch tooltip, no JS, no positioning math.
+ */
+function InfoIcon({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      style={{
+        marginLeft: 6,
+        fontSize: 11,
+        color: 'var(--ink-4)',
+        cursor: 'help',
+        userSelect: 'none',
+        verticalAlign: 'baseline',
+      }}
+    >
+      ⓘ
+    </span>
   );
 }
 
