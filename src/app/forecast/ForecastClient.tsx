@@ -66,17 +66,30 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
     return map;
   }, [smart2026, smart2027, yearKey]);
 
+  // Names of properties Smart Forecast can see (i.e. already in Guesty).
+  // Used by calcYear to drop matching presigneds from the seasonality
+  // line so they don't double-count once they're live in Guesty.
+  const smartForecastNames = useMemo(() => {
+    const data = yearKey === 2026 ? smart2026 : smart2027;
+    if (!data) return undefined;
+    const set = new Set<string>();
+    for (const p of data.properties) {
+      if (p.property.name) set.add(p.property.name);
+    }
+    return set;
+  }, [smart2026, smart2027, yearKey]);
+
   const year = useMemo(
-    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride]
+    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, smartForecastNames),
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, smartForecastNames]
   );
   const scenarios = useMemo(
     () =>
       SCENARIO_RANGE.map((n) => ({
         n,
-        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride),
+        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride, smartForecastNames),
       })),
-    [yearKey, actualsForYear, actualsThrough, smartOverride]
+    [yearKey, actualsForYear, actualsThrough, smartOverride, smartForecastNames]
   );
 
   /** Switch year, clamping numNew to the new year's max if needed. */

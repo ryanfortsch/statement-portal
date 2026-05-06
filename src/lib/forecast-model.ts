@@ -326,6 +326,20 @@ export type ActualsByMonth = ReadonlyArray<{
 export type SmartForwardOverride = ReadonlyMap<number, number>;
 
 /**
+ * Case-insensitive bidirectional substring match. A presigned counts as
+ * "in Guesty" if its name is contained in any Guesty name OR vice versa
+ * (covers naming variants like "16 Waterman" vs "16 Waterman Lane").
+ */
+function nameMatchesAny(name: string, names: ReadonlySet<string>): boolean {
+  const lower = name.toLowerCase();
+  for (const n of names) {
+    const ln = n.toLowerCase();
+    if (ln.includes(lower) || lower.includes(ln)) return true;
+  }
+  return false;
+}
+
+/**
  * Compute the 12-month forecast for a given year and count of hypothetical
  * new properties. `numNew` is clamped to [0, length of that year's
  * newOrder array].
@@ -334,13 +348,20 @@ export type SmartForwardOverride = ReadonlyMap<number, number>;
  * model substitutes real bank-derived values for months 1..actualsThroughMonth
  * and projects from `actualsThroughMonth + 1` onward. The substituted
  * MonthRow has `is_actual: true`.
+ *
+ * `smartForecastNames` (optional): set of property names visible in the
+ * Smart Forecast (i.e. already in Guesty). When the smart override is
+ * active, any presigned whose name matches one of these is skipped from
+ * the seasonality contribution to avoid double-counting — its revenue is
+ * already captured under rev_current via Smart Forecast.
  */
 export function calcYear(
   numNew: number,
   year: ForecastYear = 2026,
   actuals?: ActualsByMonth,
   actualsThroughMonth?: number,
-  smartOverride?: SmartForwardOverride
+  smartOverride?: SmartForwardOverride,
+  smartForecastNames?: ReadonlySet<string>
 ): YearResult {
   const config = getYearConfig(year);
   const maxNew = config.newOrder.length;
@@ -393,11 +414,12 @@ export function calcYear(
 
     // If we have a Smart Forecast value for this month, that becomes
     // rev_current — booked + projected from real Guesty data, with each
-    // property's actual mgmt fee. Pre-signed contracts run through
-    // seasonality regardless: they aren't in Guesty until they actually
-    // onboard, so smart forecast can't see them yet. If a presigned shows
-    // up in Guesty later, it'll start contributing through smart and the
-    // model will overcount — flag for review when that happens.
+    // property's actual mgmt fee. Pre-signed contracts normally run on
+    // seasonality (they aren't in Guesty until they onboard), but once a
+    // presigned shows up in Guesty its smart-forecast contribution is
+    // already inside `smartFee`, so we skip it here to avoid double
+    // counting. Synthetic presigned names (e.g. "Pre-signed #1") never
+    // match anything in Guesty and keep contributing via seasonality.
     const smartFee = smartOverride?.get(m);
     const useSmart = smartFee != null && smartFee > 0;
 
@@ -415,9 +437,14 @@ export function calcYear(
         if (m >= p.start) rev_current += p.fee * dist[p.type];
       }
     }
-    // Pre-signed contracts: always seasonality (none in Guesty yet).
+    // Pre-signed contracts: seasonality, except skip any that smart
+    // forecast already covers (only when the smart override is active for
+    // this month — falling back to seasonality means smart can't see
+    // them, so all presigneds must contribute).
     for (const p of config.presigned) {
-      if (m >= p.start) rev_presigned += p.fee * dist[p.type];
+      if (m < p.start) continue;
+      if (useSmart && smartForecastNames && nameMatchesAny(p.name, smartForecastNames)) continue;
+      rev_presigned += p.fee * dist[p.type];
     }
     // N new (slider) properties: always seasonality (hypothetical).
     for (const start of newStartMonths) {
