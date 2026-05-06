@@ -164,20 +164,34 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Per-reservation notes (out-of-band context, e.g. "Allie refunded
   // half because Guesty auto-charged"). Tolerates the table not
   // existing yet -- statements just render without notes when
-  // supabase-schema-reservation-notes.sql hasn't been applied.
-  const notesByCode = new Map<string, string>();
+  // supabase-schema-reservation-notes.sql hasn't been applied. Also
+  // tolerates the auxiliary columns (amounts_referenced,
+  // source_attachment_url) being absent so the older schema still
+  // renders the body text on its own.
+  type Note = {
+    body: string;
+    amounts_referenced: number[] | null;
+    source_attachment_url: string | null;
+  };
+  const notesByCode = new Map<string, Note>();
   if (confirmationCodes.length > 0) {
     const { data: notes, error: notesErr } = await supabase
       .from('reservation_notes')
-      .select('confirmation_code, body, created_at')
+      .select('confirmation_code, body, amounts_referenced, source_attachment_url, created_at')
       .in('confirmation_code', confirmationCodes)
       .order('created_at', { ascending: false });
     const isMissingTable = notesErr && (notesErr.code === 'PGRST205' || /does not exist|relation|Could not find the table/i.test(notesErr.message || ''));
     if (notesErr && !isMissingTable) {
       console.warn('reservation_notes lookup failed:', notesErr.message);
     } else if (notes) {
-      for (const n of notes as { confirmation_code: string; body: string; created_at: string }[]) {
-        if (!notesByCode.has(n.confirmation_code)) notesByCode.set(n.confirmation_code, n.body);
+      for (const n of notes as { confirmation_code: string; body: string; amounts_referenced: number[] | null; source_attachment_url: string | null }[]) {
+        if (!notesByCode.has(n.confirmation_code)) {
+          notesByCode.set(n.confirmation_code, {
+            body: n.body,
+            amounts_referenced: n.amounts_referenced || null,
+            source_attachment_url: n.source_attachment_url || null,
+          });
+        }
       }
     }
   }
@@ -365,7 +379,16 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
       ? (lookup?.guesty_channel_id || lookup?.channel || r.platform || 'Direct')
       : r.platform;
     const note = r.confirmation_code ? notesByCode.get(r.confirmation_code) : undefined;
-    return { ...r, guest_name: displayName, platform: displayPlatform, nts, perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0, note };
+    return {
+      ...r,
+      guest_name: displayName,
+      platform: displayPlatform,
+      nts,
+      perNt: nts > 0 ? Math.round((r.adjusted_revenue || r.rental_income) / nts) : 0,
+      note: note?.body,
+      noteAmounts: note?.amounts_referenced || null,
+      noteAttachment: note?.source_attachment_url || null,
+    };
   });
 
   // Channel mix (uses enriched platform values from rows)
@@ -502,7 +525,18 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                           <div className="guest">{titleCase(r.guest_name)}</div>
                           <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
                           {r.note && (
-                            <div className="guest-note">{r.note}</div>
+                            <div className="guest-note">
+                              {r.note}
+                              {r.noteAmounts && r.noteAmounts.length > 0 && (
+                                <div className="guest-note-amounts">
+                                  {r.noteAmounts.map((n: number, idx: number) => (
+                                    <span key={idx} className={n < 0 ? 'amt-out' : 'amt-in'}>
+                                      {n < 0 ? '−$' : '+$'}{Math.abs(n).toFixed(2)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
@@ -742,6 +776,9 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .guest { font-family:var(--serif); font-weight:500; font-size:13px; color:var(--ink); line-height:1.2; }
 .guest-sub { font-size:10px; color:var(--ink-4); font-family:var(--sans); margin-top:1px; }
 .guest-note { font-size:10px; color:var(--ink-3); font-family:var(--serif); font-style:italic; margin-top:3px; max-width:240px; line-height:1.35; border-left:1px solid var(--rule); padding-left:6px; }
+.guest-note-amounts { font-style:normal; font-family:var(--mono); font-size:9px; letter-spacing:.04em; margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; }
+.guest-note-amounts .amt-out { color:var(--negative); }
+.guest-note-amounts .amt-in { color:var(--positive); }
 .stay-dates { font-size:12px; color:var(--ink-2); font-weight:500; }
 .channel { display:inline-flex; align-items:center; gap:6px; padding:2px 7px 2px 6px; border:1px solid var(--rule); background:var(--paper-2); border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-2); }
 .channel .dot { width:6px; height:6px; border-radius:50%; }
