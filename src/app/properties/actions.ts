@@ -117,3 +117,41 @@ export async function updateProperty(id: string, formData: FormData) {
   revalidatePath(`/properties/${id}/wifi-placard`);
   redirect(`/properties/${id}`);
 }
+
+export type OwnerContactChannel = 'email' | 'phone' | 'sms' | 'in_person' | 'other';
+
+const VALID_CHANNELS: OwnerContactChannel[] = ['email', 'phone', 'sms', 'in_person', 'other'];
+
+/**
+ * Stamp the property's owner_last_contacted_* trio. Used by the
+ * MarkContactedButton on /properties/[id] for off-thread touches that
+ * aren't tied to a specific owner-action work slip (the slip-driven path
+ * still writes to work_slips.owner_last_contacted_at).
+ *
+ * The Owner section's "Last contacted" line takes the MAX of both columns
+ * so this composes cleanly with #136 / #147.
+ */
+export async function markOwnerContacted(args: {
+  property_id: string;
+  channel: OwnerContactChannel;
+}): Promise<{ ok: true; at: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!args.property_id) return { ok: false, error: 'Missing property_id' };
+  if (!VALID_CHANNELS.includes(args.channel)) return { ok: false, error: 'Invalid channel' };
+
+  const at = new Date().toISOString();
+  const { error } = await supabase
+    .from('properties')
+    .update({
+      owner_last_contacted_at: at,
+      owner_last_contacted_via: args.channel,
+      owner_last_contacted_by_email: session.user.email,
+    })
+    .eq('id', args.property_id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/properties');
+  revalidatePath(`/properties/${args.property_id}`);
+  return { ok: true, at };
+}

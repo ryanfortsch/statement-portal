@@ -12,6 +12,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
+import { MarkContactedButton } from './MarkContactedButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -91,19 +92,44 @@ async function getRecentInspections(propertyId: string): Promise<RecentInspectio
   }
 }
 
-async function getLatestOwnerContact(propertyId: string): Promise<string | null> {
+type ContactVia = 'email' | 'phone' | 'sms' | 'in_person' | 'other' | 'work-slip-email';
+type LatestOwnerContact = {
+  at: string;
+  via: ContactVia;
+  by_email: string | null;
+} | null;
+
+/**
+ * Returns the most-recent owner contact for this property, considering both
+ * sources:
+ *   1. properties.owner_last_contacted_at (free-form touches via the
+ *      MarkContactedButton)
+ *   2. MAX(work_slips.owner_last_contacted_at) on this property (Draft
+ *      Owner Email path from #136)
+ *
+ * Whichever is more recent wins. Returns null if no contact has ever been
+ * recorded.
+ */
+async function getLatestOwnerContact(propertyId: string, p: HelmPropertyRow): Promise<LatestOwnerContact> {
   if (!isHelmConfigured) return null;
   try {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('work_slips')
       .select('owner_last_contacted_at')
       .eq('property_id', propertyId)
       .not('owner_last_contacted_at', 'is', null)
       .order('owner_last_contacted_at', { ascending: false })
       .limit(1);
-    if (error) throw error;
-    const row = (data ?? [])[0] as { owner_last_contacted_at: string | null } | undefined;
-    return row?.owner_last_contacted_at ?? null;
+    const slipAt = ((data ?? [])[0] as { owner_last_contacted_at: string | null } | undefined)?.owner_last_contacted_at ?? null;
+    const propAt = p.owner_last_contacted_at;
+    const propVia = (p.owner_last_contacted_via as ContactVia | null) ?? 'other';
+
+    if (!slipAt && !propAt) return null;
+    if (!propAt) return { at: slipAt!, via: 'work-slip-email', by_email: null };
+    if (!slipAt) return { at: propAt, via: propVia, by_email: p.owner_last_contacted_by_email };
+    return propAt > slipAt
+      ? { at: propAt, via: propVia, by_email: p.owner_last_contacted_by_email }
+      : { at: slipAt, via: 'work-slip-email', by_email: null };
   } catch {
     return null;
   }
@@ -173,7 +199,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
-    getLatestOwnerContact(p.id),
+    getLatestOwnerContact(p.id, p),
     auth(),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -696,10 +722,20 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
             <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
             <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
-            <Detail
-              term="Last contacted"
-              definition={latestOwnerContact ? formatRelativeOrAbsolute(latestOwnerContact) : '—'}
-            />
+            <div>
+              <dt className="eyebrow" style={{ marginBottom: 4 }}>Last contacted</dt>
+              <dd style={{ color: 'var(--ink)', fontSize: 14, margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <span>
+                  {latestOwnerContact ? formatRelativeOrAbsolute(latestOwnerContact.at) : '—'}
+                  {latestOwnerContact?.via && (
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                      ({contactChannelLabel(latestOwnerContact.via)})
+                    </span>
+                  )}
+                </span>
+                <MarkContactedButton propertyId={p.id} />
+              </dd>
+            </div>
             <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
           </dl>
         </div>
@@ -999,6 +1035,18 @@ function formatDate(value: string | null): string {
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return value;
+  }
+}
+
+function contactChannelLabel(via: ContactVia): string {
+  switch (via) {
+    case 'email': return 'email';
+    case 'phone': return 'phone';
+    case 'sms': return 'text';
+    case 'in_person': return 'in person';
+    case 'work-slip-email': return 'owner-action email';
+    case 'other': return 'other';
+    default: return via;
   }
 }
 
