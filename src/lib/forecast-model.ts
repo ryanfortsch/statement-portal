@@ -255,6 +255,12 @@ export type MonthRow = {
 
   /** Revenue minus business expenses — the bottom line for this model. */
   net_business: number;
+
+  /**
+   * True when this row's numbers are actual bank-derived data (a past
+   * month with a complete record) rather than the model's projection.
+   */
+  is_actual: boolean;
 };
 
 export type YearResult = {
@@ -273,19 +279,84 @@ export type YearResult = {
   };
 };
 
+/** Optional actuals override for past months. Index = month - 1. */
+export type ActualsByMonth = ReadonlyArray<{
+  month: string; // YYYY-MM
+  revenue: number;
+  exp_office: number;
+  exp_software: number;
+  exp_debt: number;
+  exp_insurance: number;
+  exp_accounting: number;
+  exp_bank: number;
+  exp_cc_ops: number;
+  exp_hire: number;
+  exp_onboard_presigned: number;
+  exp_onboard_new: number;
+}>;
+
 /**
  * Compute the 12-month forecast for a given year and count of hypothetical
  * new properties. `numNew` is clamped to [0, length of that year's
  * newOrder array].
+ *
+ * `actuals` (optional): when provided alongside `actualsThroughMonth`, the
+ * model substitutes real bank-derived values for months 1..actualsThroughMonth
+ * and projects from `actualsThroughMonth + 1` onward. The substituted
+ * MonthRow has `is_actual: true`.
  */
-export function calcYear(numNew: number, year: ForecastYear = 2026): YearResult {
+export function calcYear(
+  numNew: number,
+  year: ForecastYear = 2026,
+  actuals?: ActualsByMonth,
+  actualsThroughMonth?: number
+): YearResult {
   const config = getYearConfig(year);
   const maxNew = config.newOrder.length;
   const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
   const newStartMonths: number[] = config.newOrder.slice(0, n);
+  const useActualsThrough = actuals && actualsThroughMonth ? actualsThroughMonth : 0;
 
   const monthly: MonthRow[] = [];
   for (let m = 1; m <= 12; m++) {
+    // ─── Past month: use bank-derived actuals ──────────────────────────
+    if (m <= useActualsThrough && actuals && actuals[m - 1]) {
+      const a = actuals[m - 1];
+      const exp_total =
+        a.exp_office +
+        a.exp_software +
+        a.exp_debt +
+        a.exp_insurance +
+        a.exp_accounting +
+        a.exp_bank +
+        a.exp_cc_ops +
+        a.exp_hire +
+        a.exp_onboard_presigned +
+        a.exp_onboard_new;
+      monthly.push({
+        month: m,
+        rev_current: a.revenue, // attribute everything to current portfolio
+        rev_presigned: 0,
+        rev_new: 0,
+        rev_total: a.revenue,
+        exp_office: a.exp_office,
+        exp_software: a.exp_software,
+        exp_debt: a.exp_debt,
+        exp_insurance: a.exp_insurance,
+        exp_accounting: a.exp_accounting,
+        exp_bank: a.exp_bank,
+        exp_cc_ops: a.exp_cc_ops,
+        exp_hire: a.exp_hire,
+        exp_onboard_presigned: a.exp_onboard_presigned,
+        exp_onboard_new: a.exp_onboard_new,
+        exp_total,
+        net_business: a.revenue - exp_total,
+        is_actual: true,
+      });
+      continue;
+    }
+
+    // ─── Future month: project from the model ──────────────────────────
     const i = m - 1;
     const dist = { CA: SEASON.CA[i], FL: SEASON.FL[i], LS: SEASON.LS[i] };
 
@@ -356,6 +427,7 @@ export function calcYear(numNew: number, year: ForecastYear = 2026): YearResult 
       exp_onboard_new,
       exp_total,
       net_business,
+      is_actual: false,
     });
   }
 

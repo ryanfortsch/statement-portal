@@ -24,6 +24,8 @@ import {
   ACTUALS_INFLOWS_TRAILING_12MO,
   ACTUALS_INFLOWS_BY_MONTH,
   ACTUALS_WINDOW,
+  ACTUALS_2026,
+  ACTUALS_2026_THROUGH_MONTH,
   type ExpenseLine,
 } from '@/lib/forecast-actuals';
 
@@ -34,10 +36,17 @@ export function ForecastClient() {
   const [yearKey, setYearKey] = useState<ForecastYear>(2026);
 
   const yearConfig = useMemo(() => getYearConfig(yearKey), [yearKey]);
-  const year = useMemo(() => calcYear(numNew, yearKey), [numNew, yearKey]);
+  // Substitute bank-derived actuals for completed 2026 months (Jan-Apr).
+  // 2027 is fully projected.
+  const actualsForYear = yearKey === 2026 ? ACTUALS_2026 : undefined;
+  const actualsThrough = yearKey === 2026 ? ACTUALS_2026_THROUGH_MONTH : undefined;
+  const year = useMemo(
+    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough),
+    [numNew, yearKey, actualsForYear, actualsThrough]
+  );
   const scenarios = useMemo(
-    () => SCENARIO_RANGE.map((n) => ({ n, year: calcYear(n, yearKey) })),
-    [yearKey]
+    () => SCENARIO_RANGE.map((n) => ({ n, year: calcYear(n, yearKey, actualsForYear, actualsThrough) })),
+    [yearKey, actualsForYear, actualsThrough]
   );
 
   /** Switch year, clamping numNew to the new year's max if needed. */
@@ -443,7 +452,7 @@ function RealityCheck() {
               {fmtCents(totalActual12mo)}
             </td>
             <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Inflows trailing 12-mo: {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in)} mgmt fee + {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.platform_revenue)} platform pass-through + {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion)} Fidelity infusion.
+              Mgmt fee inflows trailing 12-mo: {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in)}. Plus {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion)} Fidelity capital infusion when ops needed cushion. Platform direct deposits are pass-through to owners and don't represent RT income.
             </td>
           </tr>
         </tbody>
@@ -1205,8 +1214,8 @@ function ForecastTable({
       <thead>
         <tr>
           <Th first>&nbsp;</Th>
-          {MONTH_LABELS.map((m) => (
-            <Th key={m}>{m}</Th>
+          {MONTH_LABELS.map((m, i) => (
+            <Th key={m} actual={monthly[i]?.is_actual}>{m}</Th>
           ))}
           <Th totals>FY</Th>
         </tr>
@@ -1246,10 +1255,12 @@ function Th({
   children,
   first,
   totals,
+  actual,
 }: {
   children: React.ReactNode;
   first?: boolean;
   totals?: boolean;
+  actual?: boolean;
 }) {
   return (
     <th
@@ -1266,7 +1277,21 @@ function Th({
         width: first ? 220 : 'auto',
       }}
     >
-      {children}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+        <span>{children}</span>
+        {actual && (
+          <span
+            style={{
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: '.1em',
+              color: 'var(--signal-soft)',
+            }}
+          >
+            ACT
+          </span>
+        )}
+      </div>
     </th>
   );
 }

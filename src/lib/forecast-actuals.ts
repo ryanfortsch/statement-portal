@@ -271,3 +271,104 @@ export const ACTUALS_WINDOW = {
   txCount: 433,
   exportFile: 'Chase5130_Activity_20260506.CSV',
 } as const;
+
+/* ===================================================================== */
+/* 2026 monthly actuals — by activity month                              */
+/* ===================================================================== */
+
+/**
+ * Precise actuals for each completed month of 2026, keyed to the model's
+ * expense buckets in forecast-model.ts. Used by `calcYear` to replace the
+ * modeled assumption for past months — so the Monthly Detail table shows
+ * what actually happened through April, then the model's projection from
+ * May onward.
+ *
+ * Convention:
+ *   - revenue = mgmt fee earned this activity month (swept first weekday
+ *     of the following month).
+ *   - exp_*   = cash that left the bank this calendar month, mapped into
+ *     the model's expense bucket. Lumpy items (Phillips annual, MS
+ *     Consultants quarterly) sit in the month they actually paid, NOT
+ *     smoothed across the year — matches reality.
+ *   - exp_cc_ops folds in the Chase CC payment + Allie's autopay +
+ *     subcontractor Zelle + maintenance Zelle, since the model's
+ *     "operating CC" line is the catch-all for variable ops spend.
+ *   - exp_bank excludes the Jan 2026 deposit-return wash ($1,208.78
+ *     deposited then reversed — net zero, not a real fee).
+ */
+export type MonthlyActual = {
+  month: string; // YYYY-MM (activity month for revenue, calendar month for expenses)
+  revenue: number;
+  exp_office: number;
+  exp_software: number;
+  exp_debt: number;
+  exp_insurance: number;
+  exp_accounting: number;
+  exp_bank: number;
+  exp_cc_ops: number;
+  exp_hire: number;
+  exp_onboard_presigned: number;
+  exp_onboard_new: number;
+};
+
+export const ACTUALS_2026: MonthlyActual[] = [
+  {
+    month: '2026-01',
+    revenue: 2165.90, // swept Feb 2
+    exp_office: 0,
+    exp_software: 68.00, // Gusto fee
+    exp_debt: 937.50, // MH Partners
+    exp_insurance: 0,
+    exp_accounting: 0,
+    exp_bank: 0, // $1,208.78 deposit return is a wash, not a fee
+    exp_cc_ops: 4464.42, // CC $3,054.42 + Mark Bell $1,410.00
+    exp_hire: 0,
+    exp_onboard_presigned: 0,
+    exp_onboard_new: 0,
+  },
+  {
+    month: '2026-02',
+    revenue: 1828.16, // swept Mar 2
+    exp_office: 1500.00, // catch-up + Feb
+    exp_software: 73.00,
+    exp_debt: 937.50,
+    exp_insurance: 0,
+    exp_accounting: 0,
+    exp_bank: 0,
+    exp_cc_ops: 3561.32, // CC $3,411.32 + Mateo $150
+    exp_hire: 0,
+    exp_onboard_presigned: 0,
+    exp_onboard_new: 0,
+  },
+  {
+    month: '2026-03',
+    revenue: 2395.25, // swept Apr 3
+    exp_office: 0,
+    exp_software: 68.00,
+    exp_debt: 986.42, // MH $937.50 + cleanup $48.92
+    exp_insurance: 5263.92, // Phillips annual
+    exp_accounting: 0,
+    exp_bank: 0,
+    exp_cc_ops: 6637.24, // CC $6,597.24 + Allie $40.00
+    exp_hire: 0,
+    exp_onboard_presigned: 0,
+    exp_onboard_new: 0,
+  },
+  {
+    month: '2026-04',
+    revenue: 7869.23, // swept May 4
+    exp_office: 1500.00, // $750 × 2
+    exp_software: 0, // No Gusto fee posted in April
+    exp_debt: 937.50,
+    exp_insurance: 0,
+    exp_accounting: 4442.96, // MS Consultants
+    exp_bank: 30.00, // Stop payment fee
+    exp_cc_ops: 8290.00, // CC $8,000 + Allie $40 + Ian Drometer $250
+    exp_hire: 0,
+    exp_onboard_presigned: 0,
+    exp_onboard_new: 0,
+  },
+];
+
+/** Last activity month for which we have complete actuals (1-12). */
+export const ACTUALS_2026_THROUGH_MONTH = 4;
