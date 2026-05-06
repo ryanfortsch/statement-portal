@@ -11,7 +11,8 @@ type ActivityKind =
   | 'plan-created'
   | 'property-note-created'
   | 'property-note-resolved'
-  | 'property-contacted';
+  | 'property-contacted'
+  | 'contact-touch';
 
 type ActivityEvent = {
   at: string;             // ISO timestamp
@@ -35,6 +36,7 @@ const KIND_GLYPH: Record<ActivityKind, string> = {
   'property-note-created': '✎',
   'property-note-resolved': '✕',
   'property-contacted': '☎',
+  'contact-touch': '☎',
 };
 
 const KIND_COLOR: Record<ActivityKind, string> = {
@@ -46,6 +48,7 @@ const KIND_COLOR: Record<ActivityKind, string> = {
   'property-note-created': 'var(--ink-3)',
   'property-note-resolved': 'var(--positive)',
   'property-contacted': 'var(--signal)',
+  'contact-touch': 'var(--signal)',
 };
 
 /**
@@ -148,7 +151,18 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
   // slips so the feed shows historical lifecycle, not just open work).
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [slipsRes, inspectionsRes, plansRes, notesRes] = await Promise.all([
+  // Pull contact ids whose linked_property_ids includes this property.
+  // Used as a key list for the contact_touches join below.
+  const { data: linkedContactsData } = await supabase
+    .from('contacts')
+    .select('id, name')
+    .contains('linked_property_ids', [p.id]);
+  const linkedContactIds = ((linkedContactsData ?? []) as Array<{ id: string; name: string }>).map((c) => c.id);
+  const linkedContactNames = new Map<string, string>(
+    ((linkedContactsData ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name]),
+  );
+
+  const [slipsRes, inspectionsRes, plansRes, notesRes, touchesRes] = await Promise.all([
     supabase
       .from('work_slips')
       .select('id, title, status, priority, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at, owner_action_type, owner_action_required')
@@ -178,6 +192,18 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
       .gte('created_at', ninetyDaysAgo)
       .order('created_at', { ascending: false })
       .limit(20),
+    linkedContactIds.length > 0
+      ? supabase
+          .from('contact_touches')
+          .select('id, contact_id, touched_at, channel, summary, by_email')
+          .in('contact_id', linkedContactIds)
+          .gte('touched_at', ninetyDaysAgo)
+          .order('touched_at', { ascending: false })
+          .limit(40)
+      : Promise.resolve({ data: [] as Array<{
+          id: string; contact_id: string; touched_at: string;
+          channel: string; summary: string; by_email: string;
+        }> }),
   ]);
 
   for (const s of (slipsRes.data ?? []) as Array<{
@@ -279,6 +305,24 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
       kind: 'property-contacted',
       actor: p.owner_last_contacted_by_email,
       label: `noted owner contact (${channel.replace('_', ' ')})`,
+    });
+  }
+
+  // CRM contact touches on any contact linked to this property (#161).
+  // Surfaces vendor/lead conversations alongside owner conversations
+  // since they all live on the same property's history.
+  for (const t of (touchesRes.data ?? []) as Array<{
+    id: string; contact_id: string; touched_at: string;
+    channel: string; summary: string; by_email: string;
+  }>) {
+    const contactName = linkedContactNames.get(t.contact_id) ?? 'a contact';
+    const channel = t.channel.replace('_', ' ');
+    events.push({
+      at: t.touched_at,
+      kind: 'contact-touch',
+      actor: t.by_email,
+      label: `logged ${channel} touch with ${contactName}: "${truncate(t.summary, 60)}"`,
+      href: `/crm/${t.contact_id}`,
     });
   }
 
