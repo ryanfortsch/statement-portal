@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   type WorkSlipRow,
   type TaskRow,
@@ -38,12 +38,59 @@ type Props = {
   myEmail: string;
 };
 
-type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed';
+type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action';
+type TabId = 'all' | 'slips' | 'tasks';
+
+const FILTER_IDS: FilterId[] = ['all', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action'];
+const TAB_IDS: TabId[] = ['all', 'slips', 'tasks'];
+
+function parseFilter(value: string | null): FilterId {
+  if (!value) return 'all';
+  return (FILTER_IDS as string[]).includes(value) ? (value as FilterId) : 'all';
+}
+function parseTab(value: string | null): TabId {
+  if (!value) return 'all';
+  return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
+}
 
 export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<'all' | 'slips' | 'tasks'>('all');
-  const [filter, setFilter] = useState<FilterId>('all');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const initialFilter = parseFilter(searchParams.get('filter'));
+  const initialTab = parseTab(searchParams.get('tab'));
+  const [tab, setTabState] = useState<TabId>(initialTab);
+  const [filter, setFilterState] = useState<FilterId>(initialFilter);
+
+  // Keep state in sync if the URL changes (e.g. browser back/forward, or
+  // landing on the page from a deep link with a different filter/tab).
+  useEffect(() => {
+    const nextFilter = parseFilter(searchParams.get('filter'));
+    setFilterState((curr) => (curr === nextFilter ? curr : nextFilter));
+    const nextTab = parseTab(searchParams.get('tab'));
+    setTabState((curr) => (curr === nextTab ? curr : nextTab));
+  }, [searchParams]);
+
+  // URL writer used by both setters. router.replace keeps the queue from
+  // piling up history entries on every pill toggle.
+  function writeUrl(nextFilter: FilterId, nextTab: TabId) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextFilter === 'all') params.delete('filter');
+    else params.set('filter', nextFilter);
+    if (nextTab === 'all') params.delete('tab');
+    else params.set('tab', nextTab);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+  function setFilter(next: FilterId) {
+    setFilterState(next);
+    writeUrl(next, tab);
+  }
+  function setTab(next: TabId) {
+    setTabState(next);
+    writeUrl(filter, next);
+  }
   const [showSlipModal, setShowSlipModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [slipPrefillProperty, setSlipPrefillProperty] = useState<string | null>(null);
@@ -140,6 +187,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
       if (filter === 'high' && w.priority !== 'high') return false;
       if (filter === 'due-today' && w.scheduled_date !== todayIso) return false;
       if (filter === 'unclaimed' && (w.assigned_to_type !== 'unassigned' || w.assigned_to_email)) return false;
+      if (filter === 'owner-action' && !w.owner_action_required) return false;
       return true;
     });
   }, [workSlips, filter, myEmail, todayIso]);
@@ -150,6 +198,9 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
       if (filter === 'high' && t.priority !== 'high') return false;
       if (filter === 'due-today' && t.due_date !== todayIso) return false;
       if (filter === 'unclaimed' && t.assigned_to_email) return false;
+      // Owner-action filter is slip-only — return false on tasks so the
+      // tasks section collapses cleanly when this filter is active.
+      if (filter === 'owner-action') return false;
       return true;
     });
   }, [tasks, filter, myEmail, todayIso]);
@@ -192,6 +243,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
     unclaimed:
       workSlips.filter((w) => w.assigned_to_type === 'unassigned' && !w.assigned_to_email).length +
       tasks.filter((t) => !t.assigned_to_email).length,
+    ownerAction: workSlips.filter((w) => w.owner_action_required).length,
   };
 
   const showSlipsSection = tab !== 'tasks';
@@ -241,6 +293,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
           <Pill active={filter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
           <Pill active={filter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
           <Pill active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
+          <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
         </div>
       </section>
 
