@@ -18,13 +18,14 @@ type PropertyForPicker = {
 
 async function getData(): Promise<{
   workSlips: WorkSlipRow[];
+  snoozedSlips: WorkSlipRow[];
   tasks: TaskRow[];
   properties: PropertyForPicker[];
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
 }> {
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [{ data: ws }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
+  const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
     supabase
       .from('work_slips')
       .select('*')
@@ -32,6 +33,14 @@ async function getData(): Promise<{
       .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false }),
+    // Snoozed bucket — only future-snoozed slips, surfaced via the
+    // "Snoozed" filter pill on the queue.
+    supabase
+      .from('work_slips')
+      .select('*')
+      .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .gt('snoozed_until', todayIso)
+      .order('snoozed_until', { ascending: true }),
     supabase
       .from('tasks')
       .select('*')
@@ -61,6 +70,7 @@ async function getData(): Promise<{
 
   return {
     workSlips: (ws ?? []) as WorkSlipRow[],
+    snoozedSlips: (snz ?? []) as WorkSlipRow[],
     tasks: (tk ?? []) as TaskRow[],
     properties: (ps ?? []) as PropertyForPicker[],
     slipCommentCounts,
@@ -70,7 +80,7 @@ async function getData(): Promise<{
 
 export default async function WorkQueuePage() {
   const session = await auth();
-  const { workSlips, tasks, properties, slipCommentCounts, taskCommentCounts } = await getData();
+  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts } = await getData();
   const myEmail = session?.user?.email ?? '';
 
   return (
@@ -79,6 +89,7 @@ export default async function WorkQueuePage() {
 
       <QueueClient
         workSlips={workSlips}
+        snoozedSlips={snoozedSlips}
         tasks={tasks}
         properties={properties}
         myEmail={myEmail}

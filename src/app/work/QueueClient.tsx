@@ -33,6 +33,7 @@ type PropertyForPicker = {
 
 type Props = {
   workSlips: WorkSlipRow[];
+  snoozedSlips: WorkSlipRow[];
   tasks: TaskRow[];
   properties: PropertyForPicker[];
   myEmail: string;
@@ -40,10 +41,10 @@ type Props = {
   taskCommentCounts: Record<string, number>;
 };
 
-type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action';
+type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
 type TabId = 'all' | 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action'];
+const FILTER_IDS: FilterId[] = ['all', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
 const TAB_IDS: TabId[] = ['all', 'slips', 'tasks'];
 
 function parseFilter(value: string | null): FilterId {
@@ -55,7 +56,7 @@ function parseTab(value: string | null): TabId {
   return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
 }
 
-export function QueueClient({ workSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
+export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -184,7 +185,10 @@ export function QueueClient({ workSlips, tasks, properties, myEmail, slipComment
   const todayIso = new Date().toISOString().slice(0, 10);
 
   const filteredSlips = useMemo(() => {
-    return workSlips.filter((w) => {
+    // Snoozed pill switches the source bucket entirely — operator wants
+    // to see what they pushed off, not what's active.
+    const source = filter === 'snoozed' ? snoozedSlips : workSlips;
+    return source.filter((w) => {
       if (filter === 'mine' && w.assigned_to_email !== myEmail) return false;
       if (filter === 'high' && w.priority !== 'high') return false;
       if (filter === 'due-today' && w.scheduled_date !== todayIso) return false;
@@ -192,7 +196,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail, slipComment
       if (filter === 'owner-action' && !w.owner_action_required) return false;
       return true;
     });
-  }, [workSlips, filter, myEmail, todayIso]);
+  }, [workSlips, snoozedSlips, filter, myEmail, todayIso]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -200,9 +204,9 @@ export function QueueClient({ workSlips, tasks, properties, myEmail, slipComment
       if (filter === 'high' && t.priority !== 'high') return false;
       if (filter === 'due-today' && t.due_date !== todayIso) return false;
       if (filter === 'unclaimed' && t.assigned_to_email) return false;
-      // Owner-action filter is slip-only — return false on tasks so the
-      // tasks section collapses cleanly when this filter is active.
+      // Slip-only filters: collapse tasks section when these are active.
       if (filter === 'owner-action') return false;
+      if (filter === 'snoozed') return false;
       return true;
     });
   }, [tasks, filter, myEmail, todayIso]);
@@ -246,6 +250,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail, slipComment
       workSlips.filter((w) => w.assigned_to_type === 'unassigned' && !w.assigned_to_email).length +
       tasks.filter((t) => !t.assigned_to_email).length,
     ownerAction: workSlips.filter((w) => w.owner_action_required).length,
+    snoozed: snoozedSlips.length,
   };
 
   const showSlipsSection = tab !== 'tasks';
@@ -296,6 +301,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail, slipComment
           <Pill active={filter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
           <Pill active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
           <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
+          <Pill active={filter === 'snoozed'} onClick={() => setFilter('snoozed')} label="Snoozed" count={counts.snoozed} accent="var(--tide-deep)" />
         </div>
       </section>
 
