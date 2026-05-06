@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   type WorkSlipRow,
@@ -371,41 +372,51 @@ function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: '12px 1fr auto auto auto',
+        display: 'flex',
+        alignItems: 'center',
         gap: 14,
-        alignItems: 'baseline',
         padding: '12px 0 12px 56px',
         borderTop: '1px dotted var(--rule-soft)',
       }}
     >
-      <span
+      <Link
+        href={`/work/${slip.id}`}
         style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background:
-            slip.priority === 'high' ? 'var(--negative)' :
-            slip.priority === 'normal' ? 'var(--ink-3)' :
-            'var(--ink-4)',
-          display: 'inline-block',
-          alignSelf: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          flex: 1,
+          textDecoration: 'none',
+          color: 'inherit',
         }}
-      />
-      <div>
-        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
-        <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
-          {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-          {slip.assigned_to_label || (slip.assigned_to_email ? slip.assigned_to_email.split('@')[0] : 'Unclaimed')}
-          {slip.location ? ` · ${slip.location}` : ''}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background:
+              slip.priority === 'high' ? 'var(--negative)' :
+              slip.priority === 'normal' ? 'var(--ink-3)' :
+              'var(--ink-4)',
+            flexShrink: 0,
+          }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+          <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
+            {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
+            {slip.assigned_to_label || (slip.assigned_to_email ? slip.assigned_to_email.split('@')[0] : 'Unclaimed')}
+            {slip.location ? ` · ${slip.location}` : ''}
+          </div>
         </div>
-      </div>
-      <span style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
-        {slip.priority}
-      </span>
-      <span style={pillTinyStyle('var(--ink-3)')}>
-        {slip.status.replace('_', ' ')}
-      </span>
+        <span style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
+          {slip.priority}
+        </span>
+        <span style={pillTinyStyle('var(--ink-3)')}>
+          {slip.status.replace('_', ' ')}
+        </span>
+      </Link>
       <button
         type="button"
         onClick={markDone}
@@ -418,6 +429,7 @@ function WorkSlipRowItem({ slip }: { slip: WorkSlipRow }) {
           textTransform: 'uppercase',
           color: 'var(--positive)',
           cursor: 'pointer',
+          flexShrink: 0,
         }}
       >
         ✓ Done
@@ -441,42 +453,52 @@ function TaskRowItem({ task }: { task: TaskRow }) {
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: '12px 1fr auto auto auto',
+        display: 'flex',
+        alignItems: 'center',
         gap: 14,
-        alignItems: 'baseline',
         padding: '14px 0',
         borderBottom: '1px solid var(--rule)',
       }}
     >
-      <span
+      <Link
+        href={`/work/tasks/${task.id}`}
         style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background:
-            task.priority === 'high' ? 'var(--negative)' :
-            task.priority === 'medium' ? 'var(--ink-3)' :
-            'var(--ink-4)',
-          display: 'inline-block',
-          alignSelf: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          flex: 1,
+          textDecoration: 'none',
+          color: 'inherit',
         }}
-      />
-      <div>
-        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{task.title}</div>
-        {task.description && (
-          <div style={{ marginTop: 3, fontSize: 12, color: 'var(--ink-3)' }}>{task.description}</div>
-        )}
-        <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
-          {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-          {task.assigned_to_email ? task.assigned_to_email.split('@')[0] : 'Unassigned'}
-          {task.due_date ? ` · due ${task.due_date}` : ''}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background:
+              task.priority === 'high' ? 'var(--negative)' :
+              task.priority === 'medium' ? 'var(--ink-3)' :
+              'var(--ink-4)',
+            flexShrink: 0,
+          }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{task.title}</div>
+          {task.description && (
+            <div style={{ marginTop: 3, fontSize: 12, color: 'var(--ink-3)' }}>{task.description}</div>
+          )}
+          <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
+            {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
+            {task.assigned_to_email ? task.assigned_to_email.split('@')[0] : 'Unassigned'}
+            {task.due_date ? ` · due ${task.due_date}` : ''}
+          </div>
         </div>
-      </div>
-      <span style={pillTinyStyle(task.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
-        {task.priority}
-      </span>
-      <span style={pillTinyStyle('var(--ink-3)')}>{task.status.replace('_', ' ')}</span>
+        <span style={pillTinyStyle(task.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
+          {task.priority}
+        </span>
+        <span style={pillTinyStyle('var(--ink-3)')}>{task.status.replace('_', ' ')}</span>
+      </Link>
       <button
         type="button"
         onClick={markDone}
@@ -489,6 +511,7 @@ function TaskRowItem({ task }: { task: TaskRow }) {
           textTransform: 'uppercase',
           color: 'var(--positive)',
           cursor: 'pointer',
+          flexShrink: 0,
         }}
       >
         ✓ Done

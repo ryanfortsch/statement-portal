@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -153,5 +154,92 @@ export async function updateTaskStatus(args: {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/work');
+  revalidatePath(`/work/tasks/${args.id}`);
+  return { ok: true };
+}
+
+/**
+ * Full update for a task from the detail page. Pass undefined to leave
+ * a field unchanged. Pass null (or empty string for trimmable fields) to
+ * explicitly clear a nullable field.
+ */
+export async function updateTask(args: {
+  id: string;
+  title?: string;
+  description?: string | null;
+  scope?: TaskScope;
+  property_ids?: string[] | null;
+  assigned_to_email?: string | null;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  due_date?: string | null;
+  tags?: string[] | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const patch: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (k === 'id') continue;
+    if (v === undefined) continue;
+    if (typeof v === 'string') patch[k] = v.trim() || null;
+    else if (Array.isArray(v)) patch[k] = v.length > 0 ? v : null;
+    else patch[k] = v;
+  }
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  const { error } = await supabase.from('tasks').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/tasks/${args.id}`);
+  return { ok: true };
+}
+
+export async function deleteTask(args: { id: string }): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+  const { error } = await supabase.from('tasks').delete().eq('id', args.id);
+  if (error) throw new Error(error.message);
+  revalidatePath('/work');
+  redirect('/work');
+}
+
+export async function addTaskComment(args: {
+  task_id: string;
+  body: string;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const body = args.body.trim();
+  if (!body) return { ok: false, error: 'Comment is empty' };
+
+  const { data, error } = await supabase
+    .from('task_comments')
+    .insert({ task_id: args.task_id, author_email: session.user.email, body })
+    .select('id')
+    .single();
+  if (error || !data) return { ok: false, error: error?.message || 'Insert failed' };
+
+  revalidatePath(`/work/tasks/${args.task_id}`);
+  return { ok: true, id: (data as { id: string }).id };
+}
+
+export async function deleteTaskComment(args: {
+  id: string;
+  task_id: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  // Scoped to author so users can only remove their own comments.
+  const { error } = await supabase
+    .from('task_comments')
+    .delete()
+    .eq('id', args.id)
+    .eq('author_email', session.user.email);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/work/tasks/${args.task_id}`);
   return { ok: true };
 }
