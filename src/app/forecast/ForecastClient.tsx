@@ -66,17 +66,54 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
     return map;
   }, [smart2026, smart2027, yearKey]);
 
+  /**
+   * Calibration factor for 2027: ratio of (2026's actual+smart total)
+   * to (2026's seasonality-only total) for rev_current. Captures the
+   * "conservative contracted fees vs reality" gap and forwards it.
+   *
+   * For 2026 itself this is undefined — the year already gets calibrated
+   * directly via smart override on a per-month basis.
+   */
+  const smart2026OverrideForCalibration = useMemo(() => {
+    if (!smart2026) return undefined;
+    const map = new Map<number, number>();
+    for (const ym of smart2026.months) {
+      const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+      if (y !== 2026) continue;
+      let total = 0;
+      for (const p of smart2026.properties) {
+        const cell = p.monthly.find((c) => c.month === ym);
+        if (cell) total += cell.projectedMgmtFee;
+      }
+      if (total > 0) map.set(m, total);
+    }
+    return map;
+  }, [smart2026]);
+
+  const calibrationFactor = useMemo(() => {
+    if (yearKey !== 2027) return undefined;
+    // With smart override → calibrated 2026 rev_current
+    const calibrated = calcYear(0, 2026, ACTUALS_2026, ACTUALS_2026_THROUGH_MONTH, smart2026OverrideForCalibration);
+    // Without smart override → seasonality-only 2026 rev_current
+    const heuristic = calcYear(0, 2026, ACTUALS_2026, ACTUALS_2026_THROUGH_MONTH, undefined);
+    if (heuristic.totals.rev_current <= 0) return undefined;
+    const factor = calibrated.totals.rev_current / heuristic.totals.rev_current;
+    // Sanity bounds — never less than 1 (don't project DOWN), and cap at
+    // 3× to guard against weird inputs.
+    return Math.min(3, Math.max(1, factor));
+  }, [yearKey, smart2026OverrideForCalibration]);
+
   const year = useMemo(
-    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride]
+    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor),
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor]
   );
   const scenarios = useMemo(
     () =>
       SCENARIO_RANGE.map((n) => ({
         n,
-        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride),
+        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor),
       })),
-    [yearKey, actualsForYear, actualsThrough, smartOverride]
+    [yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor]
   );
 
   /** Switch year, clamping numNew to the new year's max if needed. */
@@ -1499,7 +1536,7 @@ function ForecastTable({
   const currentInfo =
     yearKey === 2026
       ? 'Past months (Jan-Apr) are bank actuals from Chase ...5130. Forward months use the Smart Forecast: real Guesty bookings × Gloucester pacing multiplier × each property\'s actual mgmt fee %. Falls back to seasonality if Guesty data is unavailable.'
-      : 'All 14 active properties full year (the original 9 + the 5 ex-presigned rolled forward). Smart Forecast where Guesty has data, seasonality otherwise.';
+      : 'All 14 active properties full year (the original 9 + the 5 ex-presigned rolled forward). Each month uses Smart Forecast where Guesty has 2027 bookings; otherwise seasonality scaled by the 2026 calibration factor (the smart-vs-heuristic gap from 2026) so 2027 reflects what the listings actually earn, not the conservative contracted fees.';
   const presignedLabel = 'Pre-signed 5';
   const presignedInfo =
     'Five contracts signed but not yet onboarded: Pre-signed #1, #2, #3, 79 Main Street, 16 Waterman. Two go live in May, three in June. Uses seasonality projection because they are not yet listed in Guesty.';

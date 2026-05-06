@@ -340,7 +340,15 @@ export function calcYear(
   year: ForecastYear = 2026,
   actuals?: ActualsByMonth,
   actualsThroughMonth?: number,
-  smartOverride?: SmartForwardOverride
+  smartOverride?: SmartForwardOverride,
+  /**
+   * Multiplier applied to seasonality-derived rev_current. Used to forward
+   * a calibration learned from a prior year's Smart Forecast — e.g., 2027
+   * passes a factor of ~1.3 so the conservative contracted annual fees
+   * scale up to what real listings actually earn. Only applies to months
+   * computed via seasonality (not smart override or actuals).
+   */
+  calibrationFactor?: number
 ): YearResult {
   const config = getYearConfig(year);
   const maxNew = config.newOrder.length;
@@ -413,6 +421,11 @@ export function calcYear(
       // No smart data — fall back to seasonality for current too.
       for (const p of config.current) {
         if (m >= p.start) rev_current += p.fee * dist[p.type];
+      }
+      // Apply forward-year calibration if we learned one from a prior
+      // year's smart forecast.
+      if (calibrationFactor && calibrationFactor > 0 && calibrationFactor !== 1) {
+        rev_current *= calibrationFactor;
       }
     }
     // Pre-signed contracts: always seasonality (none in Guesty yet).
