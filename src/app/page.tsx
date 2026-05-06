@@ -159,8 +159,31 @@ export default async function HelmHome() {
         eyebrow="The Bridge"
         title="Run Rising Tide from"
         emphasis="one place."
-        paddingBottom={36}
+        paddingBottom={20}
       />
+
+      {/* PERSONAL JUMP-OFF */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+        <Link
+          href="/me"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            fontWeight: 500,
+            color: 'var(--ink)',
+            textDecoration: 'none',
+            border: '1px solid var(--ink)',
+            padding: '8px 14px',
+            background: 'var(--paper)',
+          }}
+        >
+          What&rsquo;s on for you →
+        </Link>
+      </section>
 
       {/* OPERATIONAL SIGNALS STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
