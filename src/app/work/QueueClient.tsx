@@ -36,6 +36,8 @@ type Props = {
   tasks: TaskRow[];
   properties: PropertyForPicker[];
   myEmail: string;
+  slipCommentCounts: Record<string, number>;
+  taskCommentCounts: Record<string, number>;
 };
 
 type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action';
@@ -53,7 +55,7 @@ function parseTab(value: string | null): TabId {
   return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
 }
 
-export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
+export function QueueClient({ workSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -318,6 +320,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
                   myEmail={myEmail}
                   selectedIds={selectedSlipIds}
                   onToggleSelect={toggleSlip}
+                  commentCounts={slipCommentCounts}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -348,6 +351,7 @@ export function QueueClient({ workSlips, tasks, properties, myEmail }: Props) {
                   task={t}
                   selected={selectedTaskIds.has(t.id)}
                   onToggleSelect={toggleTask}
+                  commentCount={taskCommentCounts[t.id] ?? 0}
                 />
               ))}
             </div>
@@ -453,6 +457,7 @@ function PropertyGroup({
   slips,
   selectedIds,
   onToggleSelect,
+  commentCounts,
   onAddSlip,
 }: {
   property: PropertyForPicker | null;
@@ -460,6 +465,7 @@ function PropertyGroup({
   myEmail: string;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  commentCounts: Record<string, number>;
   onAddSlip: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -619,6 +625,7 @@ function PropertyGroup({
               slip={s}
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
+              commentCount={commentCounts[s.id] ?? 0}
             />
           ))}
         </div>
@@ -631,10 +638,12 @@ function WorkSlipRowItem({
   slip,
   selected,
   onToggleSelect,
+  commentCount,
 }: {
   slip: WorkSlipRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  commentCount: number;
 }) {
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -694,6 +703,9 @@ function WorkSlipRowItem({
             {slip.location ? ` · ${slip.location}` : ''}
           </div>
         </div>
+        {commentCount > 0 && (
+          <CommentBadge count={commentCount} />
+        )}
         <span style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
           {slip.priority}
         </span>
@@ -726,10 +738,12 @@ function TaskRowItem({
   task,
   selected,
   onToggleSelect,
+  commentCount,
 }: {
   task: TaskRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  commentCount: number;
 }) {
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -792,6 +806,9 @@ function TaskRowItem({
             {task.due_date ? ` · due ${task.due_date}` : ''}
           </div>
         </div>
+        {commentCount > 0 && (
+          <CommentBadge count={commentCount} />
+        )}
         <span style={pillTinyStyle(task.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
           {task.priority}
         </span>
@@ -1276,6 +1293,30 @@ function pillTinyStyle(color: string): React.CSSProperties {
     padding: '2px 8px',
     whiteSpace: 'nowrap',
   };
+}
+
+/**
+ * Compact "Nc" badge surfaced on queue rows when an item has comments.
+ * Editorial-style label (rule-bordered pill, "c" suffix for comment) so
+ * it sits cleanly alongside the priority + status pills.
+ */
+function CommentBadge({ count }: { count: number }) {
+  return (
+    <span
+      title={`${count} comment${count === 1 ? '' : 's'} on this thread`}
+      style={{
+        fontSize: 9,
+        letterSpacing: '.04em',
+        fontWeight: 600,
+        color: 'var(--tide-deep)',
+        border: '1px solid var(--tide-deep)',
+        padding: '2px 6px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {count}c
+    </span>
+  );
 }
 
 /**
