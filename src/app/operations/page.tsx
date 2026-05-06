@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
+import { PlanButton } from './PlanButton';
 import {
   loadOperationsData,
   RANGE_LABEL,
@@ -332,7 +333,9 @@ function TurnoverRow({ turnover: t }: { turnover: Turnover }) {
         {inspectionDone ? 'Inspection done' : 'Not inspected'}
       </span>
 
-      {/* Action */}
+      {/* Action — done shows Summary; in-progress shows Resume; otherwise
+          stack a plan-button + start-inspection CTA so the operator can
+          schedule a walk in advance OR kick one off right now. */}
       {inspectionDone && t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}/summary`}
@@ -359,26 +362,37 @@ function TurnoverRow({ turnover: t }: { turnover: Turnover }) {
           Resume →
         </Link>
       ) : (
-        <form action={startInspection} style={{ margin: 0 }}>
-          <input type="hidden" name="property_id" value={t.propertyId} />
-          <button
-            type="submit"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.16em',
-              textTransform: 'uppercase',
-              padding: '9px 16px',
-              border: 'none',
-              cursor: 'pointer',
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <PlanButton
+            guestyReservationId={t.reservationId}
+            propertyId={t.propertyId}
+            checkInDate={t.checkIn.slice(0, 10)}
+            checkOutDate={t.checkOut.slice(0, 10)}
+            planId={t.plan?.id ?? null}
+            plannedForDate={t.plan?.planned_for_date ?? null}
+            plannedBy={t.plan?.planned_by_email ?? null}
+          />
+          <form action={startInspection} style={{ margin: 0 }}>
+            <input type="hidden" name="property_id" value={t.propertyId} />
+            <button
+              type="submit"
+              style={{
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                padding: '9px 16px',
+                border: 'none',
+                cursor: 'pointer',
               whiteSpace: 'nowrap',
             }}
           >
-            Start Inspection
-          </button>
-        </form>
+              Start Inspection
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );
