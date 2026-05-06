@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
+import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { ResolveNoteButton } from './ResolveNoteButton';
@@ -36,6 +37,7 @@ type PropertyNoteRow = {
   author_email: string;
   created_at: string;
   inspection_id: string | null;
+  photo_urls: string[] | null;
 };
 
 async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteRow[]> {
@@ -43,7 +45,7 @@ async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteR
   try {
     const { data, error } = await supabase
       .from('inspection_notes')
-      .select('id, note_text, author_email, created_at, inspection_id')
+      .select('id, note_text, author_email, created_at, inspection_id, photo_urls')
       .eq('property_id', propertyId)
       .eq('note_type', 'PROPERTY_NOTE')
       .is('resolved_at', null)
@@ -354,8 +356,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   alignItems: 'baseline',
                 }}
               >
-                <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
-                  {n.note_text}
+                <div>
+                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
+                    {n.note_text}
+                  </div>
+                  {n.photo_urls && n.photo_urls.length > 0 && (
+                    <PhotoThumbs urls={n.photo_urls} size={64} />
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {n.author_email.split('@')[0]}
