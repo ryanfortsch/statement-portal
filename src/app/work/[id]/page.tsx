@@ -1,13 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase } from '@/lib/supabase';
 import type { WorkSlipRow } from '@/lib/work-types';
 import {
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
 import { StatusChanger } from './StatusChanger';
+import { SlipPhotoEditor } from './SlipPhotoEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,11 +178,20 @@ export default async function WorkSlipDetailPage({
       )}
 
       {/* PHOTOS */}
-      {slip.photo_urls && slip.photo_urls.length > 0 && (
-        <Section title="Photos" eyebrow={`${slip.photo_urls.length} attached`}>
-          <PhotoThumbs urls={slip.photo_urls} size={120} />
-        </Section>
-      )}
+      <Section
+        title="Photos"
+        eyebrow={
+          slip.photo_urls && slip.photo_urls.length > 0
+            ? `${slip.photo_urls.length} attached`
+            : 'Take or upload'
+        }
+      >
+        <SlipPhotoEditor
+          slipId={slip.id}
+          propertyId={slip.property_id}
+          initialUrls={slip.photo_urls ?? []}
+        />
+      </Section>
 
       {/* SOURCE INSPECTION */}
       {inspection && (
