@@ -198,7 +198,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
     linkedContactIds.length > 0
       ? supabase
           .from('contact_touches')
-          .select('id, contact_id, touched_at, channel, summary, by_email')
+          .select('id, contact_id, touched_at, channel, summary, by_email, direction')
           .in('contact_id', linkedContactIds)
           .gte('touched_at', ninetyDaysAgo)
           .order('touched_at', { ascending: false })
@@ -206,6 +206,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
       : Promise.resolve({ data: [] as Array<{
           id: string; contact_id: string; touched_at: string;
           channel: string; summary: string; by_email: string;
+          direction: 'outbound' | 'inbound';
         }> }),
   ]);
 
@@ -324,21 +325,32 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
   }
 
   // CRM contact touches on any contact linked to this property (#161).
-  // Surfaces vendor/lead conversations alongside owner conversations
-  // since they all live on the same property's history.
+  // Surfaces vendor/lead conversations alongside owner conversations,
+  // and inbound replies captured by the Gmail sync cron (#172).
   for (const t of (touchesRes.data ?? []) as Array<{
     id: string; contact_id: string; touched_at: string;
     channel: string; summary: string; by_email: string;
+    direction: 'outbound' | 'inbound';
   }>) {
     const contactName = linkedContactNames.get(t.contact_id) ?? 'a contact';
     const channel = t.channel.replace('_', ' ');
-    events.push({
-      at: t.touched_at,
-      kind: 'contact-touch',
-      actor: t.by_email,
-      label: `logged ${channel} touch with ${contactName}: "${truncate(t.summary, 60)}"`,
-      href: `/crm/${t.contact_id}`,
-    });
+    if (t.direction === 'inbound') {
+      events.push({
+        at: t.touched_at,
+        kind: 'contact-touch',
+        actor: null,
+        label: `${contactName} replied via ${channel}: "${truncate(t.summary, 60)}"`,
+        href: `/crm/${t.contact_id}`,
+      });
+    } else {
+      events.push({
+        at: t.touched_at,
+        kind: 'contact-touch',
+        actor: t.by_email,
+        label: `logged ${channel} touch with ${contactName}: "${truncate(t.summary, 60)}"`,
+        href: `/crm/${t.contact_id}`,
+      });
+    }
   }
 
   events.sort((a, b) => b.at.localeCompare(a.at));
