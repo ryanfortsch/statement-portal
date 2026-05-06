@@ -196,6 +196,7 @@ export async function snoozeWorkSlip(args: {
   const patch: Record<string, unknown> = {
     snoozed_until: args.until || null,
     snoozed_by_email: args.until ? session.user.email : null,
+    snoozed_at: args.until ? new Date().toISOString() : null,
   };
 
   const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
