@@ -4,6 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { ResolveNoteButton } from './ResolveNoteButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -55,6 +56,33 @@ async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteR
   }
 }
 
+type RecentInspectionRow = {
+  id: string;
+  inspector_name: string;
+  started_at: string | null;
+  completed_at: string | null;
+  total_items: number;
+  pass_count: number;
+  issue_count: number;
+  na_count: number;
+};
+
+async function getRecentInspections(propertyId: string): Promise<RecentInspectionRow[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('inspections')
+      .select('id, inspector_name, started_at, completed_at, total_items, pass_count, issue_count, na_count')
+      .eq('property_id', propertyId)
+      .order('started_at', { ascending: false })
+      .limit(6);
+    if (error) throw error;
+    return (data ?? []) as RecentInspectionRow[];
+  } catch {
+    return [];
+  }
+}
+
 async function getRecentStatements(propertyId: string): Promise<HelmStatementRow[]> {
   if (!isHelmConfigured) return [];
   try {
@@ -96,9 +124,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
+    getRecentInspections(p.id),
   ]);
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -320,7 +349,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   padding: '16px 0',
                   borderBottom: '1px solid var(--rule)',
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto',
+                  gridTemplateColumns: '1fr auto auto',
                   gap: 16,
                   alignItems: 'baseline',
                 }}
@@ -333,8 +362,82 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   <br />
                   <span style={{ fontSize: 10 }}>{formatDate(n.created_at)}</span>
                 </div>
+                <ResolveNoteButton noteId={n.id} />
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* INSPECTION HISTORY (Helm-native) */}
+      {recentInspections.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <h2
+              className="font-serif"
+              style={{
+                fontSize: 22,
+                fontWeight: 400,
+                letterSpacing: '-0.01em',
+                color: 'var(--ink)',
+                margin: 0,
+              }}
+            >
+              Recent Inspections
+            </h2>
+            <span className="eyebrow">last {recentInspections.length}</span>
+          </div>
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {recentInspections.map((insp) => {
+              const isComplete = !!insp.completed_at;
+              const href = isComplete
+                ? `/inspections/${insp.id}/summary`
+                : `/inspections/${insp.id}`;
+              const summary = isComplete
+                ? `${insp.pass_count} pass · ${insp.issue_count} issue · ${insp.na_count} N/A`
+                : 'In progress';
+              return (
+                <Link
+                  key={insp.id}
+                  href={href}
+                  style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+                >
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '160px 1fr auto auto',
+                      gap: 24,
+                      alignItems: 'baseline',
+                      padding: '16px 0',
+                      borderBottom: '1px solid var(--rule)',
+                    }}
+                  >
+                    <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                      {formatDate(insp.completed_at ?? insp.started_at)}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{insp.inspector_name}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: '.08em',
+                        textTransform: 'uppercase',
+                        color: isComplete
+                          ? insp.issue_count > 0
+                            ? 'var(--signal)'
+                            : 'var(--positive)'
+                          : 'var(--ink-4)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {summary}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                      {isComplete ? 'Summary →' : 'Resume →'}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
