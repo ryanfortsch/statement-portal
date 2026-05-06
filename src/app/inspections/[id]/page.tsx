@@ -115,19 +115,21 @@ export default async function InspectionInProgressPage({
   const [{ data: notesData }, { data: workSlipsData }] = await Promise.all([
     supabase
       .from('inspection_notes')
-      .select('id, inspection_item_id, note_text, note_type, author_email, created_at')
+      .select('id, inspection_item_id, note_text, note_type, author_email, created_at, photo_urls')
       .eq('inspection_id', id)
       .is('resolved_at', null)
       .order('created_at', { ascending: true }),
     supabase
       .from('work_slips')
-      .select('id, inspection_item_id, title, category, priority, created_at')
+      .select('id, inspection_item_id, title, category, priority, created_at, photo_urls')
       .eq('inspection_id', id)
       .order('created_at', { ascending: true }),
   ]);
 
   const initialNotes = ((notesData ?? []) as Array<
-    Pick<InspectionNoteRow, 'id' | 'inspection_item_id' | 'note_text' | 'note_type' | 'author_email' | 'created_at'>
+    Pick<InspectionNoteRow, 'id' | 'inspection_item_id' | 'note_text' | 'note_type' | 'author_email' | 'created_at'> & {
+      photo_urls: string[] | null;
+    }
   >).map((n) => ({
     id: n.id,
     inspection_item_id: n.inspection_item_id,
@@ -135,6 +137,7 @@ export default async function InspectionInProgressPage({
     note_type: n.note_type,
     author_email: n.author_email,
     created_at: n.created_at,
+    photo_urls: n.photo_urls ?? [],
   }));
 
   const initialWorkSlips = ((workSlipsData ?? []) as Array<{
@@ -144,6 +147,7 @@ export default async function InspectionInProgressPage({
     category: WorkSlipCategory;
     priority: WorkSlipPriority;
     created_at: string;
+    photo_urls: string[] | null;
   }>).map((ws) => ({
     id: ws.id,
     inspection_item_id: ws.inspection_item_id,
@@ -151,6 +155,7 @@ export default async function InspectionInProgressPage({
     category: ws.category,
     priority: ws.priority,
     created_at: ws.created_at,
+    photo_urls: ws.photo_urls ?? [],
   }));
 
   // Mobile-first stepper takes over the viewport. The HelmMasthead is

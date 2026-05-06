@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase } from '@/lib/supabase';
 import type { WorkSlipRow } from '@/lib/work-types';
 import {
@@ -173,6 +174,13 @@ export default async function WorkSlipDetailPage({
               </p>
             </div>
           )}
+        </Section>
+      )}
+
+      {/* PHOTOS */}
+      {slip.photo_urls && slip.photo_urls.length > 0 && (
+        <Section title="Photos" eyebrow={`${slip.photo_urls.length} attached`}>
+          <PhotoThumbs urls={slip.photo_urls} size={120} />
         </Section>
       )}
 

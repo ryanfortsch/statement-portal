@@ -189,12 +189,15 @@ export async function addInspectionNote(args: {
   itemId?: string | null;
   text: string;
   noteType: InspectionNoteType;
+  photoUrls?: string[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
 
   const text = args.text.trim();
-  if (!text) return { ok: false, error: 'Note is empty' };
+  const photos = (args.photoUrls ?? []).filter((u) => typeof u === 'string' && u.length > 0);
+  // Allow photo-only notes; require text OR at least one photo.
+  if (!text && photos.length === 0) return { ok: false, error: 'Add text or a photo' };
   if (args.noteType !== 'INSPECTION_NOTE' && args.noteType !== 'PROPERTY_NOTE') {
     return { ok: false, error: `Invalid note type: ${args.noteType}` };
   }
@@ -206,8 +209,9 @@ export async function addInspectionNote(args: {
       property_id: args.propertyId,
       inspection_item_id: args.itemId ?? null,
       author_email: session.user.email,
-      note_text: text,
+      note_text: text || '(photo)',
       note_type: args.noteType,
+      photo_urls: photos,
     })
     .select('id')
     .single();
@@ -267,6 +271,7 @@ export async function createWorkSlipFromInspection(args: {
   location?: string | null;
   category: WorkSlipCategory;
   priority: WorkSlipPriority;
+  photoUrls?: string[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -283,6 +288,8 @@ export async function createWorkSlipFromInspection(args: {
     return { ok: false, error: `Invalid priority: ${args.priority}` };
   }
 
+  const photos = (args.photoUrls ?? []).filter((u) => typeof u === 'string' && u.length > 0);
+
   const { data, error } = await supabase
     .from('work_slips')
     .insert({
@@ -296,6 +303,7 @@ export async function createWorkSlipFromInspection(args: {
       priority: args.priority,
       status: 'open',
       created_by_email: session.user.email,
+      photo_urls: photos,
     })
     .select('id')
     .single();

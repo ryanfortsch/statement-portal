@@ -14,6 +14,7 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
+import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
 
 type StepperItem = {
   id: string;
@@ -36,6 +37,7 @@ type StepperNote = {
   note_type: 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
   author_email: string;
   created_at: string;
+  photo_urls?: string[];
 };
 
 type StepperWorkSlip = {
@@ -45,6 +47,7 @@ type StepperWorkSlip = {
   category: WorkSlipCategory;
   priority: WorkSlipPriority;
   created_at: string;
+  photo_urls?: string[];
 };
 
 type Props = {
@@ -134,7 +137,7 @@ export function Stepper({
     setTimeout(() => setActiveIdx((i) => Math.min(i + 1, total)), 180);
   }
 
-  async function submitNote(text: string, asProperty: boolean): Promise<string | null> {
+  async function submitNote(text: string, asProperty: boolean, photoUrls: string[]): Promise<string | null> {
     if (!activeItem) return 'No active card';
     const res = await addInspectionNote({
       inspectionId,
@@ -142,6 +145,7 @@ export function Stepper({
       itemId: activeItem.id,
       text,
       noteType: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
+      photoUrls,
     });
     if (!res.ok) return res.error;
     setNotesList((prev) => [
@@ -149,10 +153,11 @@ export function Stepper({
       {
         id: res.id,
         inspection_item_id: activeItem.id,
-        note_text: text.trim(),
+        note_text: text.trim() || '(photo)',
         note_type: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
         author_email: '',
         created_at: new Date().toISOString(),
+        photo_urls: photoUrls,
       },
     ]);
     return null;
@@ -164,6 +169,7 @@ export function Stepper({
     location: string;
     category: WorkSlipCategory;
     priority: WorkSlipPriority;
+    photoUrls: string[];
   }): Promise<string | null> {
     if (!activeItem) return 'No active card';
     const res = await createWorkSlipFromInspection({
@@ -175,6 +181,7 @@ export function Stepper({
       location: input.location,
       category: input.category,
       priority: input.priority,
+      photoUrls: input.photoUrls,
     });
     if (!res.ok) return res.error;
     setWorkSlips((prev) => [
@@ -186,6 +193,7 @@ export function Stepper({
         category: input.category,
         priority: input.priority,
         created_at: new Date().toISOString(),
+        photo_urls: input.photoUrls,
       },
     ]);
     return null;
@@ -366,6 +374,7 @@ export function Stepper({
                   {n.note_type === 'PROPERTY_NOTE' ? 'Property Note · pinned to folder' : 'Inspection Note'}
                 </div>
                 <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{n.note_text}</div>
+                {n.photo_urls && n.photo_urls.length > 0 && <PhotoThumbs urls={n.photo_urls} size={64} />}
               </div>
             ))}
             {activeWorkSlips.map((ws) => (
@@ -382,6 +391,7 @@ export function Stepper({
                   Work Slip · {ws.priority}
                 </div>
                 <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{ws.title}</div>
+                {ws.photo_urls && ws.photo_urls.length > 0 && <PhotoThumbs urls={ws.photo_urls} size={64} />}
               </div>
             ))}
           </div>
@@ -431,9 +441,10 @@ export function Stepper({
       {showNoteModal && activeItem && (
         <NoteModal
           itemTitle={activeItem.title}
+          inspectionId={inspectionId}
           onClose={() => setShowNoteModal(false)}
-          onSubmit={async (text, asProperty) => {
-            const err = await submitNote(text, asProperty);
+          onSubmit={async (text, asProperty, photos) => {
+            const err = await submitNote(text, asProperty, photos);
             if (err) return err;
             setShowNoteModal(false);
             return null;
@@ -443,6 +454,7 @@ export function Stepper({
       {showWorkSlipModal && activeItem && (
         <WorkSlipModal
           itemTitle={activeItem.title}
+          inspectionId={inspectionId}
           onClose={() => setShowWorkSlipModal(false)}
           onSubmit={async (input) => {
             const err = await submitWorkSlip(input);
@@ -688,23 +700,28 @@ function StatusBadge({ status }: { status: InspectionStatus | null }) {
 
 function NoteModal({
   itemTitle,
+  inspectionId,
   onClose,
   onSubmit,
 }: {
   itemTitle: string;
+  inspectionId: string;
   onClose: () => void;
-  onSubmit: (text: string, asProperty: boolean) => Promise<string | null>;
+  onSubmit: (text: string, asProperty: boolean, photoUrls: string[]) => Promise<string | null>;
 }) {
   const [text, setText] = useState('');
   const [asProperty, setAsProperty] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const canSubmit = text.trim().length > 0 || photos.length > 0;
+
   async function handleSubmit() {
-    if (!text.trim()) return;
+    if (!canSubmit) return;
     setErr(null);
     setSubmitting(true);
-    const e = await onSubmit(text, asProperty);
+    const e = await onSubmit(text, asProperty, photos);
     setSubmitting(false);
     if (e) setErr(e);
   }
@@ -722,6 +739,16 @@ function NoteModal({
       />
       <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
         {text.length} / 1000
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <div className="eyebrow" style={{ marginBottom: 8 }}>Photos</div>
+        <PhotoUploader
+          value={photos}
+          onChange={setPhotos}
+          folder={`inspections/${inspectionId.slice(0, 8)}/notes`}
+          disabled={submitting}
+        />
       </div>
 
       <label
@@ -772,7 +799,7 @@ function NoteModal({
         onCancel={onClose}
         onSubmit={handleSubmit}
         submitLabel={submitting ? 'Saving…' : 'Save Note'}
-        submitDisabled={submitting || !text.trim()}
+        submitDisabled={submitting || !canSubmit}
       />
     </ModalShell>
   );
@@ -780,10 +807,12 @@ function NoteModal({
 
 function WorkSlipModal({
   itemTitle,
+  inspectionId,
   onClose,
   onSubmit,
 }: {
   itemTitle: string;
+  inspectionId: string;
   onClose: () => void;
   onSubmit: (input: {
     title: string;
@@ -791,6 +820,7 @@ function WorkSlipModal({
     location: string;
     category: WorkSlipCategory;
     priority: WorkSlipPriority;
+    photoUrls: string[];
   }) => Promise<string | null>;
 }) {
   const [title, setTitle] = useState('');
@@ -798,6 +828,7 @@ function WorkSlipModal({
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
+  const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -805,7 +836,7 @@ function WorkSlipModal({
     if (!title.trim()) return;
     setErr(null);
     setSubmitting(true);
-    const e = await onSubmit({ title, description, location, category, priority });
+    const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
     setSubmitting(false);
     if (e) setErr(e);
   }
@@ -870,6 +901,16 @@ function WorkSlipModal({
           rows={3}
           placeholder="Additional details about the issue…"
           style={modalTextareaStyle()}
+        />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <FieldLabel>Photos (optional)</FieldLabel>
+        <PhotoUploader
+          value={photos}
+          onChange={setPhotos}
+          folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
+          disabled={submitting}
         />
       </div>
 

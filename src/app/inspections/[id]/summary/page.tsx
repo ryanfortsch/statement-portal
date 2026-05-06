@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase } from '@/lib/supabase';
 import type {
   InspectionRow,
@@ -24,6 +25,7 @@ type SummaryNote = {
   note_type: 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
   author_email: string;
   created_at: string;
+  photo_urls: string[] | null;
 };
 
 type SummaryWorkSlip = {
@@ -35,6 +37,7 @@ type SummaryWorkSlip = {
   priority: string;
   location: string | null;
   created_at: string;
+  photo_urls: string[] | null;
 };
 
 async function getInspection(id: string): Promise<{
@@ -70,12 +73,12 @@ async function getInspection(id: string): Promise<{
       .eq('template_id', insp.template_id),
     supabase
       .from('inspection_notes')
-      .select('id, inspection_item_id, note_text, note_type, author_email, created_at')
+      .select('id, inspection_item_id, note_text, note_type, author_email, created_at, photo_urls')
       .eq('inspection_id', id)
       .order('created_at', { ascending: true }),
     supabase
       .from('work_slips')
-      .select('id, inspection_item_id, title, description, category, priority, location, created_at')
+      .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
       .eq('inspection_id', id)
       .order('created_at', { ascending: true }),
   ]);
@@ -242,6 +245,9 @@ export default async function InspectionSummaryPage({
                         {ws.description}
                       </div>
                     )}
+                    {ws.photo_urls && ws.photo_urls.length > 0 && (
+                      <PhotoThumbs urls={ws.photo_urls} size={72} />
+                    )}
                   </div>
                   <span
                     style={{
@@ -288,6 +294,9 @@ export default async function InspectionSummaryPage({
                       Re: {item.title}
                     </div>
                   )}
+                  {n.photo_urls && n.photo_urls.length > 0 && (
+                    <PhotoThumbs urls={n.photo_urls} size={72} />
+                  )}
                 </div>
               );
             })}
@@ -318,6 +327,9 @@ export default async function InspectionSummaryPage({
                     <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)' }}>
                       Re: {item.title}
                     </div>
+                  )}
+                  {n.photo_urls && n.photo_urls.length > 0 && (
+                    <PhotoThumbs urls={n.photo_urls} size={64} />
                   )}
                 </div>
               );
@@ -453,6 +465,9 @@ function IssueRow({ row }: { row: ResultWithItem }) {
             <div style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}>
               &ldquo;{row.result.notes}&rdquo;
             </div>
+          )}
+          {row.result.photo_urls && row.result.photo_urls.length > 0 && (
+            <PhotoThumbs urls={row.result.photo_urls} size={72} />
           )}
         </div>
       </div>
