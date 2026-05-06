@@ -70,6 +70,39 @@ export async function updateWorkSlipStatus(args: {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
+ * Save resolution notes (and optionally the status) on a work slip from
+ * the detail page. Used when marking done or capturing context after
+ * the fact -- e.g. "Replaced the bulb, took 5 min."
+ */
+export async function updateWorkSlipResolution(args: {
+  id: string;
+  resolution_notes: string;
+  status?: WorkSlipStatus;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const patch: Record<string, unknown> = {
+    resolution_notes: args.resolution_notes.trim() || null,
+  };
+  if (args.status) {
+    patch.status = args.status;
+    if (args.status === 'done') {
+      patch.completed_at = new Date().toISOString();
+      patch.closed_by_email = session.user.email;
+    }
+  }
+
+  const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
   return { ok: true };
 }
 
