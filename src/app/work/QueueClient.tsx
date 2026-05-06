@@ -289,13 +289,53 @@ function PropertyGroup({
   onAddSlip: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [drafting, setDrafting] = useState(false);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
   const highCount = slips.filter((s) => s.priority === 'high').length;
+  const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const propName = property?.name ?? 'Unknown property';
+  const propertyId = property?.id ?? null;
+
+  async function draftOwnerEmail() {
+    if (!propertyId || drafting) return;
+    setDrafting(true);
+    setDraftErr(null);
+    try {
+      const res = await fetch('/api/work/draft-owner-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: propertyId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDraftErr(data?.error || `Failed (${res.status})`);
+        return;
+      }
+      if (data?.draft_url) {
+        window.open(data.draft_url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      setDraftErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   return (
     <div style={{ borderBottom: '1px solid var(--rule)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr auto auto auto', gap: 16, alignItems: 'baseline', padding: '20px 0' }}>
-        <span className="font-mono" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          alignItems: 'baseline',
+          padding: '20px 0',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          className="font-mono"
+          style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em', width: 24 }}
+        >
           {String(slips.length).padStart(2, '0')}
         </span>
         <button
@@ -308,6 +348,8 @@ function PropertyGroup({
             textAlign: 'left',
             cursor: 'pointer',
             color: 'var(--ink)',
+            flex: 1,
+            minWidth: 160,
           }}
         >
           <span className="font-serif" style={{ fontSize: 18, fontWeight: 500 }}>
@@ -327,7 +369,41 @@ function PropertyGroup({
             {highCount} HIGH
           </span>
         )}
+        {ownerActionCount > 0 && (
+          <span
+            title="Open items flagged for owner input"
+            style={{
+              fontSize: 10,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--signal)',
+              fontWeight: 700,
+            }}
+          >
+            {ownerActionCount} OWNER
+          </span>
+        )}
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length}</span>
+        {ownerActionCount > 0 && propertyId && (
+          <button
+            type="button"
+            onClick={draftOwnerEmail}
+            disabled={drafting}
+            style={{
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              border: '1px solid var(--ink)',
+              padding: '4px 10px',
+              fontSize: 10,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              cursor: drafting ? 'wait' : 'pointer',
+              opacity: drafting ? 0.6 : 1,
+            }}
+          >
+            {drafting ? 'Drafting…' : 'Draft Owner Email'}
+          </button>
+        )}
         <button
           type="button"
           onClick={onAddSlip}
@@ -345,6 +421,21 @@ function PropertyGroup({
           + Slip
         </button>
       </div>
+
+      {draftErr && (
+        <div
+          style={{
+            margin: '0 0 12px 56px',
+            padding: '8px 12px',
+            border: '1px solid var(--negative)',
+            color: 'var(--negative)',
+            fontSize: 12,
+            background: 'rgba(200, 90, 58, 0.06)',
+          }}
+        >
+          {draftErr}
+        </div>
+      )}
 
       {expanded && (
         <div style={{ paddingBottom: 12 }}>
