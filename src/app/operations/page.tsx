@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
@@ -74,8 +75,12 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     );
   }
 
-  const { lastSyncedAt, isStale } = await readSyncStatus();
-  const data = await loadOperationsData(range, calRange);
+  const [{ lastSyncedAt, isStale }, data, session] = await Promise.all([
+    readSyncStatus(),
+    loadOperationsData(range, calRange),
+    auth(),
+  ]);
+  const myEmail = session?.user?.email ?? '';
   const initialFooter = lastSyncedAt
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
@@ -177,7 +182,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {data.turnovers.map((t) => (
-              <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} />
+              <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
             ))}
           </div>
         )}
@@ -244,7 +249,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   );
 }
 
-function TurnoverRow({ turnover: t }: { turnover: Turnover }) {
+function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: string }) {
   const checkIn = formatDateLong(t.checkIn);
   const checkOut = formatDateShort(t.checkOut);
   const inspectionDone = t.inspectionStatus === 'complete';
@@ -371,6 +376,8 @@ function TurnoverRow({ turnover: t }: { turnover: Turnover }) {
             planId={t.plan?.id ?? null}
             plannedForDate={t.plan?.planned_for_date ?? null}
             plannedBy={t.plan?.planned_by_email ?? null}
+            assignedToEmail={t.plan?.assigned_to_email ?? null}
+            myEmail={myEmail}
           />
           <form action={startInspection} style={{ margin: 0 }}>
             <input type="hidden" name="property_id" value={t.propertyId} />

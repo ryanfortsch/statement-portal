@@ -132,6 +132,7 @@ export type InspectionPlanMini = {
   planned_for_date: string | null;
   notes: string | null;
   planned_by_email: string;
+  assigned_to_email: string | null;
 };
 
 export type Turnover = {
@@ -253,7 +254,7 @@ export async function loadOperationsData(
   if (visibleReservationIds.length > 0) {
     const { data: planData, error: planErr } = await supabase
       .from('inspection_plans')
-      .select('id, guesty_reservation_id, planned_for_date, notes, planned_by_email')
+      .select('id, guesty_reservation_id, planned_for_date, notes, planned_by_email, assigned_to_email')
       .in('guesty_reservation_id', visibleReservationIds);
     if (planErr) {
       throw new Error(`Failed to load inspection plans: ${planErr.message}`);
@@ -264,6 +265,7 @@ export async function loadOperationsData(
         planned_for_date: p.planned_for_date,
         notes: p.notes,
         planned_by_email: p.planned_by_email,
+        assigned_to_email: p.assigned_to_email,
       });
     }
   }

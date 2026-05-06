@@ -3,6 +3,8 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
+import { TeamPicker } from '@/components/TeamPicker';
+import { displayNameForEmail } from '@/lib/team';
 
 type Props = {
   guestyReservationId: string;
@@ -13,6 +15,8 @@ type Props = {
   planId: string | null;
   plannedForDate: string | null;
   plannedBy: string | null;
+  assignedToEmail: string | null;
+  myEmail: string;
 };
 
 export function PlanButton({
@@ -23,6 +27,8 @@ export function PlanButton({
   planId,
   plannedForDate,
   plannedBy,
+  assignedToEmail,
+  myEmail,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -31,6 +37,7 @@ export function PlanButton({
     plannedForDate ?? defaultPlannedFor(checkInDate);
   const [picked, setPicked] = useState<string>(defaultDate);
   const [notes, setNotes] = useState('');
+  const [assignee, setAssignee] = useState<string | null>(assignedToEmail);
   const [, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -45,6 +52,7 @@ export function PlanButton({
       checkoutDate: checkOutDate,
       plannedForDate: picked,
       notes,
+      assignedToEmail: assignee,
     });
     setSubmitting(false);
     if (!res.ok) {
@@ -74,11 +82,16 @@ export function PlanButton({
   // Trigger button (different style depending on plan presence)
   if (!open) {
     if (plannedForDate) {
+      const inspectorLabel = assignedToEmail ? displayNameForEmail(assignedToEmail) : null;
+      const tooltip = [
+        plannedBy ? `Planned by ${plannedBy.split('@')[0]}` : null,
+        inspectorLabel ? `Inspector: ${inspectorLabel}` : null,
+      ].filter(Boolean).join(' · ') || 'Edit plan';
       return (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          title={plannedBy ? `Planned by ${plannedBy.split('@')[0]}` : 'Edit plan'}
+          title={tooltip}
           style={{
             background: 'transparent',
             border: '1px solid var(--tide-deep)',
@@ -93,6 +106,9 @@ export function PlanButton({
           }}
         >
           Plan: {formatShort(plannedForDate)}
+          {inspectorLabel && (
+            <span style={{ opacity: 0.7, marginLeft: 6 }}>· {inspectorLabel}</span>
+          )}
         </button>
       );
     }
@@ -200,12 +216,20 @@ export function PlanButton({
           }}
         />
 
+        <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Inspector</div>
+        <TeamPicker
+          value={assignee}
+          onChange={setAssignee}
+          myEmail={myEmail}
+          placeholder="Anyone on the team"
+        />
+
         <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Notes (optional)</div>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
-          placeholder="e.g., Allie morning slot — guest arrives 4 PM"
+          placeholder="e.g., morning slot — guest arrives 4 PM"
           style={{
             width: '100%',
             background: 'transparent',
