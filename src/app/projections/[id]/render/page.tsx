@@ -545,7 +545,8 @@ function StatementPreview() {
           <div className="rt-stmt-payout-label">Owner Payout</div>
           <div className="rt-stmt-payout-amt">
             <span className="rt-stmt-dollar">$</span>
-            <span>8,800</span>
+            <span>8,815</span>
+            <span className="rt-stmt-cents">.75</span>
           </div>
         </div>
         <div className="rt-stmt-mini-grid">
@@ -560,7 +561,7 @@ function StatementPreview() {
           </div>
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">ADR</div>
-            <div className="rt-stmt-mini-val">$825</div>
+            <div className="rt-stmt-mini-val">$826</div>
           </div>
         </div>
       </div>
@@ -575,10 +576,10 @@ function StatementPreview() {
           </div>
           <div className="rt-stmt-rows">
             {[
-              ['Sofia G.', 'Apr 4 → 7', 'Vrbo', '$2,400'],
-              ['James K.', 'Apr 11 → 14', 'Airbnb', '$2,700'],
-              ['Priya S.', 'Apr 18 → 24', 'Airbnb', '$5,100'],
-              ['Mike R.', 'Apr 26 → 30', 'Direct', '$3,000'],
+              ['Sofia G.', 'Apr 4 → 7', 'Vrbo', '$2,397'],
+              ['James K.', 'Apr 11 → 14', 'Airbnb', '$2,694'],
+              ['Priya S.', 'Apr 18 → 24', 'Airbnb', '$5,118'],
+              ['Mike R.', 'Apr 26 → 30', 'Direct', '$3,012'],
             ].map(([guest, dates, ch, amt]) => (
               <div key={guest} className="rt-stmt-row">
                 <span className="rt-stmt-guest">{guest}</span>
@@ -593,13 +594,13 @@ function StatementPreview() {
           <div className="rt-stmt-sec-head">
             <span className="rt-stmt-sec-num">02</span>
             <span className="rt-stmt-sec-title">Financials</span>
-            <span className="rt-stmt-sec-meta">Net $8,800</span>
+            <span className="rt-stmt-sec-meta">Net $8,815.75</span>
           </div>
           <div className="rt-stmt-rows">
-            <div className="rt-stmt-fin"><span>Rental Revenue</span><span>$13,200</span></div>
-            <div className="rt-stmt-fin"><span>Mgmt Fee <small>(25%)</small></span><span className="rt-stmt-neg">−$3,300</span></div>
-            <div className="rt-stmt-fin"><span>Cleaning <small>(4 turns)</small></span><span className="rt-stmt-neg">−$1,100</span></div>
-            <div className="rt-stmt-fin rt-stmt-fin-total"><span>Owner Payout</span><span>$8,800</span></div>
+            <div className="rt-stmt-fin"><span>Rental Revenue</span><span>$13,221.00</span></div>
+            <div className="rt-stmt-fin"><span>Mgmt Fee <small>(25%)</small></span><span className="rt-stmt-neg">−$3,305.25</span></div>
+            <div className="rt-stmt-fin"><span>Cleaning <small>(4 turns)</small></span><span className="rt-stmt-neg">−$1,100.00</span></div>
+            <div className="rt-stmt-fin rt-stmt-fin-total"><span>Owner Payout</span><span>$8,815.75</span></div>
           </div>
         </div>
       </div>
