@@ -4,9 +4,12 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
+
+type WorkCounts = { total: number; ownerAction: number };
 
 async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: string | null }> {
   if (!isHelmConfigured) {
@@ -25,8 +28,39 @@ async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: 
   }
 }
 
+/**
+ * Pulls every active work slip with just (property_id, owner_action_required)
+ * and rolls up to a {property_id: { total, ownerAction }} map. One round
+ * trip is fine — we have ~12 properties and at most a few dozen slips
+ * per. If this ever grows we can swap to a server-side aggregation.
+ */
+async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
+  if (!isHelmConfigured) return {};
+  try {
+    const { data, error } = await supabase
+      .from('work_slips')
+      .select('property_id, owner_action_required')
+      .in('status', ACTIVE_WORK_SLIP_STATUSES);
+    if (error) throw error;
+
+    const counts: Record<string, WorkCounts> = {};
+    for (const row of (data ?? []) as Array<{ property_id: string; owner_action_required: boolean }>) {
+      const c = counts[row.property_id] ?? { total: 0, ownerAction: 0 };
+      c.total += 1;
+      if (row.owner_action_required) c.ownerAction += 1;
+      counts[row.property_id] = c;
+    }
+    return counts;
+  } catch {
+    return {};
+  }
+}
+
 export default async function PropertiesPage() {
-  const { properties, error } = await getProperties();
+  const [{ properties, error }, workCounts] = await Promise.all([
+    getProperties(),
+    getWorkCountsByProperty(),
+  ]);
   const active = properties.filter((p) => p.is_active);
   const inactive = properties.filter((p) => !p.is_active);
 
@@ -55,7 +89,12 @@ export default async function PropertiesPage() {
           <>
             <div style={{ borderTop: '1px solid var(--ink)' }}>
               {active.map((p, i) => (
-                <PropertyRow key={p.id} property={p} number={String(i + 1).padStart(2, '0')} />
+                <PropertyRow
+                  key={p.id}
+                  property={p}
+                  number={String(i + 1).padStart(2, '0')}
+                  workCounts={workCounts[p.id]}
+                />
               ))}
             </div>
 
@@ -68,6 +107,7 @@ export default async function PropertiesPage() {
                       key={p.id}
                       property={p}
                       number={String(i + 1).padStart(2, '0')}
+                      workCounts={workCounts[p.id]}
                       dimmed
                     />
                   ))}
@@ -86,10 +126,12 @@ export default async function PropertiesPage() {
 function PropertyRow({
   property: p,
   number,
+  workCounts,
   dimmed = false,
 }: {
   property: HelmPropertyRow;
   number: string;
+  workCounts?: WorkCounts;
   dimmed?: boolean;
 }) {
   // Internal naming convention: show the short address-without-suffix
@@ -97,6 +139,8 @@ function PropertyRow({
   // secondary label when present.
   const display = p.name;
   const subtitle = p.title || p.address;
+  const totalWork = workCounts?.total ?? 0;
+  const ownerActionWork = workCounts?.ownerAction ?? 0;
 
   return (
     <Link
@@ -106,7 +150,7 @@ function PropertyRow({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '64px 1fr auto auto',
+          gridTemplateColumns: '64px 1fr auto auto auto',
           gap: 24,
           alignItems: 'baseline',
           padding: '24px 0',
@@ -140,6 +184,41 @@ function PropertyRow({
             {subtitle}
           </p>
         </div>
+        <span
+          style={{
+            display: 'flex',
+            gap: 6,
+            alignItems: 'baseline',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {ownerActionWork > 0 && (
+            <span
+              title={`${ownerActionWork} open work slip${ownerActionWork === 1 ? '' : 's'} flagged for owner input`}
+              style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                color: 'var(--paper)',
+                background: 'var(--signal)',
+                padding: '2px 7px',
+              }}
+            >
+              {ownerActionWork} owner
+            </span>
+          )}
+          {totalWork > 0 && (
+            <span
+              title={`${totalWork} active work slip${totalWork === 1 ? '' : 's'}`}
+              style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+                border: '1px solid var(--rule)',
+                padding: '2px 7px',
+              }}
+            >
+              {totalWork} {totalWork === 1 ? 'slip' : 'slips'}
+            </span>
+          )}
+        </span>
         <span
           className="tabular-nums"
           style={{
