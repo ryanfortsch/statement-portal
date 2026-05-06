@@ -393,3 +393,43 @@ export async function deleteTaskComment(args: {
   revalidatePath(`/work/tasks/${args.task_id}`);
   return { ok: true };
 }
+
+// ─── Work slip comments ─────────────────────────────────────────
+
+export async function addWorkSlipComment(args: {
+  work_slip_id: string;
+  body: string;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const body = args.body.trim();
+  if (!body) return { ok: false, error: 'Comment is empty' };
+
+  const { data, error } = await supabase
+    .from('work_slip_comments')
+    .insert({ work_slip_id: args.work_slip_id, author_email: session.user.email, body })
+    .select('id')
+    .single();
+  if (error || !data) return { ok: false, error: error?.message || 'Insert failed' };
+
+  revalidatePath(`/work/${args.work_slip_id}`);
+  return { ok: true, id: (data as { id: string }).id };
+}
+
+export async function deleteWorkSlipComment(args: {
+  id: string;
+  work_slip_id: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('work_slip_comments')
+    .delete()
+    .eq('id', args.id)
+    .eq('author_email', session.user.email);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/work/${args.work_slip_id}`);
+  return { ok: true };
+}

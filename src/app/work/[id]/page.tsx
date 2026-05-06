@@ -3,13 +3,14 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { WorkSlipRow } from '@/lib/work-types';
+import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
 import {
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
 import { StatusChanger } from './StatusChanger';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
+import { SlipComments } from './SlipComments';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,7 @@ async function getWorkSlip(id: string): Promise<{
   property: PropertyMini | null;
   inspection: InspectionMini | null;
   inspectionItem: InspectionItemMini | null;
+  comments: WorkSlipCommentRow[];
 } | null> {
   const { data: slip, error } = await supabase
     .from('work_slips')
@@ -32,7 +34,7 @@ async function getWorkSlip(id: string): Promise<{
 
   const ws = slip as WorkSlipRow;
 
-  const [{ data: property }, { data: inspection }, { data: inspectionItem }] = await Promise.all([
+  const [{ data: property }, { data: inspection }, { data: inspectionItem }, { data: comments }] = await Promise.all([
     supabase
       .from('properties')
       .select('id, name, title, city')
@@ -52,6 +54,11 @@ async function getWorkSlip(id: string): Promise<{
           .eq('id', ws.inspection_item_id)
           .maybeSingle()
       : Promise.resolve({ data: null as InspectionItemMini | null }),
+    supabase
+      .from('work_slip_comments')
+      .select('*')
+      .eq('work_slip_id', id)
+      .order('created_at', { ascending: true }),
   ]);
 
   return {
@@ -59,6 +66,7 @@ async function getWorkSlip(id: string): Promise<{
     property: (property as PropertyMini) ?? null,
     inspection: (inspection as InspectionMini) ?? null,
     inspectionItem: (inspectionItem as InspectionItemMini) ?? null,
+    comments: (comments ?? []) as WorkSlipCommentRow[],
   };
 }
 
@@ -74,7 +82,7 @@ export default async function WorkSlipDetailPage({
   if (!data) notFound();
   const myEmail = session?.user?.email ?? '';
 
-  const { slip, property, inspection, inspectionItem } = data;
+  const { slip, property, inspection, inspectionItem, comments } = data;
 
   const priorityColor =
     slip.priority === 'high' ? 'var(--negative)' :
@@ -244,6 +252,11 @@ export default async function WorkSlipDetailPage({
           initialStatus={slip.status}
           initialResolutionNotes={slip.resolution_notes ?? null}
         />
+      </Section>
+
+      {/* COMMENTS */}
+      <Section title="Comments" eyebrow={`${comments.length} on the thread`}>
+        <SlipComments slipId={slip.id} initialComments={comments} myEmail={myEmail} />
       </Section>
 
       {/* FOOTER */}
