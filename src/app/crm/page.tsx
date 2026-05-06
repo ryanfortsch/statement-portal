@@ -11,29 +11,59 @@ export const dynamic = 'force-dynamic';
 
 type PropertyMini = { id: string; name: string };
 
-async function getContacts(): Promise<{ contacts: ContactRow[]; properties: PropertyMini[]; error: string | null }> {
+export type LastTouch = { at: string; summary: string; channel: string };
+
+async function getContacts(): Promise<{
+  contacts: ContactRow[];
+  properties: PropertyMini[];
+  lastTouchByContact: Record<string, LastTouch>;
+  error: string | null;
+}> {
   if (!isHelmConfigured) {
-    return { contacts: [], properties: [], error: 'Helm Supabase env vars are not set.' };
+    return { contacts: [], properties: [], lastTouchByContact: {}, error: 'Helm Supabase env vars are not set.' };
   }
   try {
-    const [{ data: contacts, error: cErr }, { data: properties, error: pErr }] = await Promise.all([
+    const [
+      { data: contacts, error: cErr },
+      { data: properties, error: pErr },
+      { data: touches, error: tErr },
+    ] = await Promise.all([
       supabase.from('contacts').select('*').order('name'),
       supabase.from('properties').select('id, name').order('name'),
+      // All touches from the last 60 days. Group on client to "last per
+      // contact". Volume is small (~hundreds at most) so a single query
+      // is fine; if it grows we can swap to a database view.
+      supabase
+        .from('contact_touches')
+        .select('contact_id, touched_at, summary, channel')
+        .gte('touched_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString())
+        .order('touched_at', { ascending: false }),
     ]);
     if (cErr) throw cErr;
     if (pErr) throw pErr;
+    if (tErr) throw tErr;
+
+    const lastTouchByContact: Record<string, LastTouch> = {};
+    for (const t of (touches ?? []) as Array<{ contact_id: string; touched_at: string; summary: string; channel: string }>) {
+      // Touches are sorted desc — first one we see for a contact_id is the latest.
+      if (!lastTouchByContact[t.contact_id]) {
+        lastTouchByContact[t.contact_id] = { at: t.touched_at, summary: t.summary, channel: t.channel };
+      }
+    }
+
     return {
       contacts: (contacts ?? []) as ContactRow[],
       properties: (properties ?? []) as PropertyMini[],
+      lastTouchByContact,
       error: null,
     };
   } catch (err) {
-    return { contacts: [], properties: [], error: err instanceof Error ? err.message : String(err) };
+    return { contacts: [], properties: [], lastTouchByContact: {}, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 export default async function CrmPage() {
-  const { contacts, properties, error } = await getContacts();
+  const { contacts, properties, lastTouchByContact, error } = await getContacts();
 
   const counts = {
     all: contacts.length,
@@ -82,6 +112,7 @@ export default async function CrmPage() {
           contacts={contacts}
           properties={properties}
           counts={counts}
+          lastTouchByContact={lastTouchByContact}
         />
       )}
 
