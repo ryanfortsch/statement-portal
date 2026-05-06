@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
 import { PhotoThumbs } from '@/components/PhotoUploader';
+import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
@@ -10,6 +11,7 @@ import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { displayNameForEmail } from '@/lib/team';
 import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
+import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -166,13 +168,15 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id),
+    auth(),
   ]);
+  const myEmail = session?.user?.email ?? '';
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -433,7 +437,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           >
             Open Work
           </h2>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
             <span className="eyebrow">
               {openSlips.length} {openSlips.length === 1 ? 'slip' : 'slips'}
               {(() => {
@@ -441,6 +445,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 return ownerCount > 0 ? ` · ${ownerCount} owner action` : '';
               })()}
             </span>
+            <PropertyAddSlipButton propertyId={p.id} propertyName={p.name} myEmail={myEmail} />
             <PropertyDraftOwnerEmailButton
               propertyId={p.id}
               disabled={openSlips.filter((s) => s.owner_action_required).length === 0}
