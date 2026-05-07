@@ -95,11 +95,14 @@ export async function syncGuestyGuestsToAudience(
   // Map property_id -> short name (e.g. '21 Horton'). Used as a tag.
   const propertyNames = await loadPropertyNameMap();
 
-  // Collapse to guest_id -> set of property tags they should carry.
+  // Collapse to guest_id -> set of tags they should carry. Past Guesty
+  // guests are also on the insider list by default (existing relationship,
+  // CAN-SPAM compliant, matches industry norm for STR repeat outreach).
   const guestPropertyTags = new Map<string, Set<string>>();
   for (const r of reservations) {
     if (!r.guest_id) continue;
     const tags = guestPropertyTags.get(r.guest_id) ?? new Set<string>();
+    tags.add('insider');
     tags.add('Guesty');
     if (r.property_id && propertyNames[r.property_id]) {
       tags.add(propertyNames[r.property_id]);
