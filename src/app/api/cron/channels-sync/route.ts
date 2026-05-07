@@ -21,10 +21,15 @@ export async function GET(request: NextRequest) {
     const result = await syncAllListings({});
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Tolerate the pre-migration window: while 20260507b hasn't been
+    // applied the channel_listings table doesn't exist, and we'd otherwise
+    // throw 500 every 30 minutes. Treat that as a benign no-op so the
+    // logs stay clean until the operator runs the SQL.
+    if (/does not exist|relation .* does not exist/i.test(msg)) {
+      return NextResponse.json({ ok: true, skipped: 'migration_not_applied' });
+    }
     console.error('[cron/channels-sync]', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
