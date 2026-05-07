@@ -160,7 +160,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           {seen.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {seen.map((t) => (
-                <TouchBadge key={t} type={t} sentAt={touches[t]!.sent_at} />
+                <TouchBadge key={t} type={t} sentAt={touches[t]!.sent_at} fromUser={touches[t]!.from_user} />
               ))}
             </div>
           )}
@@ -197,10 +197,11 @@ const TOUCH_LABEL: Record<GmailTouchType, string> = {
   onboarding: 'Onboarding',
 };
 
-function TouchBadge({ type, sentAt }: { type: GmailTouchType; sentAt: string }) {
+function TouchBadge({ type, sentAt, fromUser }: { type: GmailTouchType; sentAt: string; fromUser?: string }) {
+  const tip = `${TOUCH_LABEL[type]} sent ${new Date(sentAt).toLocaleString()}${fromUser ? ` by ${fromUser}` : ''}`;
   return (
     <span
-      title={`${TOUCH_LABEL[type]} sent ${new Date(sentAt).toLocaleString()}`}
+      title={tip}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
