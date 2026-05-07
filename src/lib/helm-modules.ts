@@ -129,6 +129,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  {
+    id: 'audience',
+    href: '/audience',
+    number: '13',
+    title: 'Audience',
+    description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
+    status: 'active',
+    primary: true,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
