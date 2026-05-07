@@ -15,6 +15,7 @@ import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
+import { getPropertyNotices } from '@/lib/property-notices';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -218,7 +219,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, activityEvents, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, activityEvents, propertyNotices, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -226,6 +227,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getLatestOwnerContact(p.id, p),
     getCrmContactsForProperty(p.id),
     loadPropertyActivity(p),
+    getPropertyNotices(p.id),
     auth(),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -273,15 +275,21 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
   // Guest-deliverable readiness: welcome guide always ready; WiFi placard
   // gates on wifi_name + wifi_password; info note (Gloucester-only) gates
-  // on the six fields the doc renders.
+  // on the six fields the doc renders. Bespoke notices are by definition
+  // optional, so they ride alongside in the summary as a separate count.
   const totalDeliverables = 2 + (isGloucester ? 1 : 0);
   const wifiReady = Boolean(p.wifi_name && p.wifi_password);
   const infoNoteReady = isGloucester && missingInfoNoteFields(p).length === 0;
   const readyDeliverables = 1 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0);
-  const deliverablesSummary =
+  const noticeCountLabel = propertyNotices.length === 1 ? '1 bespoke notice' : `${propertyNotices.length} bespoke notices`;
+  const standardSummary =
     readyDeliverables === totalDeliverables
       ? `${totalDeliverables} ready to print`
       : `${readyDeliverables} of ${totalDeliverables} ready · needs data`;
+  const deliverablesSummary =
+    propertyNotices.length === 0
+      ? standardSummary
+      : `${standardSummary} · ${noticeCountLabel}`;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -911,6 +919,85 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* BESPOKE NOTICES — 4 × 6 SCA placards for property-specific quirks
+            (e.g. "please run the bathroom fan during showers"). Same brand
+            language as the WiFi placard so a stack of these in a glass
+            case reads as one consistent set. */}
+        <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              Bespoke notices
+            </h3>
+            <Link
+              href={`/properties/${p.id}/notices/new`}
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                color: 'var(--ink)',
+                textDecoration: 'none',
+                padding: '8px 14px',
+                border: '1px solid var(--ink)',
+              }}
+            >
+              + New notice
+            </Link>
+          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+            Property-specific 4 × 6 placards for things the standardized deliverables don&rsquo;t cover.
+            Same Stay Cape Ann brand language; sized for the same glass case slot as the WiFi placard.
+          </p>
+
+          {propertyNotices.length === 0 ? (
+            <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              No notices yet.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              {propertyNotices.map((n) => (
+                <div
+                  key={n.id}
+                  style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {n.eyebrow ? <div className="eyebrow">{n.eyebrow}</div> : <div className="eyebrow" style={{ opacity: 0.4 }}>Notice</div>}
+                  <h4 className="font-serif" style={{ fontSize: 17, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0, lineHeight: 1.2 }}>
+                    {n.title}
+                  </h4>
+                  <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {n.body}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                    <Link href={`/properties/${p.id}/notice/${n.id}`} target="_blank" style={primaryActionStyle}>
+                      Open ↗
+                    </Link>
+                    <DownloadPropertyPdfButton
+                      propertyId={p.id}
+                      type="notice"
+                      noticeId={n.id}
+                      label="Download PDF"
+                    />
+                    <Link
+                      href={`/properties/${p.id}/notices/${n.id}/edit`}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        letterSpacing: '.18em',
+                        textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        textDecoration: 'none',
+                        padding: '13px 14px',
+                      }}
+                    >
+                      Edit
+                    </Link>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

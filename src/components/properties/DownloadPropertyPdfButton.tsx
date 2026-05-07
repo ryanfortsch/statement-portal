@@ -11,10 +11,13 @@ export function DownloadPropertyPdfButton({
   propertyId,
   type,
   label,
+  noticeId,
 }: {
   propertyId: string;
   type: PropertyDeliverable;
   label: string;
+  /** Required when type === 'notice'; identifies which bespoke notice to render. */
+  noticeId?: string;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -26,9 +29,9 @@ export function DownloadPropertyPdfButton({
       onClick={async () => {
         setBusy(true);
         try {
-          const res = await fetch(
-            `/api/property-pdf?id=${encodeURIComponent(propertyId)}&type=${encodeURIComponent(type)}`,
-          );
+          const params = new URLSearchParams({ id: propertyId, type });
+          if (noticeId) params.set('noticeId', noticeId);
+          const res = await fetch(`/api/property-pdf?${params.toString()}`);
           if (!res.ok) {
             let msg = `${res.status}`;
             try { msg = (await res.json()).error || msg; } catch { /* ignore */ }

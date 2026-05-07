@@ -41,12 +41,20 @@ const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|con
  * character class is wider than UUIDs. */
 const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note)(\/.*)?$/;
 
+/**
+ * Bespoke notices live at `/properties/<id>/notice/<uuid>` (singular).
+ * The plural `/properties/<id>/notices/...` (new + edit forms) stays
+ * auth-gated — only the renderer is public so puppeteer can hit it.
+ */
+const PROPERTY_NOTICE_RE = /^\/properties\/[a-z0-9_-]+\/notice\/[0-9a-f-]+(\/.*)?$/;
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
   if (PROJECTION_DELIVERABLE_RE.test(pathname)) return;
   if (PROPERTY_DELIVERABLE_RE.test(pathname)) return;
+  if (PROPERTY_NOTICE_RE.test(pathname)) return;
   if (pathname.startsWith("/api/")) return;
 
   if (!req.auth) {
