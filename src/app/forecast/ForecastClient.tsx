@@ -185,8 +185,8 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
         style={{ paddingBottom: 32, width: '100%' }}
       >
         <SectionTitle
-          title="Per-property forecast"
-          tag="forward bookings × Gloucester pacing × per-property fee %"
+          title="Mgmt fee · per property"
+          tag="what RT actually keeps · per property × per month"
         />
         <SmartForecastPanel
           data={
@@ -338,45 +338,12 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
           </tr>
 
-          <SectionRow label="Booked revenue (already on the books)" />
+          <SectionRow
+            label="Management fee · per property"
+            tag="property's booked revenue × pacing-up multiplier × that property's mgmt fee %"
+          />
           {data.properties.map((p) => (
-            <tr key={`booked-${p.property.id}`}>
-              <td style={labelCellStyle({ color: 'var(--ink-2)' })}>{p.property.name}</td>
-              <td style={cellStyle({ color: 'var(--ink-3)' })}>
-                {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
-              </td>
-              {p.monthly.map((m) => (
-                <td key={m.month} style={cellStyle({ color: m.bookedRevenue === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: m.bookedRevenue === 0 ? 0.4 : 1 })}>
-                  {fmtUsd(m.bookedRevenue)}
-                </td>
-              ))}
-              <td style={cellStyle({ fontWeight: 600, background: 'var(--paper-2)' })}>
-                {fmtUsd(p.totals.bookedRevenue)}
-              </td>
-            </tr>
-          ))}
-
-          <SectionRow label="Projected gross (booked × multiplier)" />
-          {data.properties.map((p) => (
-            <tr key={`proj-${p.property.id}`}>
-              <td style={labelCellStyle({ color: 'var(--ink-2)' })}>{p.property.name}</td>
-              <td style={cellStyle({ color: 'var(--ink-3)' })}>
-                {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
-              </td>
-              {p.monthly.map((m) => (
-                <td key={m.month} style={cellStyle({ color: m.projectedGross === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: m.projectedGross === 0 ? 0.4 : 1 })}>
-                  {fmtUsd(m.projectedGross)}
-                </td>
-              ))}
-              <td style={cellStyle({ fontWeight: 600, background: 'var(--paper-2)' })}>
-                {fmtUsd(p.totals.projectedGross)}
-              </td>
-            </tr>
-          ))}
-
-          <SectionRow label="Projected RT mgmt fee (gross × fee %)" tag="this is what hits the operating account" />
-          {data.properties.map((p) => (
-            <tr key={`fee-${p.property.id}`} style={{ background: 'rgba(200, 90, 58, 0.03)' }}>
+            <tr key={`fee-${p.property.id}`} style={{ background: 'rgba(58, 107, 74, 0.03)' }}>
               <td style={labelCellStyle({ color: 'var(--ink-2)', fontWeight: 500 })}>{p.property.name}</td>
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
