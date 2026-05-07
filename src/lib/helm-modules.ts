@@ -138,6 +138,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: true,
   },
+  {
+    id: 'reviews',
+    href: '/reviews',
+    number: '14',
+    title: 'Reviews',
+    description: 'Guest reviews from Airbnb, VRBO, Booking, and direct. Five-star count, below-five flags, per-property breakdown. Synced nightly from Guesty.',
+    status: 'active',
+    primary: false,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);

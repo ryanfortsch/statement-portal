@@ -7,6 +7,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { computeDateRange, deltaPct } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
+import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
 import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
 
@@ -36,16 +37,27 @@ type DashboardStats = {
   ownerActionSlips: number | null;
   activeTasks: number | null;
   inspectionsThisWeek: number | null;
+  // Reviews (rolling 7-day window from the reviews table)
+  reviewsLast7: number;
+  reviewsLast7FiveStar: number;
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [propertyStats, helmStats, opsStats, projected] = await Promise.all([
+  const [propertyStats, helmStats, opsStats, projected, reviews] = await Promise.all([
     getPropertyStats(),
     getHelmStats(),
     getOperationalStats(),
     getProjectedCurrentMonthPayout(),
+    getReviewWindowStats(7),
   ]);
-  return { ...propertyStats, ...helmStats, ...opsStats, projectedCurrentMonthPayout: projected };
+  return {
+    ...propertyStats,
+    ...helmStats,
+    ...opsStats,
+    projectedCurrentMonthPayout: projected,
+    reviewsLast7: reviews.total,
+    reviewsLast7FiveStar: reviews.fiveStar,
+  };
 }
 
 /**
@@ -297,7 +309,7 @@ export default async function HelmHome() {
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
+            gridTemplateColumns: 'repeat(6, 1fr)',
           }}
         >
           <Stat
@@ -340,6 +352,22 @@ export default async function HelmHome() {
             sub="planned walks, next 7 days"
             href="/operations"
             size="hero"
+          />
+          <Stat
+            label="Five-Star Reviews"
+            value={stats.reviewsLast7 > 0 ? `${stats.reviewsLast7FiveStar}/${stats.reviewsLast7}` : '—'}
+            sub={
+              stats.reviewsLast7 === 0
+                ? 'no reviews this week'
+                : stats.reviewsLast7FiveStar === stats.reviewsLast7
+                  ? 'clean 5★ run'
+                  : `${stats.reviewsLast7 - stats.reviewsLast7FiveStar} below five`
+            }
+            href="/reviews"
+            size="hero"
+            accent={
+              stats.reviewsLast7 > 0 && stats.reviewsLast7FiveStar === stats.reviewsLast7
+            }
           />
           <Stat
             label={(() => {
