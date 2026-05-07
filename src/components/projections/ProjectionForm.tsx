@@ -1,5 +1,6 @@
-import type { ProjectionRow } from '@/lib/projections-types';
+import type { Owner, ProjectionRow } from '@/lib/projections-types';
 import { CustomClausesField } from './CustomClausesField';
+import { OwnersSection } from './OwnersSection';
 
 /**
  * Shared input form for new + edit projections. Submits to a server action
@@ -29,62 +30,13 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
 
   return (
     <form action={action} className="space-y-10">
-      {/* ─── Prospect & Property ───────────────────────────────────────────── */}
-      <Section eyebrow="01" title="Prospect & Property">
-        <Row>
-          <Field label="Prospect name (full)" required>
-            <input
-              name="prospect_name"
-              required
-              defaultValue={v.prospect_name ?? ''}
-              placeholder="John Gavin, Bethany Giblin"
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Greeting (first name)" hint='Used in the projection hero ("...PAYOUTS TO JOHN")'>
-            <input
-              name="prospect_first_name"
-              defaultValue={v.prospect_first_name ?? ''}
-              placeholder="John"
-              style={inputStyle}
-            />
-          </Field>
-        </Row>
-        <Row>
-          <Field label="Salutation (first names)" hint='Used in the partnership guide ("Dear Bethany and John,")'>
-            <input
-              name="prospect_first_names"
-              defaultValue={v.prospect_first_names ?? ''}
-              placeholder="Bethany and John"
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Full legal name" hint="Used on the contract signature line">
-            <input
-              name="prospect_full_legal"
-              defaultValue={v.prospect_full_legal ?? ''}
-              placeholder="Bethany Giblin"
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Phone (optional)">
-            <input
-              name="prospect_phone"
-              defaultValue={v.prospect_phone ?? ''}
-              placeholder="(978) 555-1234"
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="Email" hint="Used by Gmail sync to detect what's been sent">
-            <input
-              name="prospect_email"
-              type="email"
-              defaultValue={v.prospect_email ?? ''}
-              placeholder="bethany@example.com"
-              style={inputStyle}
-            />
-          </Field>
-        </Row>
+      {/* ─── Owners ────────────────────────────────────────────────────────── */}
+      <Section eyebrow="01" title="Owners">
+        <OwnersSection initial={initialOwnersFor(initial)} />
+      </Section>
+
+      {/* ─── Property ──────────────────────────────────────────────────────── */}
+      <Section eyebrow="02" title="Property">
         <Row>
           <Field label="Property address" required>
             <input
@@ -178,7 +130,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       </Section>
 
       {/* ─── Presentation ──────────────────────────────────────────────────── */}
-      <Section eyebrow="02" title="Presentation">
+      <Section eyebrow="03" title="Presentation">
         <Row>
           <Field label="Presentation month" required hint="Cover page date, e.g. March 2026">
             <input
@@ -229,7 +181,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       </Section>
 
       {/* ─── Assumptions ───────────────────────────────────────────────────── */}
-      <Section eyebrow="03" title="Assumptions">
+      <Section eyebrow="04" title="Assumptions">
         <Row>
           <Field label="Management fee %" required>
             <input
@@ -294,7 +246,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       </Section>
 
       {/* ─── Overrides (optional) ──────────────────────────────────────────── */}
-      <Section eyebrow="04" title="Overrides (optional)">
+      <Section eyebrow="05" title="Overrides (optional)">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Leave blank to use the model. Set revenue overrides to bypass the
           50/50 blend. Set hero overrides to control the cover-page range
@@ -347,7 +299,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       </Section>
 
       {/* ─── Contract terms ────────────────────────────────────────────────── */}
-      <Section eyebrow="05" title="Contract terms">
+      <Section eyebrow="06" title="Contract terms">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Defaults match Rising Tide&rsquo;s standard contract. Edit per-deal terms
           below; they flow through to the contract render. Boilerplate clauses
@@ -435,7 +387,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       </Section>
 
       {/* ─── Custom clauses (optional, per-deal) ────────────────────────── */}
-      <Section eyebrow="06" title="Custom clauses (optional)">
+      <Section eyebrow="07" title="Custom clauses (optional)">
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Per-deal addenda that get rendered as a &ldquo;Rider&rdquo; page after Sale
           Protection in the contract. Add as many as the deal requires; leave
@@ -469,6 +421,35 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
 }
 
 // ─── Layout primitives ───────────────────────────────────────────────────────
+/**
+ * Build the initial owners array for the form. Pulls from `owners` if the
+ * record already has the structured field; otherwise falls back to deriving a
+ * single owner from the legacy scalar fields (so existing prospects render
+ * one pre-filled card and don't lose their data).
+ */
+function initialOwnersFor(initial: Partial<ProjectionRow> | undefined): Owner[] {
+  if (initial?.owners && Array.isArray(initial.owners) && initial.owners.length > 0) {
+    return initial.owners;
+  }
+  // Legacy fallback: derive a single owner from the scalar fields.
+  const legacyName = initial?.prospect_full_legal || initial?.prospect_name || '';
+  const parts = legacyName.split(/\s+/);
+  const first = initial?.prospect_first_name || parts[0] || '';
+  const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
+  if (!first && !last && !initial?.prospect_email && !initial?.prospect_phone) {
+    return []; // empty → OwnersSection seeds one blank card
+  }
+  return [
+    {
+      first_name: first,
+      last_name: last,
+      email: initial?.prospect_email ?? null,
+      phone: initial?.prospect_phone ?? null,
+      full_legal: initial?.prospect_full_legal ?? null,
+    },
+  ];
+}
+
 function Section({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
   return (
     <div>

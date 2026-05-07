@@ -6,8 +6,31 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData, CustomClause } from '@/lib/projections-types';
+import type { OnboardingData, CustomClause, Owner } from '@/lib/projections-types';
+import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
+
+/** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
+function parseOwners(fd: FormData): Owner[] {
+  const owners: Owner[] = [];
+  for (let i = 0; i < 20; i++) {
+    const fn = fd.get(`owners[${i}][first_name]`);
+    const ln = fd.get(`owners[${i}][last_name]`);
+    if (fn == null && ln == null) break;
+    const first = String(fn ?? '').trim();
+    const last = String(ln ?? '').trim();
+    // Skip cards the user added but left totally blank.
+    if (!first && !last) continue;
+    owners.push({
+      first_name: first,
+      last_name: last,
+      email: (String(fd.get(`owners[${i}][email]`) ?? '').trim() || null),
+      phone: (String(fd.get(`owners[${i}][phone]`) ?? '').trim() || null),
+      full_legal: (String(fd.get(`owners[${i}][full_legal]`) ?? '').trim() || null),
+    });
+  }
+  return owners;
+}
 
 /** 32-hex-char random token for the public onboarding link. */
 function newOnboardingToken(): string {
@@ -49,13 +72,14 @@ function pctToDecimal(formData: FormData, key: string): number {
 }
 
 function buildPayload(formData: FormData) {
+  // Owners are the source of truth now. Parse them, then re-derive the legacy
+  // scalar fields so render code that reads prospect_name etc. keeps working.
+  const owners = parseOwners(formData);
+  const derived = deriveLegacyFromOwners(owners);
+
   return {
-    prospect_name: str(formData, 'prospect_name'),
-    prospect_first_name: strOrNull(formData, 'prospect_first_name'),
-    prospect_first_names: strOrNull(formData, 'prospect_first_names'),
-    prospect_full_legal: strOrNull(formData, 'prospect_full_legal'),
-    prospect_phone: strOrNull(formData, 'prospect_phone'),
-    prospect_email: strOrNull(formData, 'prospect_email'),
+    owners: owners.length > 0 ? owners : null,
+    ...derived,
     property_address: str(formData, 'property_address'),
     property_city: strOrNull(formData, 'property_city'),
     property_type: str(formData, 'property_type') || 'House',
