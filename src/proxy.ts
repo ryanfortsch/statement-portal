@@ -20,6 +20,9 @@ const PUBLIC_PATH_PREFIXES = [
   "/statements/render",
   "/onboarding/",
   "/contract/",
+  // Direct booking flow lives under /book/<propertyId> and is intentionally
+  // guest-facing — it's the Helm-native counterpart to a public Airbnb listing.
+  "/book/",
 ];
 
 /**

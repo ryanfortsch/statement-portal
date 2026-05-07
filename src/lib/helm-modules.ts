@@ -156,6 +156,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  {
+    id: 'channels',
+    href: '/channels',
+    number: '16',
+    title: 'Channels',
+    description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings, and direct-stay foundations. Phase 1: read-only iCal import from Airbnb / VRBO / Booking.com.',
+    status: 'active',
+    primary: true,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);

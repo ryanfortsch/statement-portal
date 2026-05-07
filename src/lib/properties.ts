@@ -239,6 +239,11 @@ export type HelmPropertyRow = {
   // Funnel link: which prospect record promoted into this property
   projection_id: string | null;
 
+  // Channels module: per-property iCal export token used to authenticate
+  // outbound master-availability subscriptions from Airbnb / VRBO / Booking.com.
+  // Added by 20260507c_channels_extras.sql.
+  ical_export_token: string | null;
+
   created_at: string | null;
   updated_at: string | null;
   last_synced_at: string | null;
