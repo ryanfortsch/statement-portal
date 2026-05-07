@@ -117,8 +117,8 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
             <div className="eyebrow" style={{ marginBottom: 14 }}>Top pages</div>
             <Table
               empty="No page data in this window."
-              rows={topPages.map((p, i) => [String(i + 1).padStart(2, '0'), p.page_path, num(p.page_views)])}
-              cols={['#', 'Path', 'Views']}
+              rows={topPages.map((p, i) => [String(i + 1).padStart(2, '0'), p.display, num(p.page_views)])}
+              cols={['#', 'Page', 'Views']}
               align={['left', 'left', 'right']}
             />
           </div>

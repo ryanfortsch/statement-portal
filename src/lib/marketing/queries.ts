@@ -9,6 +9,7 @@
 // window, then sorted desc and sliced.
 
 import { supabase } from '@/lib/supabase';
+import { findScaListingByGuestyId } from '@/lib/sca-listings';
 
 export type SiteFilter = 'all' | string;
 
@@ -125,7 +126,27 @@ export async function getTopSources(
 }
 
 // ── Top pages (by GA4 page views) ────────────────────────────────────
-export type PageRow = { page_path: string; page_views: number; sessions: number };
+export type PageRow = {
+  page_path: string;
+  page_views: number;
+  sessions: number;
+  /** Friendly label: SCA listing title for /stays/<id> paths, raw path otherwise. */
+  display: string;
+  /** True when the path is a recognized SCA listing (resolvable via the bundled snapshot). */
+  is_listing: boolean;
+};
+
+// Resolve a /stays/<24-hex-guesty-id> path to its SCA listing title using
+// the bundled snapshot at src/data/sca-listings.json. Falls through to
+// the raw path for non-/stays paths or unknown ids.
+function resolvePagePath(path: string): { display: string; is_listing: boolean } {
+  const m = path.match(/^\/stays\/([a-f0-9]{24})\/?$/);
+  if (m) {
+    const listing = findScaListingByGuestyId(m[1]);
+    if (listing) return { display: listing.title, is_listing: true };
+  }
+  return { display: path, is_listing: false };
+}
 
 export async function getTopPages(
   site: SiteFilter,
@@ -139,14 +160,17 @@ export async function getTopPages(
     .gte('date', range.start)
     .lte('date', range.end);
 
-  const byPath = new Map<string, PageRow>();
-  for (const r of (data ?? []) as PageRow[]) {
+  const byPath = new Map<string, { page_path: string; page_views: number; sessions: number }>();
+  for (const r of (data ?? []) as { page_path: string; page_views: number; sessions: number }[]) {
     const cur = byPath.get(r.page_path) ?? { page_path: r.page_path, page_views: 0, sessions: 0 };
     cur.page_views += r.page_views ?? 0;
     cur.sessions += r.sessions ?? 0;
     byPath.set(r.page_path, cur);
   }
-  return [...byPath.values()].sort((a, b) => b.page_views - a.page_views).slice(0, limit);
+  return [...byPath.values()]
+    .sort((a, b) => b.page_views - a.page_views)
+    .slice(0, limit)
+    .map((r) => ({ ...r, ...resolvePagePath(r.page_path) }));
 }
 
 // ── Speed Insights (latest per site) ─────────────────────────────────
