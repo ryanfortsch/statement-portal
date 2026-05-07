@@ -95,9 +95,10 @@ export type ProjectionRow = {
 export type GmailTouchType = 'projection' | 'guide' | 'contract' | 'onboarding';
 export type GmailTouchEntry = {
   sent_at: string;       // ISO; from message internalDate
-  message_id: string;    // Gmail message id
+  message_id: string;    // Gmail message id (scoped to from_user's mailbox)
   subject: string;
   to: string;
+  from_user?: string;    // which mailbox surfaced this send (e.g. "Allie" / "Ryan")
 };
 export type GmailTouches = Partial<Record<GmailTouchType, GmailTouchEntry>>;
 

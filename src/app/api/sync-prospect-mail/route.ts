@@ -10,23 +10,51 @@ import type {
 /**
  * POST /api/sync-prospect-mail
  *
- * For each projection record with a non-null prospect_email, scan Allie's
- * Gmail sent folder for messages addressed to that prospect. Classify each
- * message by deliverable type (projection / guide / contract / onboarding)
- * based on the subject line and attachment filenames, then store the most
- * recent send per type back on the projection's gmail_touches JSONB column.
+ * For each projection record, scan every configured Gmail mailbox's sent
+ * folder for messages addressed to any of the prospect's owners' emails.
+ * Classify each match by deliverable type (projection / guide / contract /
+ * onboarding) using subject keywords + attachment filenames, then store the
+ * most recent send per type back on the projection's gmail_touches JSONB.
+ *
+ * Mailboxes: configured via env vars. Allie is the default
+ * (GMAIL_REFRESH_TOKEN); Ryan is optional (GMAIL_REFRESH_TOKEN_RYAN). Add
+ * more by extending the MAILBOXES array. Mailboxes with no refresh token
+ * are silently skipped, so partial setup is fine.
  *
  * Body (optional): { id: "<projection_uuid>" } to sync just one prospect.
- * Without a body, syncs every projection that has an email + hasn't been
- * synced in the last 5 minutes (cheap dedupe).
  */
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
-const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
-const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
+type Mailbox = {
+  name: string;
+  refreshToken: string;
+  clientId: string;
+  clientSecret: string;
+};
+
+/**
+ * Configured Gmail mailboxes. Each scan touches every mailbox with a non-empty
+ * refresh token; the rest are skipped. To add a new mailbox, push another
+ * entry that points at its env vars.
+ */
+const MAILBOXES: Mailbox[] = [
+  {
+    name: 'Allie',
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN_ALLIE || '',
+    clientId: process.env.GMAIL_CLIENT_ID || '',
+    clientSecret: process.env.GMAIL_CLIENT_SECRET || '',
+  },
+  {
+    name: 'Ryan',
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN_RYAN || '',
+    // Per-user OAuth client overrides if the OAuth app isn't shared across
+    // mailboxes; default to the same shared client + secret as Allie.
+    clientId: process.env.GMAIL_CLIENT_ID_RYAN || process.env.GMAIL_CLIENT_ID || '',
+    clientSecret: process.env.GMAIL_CLIENT_SECRET_RYAN || process.env.GMAIL_CLIENT_SECRET || '',
+  },
+].filter((m) => m.refreshToken && m.clientId && m.clientSecret);
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
@@ -37,21 +65,18 @@ function getSupabase(): SupabaseClient {
   return _sb;
 }
 
-async function getAccessToken(): Promise<string> {
-  if (!GMAIL_REFRESH_TOKEN || !GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET) {
-    throw new Error('Gmail API credentials not configured (GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)');
-  }
+async function getAccessToken(mb: Mailbox): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: GMAIL_CLIENT_ID,
-      client_secret: GMAIL_CLIENT_SECRET,
-      refresh_token: GMAIL_REFRESH_TOKEN,
+      client_id: mb.clientId,
+      client_secret: mb.clientSecret,
+      refresh_token: mb.refreshToken,
       grant_type: 'refresh_token',
     }),
   });
-  if (!res.ok) throw new Error(`Failed to refresh Gmail token: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Failed to refresh ${mb.name}'s Gmail token: ${await res.text()}`);
   const data = await res.json();
   return data.access_token;
 }
@@ -91,9 +116,10 @@ function classify(subject: string, attachments: string[]): GmailTouchType | null
 async function searchAndClassify(
   accessToken: string,
   email: string,
+  fromUser: string,
 ): Promise<GmailTouches> {
-  // Look back 1 year. Allie's sent folder ("in:sent") to that recipient.
-  // The Gmail q-language is documented at https://support.google.com/mail/answer/7190
+  // Look back 1 year of sent mail to that recipient.
+  // Gmail q-language: https://support.google.com/mail/answer/7190
   const yearAgo = new Date();
   yearAgo.setFullYear(yearAgo.getFullYear() - 1);
   const after = `${yearAgo.getFullYear()}/${String(yearAgo.getMonth() + 1).padStart(2, '0')}/${String(yearAgo.getDate()).padStart(2, '0')}`;
@@ -101,7 +127,7 @@ async function searchAndClassify(
 
   const searchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=50`;
   const searchRes = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!searchRes.ok) throw new Error(`Gmail search failed: ${await searchRes.text()}`);
+  if (!searchRes.ok) throw new Error(`${fromUser} Gmail search failed: ${await searchRes.text()}`);
   const searchData = await searchRes.json();
   const messages = (searchData.messages || []) as { id: string }[];
 
@@ -119,11 +145,7 @@ async function searchAndClassify(
     const sentMs = Number(msgData.internalDate || 0);
     const sentAt = sentMs ? new Date(sentMs).toISOString() : new Date().toISOString();
 
-    // Attachment filenames (we asked for metadata, but parts are still in the
-    // light payload for messages with attachments — Gmail returns part filenames
-    // in metadata format).
     const attachments = flattenAttachments(msgData.payload as GmailPart | undefined);
-
     const type = classify(subject, attachments);
     if (!type) continue;
 
@@ -132,6 +154,7 @@ async function searchAndClassify(
       message_id: msgData.id,
       subject,
       to,
+      from_user: fromUser,
     };
 
     // Latest send wins
@@ -185,10 +208,36 @@ export async function POST(request: NextRequest) {
       return emails.length > 0;
     });
     if (prospects.length === 0) {
-      return NextResponse.json({ success: true, scanned: 0, results: [] });
+      return NextResponse.json({ success: true, scanned: 0, mailboxes: [], results: [] });
+    }
+    if (MAILBOXES.length === 0) {
+      return NextResponse.json(
+        { error: 'No Gmail mailboxes configured. Set GMAIL_REFRESH_TOKEN (Allie) and/or GMAIL_REFRESH_TOKEN_RYAN.' },
+        { status: 500 },
+      );
     }
 
-    const accessToken = await getAccessToken();
+    // Refresh access tokens once per mailbox up front; reuse across prospects.
+    const mailboxTokens: { mailbox: Mailbox; accessToken: string; error?: string }[] = [];
+    for (const mb of MAILBOXES) {
+      try {
+        mailboxTokens.push({ mailbox: mb, accessToken: await getAccessToken(mb) });
+      } catch (err) {
+        mailboxTokens.push({
+          mailbox: mb,
+          accessToken: '',
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    const live = mailboxTokens.filter((m) => m.accessToken);
+    if (live.length === 0) {
+      return NextResponse.json(
+        { error: 'All configured Gmail mailboxes failed to authenticate.', mailboxes: mailboxTokens.map((m) => ({ name: m.mailbox.name, error: m.error })) },
+        { status: 500 },
+      );
+    }
+
     const now = new Date().toISOString();
 
     const results: { id: string; emails: string[]; touches: GmailTouches; error?: string }[] = [];
@@ -196,12 +245,15 @@ export async function POST(request: NextRequest) {
     for (const p of prospects) {
       const emails = collectEmails(p as { prospect_email: string | null; owners: Owner[] | null });
       try {
-        // Search per email and merge — Gmail's q-language doesn't OR easily on
-        // `to:` so we run one query per recipient and combine the results.
+        // Per prospect: every owner email × every live mailbox. Merge results.
+        // Gmail's q-language doesn't OR easily on `to:` so we run one query
+        // per (recipient, mailbox) combination.
         let touches: GmailTouches = {};
         for (const email of emails) {
-          const t = await searchAndClassify(accessToken, email);
-          touches = mergeTouches(touches, t);
+          for (const m of live) {
+            const t = await searchAndClassify(m.accessToken, email, m.mailbox.name);
+            touches = mergeTouches(touches, t);
+          }
         }
         await sb
           .from('projections')
@@ -221,7 +273,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, scanned: prospects.length, results });
+    return NextResponse.json({
+      success: true,
+      scanned: prospects.length,
+      mailboxes: mailboxTokens.map((m) => ({
+        name: m.mailbox.name,
+        ok: !!m.accessToken,
+        error: m.error,
+      })),
+      results,
+    });
   } catch (err) {
     console.error('sync-prospect-mail error:', err);
     return NextResponse.json(
