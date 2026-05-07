@@ -147,6 +147,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  {
+    id: 'competitors',
+    href: '/competitors',
+    number: '15',
+    title: 'Competitors',
+    description: 'Other vacation rental managers in the Cape Ann market. Inventory size, town mix, unit count. Phase 1 starts with Atlantic Vacation Homes.',
+    status: 'active',
+    primary: false,
+  },
 ];
 
 export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
