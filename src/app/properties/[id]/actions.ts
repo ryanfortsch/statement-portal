@@ -5,6 +5,12 @@ import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { getGuestyListing, type GuestyListingDetail } from '@/lib/guesty';
+import {
+  findScaListingByGuestyId,
+  findScaListingByAddress,
+  SCA_LISTINGS_REFRESHED_AT,
+  type ScaListing,
+} from '@/lib/sca-listings';
 
 export type BackfillResult = {
   /** Human-readable summary of what changed, one bullet per filled field. */
@@ -13,6 +19,9 @@ export type BackfillResult = {
   skipped: string[];
   /** Soft warnings (e.g. "no Guesty listing linked to this property"). */
   warnings: string[];
+  /** Which sources contributed data. Surfaced so Dotti can audit and so a
+   *  stale Stay Cape Ann snapshot is visible at a glance. */
+  sources: string[];
 };
 
 /**
@@ -41,13 +50,37 @@ export async function backfillPropertyFromIntegrations(propertyId: string): Prom
   const filled: string[] = [];
   const skipped: string[] = [];
   const warnings: string[] = [];
+  const sources: string[] = [];
   const updates: Record<string, unknown> = {};
 
-  // ── Guesty listing metadata ──────────────────────────────────────────
-  // Guesty knows beds, baths, accommodates, property type, lat/lng. None
-  // of our other integrations (Quo SMS, Gmail) carry property metadata,
-  // so this is the only structured source today.
-  if (property.guesty_listing_id) {
+  // ── Stay Cape Ann snapshot (primary source) ──────────────────────────
+  // SCA bundles a daily-refreshed Guesty cache for its public site. Every
+  // Helm-managed property that's listed on staycapeann.com has its
+  // metadata (beds, baths, accommodates, lat/lng, property type) here
+  // already, no API call needed. We try SCA first because it's free,
+  // offline-safe, and richer than the live listings endpoint for SCA-
+  // listed homes. Match by guesty_listing_id; address fallback for
+  // properties without one wired up yet.
+  let scaListing: ScaListing | null = findScaListingByGuestyId(property.guesty_listing_id);
+  if (!scaListing) scaListing = findScaListingByAddress(property.address);
+
+  if (scaListing) {
+    sources.push(
+      `Stay Cape Ann snapshot — listing "${scaListing.title}" (refreshed ${formatDate(SCA_LISTINGS_REFRESHED_AT)})`,
+    );
+    tryFill(updates, filled, skipped, 'bedrooms', property.bedrooms, scaListing.bedrooms);
+    tryFill(updates, filled, skipped, 'bathrooms', property.bathrooms, scaListing.bathrooms);
+    tryFill(updates, filled, skipped, 'type_of_unit', property.type_of_unit, scaListing.propertyType);
+    tryFill(updates, filled, skipped, 'latitude', property.latitude, scaListing.address?.lat);
+    tryFill(updates, filled, skipped, 'longitude', property.longitude, scaListing.address?.lng);
+  }
+
+  // ── Guesty live listing metadata (fallback) ──────────────────────────
+  // For properties not on Stay Cape Ann (e.g. Ryan's personal homes
+  // pre-CIF) the SCA snapshot won't have them, so fall back to the live
+  // Guesty API. Skip the network call entirely if SCA already had the
+  // listing — saves an API hit for the common case.
+  if (!scaListing && property.guesty_listing_id) {
     let listing: GuestyListingDetail | null = null;
     try {
       listing = await getGuestyListing(property.guesty_listing_id);
@@ -56,6 +89,7 @@ export async function backfillPropertyFromIntegrations(propertyId: string): Prom
     }
 
     if (listing) {
+      sources.push('Guesty live API (/v1/listings)');
       tryFill(updates, filled, skipped, 'bedrooms', property.bedrooms, listing.bedrooms);
       tryFill(updates, filled, skipped, 'bathrooms', property.bathrooms, listing.bathrooms);
       tryFill(updates, filled, skipped, 'square_feet', property.square_feet, listing.area);
@@ -63,8 +97,10 @@ export async function backfillPropertyFromIntegrations(propertyId: string): Prom
       tryFill(updates, filled, skipped, 'latitude', property.latitude, listing.address?.lat);
       tryFill(updates, filled, skipped, 'longitude', property.longitude, listing.address?.lng);
     }
-  } else {
-    warnings.push('No Guesty listing linked to this property — sync /api/sync-guesty first.');
+  } else if (!scaListing && !property.guesty_listing_id) {
+    warnings.push(
+      'Not on Stay Cape Ann and no Guesty listing linked — manual entry only for this property.',
+    );
   }
 
   // ── Smart defaults from data already on the property ─────────────────
@@ -74,6 +110,7 @@ export async function backfillPropertyFromIntegrations(propertyId: string): Prom
   if (!property.owner_preferred_contact && property.owner_emails && property.owner_emails.length > 0) {
     updates.owner_preferred_contact = 'email';
     filled.push("owner_preferred_contact ← 'email' (inferred from owner_emails)");
+    sources.push('Smart defaults — inferred from existing data');
   }
 
   // ── Apply updates ────────────────────────────────────────────────────
@@ -89,7 +126,24 @@ export async function backfillPropertyFromIntegrations(propertyId: string): Prom
     revalidatePath(`/properties/${propertyId}/edit`);
   }
 
-  return { filled, skipped, warnings };
+  return { filled, skipped, warnings, sources };
+}
+
+/** Format an ISO timestamp as a relative-or-absolute string for the
+ *  source attribution. Same shape as the property page's
+ *  formatRelativeOrAbsolute helper but inlined to avoid a cross-file
+ *  import in a server action file. */
+function formatDate(iso: string): string {
+  try {
+    const then = new Date(iso);
+    const days = Math.floor((Date.now() - then.getTime()) / (24 * 60 * 60 * 1000));
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 14) return `${days} days ago`;
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return iso;
+  }
 }
 
 /**

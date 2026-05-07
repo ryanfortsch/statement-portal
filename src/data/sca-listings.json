@@ -1,0 +1,156 @@
+{
+  "refreshedAt": "2026-05-07T02:28:03.558Z",
+  "source": "live",
+  "listings": [
+    {
+      "id": "67a1355216416a00122e976f",
+      "title": "Stay at Rocky Neck",
+      "bedrooms": 3,
+      "bathrooms": 2.5,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "21 Horton St, Gloucester, MA 01930, USA",
+        "lat": 42.6076687,
+        "lng": -70.6584614
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "67746de6846e4a0011527356",
+      "title": "Stay at Little River",
+      "bedrooms": 4,
+      "bathrooms": 1.5,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "30 Woodward Ave, Gloucester, MA 01930, USA",
+        "lat": 42.6132768,
+        "lng": -70.70492879999999
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "68517adfe37e420021fc233b",
+      "title": "Stay at Smith Cove",
+      "bedrooms": 2,
+      "bathrooms": 3,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "73 Rocky Neck Avenue, Gloucester, Massachusetts 01930, United States",
+        "lat": 42.6073628,
+        "lng": -70.6562216
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "686c38be681e57001084f81d",
+      "title": "Stay at The Neck",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "53 Rocky Neck Avenue, Gloucester, Massachusetts 01930, United States",
+        "lat": 42.6073628,
+        "lng": -70.6562216
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "667980491a7c6f0053df5745",
+      "title": "Stay at Niles Beach",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "Locust Lane 3, 01930 Gloucester, United States",
+        "lat": 42.599306,
+        "lng": -70.65477700000001
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "695d5c8afb0a0500153d5d1c",
+      "title": "Stay at Good Harbor Beach",
+      "bedrooms": 6,
+      "bathrooms": 4.5,
+      "accommodates": 18,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "17 Beach Rd, Gloucester, MA 01930, USA",
+        "lat": 42.6161357,
+        "lng": -70.6389614
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "668c635d25b8180012fd30b7",
+      "title": "Stay at Good Harbor Beach",
+      "bedrooms": 5,
+      "bathrooms": 3,
+      "accommodates": 13,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "4 Brier Neck Road, 01930 Gloucester, United States",
+        "lat": 42.6228766,
+        "lng": -70.62693159
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "690bfe9228e766001365321c",
+      "title": "Stay at Old Garden Beach ",
+      "bedrooms": 3,
+      "bathrooms": 3.5,
+      "accommodates": 8,
+      "address": {
+        "city": "Rockport",
+        "state": "Massachusetts",
+        "full": "3 South St b, Rockport, MA 01966, USA",
+        "lat": 42.6552509,
+        "lng": -70.61151199999999
+      },
+      "town": "Rockport"
+    },
+    {
+      "id": "689f6ee9c6571b0042f08d7a",
+      "title": "Stay at East Gloucester",
+      "bedrooms": 4,
+      "bathrooms": 1.5,
+      "accommodates": 7,
+      "address": {
+        "city": "Gloucester",
+        "state": "Massachusetts",
+        "full": "20 Hammond Street, Gloucester, Massachusetts 01930, United States",
+        "lat": 42.6137467,
+        "lng": -70.6468731
+      },
+      "town": "Gloucester"
+    },
+    {
+      "id": "679fb9709addc3003096a14a",
+      "title": "Stay at Beverly Shops",
+      "bedrooms": 3,
+      "bathrooms": 3,
+      "accommodates": 5,
+      "address": {
+        "city": "Beverly",
+        "state": "Massachusetts",
+        "full": "20 Enon St, Beverly, MA 01915, USA",
+        "lat": 42.5848602,
+        "lng": -70.88496409999999
+      },
+      "town": "Beverly"
+    }
+  ]
+}
