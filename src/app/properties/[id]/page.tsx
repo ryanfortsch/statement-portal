@@ -13,7 +13,8 @@ import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
-import { PropertyActivity } from './PropertyActivity';
+import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
+import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -217,13 +218,14 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, activityEvents, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id, p),
     getCrmContactsForProperty(p.id),
+    loadPropertyActivity(p),
     auth(),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -241,6 +243,33 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   // properties it's the wrong document, so we hide the tile (and the
   // /info-note route 404s) anywhere outside Gloucester.
   const isGloucester = (p.city || '').split(',')[0].trim().toLowerCase() === 'gloucester';
+
+  // Summary chips for the closed state of each collapsible. Glanceable so
+  // the page stays scannable without expanding every section.
+  const ownerSummary = latestOwnerContact
+    ? `last contacted ${formatRelativeOrAbsolute(latestOwnerContact.at)} · ${contactChannelLabel(latestOwnerContact.via)}`
+    : 'no contact logged yet';
+  const statementsSummary =
+    statements.length === 0
+      ? 'no statements yet'
+      : `${formatMonth(statements[0].month)} · ${formatCurrency(statements[0].owner_payout)} payout`;
+  const inspectionsSummary = (() => {
+    if (recentInspections.length === 0) return 'no inspections yet';
+    const last = recentInspections[0];
+    const date = formatDate(last.completed_at ?? last.started_at);
+    if (!last.completed_at) return `${date} · in progress`;
+    const issues = last.issue_count;
+    return `${date} · ${issues} ${issues === 1 ? 'issue' : 'issues'}`;
+  })();
+  const activitySummary =
+    activityEvents.length === 0
+      ? 'quiet'
+      : `${activityEvents.length} ${activityEvents.length === 1 ? 'event' : 'events'} · last ${formatRelative(activityEvents[0].at)}`;
+  const operationalCounts = countOperationalFields(p);
+  const operationalSummary =
+    operationalCounts.populated === 0
+      ? 'not yet onboarded'
+      : `${operationalCounts.populated} of ${operationalCounts.total} fields populated`;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -585,60 +614,128 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         )}
       </section>
 
+      {/* OWNER — first collapsible because it's the most-used reference
+          when triaging open work above. */}
+      <CollapsibleSection title="Owner" summary={ownerSummary}>
+        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
+          <Detail term="Owner" definition={p.owner_full} />
+          <Detail term="Greeting" definition={p.owner_greeting} />
+
+          <div>
+            <dt className="eyebrow" style={{ marginBottom: 4 }}>Emails</dt>
+            <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0, lineHeight: 1.7 }}>
+              {p.owner_emails.length === 0 ? '—' : p.owner_emails.map((e, i) => (
+                <span key={e}>
+                  {i > 0 && <span style={{ color: 'var(--ink-4)' }}>, </span>}
+                  <a
+                    href={`mailto:${e}`}
+                    style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                  >
+                    {e}
+                  </a>
+                </span>
+              ))}
+            </dd>
+          </div>
+
+          <div>
+            <dt className="eyebrow" style={{ marginBottom: 4 }}>Phone</dt>
+            <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0 }}>
+              {p.owner_phone ? (
+                <a
+                  href={`tel:${p.owner_phone.replace(/[^+\d]/g, '')}`}
+                  style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                >
+                  {p.owner_phone}
+                </a>
+              ) : '—'}
+            </dd>
+          </div>
+
+          <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
+          <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
+          <div>
+            <dt className="eyebrow" style={{ marginBottom: 4 }}>Last contacted</dt>
+            <dd style={{ color: 'var(--ink)', fontSize: 14, margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span>
+                {latestOwnerContact ? formatRelativeOrAbsolute(latestOwnerContact.at) : '—'}
+                {latestOwnerContact?.via && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                    ({contactChannelLabel(latestOwnerContact.via)})
+                  </span>
+                )}
+              </span>
+              <MarkContactedButton propertyId={p.id} />
+            </dd>
+          </div>
+          <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
+        </dl>
+
+        {crmContacts.length > 0 && (
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px dotted var(--rule)' }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>In CRM</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {crmContacts.map((c) => (
+                <Link
+                  key={c.id}
+                  href={`/crm/${c.id}`}
+                  title={`Open ${c.name} in CRM (touches log, etc.)`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 12px',
+                    border: '1px solid var(--tide-deep)',
+                    color: 'var(--tide-deep)',
+                    textDecoration: 'none',
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', opacity: 0.7 }}>
+                    {c.type}
+                  </span>
+                  {c.name}
+                  <span style={{ opacity: 0.7 }}>→</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
       {/* ACTIVITY FEED */}
-      <PropertyActivity property={p} />
+      <CollapsibleSection title="Activity" summary={activitySummary}>
+        <PropertyActivityList events={activityEvents} />
+      </CollapsibleSection>
 
       {/* INSPECTION HISTORY (Helm-native) */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-        <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
-          <h2
-            className="font-serif"
+      <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <Link
+            href={`/operations?property=${p.id}`}
+            title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
             style={{
-              fontSize: 22,
-              fontWeight: 400,
-              letterSpacing: '-0.01em',
-              color: 'var(--ink)',
-              margin: 0,
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--paper)',
+              background: 'var(--ink)',
+              border: '1px solid var(--ink)',
+              padding: '6px 12px',
+              textDecoration: 'none',
             }}
           >
-            Recent Inspections
-          </h2>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
-            <span className="eyebrow">{recentInspections.length === 0 ? 'no history yet' : `last ${recentInspections.length}`}</span>
-            <Link
-              href={`/operations?property=${p.id}`}
-              title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
-              style={{
-                fontSize: 11,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                fontWeight: 500,
-                color: 'var(--paper)',
-                background: 'var(--ink)',
-                border: '1px solid var(--ink)',
-                padding: '6px 12px',
-                textDecoration: 'none',
-              }}
-            >
-              Plan a walk
-            </Link>
-          </div>
+            Plan a walk
+          </Link>
         </div>
         {recentInspections.length === 0 && (
-          <div
-            style={{
-              borderTop: '1px solid var(--ink)',
-              padding: '24px 0',
-              textAlign: 'center',
-              color: 'var(--ink-3)',
-              fontSize: 13,
-            }}
-          >
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
             No inspections recorded for this property yet.
           </div>
         )}
         {recentInspections.length > 0 && (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
+          <div>
             {recentInspections.map((insp) => {
               const isComplete = !!insp.completed_at;
               const href = isComplete
@@ -691,161 +788,87 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             })}
           </div>
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* RECENT STATEMENTS (Helm-native) */}
-      <Section
-        title="Recent Statements"
-        eyebrow="Helm"
-        empty={statements.length === 0}
-        emptyMessage="No statements for this property yet."
-      >
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {statements.map((s) => (
-            <Link
-              key={s.id}
-              href={`/statements?month=${s.month}`}
-              style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '160px 1fr auto auto',
-                  gap: 24,
-                  alignItems: 'baseline',
-                  padding: '18px 0',
-                  borderBottom: '1px solid var(--rule)',
-                }}
+      <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
+        {statements.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No statements for this property yet.
+          </div>
+        ) : (
+          <div>
+            {statements.map((s) => (
+              <Link
+                key={s.id}
+                href={`/statements?month=${s.month}`}
+                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
               >
-                <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)' }}>
-                  {formatMonth(s.month)}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
-                </span>
-                <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  {formatCurrency(s.rental_revenue)} rev
-                </span>
-                <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                  {formatCurrency(s.owner_payout)} payout →
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </Section>
-
-      {/* OWNER + COMMS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Owner
-          </h2>
-          <span className="eyebrow">Helm</span>
-        </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
-          <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-            <Detail term="Owner" definition={p.owner_full} />
-            <Detail term="Greeting" definition={p.owner_greeting} />
-
-            <div>
-              <dt className="eyebrow" style={{ marginBottom: 4 }}>Emails</dt>
-              <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0, lineHeight: 1.7 }}>
-                {p.owner_emails.length === 0 ? '—' : p.owner_emails.map((e, i) => (
-                  <span key={e}>
-                    {i > 0 && <span style={{ color: 'var(--ink-4)' }}>, </span>}
-                    <a
-                      href={`mailto:${e}`}
-                      style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-                    >
-                      {e}
-                    </a>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '160px 1fr auto auto',
+                    gap: 24,
+                    alignItems: 'baseline',
+                    padding: '18px 0',
+                    borderBottom: '1px solid var(--rule)',
+                  }}
+                >
+                  <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)' }}>
+                    {formatMonth(s.month)}
                   </span>
-                ))}
-              </dd>
-            </div>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                    {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                    {formatCurrency(s.rental_revenue)} rev
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    {formatCurrency(s.owner_payout)} payout →
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
 
-            <div>
-              <dt className="eyebrow" style={{ marginBottom: 4 }}>Phone</dt>
-              <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0 }}>
-                {p.owner_phone ? (
-                  <a
-                    href={`tel:${p.owner_phone.replace(/[^+\d]/g, '')}`}
-                    style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-                  >
-                    {p.owner_phone}
-                  </a>
-                ) : '—'}
-              </dd>
-            </div>
+      {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
+      {operationalCounts.populated > 0 && (
+        <CollapsibleSection title="Operational data" summary={operationalSummary}>
+          <OperationalSections p={p} />
+        </CollapsibleSection>
+      )}
 
-            <Detail term="Mailing address" definition={p.owner_mailing_address || '—'} />
-            <Detail term="Preferred contact" definition={p.owner_preferred_contact || '—'} />
-            <div>
-              <dt className="eyebrow" style={{ marginBottom: 4 }}>Last contacted</dt>
-              <dd style={{ color: 'var(--ink)', fontSize: 14, margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span>
-                  {latestOwnerContact ? formatRelativeOrAbsolute(latestOwnerContact.at) : '—'}
-                  {latestOwnerContact?.via && (
-                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-                      ({contactChannelLabel(latestOwnerContact.via)})
-                    </span>
-                  )}
-                </span>
-                <MarkContactedButton propertyId={p.id} />
-              </dd>
-            </div>
-            <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
-          </dl>
-
-          {crmContacts.length > 0 && (
-            <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px dotted var(--rule)' }}>
-              <div className="eyebrow" style={{ marginBottom: 10 }}>In CRM</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {crmContacts.map((c) => (
-                  <Link
-                    key={c.id}
-                    href={`/crm/${c.id}`}
-                    title={`Open ${c.name} in CRM (touches log, etc.)`}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '6px 12px',
-                      border: '1px solid var(--tide-deep)',
-                      color: 'var(--tide-deep)',
-                      textDecoration: 'none',
-                      fontSize: 12,
-                    }}
-                  >
-                    <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', opacity: 0.7 }}>
-                      {c.type}
-                    </span>
-                    {c.name}
-                    <span style={{ opacity: 0.7 }}>→</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* OPERATIONAL DATA — only renders when there's something to show */}
-      <OperationalSections p={p} />
-
-      {/* INSPECTIONS / WORK (still in Lovable) */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Inspections &amp; Work
-          </h2>
-          <span className="eyebrow">External</span>
-        </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18, paddingBottom: 18 }}>
-          <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14 }}>
-            Inspections, work slips, and turnover state still live in the Perfection app. Helm-native
-            schemas for these are in flight; until then, click through to view them in context.
+      {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
+          quiet block at the bottom. Used rarely; collapsed by default. */}
+      <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
+        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
+          <Detail term="Helm ID" definition={p.id} mono />
+          <Detail term="Code" definition={p.code || '—'} />
+          <Detail term="Title" definition={p.title || '—'} />
+          <Detail term="Type" definition={p.type_of_unit || '—'} />
+          <Detail term="Tags" definition={p.tags || '—'} />
+          <Detail term="Timezone" definition={p.timezone || '—'} />
+          <Detail
+            term="Coordinates"
+            definition={
+              p.latitude != null && p.longitude != null
+                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
+                : '—'
+            }
+          />
+          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
+          <Detail term="Activated" definition={formatDate(p.activated_at)} />
+          <Detail term="Created" definition={formatDate(p.created_at)} />
+          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
+          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
+        </dl>
+        <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
+            Inspections, work slips, and turnover state still live in the Perfection app for some
+            workflows. Helm-native versions cover most cases above; click through if you need
+            the legacy view.
           </p>
           <a
             href="https://inspect.risingtidestr.com"
@@ -868,40 +891,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             Open Perfection ↗
           </a>
         </div>
-      </section>
-
-      {/* DETAILS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 18 }}>Details</div>
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-          <Detail term="Helm ID" definition={p.id} mono />
-          <Detail term="Code" definition={p.code || '—'} />
-          <Detail term="Title" definition={p.title || '—'} />
-          <Detail term="Type" definition={p.type_of_unit || '—'} />
-          <Detail term="Tags" definition={p.tags || '—'} />
-          <Detail term="Timezone" definition={p.timezone || '—'} />
-          <Detail
-            term="Coordinates"
-            definition={
-              p.latitude != null && p.longitude != null
-                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
-                : '—'
-            }
-          />
-          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
-        </dl>
-      </section>
-
-      {/* ACTIVITY */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 18 }}>Activity</div>
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-          <Detail term="Activated" definition={formatDate(p.activated_at)} />
-          <Detail term="Created" definition={formatDate(p.created_at)} />
-          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
-          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
-        </dl>
-      </section>
+      </CollapsibleSection>
 
       {/* FOOTER */}
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
@@ -958,7 +948,10 @@ const primaryActionStyle: React.CSSProperties = {
   gap: 6,
 };
 
-function OperationalSections({ p }: { p: HelmPropertyRow }) {
+/** Builds the six operational-data row groups in display order. Shared by
+ *  the renderer (which shows only populated rows per group) and the field
+ *  counter (which folds populated/total counts up into the parent header). */
+function operationalGroups(p: HelmPropertyRow) {
   const specs: OpRow[] = [
     { label: 'Bedrooms', value: p.bedrooms },
     { label: 'Bathrooms', value: p.bathrooms },
@@ -1014,8 +1007,7 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
     { label: 'Fire exits', value: p.fire_exit_locations },
     { label: 'STR permit expires', value: p.str_permit_expires },
   ];
-
-  const groups = [
+  return [
     { title: 'Property specs', rows: specs },
     { title: 'Utilities', rows: utilities },
     { title: 'STR setup', rows: str },
@@ -1023,68 +1015,49 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
     { title: 'Emergency contact', rows: emergency },
     { title: 'Inspection & safety', rows: inspection },
   ];
+}
 
-  // Hide entirely if nothing has been onboarded yet — keeps the page clean
-  // for the existing 9 hand-seeded properties that don't have intake data.
+/** Total / populated count across all operational groups. Drives the
+ *  parent CollapsibleSection's summary chip ("23 of 43 fields populated"). */
+function countOperationalFields(p: HelmPropertyRow): { populated: number; total: number } {
+  const groups = operationalGroups(p);
+  let total = 0;
+  let populated = 0;
+  for (const g of groups) {
+    for (const r of g.rows) {
+      total++;
+      if (r.value != null && r.value !== '') populated++;
+    }
+  }
+  return { populated, total };
+}
+
+function OperationalSections({ p }: { p: HelmPropertyRow }) {
+  const groups = operationalGroups(p);
+
+  // Caller (page.tsx) already gates on populated > 0 before rendering this
+  // inside a CollapsibleSection — but keep the safety net so the function
+  // is still self-contained.
   const anything = groups.some((g) => g.rows.some((r) => r.value != null && r.value !== ''));
   if (!anything) return null;
 
   return (
-    <>
+    <div>
       {groups.map((g) => {
         const populated = g.rows.filter((r) => r.value != null && r.value !== '');
         if (populated.length === 0) return null;
+        const summary = `${populated.length} of ${g.rows.length}`;
         return (
-          <section key={g.title} className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-            <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-              <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                {g.title}
-              </h2>
-              <span className="eyebrow">From onboarding</span>
-            </div>
-            <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
-              <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
-                {populated.map((r) => (
-                  <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
-                ))}
-              </dl>
-            </div>
-          </section>
+          <CollapsibleSubSection key={g.title} title={g.title} summary={summary}>
+            <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 48px', fontSize: 13 }}>
+              {populated.map((r) => (
+                <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
+              ))}
+            </dl>
+          </CollapsibleSubSection>
         );
       })}
-    </>
-  );
-}
-
-function Section({
-  title,
-  eyebrow,
-  empty,
-  emptyMessage,
-  children,
-}: {
-  title: string;
-  eyebrow: string;
-  empty: boolean;
-  emptyMessage: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          {title}
-        </h2>
-        <span className="eyebrow">{eyebrow}</span>
-      </div>
-      {empty ? (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>
-          {emptyMessage}
-        </div>
-      ) : (
-        children
-      )}
-    </section>
+    </div>
   );
 }
 
