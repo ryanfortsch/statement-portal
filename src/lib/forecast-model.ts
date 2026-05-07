@@ -34,7 +34,7 @@ export type ManagedProperty = {
 };
 
 /** Years the model can render. */
-export type ForecastYear = 2026 | 2027;
+export type ForecastYear = 2026 | 2027 | 2028;
 
 /** 9 properties currently under management as of Jan 2026. */
 export const CURRENT_2026: ManagedProperty[] = [
@@ -84,6 +84,9 @@ export const NEW_ORDER_2026 = [7, 9, 11, 6, 8, 10, 12] as const;
  * the first 3, then fill in Q1/Q4 as the count goes up.
  */
 export const NEW_ORDER_2027 = [3, 6, 9, 1, 5, 7, 11, 4, 8, 10, 12, 2] as const;
+
+/** 2028 — same shape as 2027. Default 3 in Mar/Jun/Sep. */
+export const NEW_ORDER_2028 = [3, 6, 9, 1, 5, 7, 11, 4, 8, 10, 12, 2] as const;
 
 /** Each new property is assumed to be a Cape Ann management contract at $25K/yr. */
 export const NEW_PROPERTY_FEE = 25000;
@@ -214,26 +217,58 @@ export type YearConfig = {
   officeStartMonth: number;
 };
 
-export function getYearConfig(year: ForecastYear): YearConfig {
+/**
+ * @param year         which year config to return
+ * @param rolledForward count of "new" properties added in PRIOR years that
+ *                      should appear as full-year actives in this year. e.g.
+ *                      if user adds 4 new in 2026, then for 2027:
+ *                      rolledForward = 4. For 2028: rolledForward = 4 +
+ *                      whatever was added in 2027.
+ */
+export function getYearConfig(year: ForecastYear, rolledForward: number = 0): YearConfig {
   if (year === 2026) {
+    // 2026 is the starting year; nothing to roll forward into it.
     return {
       year: 2026,
       current: CURRENT_2026,
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
-      bookkeeperLastMonth: 5, // MH Partners final $1,800 in May 2026
-      hireStartMonth: 10, // Hire starts Oct 2026
-      officeStartMonth: 3, // Office lease started Mar 2026
+      bookkeeperLastMonth: 5,
+      hireStartMonth: 10,
+      officeStartMonth: 3,
     };
   }
+
+  // Synthesize the rolled-forward properties as $25K/yr CA contracts
+  // active from January 1 of the given year.
+  const synth: ManagedProperty[] = Array.from({ length: rolledForward }, (_, i) => ({
+    name: `Rolled fwd #${i + 1}`,
+    fee: NEW_PROPERTY_FEE,
+    type: NEW_PROPERTY_TYPE,
+    start: 1,
+  }));
+
+  if (year === 2027) {
+    return {
+      year: 2027,
+      current: [...ACTIVE_2027, ...synth],
+      presigned: [],
+      newOrder: NEW_ORDER_2027,
+      bookkeeperLastMonth: null,
+      hireStartMonth: 1,
+      officeStartMonth: 1,
+    };
+  }
+
+  // 2028 — same 14-property baseline as 2027 plus all rollovers.
   return {
-    year: 2027,
-    current: ACTIVE_2027,
+    year: 2028,
+    current: [...ACTIVE_2027, ...synth],
     presigned: [],
-    newOrder: NEW_ORDER_2027,
-    bookkeeperLastMonth: null, // Engagement ended May 2026
-    hireStartMonth: 1, // Hire continues from 2026
-    officeStartMonth: 1, // Office continues from 2026
+    newOrder: NEW_ORDER_2028,
+    bookkeeperLastMonth: null,
+    hireStartMonth: 1,
+    officeStartMonth: 1,
   };
 }
 
@@ -348,9 +383,15 @@ export function calcYear(
    * scale up to what real listings actually earn. Only applies to months
    * computed via seasonality (not smart override or actuals).
    */
-  calibrationFactor?: number
+  calibrationFactor?: number,
+  /**
+   * Properties added as "new" in any PRIOR year, rolled forward as
+   * full-year actives. For 2027 = numNew added in 2026. For 2028 =
+   * numNew added in 2026 + numNew added in 2027.
+   */
+  rolledForward?: number
 ): YearResult {
-  const config = getYearConfig(year);
+  const config = getYearConfig(year, rolledForward ?? 0);
   const maxNew = config.newOrder.length;
   const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
   const newStartMonths: number[] = config.newOrder.slice(0, n);

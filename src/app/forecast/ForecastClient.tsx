@@ -35,13 +35,39 @@ const SCENARIO_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 type Props = {
   smart2026: SmartForecast | null;
   smart2027: SmartForecast | null;
+  smart2028: SmartForecast | null;
 };
 
-export function ForecastClient({ smart2026, smart2027 }: Props) {
-  const [numNew, setNumNew] = useState<number>(3);
+export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
+  // Independent per-year state. Earlier years' additions roll forward as
+  // full-year actives in later years; the slider for each year only
+  // controls THAT year's incremental adds.
+  const [numNew2026, setNumNew2026] = useState<number>(3);
+  const [numNew2027, setNumNew2027] = useState<number>(3);
+  const [numNew2028, setNumNew2028] = useState<number>(3);
   const [yearKey, setYearKey] = useState<ForecastYear>(2026);
 
-  const yearConfig = useMemo(() => getYearConfig(yearKey), [yearKey]);
+  // The slider value that drives this year's calc.
+  const numNew =
+    yearKey === 2026 ? numNew2026 :
+    yearKey === 2027 ? numNew2027 :
+    numNew2028;
+  const setNumNew =
+    yearKey === 2026 ? setNumNew2026 :
+    yearKey === 2027 ? setNumNew2027 :
+    setNumNew2028;
+
+  // Properties added in PRIOR years that should roll forward as full-year
+  // actives this year.
+  const rolledForward =
+    yearKey === 2026 ? 0 :
+    yearKey === 2027 ? numNew2026 :
+    /* 2028 */ numNew2026 + numNew2027;
+
+  const yearConfig = useMemo(
+    () => getYearConfig(yearKey, rolledForward),
+    [yearKey, rolledForward]
+  );
   // Substitute bank-derived actuals for completed 2026 months (Jan-Apr).
   // 2027 is fully projected.
   const actualsForYear = yearKey === 2026 ? ACTUALS_2026 : undefined;
@@ -50,7 +76,10 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
   // Smart Forecast → forward-month override map (month-of-year → mgmt fee).
   // Sums projected RT mgmt fee across all properties for each forward month.
   const smartOverride = useMemo(() => {
-    const data = yearKey === 2026 ? smart2026 : smart2027;
+    const data =
+      yearKey === 2026 ? smart2026 :
+      yearKey === 2027 ? smart2027 :
+      smart2028;
     if (!data) return undefined;
     const map = new Map<number, number>();
     for (const ym of data.months) {
@@ -64,7 +93,7 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
       if (total > 0) map.set(m, total);
     }
     return map;
-  }, [smart2026, smart2027, yearKey]);
+  }, [smart2026, smart2027, smart2028, yearKey]);
 
   /**
    * Calibration factor for 2027: ratio of (2026's actual+smart total)
@@ -91,7 +120,7 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
   }, [smart2026]);
 
   const calibrationFactor = useMemo(() => {
-    if (yearKey !== 2027) return undefined;
+    if (yearKey === 2026) return undefined; // 2026 calibrates per-month via smart override directly
     // With smart override → calibrated 2026 rev_current
     const calibrated = calcYear(0, 2026, ACTUALS_2026, ACTUALS_2026_THROUGH_MONTH, smart2026OverrideForCalibration);
     // Without smart override → seasonality-only 2026 rev_current
@@ -104,22 +133,20 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
   }, [yearKey, smart2026OverrideForCalibration]);
 
   const year = useMemo(
-    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor]
+    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward),
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward]
   );
   const scenarios = useMemo(
     () =>
       SCENARIO_RANGE.map((n) => ({
         n,
-        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor),
+        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward),
       })),
-    [yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor]
+    [yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward]
   );
 
-  /** Switch year, clamping numNew to the new year's max if needed. */
+  /** Switch year. Per-year slider state is independent so no clamping needed. */
   const setYearKeyClamped = (y: ForecastYear) => {
-    const maxForYear = getYearConfig(y).newOrder.length;
-    if (numNew > maxForYear) setNumNew(maxForYear);
     setYearKey(y);
   };
 
@@ -136,12 +163,14 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
   return (
     <>
       <ScenarioControl
-        numNew={numNew}
-        setNumNew={setNumNew}
-        startMonths={newStartMonthsLabel}
         yearKey={yearKey}
         setYearKey={setYearKeyClamped}
-        maxNew={yearConfig.newOrder.length}
+        numNew2026={numNew2026}
+        setNumNew2026={setNumNew2026}
+        numNew2027={numNew2027}
+        setNumNew2027={setNumNew2027}
+        numNew2028={numNew2028}
+        setNumNew2028={setNumNew2028}
       />
 
       <section
@@ -170,7 +199,7 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
           baseLine={
             yearKey === 2026
               ? '9 current + 5 pre-signed only'
-              : '14 active properties'
+              : `14 active${rolledForward > 0 ? ` + ${rolledForward} rolled forward` : ''}`
           }
         />
       </section>
@@ -243,7 +272,13 @@ export function ForecastClient({ smart2026, smart2027 }: Props) {
           title="Smart forecast"
           tag={`Per-property · forward bookings × Gloucester pacing × each property's mgmt fee`}
         />
-        <SmartForecastPanel data={yearKey === 2026 ? smart2026 : smart2027} />
+        <SmartForecastPanel
+          data={
+            yearKey === 2026 ? smart2026 :
+            yearKey === 2027 ? smart2027 :
+            smart2028
+          }
+        />
       </section>
 
       <section
@@ -852,7 +887,24 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Onboarding', value: '$3,000 one-time per new contract' },
     { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
   ];
-  const items = yearKey === 2026 ? items2026 : items2027;
+  const items2028: Array<{ label: string; value: string }> = [
+    { label: 'Active portfolio (Jan 1)', value: '14 properties from 2027 baseline + everything added 2026/2027 rolled forward as full-year actives' },
+    { label: 'New mandates', value: '$25K/yr each, default 3 sprinkled Mar · Jun · Sep' },
+    { label: 'Office', value: '$750/mo rent all year + $50/mo dumpster' },
+    { label: 'Software / SaaS', value: '$200/mo' },
+    { label: 'MH Partners (bookkeeper)', value: '$0 — long retired' },
+    { label: 'Insurance', value: 'Phillips ~$5,264 lump in March' },
+    { label: 'Accounting', value: '$0' },
+    { label: 'Bank fees', value: '$100/mo' },
+    { label: 'Operating CC', value: '$5,900/mo (still using 2026-calibrated value; revisit when 2026/2027 actuals are closed)' },
+    { label: 'Hire continues', value: '$5,000/mo all year ($60K)' },
+    { label: 'Onboarding', value: '$3,000 one-time per new contract' },
+    { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
+  ];
+  const items =
+    yearKey === 2026 ? items2026 :
+    yearKey === 2027 ? items2027 :
+    items2028;
   return (
     <div
       style={{
@@ -888,24 +940,29 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
 /* ---------------------------------------------------------------- Control */
 
 function ScenarioControl({
-  numNew,
-  setNumNew,
-  startMonths,
   yearKey,
   setYearKey,
-  maxNew,
+  numNew2026,
+  setNumNew2026,
+  numNew2027,
+  setNumNew2027,
+  numNew2028,
+  setNumNew2028,
 }: {
-  numNew: number;
-  setNumNew: (n: number) => void;
-  startMonths: string;
   yearKey: ForecastYear;
   setYearKey: (y: ForecastYear) => void;
-  maxNew: number;
+  numNew2026: number;
+  setNumNew2026: (n: number) => void;
+  numNew2027: number;
+  setNumNew2027: (n: number) => void;
+  numNew2028: number;
+  setNumNew2028: (n: number) => void;
 }) {
-  const subLabel =
-    yearKey === 2026
-      ? 'beyond 9 current + 5 pre-signed'
-      : 'beyond the 14 active by Jan 2027';
+  // Show prior-year sliders too — earlier additions roll forward as
+  // full-year actives, and the user often wants to dial them in alongside
+  // the current year's adds.
+  const showRow2027 = yearKey === 2027 || yearKey === 2028;
+  const showRow2028 = yearKey === 2028;
   return (
     <section
       className="max-w-[1100px] mx-auto px-10"
@@ -922,13 +979,12 @@ function ScenarioControl({
           borderRadius: 2,
           padding: '20px 24px',
           display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 24,
+          flexDirection: 'column',
+          gap: 16,
         }}
       >
         {/* Year toggle */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
           <div
             className="font-mono"
             style={{
@@ -943,85 +999,152 @@ function ScenarioControl({
           <div style={{ display: 'flex', gap: 0 }}>
             <YearTab year={2026} active={yearKey === 2026} onClick={() => setYearKey(2026)} />
             <YearTab year={2027} active={yearKey === 2027} onClick={() => setYearKey(2027)} />
+            <YearTab year={2028} active={yearKey === 2028} onClick={() => setYearKey(2028)} />
           </div>
         </div>
 
-        <div style={{ flex: '0 0 auto', minWidth: 130 }}>
-          <div
-            className="font-mono"
-            style={{
-              fontSize: 10,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-4)',
-              marginBottom: 4,
-            }}
-          >
-            New props in {yearKey}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--paper-2)', opacity: 0.7 }}>
-            {subLabel}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button
-            type="button"
-            onClick={() => setNumNew(numNew - 1)}
-            aria-label="Decrease new properties"
-            style={stepperStyle}
-          >
-            −
-          </button>
-          <div
-            className="font-serif tabular-nums"
-            style={{
-              fontSize: 36,
-              minWidth: 48,
-              textAlign: 'center',
-              color: 'var(--paper)',
-              lineHeight: 1,
-            }}
-          >
-            {numNew}
-          </div>
-          <button
-            type="button"
-            onClick={() => setNumNew(numNew + 1)}
-            aria-label="Increase new properties"
-            style={stepperStyle}
-          >
-            +
-          </button>
-        </div>
-
-        <input
-          type="range"
-          min={0}
-          max={maxNew}
-          value={numNew}
-          onChange={(e) => setNumNew(+e.target.value)}
-          aria-label="Number of new properties"
-          style={{
-            flex: '1 1 200px',
-            maxWidth: 320,
-            accentColor: 'var(--signal)',
-          }}
+        {/* Sliders — current year + any prior years */}
+        <NumNewRow
+          year={2026}
+          n={numNew2026}
+          setN={setNumNew2026}
+          newOrder={getYearConfig(2026).newOrder}
+          isActiveYear={yearKey === 2026}
+          subLabel="beyond 9 current + 5 pre-signed"
         />
+        {showRow2027 && (
+          <NumNewRow
+            year={2027}
+            n={numNew2027}
+            setN={setNumNew2027}
+            newOrder={getYearConfig(2027).newOrder}
+            isActiveYear={yearKey === 2027}
+            subLabel={`beyond 14 active + ${numNew2026} rolled fwd`}
+          />
+        )}
+        {showRow2028 && (
+          <NumNewRow
+            year={2028}
+            n={numNew2028}
+            setN={setNumNew2028}
+            newOrder={getYearConfig(2028).newOrder}
+            isActiveYear={yearKey === 2028}
+            subLabel={`beyond 14 active + ${numNew2026 + numNew2027} rolled fwd`}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
 
+/** One row in the dark control bar: a labeled slider + stepper for a year. */
+function NumNewRow({
+  year,
+  n,
+  setN,
+  newOrder,
+  isActiveYear,
+  subLabel,
+}: {
+  year: ForecastYear;
+  n: number;
+  setN: (n: number) => void;
+  newOrder: readonly number[];
+  isActiveYear: boolean;
+  subLabel: string;
+}) {
+  const startMonths =
+    n === 0
+      ? 'no new'
+      : newOrder.slice(0, n).map((mm) => MONTH_LABELS[mm - 1]).join(', ');
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 18,
+        flexWrap: 'wrap',
+        opacity: isActiveYear ? 1 : 0.78,
+        borderLeft: isActiveYear ? '3px solid var(--signal)' : '3px solid transparent',
+        paddingLeft: 12,
+        marginLeft: -15,
+      }}
+    >
+      <div style={{ flex: '0 0 auto', minWidth: 140 }}>
         <div
           className="font-mono"
           style={{
-            fontSize: 11,
-            color: 'var(--paper-2)',
-            opacity: 0.7,
-            letterSpacing: '.04em',
+            fontSize: 10,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            color: isActiveYear ? 'var(--paper-2)' : 'var(--ink-4)',
           }}
         >
-          {numNew > 0 ? `→ ${startMonths}` : startMonths}
+          New in {year}
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--paper-2)', opacity: 0.6 }}>
+          {subLabel}
         </div>
       </div>
-    </section>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          type="button"
+          onClick={() => setN(Math.max(0, n - 1))}
+          aria-label={`Decrease new properties in ${year}`}
+          style={stepperStyle}
+        >
+          −
+        </button>
+        <div
+          className="font-serif tabular-nums"
+          style={{
+            fontSize: 28,
+            minWidth: 36,
+            textAlign: 'center',
+            color: 'var(--paper)',
+            lineHeight: 1,
+          }}
+        >
+          {n}
+        </div>
+        <button
+          type="button"
+          onClick={() => setN(Math.min(newOrder.length, n + 1))}
+          aria-label={`Increase new properties in ${year}`}
+          style={stepperStyle}
+        >
+          +
+        </button>
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={newOrder.length}
+        value={n}
+        onChange={(e) => setN(+e.target.value)}
+        aria-label={`Number of new properties in ${year}`}
+        style={{
+          flex: '1 1 180px',
+          maxWidth: 280,
+          accentColor: 'var(--signal)',
+        }}
+      />
+
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 10.5,
+          color: 'var(--paper-2)',
+          opacity: 0.7,
+          letterSpacing: '.04em',
+        }}
+      >
+        {n > 0 ? `→ ${startMonths}` : startMonths}
+      </div>
+    </div>
   );
 }
 
@@ -1536,7 +1659,7 @@ function ForecastTable({
   const currentInfo =
     yearKey === 2026
       ? 'Past months (Jan-Apr) are bank actuals from Chase ...5130. Forward months use the Smart Forecast: real Guesty bookings × Gloucester pacing multiplier × each property\'s actual mgmt fee %. Falls back to seasonality if Guesty data is unavailable.'
-      : 'All 14 active properties full year (the original 9 + the 5 ex-presigned rolled forward). Each month uses Smart Forecast where Guesty has 2027 bookings; otherwise seasonality scaled by the 2026 calibration factor (the smart-vs-heuristic gap from 2026) so 2027 reflects what the listings actually earn, not the conservative contracted fees.';
+      : `${currentCount} active properties full year (the original 9 + 5 ex-presigned + any rolled forward from prior years). Each month uses Smart Forecast where Guesty has bookings; otherwise seasonality scaled by the 2026 calibration factor (the smart-vs-heuristic gap learned from 2026) so future years reflect what the listings actually earn, not the conservative contracted fees.`;
   const presignedLabel = 'Pre-signed 5';
   const presignedInfo =
     'Five contracts signed but not yet onboarded: Pre-signed #1, #2, #3, 79 Main Street, 16 Waterman. Two go live in May, three in June. Uses seasonality projection because they are not yet listed in Guesty.';
