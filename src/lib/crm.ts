@@ -52,5 +52,21 @@ export type ContactTouchRow = {
   by_email: string;
   direction: TouchDirection;
   gmail_message_id: string | null;
+  quo_message_id: string | null;
+  quo_call_id: string | null;
   created_at: string;
 };
+
+export type TouchSource = 'manual' | 'gmail' | 'quo';
+
+export const TOUCH_SOURCE_LABELS: Record<TouchSource, string> = {
+  manual: 'Manual',
+  gmail: 'Gmail',
+  quo: 'Quo',
+};
+
+export function touchSource(t: Pick<ContactTouchRow, 'gmail_message_id' | 'quo_message_id' | 'quo_call_id'>): TouchSource {
+  if (t.quo_message_id || t.quo_call_id) return 'quo';
+  if (t.gmail_message_id) return 'gmail';
+  return 'manual';
+}

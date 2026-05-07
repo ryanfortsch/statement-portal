@@ -8,6 +8,7 @@ import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { LastTouch } from './page';
 import { createContact } from './actions';
 import { SyncGmailButton } from './SyncGmailButton';
+import { SyncQuoButton } from './SyncQuoButton';
 
 type PropertyMini = { id: string; name: string };
 
@@ -73,6 +74,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
             }}
           />
           <SyncGmailButton />
+          <SyncQuoButton />
           <button
             type="button"
             onClick={() => setShowNew(true)}

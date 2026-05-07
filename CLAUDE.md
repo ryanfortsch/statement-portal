@@ -191,11 +191,39 @@ Client-side React page. Shows all properties for a selected month with expandabl
 
 Three-file upload form: Guesty PDF, Platform CSV, Bank CSV. POSTs to /api/ingest.
 
+## Quo (OpenPhone) integration
+
+Quo is the rebranded OpenPhone, Rising Tide's phone/SMS service. Cross-cutting integration powering several Helm surfaces:
+
+- **Operations turnover pipeline**: each `TurnoverRow` shows a "Cleaned" or "Awaiting cleaner" chip pulled from `cleaning_completions`, populated when a recognized cleaner phone number texts the team after a turnover.
+- **CRM contact timeline**: inbound + outbound texts and calls between known contacts and our Quo numbers land as `contact_touches` rows (channel `sms` or `phone`). The detail page shows a "via Quo" label on those rows. CRM list page has a "Sync Quo" button next to "Sync Replies" for manual backfill.
+- **Property pages**: `properties.owner_last_contacted_at` / `_via` is stamped automatically when an owner-linked contact is reached on Quo, so the Properties module's owner-contact log stays current without manual logging.
+
+Two persistence layers:
+
+1. **Live path**: `POST /api/webhooks/quo` verifies the `openphone-signature` HMAC-SHA256 header (Quo's docs format: `hmac;1;<timestamp>;<base64-digest>`, signed payload is `<timestamp>.<JSON.stringify(parsedBody)>`, secret is base64-decoded), persists every event into `quo_events` (raw audit + dedupe by `quo_event_id`), and dispatches to handlers per event type. Replays return 200 OK from the unique-violation path.
+
+2. **Backfill**: `POST /api/sync-quo` iterates contact + cleaner phones, pulls the last 14 days of messages and calls per phone, and writes through the same persistence pipeline. Use this for cold start or when a webhook delivery is missed.
+
+Key tables (migration `20260507_quo_integration.sql`):
+
+- `quo_events`: raw event audit log, `quo_event_id` unique for idempotency
+- `cleaner_phones`: phone-to-property map. `property_ids = '{}'` means "this cleaner serves all properties" (parser falls back to body match for attribution); a single-property whitelist auto-attributes regardless of body
+- `cleaning_completions`: timestamped per `(property_id, checkout_date)`, latest wins. The turnover row joins on `(property_id, previousCheckout)` so a cleaning ping prepares the NEXT stay
+- `contact_touches.quo_message_id` / `.quo_call_id`: external-id columns mirroring the Gmail capture pattern from `20260506_contact_touches_inbound_capture.sql`
+
+Cleaner-phone seeding is manual: insert rows into `cleaner_phones` with the cleaner's E.164 (or any format, normalization is permissive) plus the properties they handle.
+
 ## Environment Variables (set in Vercel)
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (used by webhook + sync routes that write across tables)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` (for Gmail invoice sync)
+- `QUO_API_KEY` (Quo dashboard, Settings, API; used by `/api/sync-quo` and any future REST calls)
+- `QUO_WEBHOOK_SECRET` (set when registering the webhook in Quo; base64 signing key)
+
+Webhook setup in Quo: register `https://<helm-domain>/api/webhooks/quo` and subscribe to at minimum `message.received`, `message.delivered`, and `call.summary.completed`. `call.completed` works as a fallback when the AI summary isn't available.
 
 ## Known Issues / Watch-outs
 
