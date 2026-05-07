@@ -15,6 +15,7 @@ import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
+import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 
@@ -353,6 +354,16 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           Edit operational data
         </Link>
+      </div>
+
+      {/* BACKFILL — pulls beds/baths/type/lat-lng from Guesty's listing
+          metadata and applies smart defaults from data already on file.
+          Fill-blanks-only, never overwrites curated values. */}
+      <div
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingTop: 14, width: '100%', display: 'flex', justifyContent: 'flex-end' }}
+      >
+        <PropertyBackfillButton propertyId={p.id} />
       </div>
 
       {/* HERO */}
