@@ -589,13 +589,13 @@ export function calcYear(
 }
 
 const FMT_OPTS: Intl.NumberFormatOptions = {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
 };
 
 /**
- * Format as `$1,234.56` or `($1,234.56)` for negatives. Always preserves
- * cents — financial documents shouldn't round.
+ * Format as `$1,234` or `($1,234)` for negatives. Whole dollars, no
+ * cents, no $K compaction — round to the nearest dollar for legibility.
  */
 export function fmtDollar(n: number): string {
   const abs = Math.abs(n).toLocaleString('en-US', FMT_OPTS);
@@ -603,8 +603,8 @@ export function fmtDollar(n: number): string {
 }
 
 /**
- * Format with thousands separators and cents, no dollar sign. Negatives
- * use parentheses. Used in the Monthly Detail table cells.
+ * Format with thousands separators, no dollar sign. Whole dollars only.
+ * Negatives use parentheses. Used in the Monthly Detail table cells.
  */
 export function fmtNum(n: number): string {
   const abs = Math.abs(n).toLocaleString('en-US', FMT_OPTS);

@@ -218,12 +218,12 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
 }
 
 function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
-  // All values shown with cents — no rounding in financials.
+  // Whole dollars throughout — round to nearest dollar.
   const fmtUsd = (n: number) =>
     n === 0
       ? '—'
-      : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  // Same as fmtUsd; alias kept for the FY/portfolio total cells.
+      : `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  // Alias kept for the FY/portfolio total cells.
   const fmtUsdCents = fmtUsd;
 
   if (!data) {
@@ -926,9 +926,9 @@ function KpiStrip({
   );
 }
 
-/** Precise USD with cents for inline KPI sub-text. */
+/** Whole-dollar USD for inline KPI sub-text. */
 function fmtCompactSimple(n: number): string {
-  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function KpiCell({
