@@ -133,6 +133,89 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Identified during AVH cross-listing sweep as the sister of Granite Pier on the Granite St / Phillips Ave run (Pigeon Cove). 1BR/1BA matches AVH unit-26.',
   },
 
+  // AVH winter-rental cross-listing sweep — Wave 5 (Apartments.com /
+  // Rentable / Trulia / ApartmentList).
+
+  'atlantic-vacation-homes::helena-house': {
+    addressGuess: '11 S Kilby St, Gloucester, MA 01930',
+    street: 'S Kilby St',
+    neighborhood: 'Bay View, Gloucester',
+    confidence: 'high',
+    evidence: 'Apartments.com winter rental at 11 S Kilby St — "Bay View neighborhood, Queen Anne", matches AVH Helena House (3BR/2.5BA, pet-friendly).',
+  },
+
+  'atlantic-vacation-homes::the-gallery': {
+    addressGuess: '37 Rocky Neck Ave, Gloucester, MA 01930',
+    street: 'Rocky Neck Ave',
+    neighborhood: 'Rocky Neck art colony, East Gloucester',
+    confidence: 'high',
+    evidence: 'Apartments.com "Winter Rental: The Gallery" at 37 Rocky Neck Ave (3BR/3BA matches AVH unit-308).',
+  },
+
+  'atlantic-vacation-homes::perrywinkle': {
+    addressGuess: '5 Rackliffe St, Gloucester, MA 01930',
+    street: 'Rackliffe St',
+    neighborhood: 'Gloucester',
+    confidence: 'high',
+    evidence: 'Apartments.com URL slug literally "winter-rental-perrywinkle" at 5 Rackliffe St (4BR/3BA matches AVH unit-41).',
+  },
+
+  'atlantic-vacation-homes::josephs-way': {
+    addressGuess: '10 Josephs Way, Gloucester, MA 01930',
+    street: 'Josephs Way',
+    neighborhood: 'Gloucester',
+    confidence: 'high',
+    evidence: 'Rentable.co "Winter Rental: Joseph\'s Way" at 10 Josephs Way (the listing name = the street name).',
+  },
+
+  'atlantic-vacation-homes::tidebend': {
+    addressGuess: '64 Riverview Rd, Gloucester, MA 01930',
+    street: 'Riverview Rd',
+    neighborhood: 'Annisquam River, Gloucester',
+    confidence: 'high',
+    evidence: 'Rentable.co "Exceptional 6-bedroom Home Overlooking The Annisquam River" at 64 Riverview Rd (matches AVH 6BR/2.5BA).',
+  },
+
+  'atlantic-vacation-homes::mill-pond-cottage': {
+    addressGuess: '379 Washington St, Gloucester, MA 01930',
+    street: 'Washington St',
+    neighborhood: 'Annisquam (Mill Pond)',
+    confidence: 'high',
+    evidence: 'Rentable.co / ApartmentList "Winter Rental: Mill Pond Cottage" at 379 Washington St (3BR matches AVH unit-289).',
+  },
+
+  'atlantic-vacation-homes::thorwald-by-the-sea': {
+    addressGuess: '19 Atlantic Rd, Gloucester, MA 01930',
+    street: 'Atlantic Rd',
+    neighborhood: 'East Gloucester (Atlantic Rd cliff)',
+    confidence: 'high',
+    evidence: 'Rentable.co "Winter Rental at the Thorwald Condos" at 19 Atlantic Rd (2BR/1.5BA matches AVH unit-68).',
+  },
+
+  'atlantic-vacation-homes::garden-by-the-sea': {
+    addressGuess: '24 Atlantic Rd, Gloucester, MA 01930',
+    street: 'Atlantic Rd',
+    neighborhood: 'East Gloucester (Atlantic Rd cliff)',
+    confidence: 'high',
+    evidence: 'Apartments.com URL "24-atlantic-rd-gloucester-ma-unit-garden-by-the-sea" (2BR matches AVH unit-24, walk to Good Harbor).',
+  },
+
+  'atlantic-vacation-homes::harbortown-hideaway': {
+    addressGuess: '13 Middle St, Gloucester, MA 01930',
+    street: 'Middle St',
+    neighborhood: 'downtown Gloucester',
+    confidence: 'high',
+    evidence: 'Trulia "Winter rental: Harbortown Hideaway" at 13 Middle St (matches AVH unit-121).',
+  },
+
+  'atlantic-vacation-homes::mill-brook-house': {
+    addressGuess: '6 Mill Lane, Rockport, MA 01966',
+    street: 'Mill Lane',
+    neighborhood: 'Rockport',
+    confidence: 'high',
+    evidence: 'Apartments.com "6 Mill Ln Unit Mill Brook House" (4BR matches AVH unit-310). This is the duplex sister of Mill Lane (6A) — not Pleasant House, which we earlier guessed.',
+  },
+
   // ────────────────────────────────────────────────────────────────────
   // ATLANTIC VACATION HOMES — Wave 1: name + Cape Ann geography
   // ────────────────────────────────────────────────────────────────────
@@ -141,10 +224,10 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   // from the listing name, not verified against assessor records.
 
   'atlantic-vacation-homes::granite-pier': {
-    street: 'Granite St (Pigeon Cove)',
+    street: 'Granite St / Phillips Ave (Pigeon Cove)',
     neighborhood: 'Pigeon Cove, Rockport',
     confidence: 'medium',
-    evidence: 'Sister of Granite Cottage (93 Granite St) and on the same Granite St / Phillips Ave run by the actual Granite Pier — "120 yards from the boat launch", per AVH copy. House # not yet pinned. VRBO #1044623.',
+    evidence: 'Sister of Granite Cottage (93 Granite St) and on the same Granite St / Phillips Ave run by the actual Granite Pier — "120 yards from the boat launch", per AVH copy. House # not pinned (107 Granite St surfaced as a winter rental but its schoolhouse description doesn\'t match AVH\'s "270° views" copy — likely a different unit). VRBO #1044623.',
   },
 
   'atlantic-vacation-homes::long-beach-house': {
@@ -155,11 +238,10 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   },
 
   'atlantic-vacation-homes::pleasant-house-in-rockport': {
-    addressGuess: '6 Mill Lane, Rockport, MA 01966',
-    street: 'Mill Lane',
     neighborhood: 'Rockport',
-    confidence: 'medium',
-    evidence: 'AVH copy: Mill Lane (1BR) "is part of a two-family home with a 4-bedroom house that is also available to rent" — that 4BR is Pleasant House. Mill Lane = 6A, so Pleasant House is the other half (6 or 6B). Not 17 Pleasant St (= unrelated Rockport House Inn).',
+    street: 'Pleasant St (likely)',
+    confidence: 'low',
+    evidence: 'Earlier guess pinned this to 6 Mill Lane (the duplex sister of Mill Lane), but Wave 5 confirmed Mill Brook House at 6 Mill Ln is that sister. Pleasant House is more likely on Pleasant St itself; 17 Pleasant St is the Rockport House Inn (unrelated), so a different Pleasant St #. Not yet verified.',
   },
 
   'atlantic-vacation-homes::booth-cottage': {
@@ -197,10 +279,11 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
 
 
   'atlantic-vacation-homes::straitsmouth-cove': {
-    neighborhood: 'South Rockport (near Straitsmouth Island)',
-    street: 'Straitsmouth Cove Lane / South St area',
-    confidence: 'medium',
-    evidence: 'Straitsmouth Cove Lane is the named access road to Straitsmouth Cove.',
+    addressGuess: '52 Marmion Way, Rockport, MA 01966',
+    street: 'Marmion Way',
+    neighborhood: 'South Rockport (Gap Cove)',
+    confidence: 'high',
+    evidence: 'Apartments.com 52 Marmion Way matches AVH Straitsmouth Cove copy ("Gap Cove views, vintage country manor, antique brick fireplace", 5BR/2BA = AVH unit-59).',
   },
 
   'atlantic-vacation-homes::thurston-point-cottage': {
@@ -217,29 +300,34 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Halibut → Halibut Point State Reservation in north Rockport.',
   },
 
-  'atlantic-vacation-homes::portside-at-front-beach': {
-    neighborhood: 'Front Beach, downtown Rockport',
-    street: 'Beach St / Mt Pleasant St area',
-    confidence: 'medium',
-    evidence: 'Listing name explicitly cites Front Beach; the beach fronts Beach St / Mt Pleasant.',
-  },
-
   'atlantic-vacation-homes::portside-glimpse': {
-    neighborhood: 'downtown Rockport (T-Wharf / Bearskin Neck area)',
-    confidence: 'low',
-    evidence: 'Portside cluster sits in the harbor district; specific street to be narrowed.',
-  },
-
-  'atlantic-vacation-homes::portside-walkabout': {
-    neighborhood: 'downtown Rockport (T-Wharf / Bearskin Neck area)',
-    confidence: 'low',
-    evidence: 'Same Portside cluster as above.',
+    addressGuess: '8 Hale St, Rockport, MA 01966',
+    street: 'Hale St',
+    neighborhood: 'downtown Rockport (Bearskin Neck side)',
+    confidence: 'high',
+    evidence: 'Zillow apartments + Trulia "Winter Rental: Portside Glimpse" at 8 Hale St (1BR matches AVH unit-303).',
   },
 
   'atlantic-vacation-homes::portside-overlook': {
-    neighborhood: 'downtown Rockport (T-Wharf / Bearskin Neck area)',
-    confidence: 'low',
-    evidence: 'Same Portside cluster as above.',
+    addressGuess: '8 Hale St, Rockport, MA 01966',
+    street: 'Hale St',
+    neighborhood: 'downtown Rockport (Bearskin Neck side)',
+    confidence: 'high',
+    evidence: 'Zillow apartments "Winter Rental: Portside Overlook" at 8 Hale St — same building as the other Portside listings; likely a multi-unit conversion.',
+  },
+
+  'atlantic-vacation-homes::portside-walkabout': {
+    street: 'Hale St (likely)',
+    neighborhood: 'downtown Rockport (Bearskin Neck side)',
+    confidence: 'medium',
+    evidence: 'Sister of Portside Glimpse + Overlook (8 Hale St) per the Portside cluster naming pattern; specific unit not yet confirmed.',
+  },
+
+  'atlantic-vacation-homes::portside-at-front-beach': {
+    street: 'Hale St / Beach St / Mt Pleasant area, Rockport',
+    neighborhood: 'Front Beach / Bearskin Neck side, downtown Rockport',
+    confidence: 'medium',
+    evidence: 'Largest Portside listing (4BR/4BA); same Hale St cluster likely, or one block over toward Front Beach.',
   },
 
   'atlantic-vacation-homes::cape-hedge-house': {
@@ -259,12 +347,6 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'West Gloucester (Wingaersheek / Annisquam marshes)',
     confidence: 'low',
     evidence: 'Cape Ann\'s salt marshes are along the Annisquam and Essex rivers.',
-  },
-
-  'atlantic-vacation-homes::mill-pond-cottage': {
-    neighborhood: 'Annisquam, Gloucester (Mill Pond)',
-    confidence: 'low',
-    evidence: 'Mill Pond is in Annisquam, off Mill Pond Rd.',
   },
 
   'atlantic-vacation-homes::hastings-haven': {
@@ -377,10 +459,11 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   },
 
   'shoreway-management::gloucester-bell-view-pickleball': {
-    neighborhood: 'Bass Rocks / Back Shore, East Gloucester',
-    street: 'Way Rd / Atlantic Rd corridor',
-    confidence: 'medium',
-    evidence: 'PickleTrip cross-listing: "stone\'s throw from Bass Rocks," "Rocky Neck art colony on the way in," long private driveway. Way Rd is the only quiet street fitting that geometry — likely a Cranberry Hill neighbor.',
+    addressGuess: '57 Grapevine Rd, Gloucester, MA 01930',
+    street: 'Grapevine Rd',
+    neighborhood: 'East Gloucester (Bass Rocks side)',
+    confidence: 'high',
+    evidence: 'Apartments.com "Bell View - Entire Home" at 57 Grapevine Rd; Grapevine Rd runs to Bass Rocks, fits the PickleTrip "stone\'s throw from Bass Rocks, Rocky Neck on the way in" description.',
   },
 
   'shoreway-management::marblehead-nautical-home': {
