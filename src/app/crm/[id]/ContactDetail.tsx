@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactTouchRow, ContactType, TouchChannel } from '@/lib/crm';
-import { CONTACT_TYPE_LABELS, TOUCH_CHANNEL_LABELS } from '@/lib/crm';
+import { CONTACT_TYPE_LABELS, TOUCH_CHANNEL_LABELS, touchSource, TOUCH_SOURCE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
 import type { ContactSlip } from './page';
 import {
@@ -105,6 +105,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       by_email: myEmail,
       direction: 'outbound',
       gmail_message_id: null,
+      quo_message_id: null,
+      quo_call_id: null,
       created_at: new Date().toISOString(),
     };
     setTouchList((prev) => [optimistic, ...prev]);
@@ -631,6 +633,10 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                         {isInbound
                           ? <>{contact.name} replied &middot; {formatRelative(t.touched_at)}</>
                           : <>{displayNameForEmail(t.by_email)} &middot; {formatRelative(t.touched_at)}</>}
+                        {(() => {
+                          const src = touchSource(t);
+                          return src === 'manual' ? null : <> &middot; via {TOUCH_SOURCE_LABELS[src]}</>;
+                        })()}
                       </div>
                     </div>
                     {!isInbound && t.by_email === myEmail && (

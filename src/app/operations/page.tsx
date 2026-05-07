@@ -306,6 +306,16 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
   const checkOut = formatDateShort(t.checkOut);
   const inspectionDone = t.inspectionStatus === 'complete';
 
+  // Cleaning chip: show "Cleaned" once we have a Quo signal for the
+  // (property, previousCheckout) pair. If previousCheckout is past and
+  // we have no signal, surface "Awaiting cleaner" so the operator
+  // notices a stale prep window. Suppressed entirely when
+  // previousCheckout is null or in the future (cleaning isn't due yet).
+  const today = new Date().toISOString().slice(0, 10);
+  const cleaningExpected = t.previousCheckout !== null && t.previousCheckout <= today;
+  const cleaningDone = t.cleaning !== null;
+  const cleaningRelative = t.cleaning ? formatRelativeShort(t.cleaning.completedAt) : null;
+
   return (
     <div
       style={{
@@ -376,19 +386,40 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Inspection status chip */}
-      <span
-        style={{
-          fontSize: 10,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          fontWeight: 600,
-          color: inspectionDone ? 'var(--positive)' : 'var(--signal)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {inspectionDone ? 'Inspection done' : 'Not inspected'}
-      </span>
+      {/* Status chips: cleaning + inspection stacked. Cleaning is the
+          earlier signal in the prep window, inspection is the final
+          gate, so they read top-to-bottom in order of when each fires. */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+        {cleaningExpected && (
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: cleaningDone ? 'var(--positive)' : 'var(--signal)',
+            }}
+            title={
+              t.cleaning
+                ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
+                : 'No cleaner-completion text received via Quo for this turnover'
+            }
+          >
+            {cleaningDone ? `Cleaned · ${cleaningRelative}` : 'Awaiting cleaner'}
+          </span>
+        )}
+        <span
+          style={{
+            fontSize: 10,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: inspectionDone ? 'var(--positive)' : 'var(--signal)',
+          }}
+        >
+          {inspectionDone ? 'Inspection done' : 'Not inspected'}
+        </span>
+      </div>
 
       {/* Action — done shows Summary; in-progress shows Resume; otherwise
           stack a plan-button + start-inspection CTA so the operator can
@@ -667,6 +698,15 @@ function firstName(fullName: string | null): string {
   const trimmed = fullName.trim();
   if (!trimmed) return 'Guest';
   return trimmed.split(/\s+/)[0];
+}
+
+function formatRelativeShort(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return 'now';
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
 }
 
 function formatDateLong(value: string): string {

@@ -135,6 +135,12 @@ export type InspectionPlanMini = {
   assigned_to_email: string | null;
 };
 
+export type CleaningCompletion = {
+  completedAt: string;
+  source: string;
+  sourcePhone: string | null;
+};
+
 export type Turnover = {
   reservationId: string;
   propertyId: string;
@@ -151,6 +157,7 @@ export type Turnover = {
   inspection: InspectionRow | null;
   inspectionStatus: InspectionStatus;
   plan: InspectionPlanMini | null;
+  cleaning: CleaningCompletion | null;
 };
 
 export type CalendarCell = {
@@ -299,6 +306,33 @@ export async function loadOperationsData(
     arr.sort();
   }
 
+  // Pull cleaning completions across the lookback window. Each turnover
+  // looks up its (property_id, previousCheckout) match below. Latest
+  // wins per pair, so a re-clean shows the most recent timestamp.
+  const { data: cleaningData } = await supabase
+    .from('cleaning_completions')
+    .select('property_id, checkout_date, completed_at, source, source_phone')
+    .gte('checkout_date', fetchStart)
+    .order('completed_at', { ascending: false });
+
+  const cleaningByKey = new Map<string, CleaningCompletion>();
+  for (const row of (cleaningData ?? []) as Array<{
+    property_id: string;
+    checkout_date: string;
+    completed_at: string;
+    source: string;
+    source_phone: string | null;
+  }>) {
+    const key = `${row.property_id}|${row.checkout_date}`;
+    if (!cleaningByKey.has(key)) {
+      cleaningByKey.set(key, {
+        completedAt: row.completed_at,
+        source: row.source,
+        sourcePhone: row.source_phone,
+      });
+    }
+  }
+
   // Filter to the actual display window (today through rangeEnd) and enrich.
   const turnovers: Turnover[] = [];
   for (const r of reservations) {
@@ -335,6 +369,10 @@ export async function loadOperationsData(
       ? 'complete'
       : 'not_started';
 
+    const cleaning = previousCheckout
+      ? cleaningByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
+      : null;
+
     turnovers.push({
       reservationId: r.guesty_reservation_id,
       propertyId: r.property_id,
@@ -351,6 +389,7 @@ export async function loadOperationsData(
       inspection: matchingInspection,
       inspectionStatus,
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
+      cleaning,
     });
   }
 

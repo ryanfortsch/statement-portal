@@ -1,0 +1,229 @@
+/**
+ * Quo (formerly OpenPhone) API client + webhook helpers.
+ *
+ * Quo is Rising Tide's phone/SMS service. The API is openphone.com under
+ * the hood (host stayed put; brand rebranded). All paths still live at
+ * https://api.openphone.com/v1/*.
+ *
+ * Auth: API key via `Authorization` header (no Bearer prefix).
+ * Webhooks: `openphone-signature` header, HMAC-SHA256 over
+ *   `<timestamp>.<JSON.stringify(parsedBody)>` using a base64-decoded
+ *   signing key. Format: `hmac;1;<timestamp>;<base64-digest>`.
+ *   Reference: https://support.quo.com/core-concepts/integrations/webhooks
+ */
+
+import crypto from 'node:crypto';
+
+const API_HOST = 'https://api.openphone.com/v1';
+
+export type QuoMessage = {
+  id: string;
+  to: string[];
+  from: string;
+  text: string | null;
+  phoneNumberId: string;
+  direction: 'incoming' | 'outgoing';
+  userId: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QuoCall = {
+  id: string;
+  phoneNumberId: string;
+  userId: string | null;
+  participants: string[];
+  direction: 'incoming' | 'outgoing';
+  status: string;
+  duration: number | null;
+  createdAt: string;
+  answeredAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+  answeredBy: string | null;
+  initiatedBy: string | null;
+  callRoute: string | null;
+  forwardedFrom: string | null;
+  forwardedTo: string | null;
+  aiHandled: boolean | null;
+};
+
+export type QuoPhoneNumber = {
+  id: string;
+  number: string;
+  name: string | null;
+  formattedNumber: string;
+  symbol: string | null;
+  users: string[];
+  groupId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QuoListResponse<T> = {
+  data: T[];
+  totalItems: number;
+  nextPageToken: string | null;
+};
+
+// Webhook event types we care about. Full list: call.ringing,
+// call.completed, call.recording.completed, call.summary.completed,
+// call.transcript.completed, message.received, message.delivered.
+export type QuoWebhookEventType =
+  | 'message.received'
+  | 'message.delivered'
+  | 'call.completed'
+  | 'call.summary.completed'
+  | 'call.recording.completed'
+  | 'call.transcript.completed';
+
+export type QuoWebhookEvent<T = unknown> = {
+  id: string;
+  type: QuoWebhookEventType;
+  apiVersion: string;
+  createdAt: string;
+  data: { object: T };
+};
+
+// ── REST client ─────────────────────────────────────────────────────
+
+function apiKey(): string {
+  const k = process.env.QUO_API_KEY || '';
+  if (!k) throw new Error('QUO_API_KEY is not set');
+  return k;
+}
+
+async function get<T>(path: string, params: Record<string, string | number | string[] | undefined>): Promise<T> {
+  const qs = new URLSearchParams();
+  for (const [key, val] of Object.entries(params)) {
+    if (val === undefined) continue;
+    if (Array.isArray(val)) {
+      for (const v of val) qs.append(key, v);
+    } else {
+      qs.append(key, String(val));
+    }
+  }
+  const url = `${API_HOST}${path}?${qs.toString()}`;
+  const res = await fetch(url, {
+    headers: { Authorization: apiKey() },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Quo ${path} failed (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function listPhoneNumbers(): Promise<QuoPhoneNumber[]> {
+  const res = await get<QuoListResponse<QuoPhoneNumber>>('/phone-numbers', {});
+  return res.data;
+}
+
+export type ListMessagesParams = {
+  phoneNumberId: string;
+  participants: string[];
+  maxResults?: number;
+  createdAfter?: string;
+  createdBefore?: string;
+  pageToken?: string;
+};
+
+export async function listMessages(p: ListMessagesParams): Promise<QuoListResponse<QuoMessage>> {
+  return get('/messages', {
+    phoneNumberId: p.phoneNumberId,
+    participants: p.participants,
+    maxResults: p.maxResults ?? 100,
+    createdAfter: p.createdAfter,
+    createdBefore: p.createdBefore,
+    pageToken: p.pageToken,
+  });
+}
+
+export type ListCallsParams = ListMessagesParams;
+
+export async function listCalls(p: ListCallsParams): Promise<QuoListResponse<QuoCall>> {
+  return get('/calls', {
+    phoneNumberId: p.phoneNumberId,
+    participants: p.participants,
+    maxResults: p.maxResults ?? 100,
+    createdAfter: p.createdAfter,
+    createdBefore: p.createdBefore,
+    pageToken: p.pageToken,
+  });
+}
+
+// ── Webhook signature verification ─────────────────────────────────
+//
+// Per Quo docs: header value format is
+//   hmac;1;<timestamp-ms>;<base64-hmac-sha256-digest>
+// signed string is `<timestamp>.<JSON.stringify(parsedBody)>`,
+// secret is base64-encoded.
+
+const REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+export type SignatureCheck =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+export function verifyWebhookSignature(
+  parsedBody: unknown,
+  headerValue: string | null,
+  secret: string,
+  now: number = Date.now(),
+): SignatureCheck {
+  if (!headerValue) return { ok: false, reason: 'missing openphone-signature header' };
+  if (!secret) return { ok: false, reason: 'QUO_WEBHOOK_SECRET not set' };
+
+  const parts = headerValue.split(';');
+  if (parts.length !== 4) return { ok: false, reason: 'malformed signature header' };
+  const [scheme, version, timestampStr, providedDigest] = parts;
+  if (scheme !== 'hmac' || version !== '1') {
+    return { ok: false, reason: `unsupported signature scheme: ${scheme};${version}` };
+  }
+
+  const timestamp = parseInt(timestampStr, 10);
+  if (!Number.isFinite(timestamp)) return { ok: false, reason: 'invalid timestamp' };
+  if (Math.abs(now - timestamp) > REPLAY_WINDOW_MS) {
+    return { ok: false, reason: 'timestamp outside replay window' };
+  }
+
+  const signedData = `${timestampStr}.${JSON.stringify(parsedBody)}`;
+  const keyBinary = Buffer.from(secret, 'base64');
+  const computed = crypto
+    .createHmac('sha256', keyBinary)
+    .update(signedData, 'utf8')
+    .digest('base64');
+
+  // Timing-safe compare. Bail early on length mismatch since
+  // timingSafeEqual throws on mismatched lengths, and that throw
+  // distinguishes itself from a genuine digest mismatch.
+  if (computed.length !== providedDigest.length) {
+    return { ok: false, reason: 'digest length mismatch' };
+  }
+  const same = crypto.timingSafeEqual(
+    Buffer.from(computed, 'utf8'),
+    Buffer.from(providedDigest, 'utf8'),
+  );
+  return same ? { ok: true } : { ok: false, reason: 'digest mismatch' };
+}
+
+// ── Phone normalization ────────────────────────────────────────────
+// Inbound webhooks give phones in E.164 already (`+15551234567`); local
+// records (cleaner_phones, contacts.phone) may not be normalized. Make
+// matching tolerant by stripping non-digits and right-anchoring on the
+// last 10 digits (US/CA assumption, fine for Rising Tide).
+
+export function normalizePhone(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+  if (digits.length === 10) return digits;
+  return digits;
+}
+
+export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normalizePhone(a);
+  const nb = normalizePhone(b);
+  return na.length > 0 && na === nb;
+}
