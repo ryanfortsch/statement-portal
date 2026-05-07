@@ -59,41 +59,70 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             fontWeight: 300,
             letterSpacing: '-0.02em',
             color: 'var(--ink)',
+            margin: 0,
             maxWidth: 720,
           }}
         >
           {projection.property_address}
-          <span style={{ color: 'var(--ink-3)', fontWeight: 300 }}> · </span>
-          <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>{projection.prospect_name}</em>
+          {projection.property_city && (
+            <span style={{ color: 'var(--ink-3)', fontWeight: 300 }}>
+              {', '}{projection.property_city.split(',')[0]}
+            </span>
+          )}
         </h1>
+        <p
+          style={{
+            marginTop: 12,
+            fontSize: 14,
+            color: 'var(--ink-3)',
+            lineHeight: 1.5,
+          }}
+        >
+          Prepared for{' '}
+          <span style={{ color: 'var(--tide-deep)', fontStyle: 'italic' }}>
+            {projection.prospect_name}
+          </span>
+        </p>
       </section>
 
       {/* PREVIEW PANEL */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '28px 0' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 28 }}>
-            <Stat
-              label="Cover range"
-              value={fmtMoneyRange(computed.heroLow, computed.heroHigh)}
-              sub="Year 1 estimate (net)"
-              accent
-            />
-            <Stat
-              label="Year 1 (full)"
-              value={fmtMoney(roundToThousand(computed.year1.mid.netPayout))}
-              sub={`${fmtMoney(roundToThousand(computed.year1.low.netPayout))} – ${fmtMoney(roundToThousand(computed.year1.high.netPayout))}`}
-            />
-            <Stat
-              label="Year 1 ramped"
-              value={fmtMoney(roundToThousand(computed.year1Ramped.netPayout))}
-              sub={`${computed.year1Ramped.activeMonthCount} active months`}
-            />
-            <Stat
-              label="Year 2"
-              value={fmtMoney(roundToThousand(computed.year2.netPayout))}
-              sub={`+${fmtPercent(projection.year2_growth_pct)} on Year 1`}
-            />
-          </div>
+          {(() => {
+            // Hide "Year 1 ramped" when it equals "Year 1 (full)" — happens
+            // whenever the ramp covers all 12 months. Otherwise the two
+            // adjacent cells show identical numbers and read as a bug.
+            const fullMid = roundToThousand(computed.year1.mid.netPayout);
+            const rampMid = roundToThousand(computed.year1Ramped.netPayout);
+            const showRamp = rampMid !== fullMid;
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 28 }}>
+                <Stat
+                  label="Cover range"
+                  value={fmtMoneyRange(computed.heroLow, computed.heroHigh)}
+                  sub="Year 1 estimate (net)"
+                  accent
+                />
+                <Stat
+                  label="Year 1"
+                  value={fmtMoney(fullMid)}
+                  sub={`${fmtMoney(roundToThousand(computed.year1.low.netPayout))} – ${fmtMoney(roundToThousand(computed.year1.high.netPayout))}`}
+                />
+                {showRamp && (
+                  <Stat
+                    label="Year 1 ramped"
+                    value={fmtMoney(rampMid)}
+                    sub={`${computed.year1Ramped.activeMonthCount} active months`}
+                  />
+                )}
+                <Stat
+                  label="Year 2"
+                  value={fmtMoney(roundToThousand(computed.year2.netPayout))}
+                  sub={`+${fmtPercent(projection.year2_growth_pct)} on Year 1`}
+                />
+              </div>
+            );
+          })()}
           <div style={{ marginTop: 20, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
             Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}). AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}). Blended gross: {fmtMoney(computed.blendedGrossRevenue)}. Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}.
           </div>
