@@ -111,7 +111,7 @@ function ModuleItem({
   const content = (
     <div
       style={{
-        padding: '10px 16px',
+        padding: '8px 16px',
         display: 'grid',
         gridTemplateColumns: '32px 1fr',
         gap: 12,
@@ -130,30 +130,25 @@ function ModuleItem({
       >
         {m.number}
       </span>
-      <div>
-        <div
-          className="font-serif"
-          style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}
-        >
-          {m.title}
-          {m.status === 'soon' && (
-            <span
-              style={{
-                marginLeft: 8,
-                fontSize: 9,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-4)',
-                fontFamily: 'inherit',
-              }}
-            >
-              Soon
-            </span>
-          )}
-        </div>
-        <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.4 }}>
-          {m.description}
-        </div>
+      <div
+        className="font-serif"
+        style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}
+      >
+        {m.title}
+        {m.status === 'soon' && (
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 9,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-4)',
+              fontFamily: 'inherit',
+            }}
+          >
+            Soon
+          </span>
+        )}
       </div>
     </div>
   );
