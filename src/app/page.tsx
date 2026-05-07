@@ -7,6 +7,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { TeamActivity } from '@/components/TeamActivity';
+import { UniversalSearch } from '@/components/UniversalSearch';
 
 export const dynamic = 'force-dynamic';
 // Personal count needs the live session, so we can't precompute. Drop the
@@ -242,22 +243,7 @@ export default async function HelmHome() {
           <span>→</span>
         </Link>
 
-        <form action="/search" method="get" style={{ flex: 1, minWidth: 240 }}>
-          <input
-            type="search"
-            name="q"
-            placeholder="Search properties, owners, slips, tasks…"
-            style={{
-              width: '100%',
-              padding: '8px 14px',
-              border: '1px solid var(--rule)',
-              background: 'var(--paper)',
-              fontSize: 13,
-              color: 'var(--ink)',
-              fontFamily: 'inherit',
-            }}
-          />
-        </form>
+        <UniversalSearch placeholder="Search Helm or jump to a page…" />
       </section>
 
       {/* OPERATIONAL SIGNALS STRIP */}
