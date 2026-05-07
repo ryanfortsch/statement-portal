@@ -14,6 +14,7 @@ import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
+import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 
@@ -248,9 +249,18 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
 
   // Summary chips for the closed state of each collapsible. Glanceable so
   // the page stays scannable without expanding every section.
-  const ownerSummary = latestOwnerContact
-    ? `last contacted ${formatRelativeOrAbsolute(latestOwnerContact.at)} · ${contactChannelLabel(latestOwnerContact.via)}`
-    : 'no contact logged yet';
+  const ownerSummaryParts: string[] = [];
+  ownerSummaryParts.push(
+    latestOwnerContact
+      ? `last contacted ${formatRelativeOrAbsolute(latestOwnerContact.at)} · ${contactChannelLabel(latestOwnerContact.via)}`
+      : 'no contact logged yet',
+  );
+  if (p.onboarding_submitted_at) {
+    ownerSummaryParts.push(`intake submitted ${formatRelativeOrAbsolute(p.onboarding_submitted_at)}`);
+  } else if (p.onboarding_token) {
+    ownerSummaryParts.push('intake link generated');
+  }
+  const ownerSummary = ownerSummaryParts.join(' · ');
   const statementsSummary =
     statements.length === 0
       ? 'no statements yet'
@@ -655,6 +665,15 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             </div>
           </div>
         )}
+
+        {/* Public onboarding-form link. Lazily generated; once minted,
+            the same URL backfills this property's operational columns
+            from the owner's answers (utilities, access, emergency, etc.). */}
+        <PropertyOnboardingLink
+          propertyId={p.id}
+          initialToken={p.onboarding_token}
+          submittedAt={p.onboarding_submitted_at}
+        />
       </CollapsibleSection>
 
       {/* ACTIVITY FEED */}

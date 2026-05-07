@@ -239,6 +239,13 @@ export type HelmPropertyRow = {
   // Funnel link: which prospect record promoted into this property
   projection_id: string | null;
 
+  // Owner onboarding intake link (analogous to projections.onboarding_token).
+  // Null until an operator clicks "Generate onboarding link" on the
+  // property page. Submissions land back in the first-class columns above
+  // (wifi_name, gas_shutoff_location, etc.) — no JSONB blob.
+  onboarding_token: string | null;
+  onboarding_submitted_at: string | null;
+
   // Channels module: per-property iCal export token used to authenticate
   // outbound master-availability subscriptions from Airbnb / VRBO / Booking.com.
   // Added by 20260507c_channels_extras.sql.

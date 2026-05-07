@@ -1,34 +1,160 @@
 import { redirect, notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { ProjectionRow } from '@/lib/projections-types';
+import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
+import type { HelmPropertyRow } from '@/lib/properties';
 import { submitOnboarding } from '@/app/projections/actions';
 
 export const dynamic = 'force-dynamic';
 
-async function getProspect(token: string): Promise<ProjectionRow | null> {
+type OnboardingTarget =
+  | { kind: 'projection'; row: ProjectionRow }
+  | { kind: 'property'; row: HelmPropertyRow };
+
+async function getOnboardingTarget(token: string): Promise<OnboardingTarget | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
-  const { data } = await supabase
+
+  // Try the prospect path first (existing behavior). Fall back to the
+  // managed-property path so the same /onboarding/<token> URL works for
+  // both flows.
+  const { data: projRow } = await supabase
     .from('projections')
     .select('*')
     .eq('onboarding_token', token)
     .maybeSingle();
-  return (data as ProjectionRow | null) ?? null;
+  if (projRow) return { kind: 'projection', row: projRow as ProjectionRow };
+
+  const { data: propRow } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (propRow) return { kind: 'property', row: propRow as HelmPropertyRow };
+
+  return null;
+}
+
+/** Build a synthetic OnboardingData blob from a managed property's
+ *  first-class columns so the form can pre-populate with what's on file
+ *  today. The owner's submission overwrites these columns, so subsequent
+ *  loads will reflect the freshly-submitted values. */
+function onboardingDataFromProperty(p: HelmPropertyRow): OnboardingData {
+  const out: OnboardingData = {};
+  const set = (k: keyof OnboardingData, v: string | number | null | undefined) => {
+    if (v == null || v === '') return;
+    out[k] = String(v);
+  };
+
+  // Owner contact (Personal section). full_name + phone + email +
+  // mailing + preferred_contact come straight off the property.
+  set('full_name', p.owner_full);
+  set('phone', p.owner_phone);
+  set('email', (p.owner_emails ?? [])[0]);
+  set('mailing_address', p.owner_mailing_address);
+  set('preferred_contact', p.owner_preferred_contact);
+
+  // Property characteristics
+  set('property_address', `${p.address}${p.city ? `, ${p.city}` : ''}`);
+  set('property_type', p.type_of_unit);
+  set('hoa', p.hoa);
+  set('bedrooms', p.bedrooms);
+  set('bathrooms', p.bathrooms);
+  set('square_feet', p.square_feet);
+  set('livable_floors', p.livable_floors);
+  set('basement', p.basement);
+  set('parking', p.parking);
+
+  // Utilities
+  set('electricity_provider', p.electricity_provider);
+  set('heating', p.heating);
+  set('cooling', p.cooling);
+  set('internet_provider', p.internet_provider);
+  set('cable_provider', p.cable_provider);
+  set('wifi_name', p.wifi_name);
+  set('wifi_password', p.wifi_password);
+  set('num_tvs', p.num_tvs);
+  set('smart_tv', p.smart_tv);
+
+  // STR setup
+  set('currently_listed', p.currently_listed);
+  set('listing_urls', p.existing_listing_urls);
+  set('str_registration', p.str_registration_id);
+  set('str_insurance', p.str_insurance_carrier);
+  set('guest_access_method', p.guest_access_method);
+  set('smart_lock_brand', p.smart_lock_brand);
+  set('smart_lock_code', p.smart_lock_code);
+  set('security_cameras', p.security_cameras);
+
+  // Access & notes
+  set('key_code_location', p.key_code_location);
+  set('alarm_system', p.alarm_system);
+  set('known_issues', p.known_issues);
+  set('upcoming_maintenance', p.upcoming_maintenance);
+  set('notes', p.property_notes);
+
+  // Emergency contact
+  set('emergency_name', p.emergency_contact_name);
+  set('emergency_relationship', p.emergency_contact_relationship);
+  set('emergency_phone', p.emergency_contact_phone);
+  set('emergency_email', p.emergency_contact_email);
+
+  // Inspection & safety
+  set('trash_day', p.trash_day);
+  set('recycling_day', p.recycling_day);
+  set('trash_notes', p.trash_notes);
+  set('parking_regulations', p.parking_regulations);
+  set('gas_shutoff_location', p.gas_shutoff_location);
+  set('water_shutoff_location', p.water_shutoff_location);
+  set('electrical_panel_location', p.electrical_panel_location);
+  set('fire_extinguisher_locations', p.fire_extinguisher_locations);
+  set('smoke_detector_locations', p.smoke_detector_locations);
+  set('fire_exit_locations', p.fire_exit_locations);
+  set('str_permit_expires', p.str_permit_expires);
+
+  return out;
 }
 
 export default async function OnboardingFormPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const prospect = await getProspect(token);
-  if (!prospect) notFound();
+  const target = await getOnboardingTarget(token);
+  if (!target) notFound();
 
-  // If they've already submitted, send them to the thank-you page.
-  if (prospect.onboarding_submitted_at) {
+  // If they've already submitted, send them to the thank-you page. Owners
+  // can re-open the form (the link still works) but the default landing
+  // is a confirmation; they re-submit by hitting the form URL again.
+  const submittedAt =
+    target.kind === 'projection'
+      ? target.row.onboarding_submitted_at
+      : target.row.onboarding_submitted_at;
+  if (submittedAt) {
     redirect(`/onboarding/${token}/thanks`);
   }
 
-  const greetingName = prospect.prospect_first_names || prospect.prospect_first_name || '';
-  const propertyAddress = `${prospect.property_address}${prospect.property_city ? `, ${prospect.property_city}` : ''}`;
-  const fullName = prospect.prospect_full_legal || prospect.prospect_name;
-  const ob = prospect.onboarding_data || {};
+  let greetingName: string;
+  let propertyAddress: string;
+  let fullName: string;
+  let ob: OnboardingData;
+
+  if (target.kind === 'projection') {
+    const prospect = target.row;
+    greetingName = prospect.prospect_first_names || prospect.prospect_first_name || '';
+    propertyAddress = `${prospect.property_address}${prospect.property_city ? `, ${prospect.property_city}` : ''}`;
+    fullName = prospect.prospect_full_legal || prospect.prospect_name;
+    ob = { ...(prospect.onboarding_data || {}) };
+    // Prospect inputs as fallbacks for fields the form pre-populates from
+    // the projection's intake answers (phone, property_type, bedrooms).
+    // Owner answers always win once they fill the form.
+    if (!ob.phone && prospect.prospect_phone) ob.phone = prospect.prospect_phone;
+    if (!ob.property_type && prospect.property_type) ob.property_type = prospect.property_type;
+    if (!ob.bedrooms && prospect.bedrooms) ob.bedrooms = String(prospect.bedrooms);
+  } else {
+    const property = target.row;
+    greetingName = property.owner_greeting || property.owner_full || '';
+    propertyAddress = `${property.address}${property.city ? `, ${property.city}` : ''}`;
+    fullName = property.owner_full || '';
+    // Pre-populate from the property's current first-class columns so
+    // the owner sees what's on file and can correct it.
+    ob = onboardingDataFromProperty(property);
+  }
 
   return (
     <>
@@ -59,7 +185,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <Section eyebrow="01" title="Personal Information">
             <Row>
               <Field name="full_name" label="Full name" required defaultValue={ob.full_name ?? fullName} />
-              <Field name="phone" label="Phone number" type="tel" required defaultValue={ob.phone ?? prospect.prospect_phone ?? ''} />
+              <Field name="phone" label="Phone number" type="tel" required defaultValue={ob.phone ?? ''} />
             </Row>
             <Row>
               <Field name="email" label="Email address" type="email" required defaultValue={ob.email} />
@@ -77,11 +203,11 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <Section eyebrow="02" title="Property Information">
             <Field name="property_address" label="Property address" required defaultValue={ob.property_address ?? propertyAddress} />
             <Row>
-              <Field name="property_type" label="Property type" required defaultValue={ob.property_type ?? prospect.property_type} hint="Single-family, Condo, Townhouse, etc." />
+              <Field name="property_type" label="Property type" required defaultValue={ob.property_type} hint="Single-family, Condo, Townhouse, etc." />
               <Field name="hoa" label="HOA" defaultValue={ob.hoa} hint="Yes / No — name if applicable" />
             </Row>
             <Row>
-              <Field name="bedrooms" label="Bedrooms" type="number" required defaultValue={ob.bedrooms ?? String(prospect.bedrooms || '')} />
+              <Field name="bedrooms" label="Bedrooms" type="number" required defaultValue={ob.bedrooms} />
               <Field name="bathrooms" label="Bathrooms" type="number" step="0.5" required defaultValue={ob.bathrooms} />
               <Field name="square_feet" label="Square feet" type="number" defaultValue={ob.square_feet} />
               <Field name="livable_floors" label="Livable floors" type="number" defaultValue={ob.livable_floors} />
