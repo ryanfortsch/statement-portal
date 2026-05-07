@@ -83,13 +83,14 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
       type="button"
       onClick={open}
       aria-label="Open search palette"
+      title="Search Helm (⌘K)"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
         background: 'transparent',
         border: '1px solid var(--rule)',
-        padding: '4px 8px 4px 10px',
+        padding: '4px 8px',
         cursor: 'pointer',
         color: 'var(--ink-3)',
         fontFamily: 'inherit',
@@ -98,7 +99,6 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
       }}
     >
       <SearchIcon />
-      <span>Search</span>
       <kbd
         className="font-mono"
         style={{
