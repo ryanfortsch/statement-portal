@@ -1504,6 +1504,27 @@ function DashboardContent() {
   const [addNoteOpen, setAddNoteOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  // Reconcile (compare what we emailed against what Helm now thinks).
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<{
+    month: string;
+    emails_found: number;
+    emails_unparsed: { subject: string; sender: string; reason: string }[];
+    rows: {
+      property_id: string;
+      property_name: string;
+      emailed_payout: number | null;
+      helm_payout: number | null;
+      delta: number | null;
+      email_message_id: string | null;
+      email_sender: string | null;
+      email_subject: string | null;
+      email_date: string | null;
+      status: 'matched' | 'diverged' | 'helm_only' | 'email_only' | 'no_amount_in_email';
+    }[];
+    gaps_written: number;
+  } | string | null>(null);
   // Bulk-draft progress: tracks the current "n of N" while running. null
   // when idle. Used by the Draft All button label and to disable the button.
   const [bulkDraftProgress, setBulkDraftProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1941,6 +1962,40 @@ function DashboardContent() {
       await syncStripe();
     } finally {
       setSyncingAll(false);
+    }
+  }
+
+  /**
+   * End-of-month verification: search Gmail for owner-statement sends
+   * in this period, parse payout amounts out of message snippets, and
+   * compare against what Helm currently thinks. Surfaces any divergence
+   * as a `data_gaps` row of type 'email_payout_mismatch' so the existing
+   * gap-resolution flow on each property card carries the explanation.
+   */
+  async function runReconcile() {
+    if (!selectedMonth) return;
+    setReconciling(true);
+    setReconcileResult(null);
+    setReconcileOpen(true);
+    try {
+      const res = await fetch('/api/reconcile-emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: selectedMonth }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setReconcileResult(data.error || 'Reconcile failed');
+        return;
+      }
+      setReconcileResult(data);
+      // Refresh the period so any newly-written gap rows surface on
+      // their property cards immediately.
+      await loadPeriod(selectedMonth);
+    } catch (err) {
+      setReconcileResult(err instanceof Error ? err.message : 'Reconcile failed');
+    } finally {
+      setReconciling(false);
     }
   }
 
@@ -2388,6 +2443,18 @@ function DashboardContent() {
                   </svg>
                 }
               />
+              <EditorialButton
+                onClick={runReconcile}
+                disabled={reconciling || !selectedMonth}
+                busy={reconciling}
+                label={reconciling ? 'Reconciling…' : 'Reconcile Sends'}
+                meta="email vs DB"
+                icon={
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7M5 12h14" />
+                  </svg>
+                }
+              />
             </div>
             <Link href="/statements/upload" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -2806,6 +2873,137 @@ function DashboardContent() {
           onClose={() => setAddNoteOpen(false)}
           defaultAuthor="helm-portal"
         />
+      )}
+
+      {/* Reconcile-sends results modal. Compares what's in Gmail (the
+          owner emails that actually went out) to what Helm now shows. */}
+      {reconcileOpen && (
+        <PreviewModal onClose={() => setReconcileOpen(false)}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Reconcile sends</div>
+          <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>
+            {monthLabel(selectedMonth)} &middot; emails vs Helm DB
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+            Searches Gmail for sent owner statements (any subject containing &ldquo;{monthLabel(selectedMonth).split(' ')[0]} Owner Statement&rdquo;), parses payout amounts from the snippets, and joins to the current Helm record. Divergences land as gaps on the affected property cards.
+          </p>
+
+          {reconciling && !reconcileResult && (
+            <div style={{ marginTop: 18, padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>
+              Searching Gmail…
+            </div>
+          )}
+
+          {reconcileResult && typeof reconcileResult === 'string' && (
+            <div style={{
+              marginTop: 14, padding: '10px 12px',
+              borderLeft: '2px solid var(--negative)',
+              background: 'var(--paper-2)',
+              fontSize: 12, color: 'var(--ink-2)',
+            }}>
+              {reconcileResult}
+            </div>
+          )}
+
+          {reconcileResult && typeof reconcileResult !== 'string' && (
+            <div style={{ marginTop: 18 }}>
+              <div className="flex items-center gap-5 flex-wrap" style={{ fontSize: 11, marginBottom: 14 }}>
+                <span style={{ color: 'var(--ink-3)' }}>
+                  <strong>{reconcileResult.emails_found}</strong> email{reconcileResult.emails_found === 1 ? '' : 's'} found
+                </span>
+                <span style={{ color: reconcileResult.gaps_written > 0 ? 'var(--signal)' : 'var(--positive)' }}>
+                  <strong>{reconcileResult.gaps_written}</strong> divergence{reconcileResult.gaps_written === 1 ? '' : 's'} flagged
+                </span>
+                {reconcileResult.emails_unparsed.length > 0 && (
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    <strong>{reconcileResult.emails_unparsed.length}</strong> unparsed
+                  </span>
+                )}
+              </div>
+
+              {reconcileResult.rows.length === 0 ? (
+                <div style={{ padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>
+                  No matching sends found and no Helm statements for this month.
+                </div>
+              ) : (
+                <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                      <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Property</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Status</th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Sent</th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Helm</th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Δ</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Sender</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reconcileResult.rows.map((r) => {
+                      const statusColor =
+                        r.status === 'matched' ? 'var(--positive)' :
+                        r.status === 'diverged' ? 'var(--signal)' :
+                        r.status === 'helm_only' ? 'var(--negative)' :
+                        r.status === 'email_only' ? 'var(--tide-deep)' :
+                        'var(--ink-4)';
+                      const statusLabel: Record<typeof r.status, string> = {
+                        matched: 'matched',
+                        diverged: 'diverged',
+                        helm_only: 'not sent',
+                        email_only: 'no helm record',
+                        no_amount_in_email: 'amount on PDF only',
+                      };
+                      return (
+                        <tr key={r.property_id} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                          <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>
+                            {r.property_name}
+                          </td>
+                          <td style={{ padding: '8px 6px', fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: statusColor }}>
+                            {statusLabel[r.status]}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>
+                            {r.emailed_payout != null ? `$${r.emailed_payout.toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>
+                            {r.helm_payout != null ? `$${r.helm_payout.toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: r.delta != null && Math.abs(r.delta) >= 1 ? 'var(--signal)' : 'var(--ink-4)' }}>
+                            {r.delta != null ? `${r.delta >= 0 ? '+' : ''}$${r.delta.toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ padding: '8px 6px', color: 'var(--ink-4)', fontSize: 11 }}>
+                            {r.email_sender ? r.email_sender.replace(/<[^>]+>/, '').replace(/"/g, '').trim().split('@')[0] : '—'}
+                            {r.email_date && (
+                              <span style={{ marginLeft: 6, fontSize: 10 }}>
+                                &middot; {r.email_date.slice(0, 10)}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              {reconcileResult.gaps_written > 0 && (
+                <div style={{ marginTop: 14, padding: '10px 12px', borderLeft: '2px solid var(--signal)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-2)' }}>
+                  Divergences are now flagged on the relevant property cards as <code>email_payout_mismatch</code> gaps. Resolve from there with an explanation (e.g. &ldquo;cleaning held back pending guest recoupment&rdquo;) so the next reconcile run preserves the resolved state.
+                </div>
+              )}
+
+              {reconcileResult.emails_unparsed.length > 0 && (
+                <details style={{ marginTop: 14, fontSize: 11, color: 'var(--ink-4)' }}>
+                  <summary style={{ cursor: 'pointer' }}>{reconcileResult.emails_unparsed.length} unparsed email{reconcileResult.emails_unparsed.length === 1 ? '' : 's'}</summary>
+                  <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+                    {reconcileResult.emails_unparsed.slice(0, 10).map((u, i) => (
+                      <li key={i} style={{ marginBottom: 4 }}>
+                        <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>{u.reason}</code> &middot; {u.subject}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </PreviewModal>
       )}
 
       {/* Remittance instructions modal */}
