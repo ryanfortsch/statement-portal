@@ -38,6 +38,19 @@ export async function listChannelListingsByProperty(): Promise<Record<string, Ch
   return map;
 }
 
+export async function listPropertyExportTokens(): Promise<Record<string, string>> {
+  if (!isConfigured) return {};
+  const { data, error } = await supabase
+    .from('properties')
+    .select('id, ical_export_token');
+  if (error) return {};
+  const map: Record<string, string> = {};
+  for (const r of (data ?? []) as Array<{ id: string; ical_export_token: string | null }>) {
+    if (r.ical_export_token) map[r.id] = r.ical_export_token;
+  }
+  return map;
+}
+
 export async function getChannelListing(id: string): Promise<ChannelListing | null> {
   if (!isConfigured) return null;
   const { data, error } = await supabase

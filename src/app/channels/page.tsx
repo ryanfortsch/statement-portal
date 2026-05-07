@@ -15,15 +15,22 @@ import { PROPERTIES } from '@/lib/properties';
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
-export default async function ChannelsPage() {
+export default async function ChannelsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ backfilled?: string }>;
+}) {
   if (!isConfigured) {
     return <NotConfigured />;
   }
 
-  let stats = await safeStats();
-  let listings = await safeListings();
-  let upcoming = await safeUpcoming();
-  let recentRuns = await safeRuns();
+  const sp = await searchParams;
+  const backfilled = sp.backfilled ? Number(sp.backfilled) : 0;
+
+  const stats = await safeStats();
+  const listings = await safeListings();
+  const upcoming = await safeUpcoming();
+  const recentRuns = await safeRuns();
   const dbReady = stats.dbReady;
 
   return (
@@ -41,6 +48,13 @@ export default async function ChannelsPage() {
 
       {dbReady && (
         <>
+          {backfilled > 0 && (
+            <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 16 }}>
+              <div style={{ borderLeft: '3px solid var(--positive, #2d6b50)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink)' }}>
+                Backfilled <strong>{backfilled}</strong> bookings from Guesty. They show up in the table below.
+              </div>
+            </section>
+          )}
           <StatsStrip stats={stats} />
           <ActionsBar listingsCount={listings.length} />
           <CoverageGrid listings={listings} />
@@ -177,7 +191,14 @@ function ActionsBar({ listingsCount }: { listingsCount: number }) {
         <Link href="/channels/calendar" style={secondaryButtonStyle}>
           Master calendar
         </Link>
+        <Link href="/channels/bookings/new" style={secondaryButtonStyle}>
+          + Booking
+        </Link>
+        <Link href="/channels/bookings/new?type=block" style={secondaryButtonStyle}>
+          + Block
+        </Link>
         <SyncNowButton />
+        <BackfillButton />
       </div>
     </section>
   );
@@ -192,6 +213,32 @@ function SyncNowButton() {
     </form>
   );
 }
+
+function BackfillButton() {
+  return (
+    <form
+      action="/api/channels/backfill-from-guesty"
+      method="post"
+      title="One-time copy of every guesty_reservations row into the new bookings table. Idempotent."
+    >
+      <button type="submit" style={ghostBtn}>
+        Backfill from Guesty
+      </button>
+    </form>
+  );
+}
+
+const ghostBtn: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink-3)',
+  padding: '10px 14px',
+  fontSize: 11,
+  letterSpacing: '.06em',
+  textTransform: 'uppercase',
+  fontWeight: 500,
+  border: '1px dashed var(--rule)',
+  cursor: 'pointer',
+};
 
 function CoverageGrid({ listings }: { listings: Array<{ property_id: string; channel: string; ical_import_url: string | null; last_import_status: string | null; last_imported_at: string | null }> }) {
   // Build matrix: rows = properties (in PROPERTIES order), cols = channels

@@ -63,6 +63,9 @@ export default async function ChannelsBookingsPage({
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/channels" style={ghostButton}>← Back</Link>
           <Link href="/channels/calendar" style={ghostButton}>Master calendar →</Link>
+          <span style={{ flex: 1 }} />
+          <Link href="/channels/bookings/new" style={primaryButton}>+ Booking</Link>
+          <Link href="/channels/bookings/new?type=block" style={secondaryButton}>+ Block</Link>
         </div>
       </section>
 
@@ -228,5 +231,18 @@ const ghostButton: React.CSSProperties = {
   fontWeight: 500,
   padding: '6px 0',
   border: 'none',
+  textDecoration: 'none',
+};
+
+const secondaryButton: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink)',
+  fontSize: 11,
+  letterSpacing: '.08em',
+  textTransform: 'uppercase',
+  fontWeight: 500,
+  padding: '8px 14px',
+  border: '1px solid var(--ink)',
+  cursor: 'pointer',
   textDecoration: 'none',
 };

@@ -2,21 +2,32 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import Link from 'next/link';
-import { listChannelListingsByProperty } from '@/lib/channels';
+import { CopyableUrl } from './CopyableUrl';
+import { listChannelListingsByProperty, listPropertyExportTokens } from '@/lib/channels';
 import { CHANNEL_LABELS, ICAL_HINTS, PRIMARY_CHANNELS, type BookingChannel, type ChannelListing } from '@/lib/channels-types';
 import { PROPERTIES, type Property } from '@/lib/properties';
 import { saveListing, syncOneListing } from './actions';
+import { headers } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ChannelsListingsPage() {
   let byProperty: Record<string, ChannelListing[]> = {};
+  let exportTokens: Record<string, string> = {};
   let dbError: string | null = null;
   try {
-    byProperty = await listChannelListingsByProperty();
+    [byProperty, exportTokens] = await Promise.all([
+      listChannelListingsByProperty(),
+      listPropertyExportTokens(),
+    ]);
   } catch (e) {
     dbError = e instanceof Error ? e.message : String(e);
   }
+
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'helm.risingtidestr.com';
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+  const origin = `${proto}://${host}`;
 
   const properties = Object.values(PROPERTIES);
 
@@ -74,7 +85,13 @@ export default async function ChannelsListingsPage() {
 
         <div style={{ marginTop: 36 }}>
           {properties.map((p) => (
-            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} />
+            <PropertyCard
+              key={p.id}
+              property={p}
+              listings={byProperty[p.id] ?? []}
+              exportToken={exportTokens[p.id]}
+              origin={origin}
+            />
           ))}
         </div>
       </section>
@@ -84,8 +101,19 @@ export default async function ChannelsListingsPage() {
   );
 }
 
-function PropertyCard({ property, listings }: { property: Property; listings: ChannelListing[] }) {
+function PropertyCard({
+  property,
+  listings,
+  exportToken,
+  origin,
+}: {
+  property: Property;
+  listings: ChannelListing[];
+  exportToken?: string;
+  origin: string;
+}) {
   const byChannel = new Map(listings.map((l) => [l.channel, l]));
+  const exportUrl = exportToken ? `${origin}/api/channels/ical/${exportToken}` : null;
 
   return (
     <div
@@ -111,6 +139,23 @@ function PropertyCard({ property, listings }: { property: Property; listings: Ch
           <ChannelRow key={c} property={property} channel={c} listing={byChannel.get(c)} />
         ))}
       </div>
+
+      {exportUrl && (
+        <div
+          style={{
+            marginTop: 14,
+            padding: '12px 14px',
+            background: 'var(--paper-2)',
+            border: '1px dashed var(--rule)',
+          }}
+        >
+          <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 6 }}>Helm → channels (master availability feed)</div>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 8 }}>
+            Paste this URL into each channel&apos;s &quot;Import calendar&quot; flow so a stay landing here blocks the dates everywhere else.
+          </p>
+          <CopyableUrl value={exportUrl} />
+        </div>
+      )}
     </div>
   );
 }
