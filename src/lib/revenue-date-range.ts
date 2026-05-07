@@ -168,3 +168,34 @@ export function dayAfter(dateStr: string): string {
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().split('T')[0];
 }
+
+/**
+ * Same-length window immediately before `range`. Used to compute
+ * period-over-period delta percentages on the Revenue dashboard.
+ *
+ * Example: range Apr 1 to Apr 30 -> previous Mar 2 to Mar 31 (30 days each).
+ */
+export function previousRange(range: DateRange): DateRange {
+  const start = new Date(range.rangeStart + 'T00:00:00Z');
+  const end = new Date(range.rangeEnd + 'T00:00:00Z');
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+
+  const prevEnd = new Date(start);
+  prevEnd.setUTCDate(prevEnd.getUTCDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setUTCDate(prevStart.getUTCDate() - (days - 1));
+
+  return {
+    rangeStart: prevStart.toISOString().split('T')[0],
+    rangeEnd: prevEnd.toISOString().split('T')[0],
+  };
+}
+
+/**
+ * Percentage change from `prev` to `curr`. Returns null when prev is
+ * zero or null (no baseline to compare against).
+ */
+export function deltaPct(curr: number | null, prev: number | null): number | null {
+  if (curr == null || prev == null || prev === 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
