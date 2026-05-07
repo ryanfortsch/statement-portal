@@ -55,7 +55,7 @@ export function HelmMasthead({ current, rightContent }: Props) {
             />
             <HelmModuleNav current={current} />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center" style={{ gap: 10, flexShrink: 0 }}>
             <CommandPaletteTrigger />
             {rightContent}
             <UserMenu />

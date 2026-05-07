@@ -1,0 +1,150 @@
+/**
+ * Helm Reviews — read-side queries against the public.reviews table that
+ * sync-guesty populates from the Guesty API.
+ *
+ * Schema (informal, mirrors what sync-guesty writes):
+ *   id, guesty_review_id (uniq), listing_id, property_id (FK to properties),
+ *   reservation_id, guest_id, guest_name, channel, guesty_channel_id,
+ *   overall_rating (1-5), public_review (text), private_feedback (text),
+ *   category_cleanliness, category_accuracy, category_checkin,
+ *   category_communication, category_location, category_value,
+ *   review_created_at, synced_at
+ */
+
+import { supabase, isConfigured } from './supabase';
+
+export type ReviewRow = {
+  id: string;
+  property_id: string | null;
+  reservation_id: string | null;
+  guest_name: string | null;
+  channel: string | null;
+  overall_rating: number | null;
+  public_review: string | null;
+  private_feedback: string | null;
+  category_cleanliness: number | null;
+  category_accuracy: number | null;
+  category_checkin: number | null;
+  category_communication: number | null;
+  category_location: number | null;
+  category_value: number | null;
+  review_created_at: string | null;
+};
+
+export type ReviewWindowStats = {
+  /** Reviews received in the window (e.g. last 7 days). */
+  total: number;
+  /** Of those, how many were 5-star (overall_rating >= 5). */
+  fiveStar: number;
+  /** Of those, how many had at least one < 5 category or overall rating. */
+  belowFive: number;
+  /** Average overall rating (1-5), null if no reviews. */
+  avg: number | null;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Stats for the rolling N-day window ending now. Default 7 days, matches
+ * "this week" semantics for the home dashboard. We count by
+ * review_created_at — the moment the review landed, not the stay date.
+ */
+export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats> {
+  const empty: ReviewWindowStats = { total: 0, fiveStar: 0, belowFive: 0, avg: null };
+  if (!isConfigured) return empty;
+  try {
+    const sinceISO = new Date(Date.now() - days * DAY_MS).toISOString();
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('overall_rating')
+      .gte('review_created_at', sinceISO);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ overall_rating: number | null }>;
+    if (rows.length === 0) return empty;
+
+    let total = 0;
+    let fiveStar = 0;
+    let belowFive = 0;
+    let sum = 0;
+    let rated = 0;
+    for (const r of rows) {
+      total += 1;
+      const o = r.overall_rating;
+      if (o == null) continue;
+      rated += 1;
+      sum += o;
+      if (o >= 5) fiveStar += 1;
+      else belowFive += 1;
+    }
+    return {
+      total,
+      fiveStar,
+      belowFive,
+      avg: rated > 0 ? sum / rated : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+export type ReviewListFilters = {
+  /** Limit by overall_rating bucket. "5" = 5-star only, "below" = 1-4, undefined = all. */
+  rating?: '5' | 'below';
+  /** Restrict to reviews for one property. */
+  propertyId?: string;
+  /** Channel name as Helm normalizes it ("Airbnb", "VRBO", "Booking.com"). */
+  channel?: string;
+  /** Free-text search against guest_name + public_review. */
+  search?: string;
+  /** Page size, default 50. */
+  limit?: number;
+};
+
+export async function listReviews(filters: ReviewListFilters = {}): Promise<ReviewRow[]> {
+  if (!isConfigured) return [];
+  try {
+    let q = supabase
+      .from('reviews')
+      .select(
+        'id, property_id, reservation_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
+      )
+      .order('review_created_at', { ascending: false })
+      .limit(filters.limit ?? 50);
+
+    if (filters.rating === '5') q = q.gte('overall_rating', 5);
+    else if (filters.rating === 'below') q = q.lt('overall_rating', 5);
+    if (filters.propertyId) q = q.eq('property_id', filters.propertyId);
+    if (filters.channel) q = q.eq('channel', filters.channel);
+    if (filters.search) {
+      const s = filters.search.trim();
+      if (s) q = q.or(`guest_name.ilike.%${s}%,public_review.ilike.%${s}%`);
+    }
+
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []) as ReviewRow[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Distinct channels that show up in the reviews table — used for the
+ * filter dropdown on /reviews. Cached at request time.
+ */
+export async function listReviewChannels(): Promise<string[]> {
+  if (!isConfigured) return [];
+  try {
+    const { data } = await supabase
+      .from('reviews')
+      .select('channel')
+      .not('channel', 'is', null);
+    const set = new Set<string>();
+    for (const r of (data ?? []) as Array<{ channel: string | null }>) {
+      if (r.channel) set.add(r.channel);
+    }
+    return [...set].sort();
+  } catch {
+    return [];
+  }
+}
