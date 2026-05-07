@@ -57,6 +57,82 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Library of Congress HABS MA-187 documents "Robert Manning Place, 33 Dearborn Street, Salem." Salem Public Library wiki: Manning (Hawthorne\'s uncle) built #33 in 1824 for his bride.',
   },
 
+  // AVH winter-rental cross-listing sweep (verified via Apartments.com /
+  // Rentable / Zillow / ApartmentList — AVH cross-lists their inventory as
+  // long-stay winter rentals with full addresses on those platforms).
+
+  'atlantic-vacation-homes::niles-beach-house': {
+    addressGuess: '2 Eastern Point Blvd, Gloucester, MA 01930',
+    street: 'Eastern Point Blvd',
+    neighborhood: 'Eastern Point, East Gloucester',
+    confidence: 'high',
+    evidence: 'Apartments.com winter rental at 2 Eastern Point Blvd reproduces AVH copy verbatim — king/twin/queen/2-queen layout, "across the street to Niles Beach", Boston skyline views. VRBO #4135062.',
+  },
+
+  'atlantic-vacation-homes::captain-john-butman-house': {
+    addressGuess: '7 Granite St, Rockport, MA 01966',
+    street: 'Granite St',
+    neighborhood: 'Pigeon Cove, Rockport',
+    confidence: 'high',
+    evidence: 'Apartments.com winter rental "Captain John Butman House" at 7 Granite St + MACRIS RCP.59 ("Butnam, John House" c.1760) at 7 Granite St. VRBO #2299860.',
+  },
+
+  'atlantic-vacation-homes::twin-lights': {
+    addressGuess: '6 Charles St, Rockport, MA 01966',
+    street: 'Charles St',
+    neighborhood: 'Rockport',
+    confidence: 'high',
+    evidence: 'Rentable.co "Winter Rental: Twin Lights" at 6 Charles St (2BR/2BA matches AVH unit-120). VRBO #2739136. Note: distinct from "Twin Light Terrace" at 9 Twin Light Cir (a 4BR sister listing).',
+  },
+
+  'atlantic-vacation-homes::squam-light': {
+    addressGuess: '24 Leonard St, Gloucester, MA 01930',
+    street: 'Leonard St',
+    neighborhood: 'Annisquam',
+    confidence: 'high',
+    evidence: 'ApartmentList winter rental "Squam Light" matches AVH copy (3BR upstairs, clawfoot tub) at 24 Leonard St. AVH unit-58.',
+  },
+
+  'atlantic-vacation-homes::wingaerchic': {
+    addressGuess: '206 Atlantic St, Gloucester, MA 01930',
+    street: 'Atlantic St',
+    neighborhood: 'Wingaersheek, West Gloucester',
+    confidence: 'high',
+    evidence: 'Apartments.com / ApartmentList "206 Atlantic Street" = "private contemporary furnished house perched on a shady hilltop near Wingaersheek Beach", verbatim AVH copy. AVH unit-69.',
+  },
+
+  'atlantic-vacation-homes::two-beaches-cottage': {
+    addressGuess: '16 Warwick Rd, Gloucester, MA 01930',
+    street: 'Warwick Rd',
+    neighborhood: 'between Long Beach and Good Harbor, East Gloucester',
+    confidence: 'high',
+    evidence: 'Rentable.co "Winter Rental: Two Beaches Cottage" at 16 Warwick Rd, 3BR, $2,975/mo, "ideally situated between Long Beach and Good Harbor". AVH unit-1.',
+  },
+
+  'atlantic-vacation-homes::salt-island-views': {
+    addressGuess: '26 Salt Island Rd, Gloucester, MA 01930',
+    street: 'Salt Island Rd',
+    neighborhood: 'East Gloucester (overlooking Salt Island)',
+    confidence: 'high',
+    evidence: 'Apartments.com listing at 26 Salt Island Rd matches AVH copy (5-min walk to Good Harbor + Long Beach, 3BR/2BA). VRBO #991938. AVH unit-52.',
+  },
+
+  'atlantic-vacation-homes::mill-lane': {
+    addressGuess: '6A Mill Lane, Rockport, MA 01966',
+    street: 'Mill Lane',
+    neighborhood: 'Rockport',
+    confidence: 'high',
+    evidence: 'Zillow + Trulia winter rental "Mill Lane" at 6A Mill Ln. Half of a duplex (sister 4BR is "Pleasant House"). AVH unit-38. VRBO #2261641.',
+  },
+
+  'atlantic-vacation-homes::granite-cottage': {
+    addressGuess: '93 Granite St, Rockport, MA 01966',
+    street: 'Granite St',
+    neighborhood: 'Pigeon Cove, Rockport',
+    confidence: 'high',
+    evidence: 'Identified during AVH cross-listing sweep as the sister of Granite Pier on the Granite St / Phillips Ave run (Pigeon Cove). 1BR/1BA matches AVH unit-26.',
+  },
+
   // ────────────────────────────────────────────────────────────────────
   // ATLANTIC VACATION HOMES — Wave 1: name + Cape Ann geography
   // ────────────────────────────────────────────────────────────────────
@@ -64,32 +140,11 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   // Cape Ann. These are LOW or MEDIUM confidence — street/area inferred
   // from the listing name, not verified against assessor records.
 
-  'atlantic-vacation-homes::two-beaches-cottage': {
-    neighborhood: 'between Long Beach and Good Harbor, East Gloucester',
-    street: 'Atlantic Rd / Bass Ave area',
-    confidence: 'low',
-    evidence: 'AVH page: "Walk to Long Beach in 3 minutes, Good Harbor 8 minutes" — narrows to the Bass Ave / Atlantic Rd corridor.',
-  },
-
   'atlantic-vacation-homes::granite-pier': {
+    street: 'Granite St (Pigeon Cove)',
     neighborhood: 'Pigeon Cove, Rockport',
-    street: 'Granite Pier Rd',
     confidence: 'medium',
-    evidence: 'Listing name + "Boat launch at the pier just 120 yards from the house" — Granite Pier Rd has ~10 houses within that radius.',
-  },
-
-  'atlantic-vacation-homes::granite-cottage': {
-    neighborhood: 'Pigeon Cove / Granite St corridor, Rockport',
-    street: 'Granite St',
-    confidence: 'low',
-    evidence: 'Name reference to Granite — Pigeon Cove\'s historic granite-quarry district runs along Granite St.',
-  },
-
-  'atlantic-vacation-homes::niles-beach-house': {
-    neighborhood: 'Eastern Point, East Gloucester',
-    street: 'Niles Beach Ave (opposite the beach)',
-    confidence: 'medium',
-    evidence: 'AVH page: "Walk a few steps across the street right onto Niles Beach" — narrows to Niles Beach Ave or Mussel Point Rd.',
+    evidence: 'Sister of Granite Cottage (93 Granite St) and on the same Granite St / Phillips Ave run by the actual Granite Pier — "120 yards from the boat launch", per AVH copy. House # not yet pinned. VRBO #1044623.',
   },
 
   'atlantic-vacation-homes::long-beach-house': {
@@ -99,18 +154,20 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Name + "early 1900s" + "Just steps away" from Long Beach (Gloucester side).',
   },
 
-  'atlantic-vacation-homes::mill-lane': {
-    neighborhood: 'Rockport',
+  'atlantic-vacation-homes::pleasant-house-in-rockport': {
+    addressGuess: '6 Mill Lane, Rockport, MA 01966',
     street: 'Mill Lane',
+    neighborhood: 'Rockport',
     confidence: 'medium',
-    evidence: 'Listing name = the street name. Mill Lane is a real ~10-house lane off Main St in Rockport.',
+    evidence: 'AVH copy: Mill Lane (1BR) "is part of a two-family home with a 4-bedroom house that is also available to rent" — that 4BR is Pleasant House. Mill Lane = 6A, so Pleasant House is the other half (6 or 6B). Not 17 Pleasant St (= unrelated Rockport House Inn).',
   },
 
-  'atlantic-vacation-homes::pleasant-house-in-rockport': {
-    neighborhood: 'Rockport',
-    street: 'Pleasant St',
+  'atlantic-vacation-homes::booth-cottage': {
+    addressGuess: '19 Old Neck Rd, Manchester-by-the-Sea, MA 01944',
+    street: 'Old Neck Rd',
+    neighborhood: 'Manchester-by-the-Sea',
     confidence: 'medium',
-    evidence: 'Listing name suggests Pleasant St, a real Rockport street.',
+    evidence: 'Apartments.com indexes 19 Old Neck Rd as a Manchester rental; AVH copy places Booth Cottage on Old Neck Rd above former Old Neck Beach / Singing Beach (historic Junius Brutus Booth Jr. property, duplex-divided). VRBO #1053530.',
   },
 
   'atlantic-vacation-homes::rivers-edge': {
@@ -138,19 +195,6 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Listing name matches Sage Hill Rd, a real Rockport street.',
   },
 
-  'atlantic-vacation-homes::salt-island-views': {
-    neighborhood: 'East Gloucester (overlooking Salt Island)',
-    street: 'Atlantic Rd',
-    confidence: 'medium',
-    evidence: 'Salt Island sits off Good Harbor Beach; Atlantic Rd is the cliff road that overlooks it.',
-  },
-
-  'atlantic-vacation-homes::squam-light': {
-    neighborhood: 'Annisquam, Gloucester',
-    street: 'Wigwam Hill / Lighthouse Rd area',
-    confidence: 'medium',
-    evidence: 'Annisquam Light sits on Wigwam Hill at the mouth of the Annisquam River.',
-  },
 
   'atlantic-vacation-homes::straitsmouth-cove': {
     neighborhood: 'South Rockport (near Straitsmouth Island)',
@@ -166,19 +210,6 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Listing name = the street. Thurston Point Rd is the small Annisquam lane (~15 houses). Distinct from "Annisquam Singing Pines" at 56 Thurston Point — same street, different house.',
   },
 
-  'atlantic-vacation-homes::wingaerchic': {
-    neighborhood: 'Wingaersheek, West Gloucester',
-    street: 'Atlantic St / Concord St area',
-    confidence: 'medium',
-    evidence: 'Listing name is a phonetic play on Wingaersheek; the beach is accessed from Atlantic St / Concord St.',
-  },
-
-  'atlantic-vacation-homes::twin-lights': {
-    neighborhood: 'South Rockport (near Thacher Island)',
-    street: 'Marmion Way / Eden Rd corridor',
-    confidence: 'medium',
-    evidence: 'Twin Lights = Thacher Island twin lighthouses; Marmion Way and Eden Rd run the bluff facing the island.',
-  },
 
   'atlantic-vacation-homes::just-for-the-halibut': {
     neighborhood: 'Pigeon Cove, Rockport (near Halibut Point)',
@@ -212,10 +243,10 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   },
 
   'atlantic-vacation-homes::cape-hedge-house': {
-    neighborhood: 'Cape Hedge / South Rockport (Pebble Beach)',
-    street: 'Penzance Rd / Land\'s End area',
+    street: 'South St (south end), Rockport',
+    neighborhood: 'Cape Hedge / South Rockport',
     confidence: 'medium',
-    evidence: 'Cape Hedge Beach (aka Pebble Beach) is accessed from Penzance Rd off Land\'s End.',
+    evidence: 'Adjacent winter rentals on Apartments.com at 141 South St and 177 South St cite Cape Hedge Beach proximity; Cape Hedge House sits between them on the cliff overlooking Cape Hedge Beach. House # not yet pinned. VRBO #3483773.',
   },
 
   'atlantic-vacation-homes::painters-perch': {
