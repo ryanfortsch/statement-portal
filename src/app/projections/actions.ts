@@ -77,6 +77,7 @@ function buildPayload(formData: FormData) {
     start_month: num(formData, 'start_month'),
     apply_ramp: str(formData, 'apply_ramp') === 'on',
     presentation_month: str(formData, 'presentation_month'),
+    drive_time_minutes: numOrNull(formData, 'drive_time_minutes'),
 
     // Contract terms
     term_start: strOrNull(formData, 'term_start'),

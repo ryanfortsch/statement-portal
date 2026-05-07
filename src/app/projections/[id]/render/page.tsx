@@ -39,7 +39,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
-        <SlideLocal footer={footerLabel} />
+        <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
         <SlideYear2 computed={c} footer={footerLabel} />
@@ -407,7 +407,7 @@ function SlideServices({ footer }: { footer: string }) {
  * HQ ten minutes from every home. No real map illustration in v1; the
  * editorial "10 minutes" stat carries the slide.
  */
-function SlideLocal({ footer }: { footer: string }) {
+function SlideLocal({ projection, footer }: { projection: ProjectionRow; footer: string }) {
   const items: { title: string; body: string }[] = [
     {
       title: 'HQ in the heart of Cape Ann.',
@@ -448,10 +448,10 @@ function SlideLocal({ footer }: { footer: string }) {
           <div className="rt-local-right">
             <div className="rt-local-stat">
               <span className="rt-local-tilde" aria-hidden="true">~</span>
-              <span className="rt-local-num">10</span>
+              <span className="rt-local-num">{projection.drive_time_minutes ?? 10}</span>
               <span className="rt-local-unit">min.</span>
             </div>
-            <div className="rt-local-stat-cap">FROM EVERY HOME WE MANAGE</div>
+            <div className="rt-local-stat-cap">{projection.drive_time_minutes ? `FROM HQ TO ${projection.property_address.toUpperCase()}` : 'FROM EVERY HOME WE MANAGE'}</div>
             <div className="rt-local-rule" />
             <div className="rt-local-hq">
               <div className="rt-local-hq-label">RISING TIDE HQ</div>
