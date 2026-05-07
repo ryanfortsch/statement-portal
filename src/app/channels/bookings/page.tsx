@@ -166,7 +166,7 @@ function BookingsTable({ bookings }: { bookings: Booking[] }) {
             }}
           >
             <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{b.check_in}</span>
-            <span style={{ fontSize: 13 }}>{p?.name ?? b.property_id}</span>
+            <Link href={`/channels/${b.property_id}`} style={{ fontSize: 13, textDecoration: 'none', color: 'var(--ink)' }}>{p?.name ?? b.property_id}</Link>
             <span style={{ fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</span>
             <span style={{ fontSize: 13 }}>{b.guest_name ?? <em style={{ color: 'var(--ink-4)' }}>not in feed</em>}</span>
             <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right' }}>{b.nights ?? '—'}</span>

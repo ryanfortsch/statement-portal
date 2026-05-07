@@ -8,6 +8,8 @@ import {
   listChannelListings,
   listUpcomingBookings,
   listRecentSyncRuns,
+  findBookingConflicts,
+  type BookingConflict,
 } from '@/lib/channels';
 import { CHANNEL_LABELS } from '@/lib/channels-types';
 import { PROPERTIES } from '@/lib/properties';
@@ -31,6 +33,7 @@ export default async function ChannelsPage({
   const listings = await safeListings();
   const upcoming = await safeUpcoming();
   const recentRuns = await safeRuns();
+  const conflicts = await safeConflicts();
   const dbReady = stats.dbReady;
 
   return (
@@ -57,6 +60,7 @@ export default async function ChannelsPage({
           )}
           <StatsStrip stats={stats} />
           <ActionsBar listingsCount={listings.length} />
+          {conflicts.length > 0 && <ConflictsBlock conflicts={conflicts} />}
           <CoverageGrid listings={listings} />
           <UpcomingBlock bookings={upcoming} />
           <RecentRunsBlock runs={recentRuns} />
@@ -106,6 +110,14 @@ async function safeUpcoming() {
 async function safeRuns() {
   try {
     return await listRecentSyncRuns(8);
+  } catch {
+    return [];
+  }
+}
+
+async function safeConflicts() {
+  try {
+    return await findBookingConflicts(365);
   } catch {
     return [];
   }
@@ -297,8 +309,10 @@ function CoverageGrid({ listings }: { listings: Array<{ property_id: string; cha
               }}
             >
               <div>
-                <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)' }}>{p.name}</span>
-                <span style={{ fontSize: 11, color: 'var(--ink-3)', marginLeft: 10 }}>{p.owner_last}</span>
+                <Link href={`/channels/${id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)' }}>{p.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)', marginLeft: 10 }}>{p.owner_last}</span>
+                </Link>
               </div>
               {channelsToShow.map((c) => {
                 const cell = matrix.get(`${id}|${c}`);
@@ -362,13 +376,65 @@ function UpcomingBlock({ bookings }: { bookings: Array<{ id: string; property_id
               }}
             >
               <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{shortDate(b.check_in)}</span>
-              <span className="font-serif" style={{ fontSize: 17, fontWeight: 400 }}>{p?.name ?? b.property_id}</span>
+              <Link href={`/channels/${b.property_id}`} className="font-serif" style={{ fontSize: 17, fontWeight: 400, textDecoration: 'none', color: 'var(--ink)' }}>{p?.name ?? b.property_id}</Link>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{b.guest_name ?? `${CHANNEL_LABELS[b.channel as keyof typeof CHANNEL_LABELS] ?? b.channel} stay`}</span>
               <span style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textAlign: 'right' }}>{CHANNEL_LABELS[b.channel as keyof typeof CHANNEL_LABELS] ?? b.channel}</span>
             </div>
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function ConflictsBlock({ conflicts }: { conflicts: BookingConflict[] }) {
+  return (
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--negative)' }}>
+        Conflicts · {conflicts.length} overlap{conflicts.length === 1 ? '' : 's'}
+      </div>
+      <div style={{ borderTop: '2px solid var(--negative)', borderBottom: '1px solid var(--rule)' }}>
+        {conflicts.slice(0, 10).map((c, i) => {
+          const p = PROPERTIES[c.property_id];
+          return (
+            <div
+              key={`${c.a.id}-${c.b.id}`}
+              style={{
+                padding: '14px 0',
+                borderBottom: i === conflicts.length - 1 ? 'none' : '1px solid var(--rule)',
+                display: 'grid',
+                gridTemplateColumns: '160px 1fr',
+                gap: 16,
+                alignItems: 'baseline',
+              }}
+            >
+              <div>
+                <Link href={`/channels/${c.property_id}`} className="font-serif" style={{ fontSize: 17, fontWeight: 400, textDecoration: 'none', color: 'var(--ink)' }}>{p?.name ?? c.property_id}</Link>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                  {c.overlap_nights} night{c.overlap_nights === 1 ? '' : 's'} overlap
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--ink)' }}>
+                  <span style={{ fontWeight: 600 }}>{CHANNEL_LABELS[c.a.channel] ?? c.a.channel}</span>
+                  <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{c.a.check_in} → {c.a.check_out}</span>
+                  {c.a.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {c.a.guest_name}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 4 }}>
+                  <span style={{ fontWeight: 600 }}>{CHANNEL_LABELS[c.b.channel] ?? c.b.channel}</span>
+                  <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{c.b.check_in} → {c.b.check_out}</span>
+                  {c.b.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {c.b.guest_name}</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 12, lineHeight: 1.5, maxWidth: 720 }}>
+        These overlaps may be benign (a manual block over a confirmed stay, or a cancelled-but-still-imported row that
+        hasn&apos;t resyncted yet) — or they may be a real double-booking that needs cancellation on one side. Open the
+        property to inspect.
+      </p>
     </section>
   );
 }

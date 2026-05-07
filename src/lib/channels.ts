@@ -109,6 +109,62 @@ export async function listRecentSyncRuns(limit = 50): Promise<IcalSyncRun[]> {
   return (data ?? []) as IcalSyncRun[];
 }
 
+export type BookingConflict = {
+  property_id: string;
+  a: Booking;
+  b: Booking;
+  /** Number of nights both bookings cover. */
+  overlap_nights: number;
+};
+
+/**
+ * Find pairs of non-cancelled bookings on the same property whose date
+ * ranges overlap. The classic double-booking detector. Runs in-memory
+ * because there are at most a few hundred future bookings across the
+ * portfolio at any time — well under what would warrant a SQL query
+ * with self-join.
+ */
+export async function findBookingConflicts(daysAhead = 365): Promise<BookingConflict[]> {
+  if (!isConfigured) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  const end = new Date(Date.now() + daysAhead * 86400_000).toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .gte('check_out', today)
+    .lte('check_in', end)
+    .neq('status', 'cancelled')
+    .order('property_id')
+    .order('check_in');
+  if (error) return [];
+
+  const conflicts: BookingConflict[] = [];
+  const all = (data ?? []) as Booking[];
+  // Group by property
+  const byProperty = new Map<string, Booking[]>();
+  for (const b of all) {
+    (byProperty.get(b.property_id) ?? byProperty.set(b.property_id, []).get(b.property_id))!.push(b);
+  }
+
+  for (const [propertyId, list] of byProperty) {
+    // Already sorted by check_in; check each pair until non-overlap is guaranteed.
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        // Sorted by check_in, so once b.check_in >= a.check_out we can skip.
+        if (b.check_in >= a.check_out) break;
+        // a.check_in <= b.check_in < a.check_out — overlap
+        const overlapStart = a.check_in > b.check_in ? a.check_in : b.check_in;
+        const overlapEnd = a.check_out < b.check_out ? a.check_out : b.check_out;
+        const nights = Math.max(0, Math.round((Date.parse(`${overlapEnd}T00:00:00Z`) - Date.parse(`${overlapStart}T00:00:00Z`)) / 86400_000));
+        conflicts.push({ property_id: propertyId, a, b, overlap_nights: nights });
+      }
+    }
+  }
+  return conflicts;
+}
+
 export type ChannelStats = {
   totalListings: number;
   activeListings: number;
