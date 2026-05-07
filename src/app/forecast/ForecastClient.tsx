@@ -1574,7 +1574,15 @@ function ForecastTable({
         />
         <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
-        <SectionRow label="Expenses" tag="calibrated to Chase ...5130 actuals" />
+        <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
+
+        <SubsectionRow label="Recurring monthly" />
+        <DataRow
+          label="Operating CC"
+          info="Monthly Chase ...3878 credit-card payment. Median $5,900/mo over the trailing 12 months (range $3K-$16K). Covers software, supplies, marketing, and some property-level pass-through. Decomposing the CC statement would sharpen this further."
+          values={monthly.map((r) => r.exp_cc_ops)}
+          fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
+        />
         <DataRow
           label="Office"
           info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
@@ -1587,6 +1595,35 @@ function ForecastTable({
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />
+        <DataRow
+          label="Bank fees"
+          info="Stop payments, monthly service charges, returned-check fees. Trailing 12-mo actuals averaged ~$112/mo."
+          values={monthly.map((r) => r.exp_bank)}
+          fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
+        />
+
+        <SubsectionRow label="People & onboarding" />
+        <DataRow
+          label="New hire"
+          info="$5,000/mo from October 2026 forward (full year in 2027 = $60K). Replaces the Maggie Butler weekly Zelle and the bi-weekly Gusto runs that ran through Q3 2025."
+          values={monthly.map((r) => r.exp_hire)}
+          fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
+        />
+        <DataRow
+          label="Onboarding · presigned"
+          info="$3,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $15K total. Zero in 2027 — those properties are already onboarded."
+          values={monthly.map((r) => r.exp_onboard_presigned)}
+          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
+        />
+        <DataRow
+          label="Onboarding · new"
+          info="$3,000 one-time per new contract added via the slider, paid its start month."
+          values={monthly.map((r) => r.exp_onboard_new)}
+          fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
+          highlight
+        />
+
+        <SubsectionRow label="Periodic & wind-down" />
         <DataRow
           label="Bookkeeper"
           info="MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends."
@@ -1604,37 +1641,6 @@ function ForecastTable({
           info="MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward."
           values={monthly.map((r) => r.exp_accounting)}
           fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)}
-        />
-        <DataRow
-          label="Bank fees"
-          info="Stop payments, monthly service charges, returned-check fees. Trailing 12-mo actuals averaged ~$112/mo."
-          values={monthly.map((r) => r.exp_bank)}
-          fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
-        />
-        <DataRow
-          label="Operating CC"
-          info="Monthly Chase ...3878 credit-card payment. Median $5,900/mo over the trailing 12 months (range $3K-$16K). Covers software, supplies, marketing, and some property-level pass-through. Decomposing the CC statement would sharpen this further."
-          values={monthly.map((r) => r.exp_cc_ops)}
-          fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
-        />
-        <DataRow
-          label="New hire"
-          info="$5,000/mo from October 2026 forward. Replaces the Maggie Butler weekly Zelle and the bi-weekly Gusto runs that ran through Q3 2025."
-          values={monthly.map((r) => r.exp_hire)}
-          fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
-        />
-        <DataRow
-          label="Onboarding · presigned"
-          info="$3,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $15K total."
-          values={monthly.map((r) => r.exp_onboard_presigned)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
-        />
-        <DataRow
-          label="Onboarding · new"
-          info="$3,000 one-time per new contract added via the slider, paid its start month."
-          values={monthly.map((r) => r.exp_onboard_new)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
-          highlight
         />
         <SubtotalRow label="Total expenses" values={monthly.map((r) => r.exp_total)} fy={totals.exp_total} variant="expense" />
 
@@ -1689,6 +1695,32 @@ function Th({
         )}
       </div>
     </th>
+  );
+}
+
+/**
+ * Lightweight subsection header inside a section. Smaller, indented,
+ * smaller-caps. Used to group expense lines (recurring / people / lumpy).
+ */
+function SubsectionRow({ label }: { label: string }) {
+  return (
+    <tr>
+      <td
+        colSpan={14}
+        style={{
+          padding: '6px 12px 4px 22px',
+          fontSize: 9.5,
+          fontWeight: 500,
+          textTransform: 'uppercase',
+          letterSpacing: '.16em',
+          color: 'var(--ink-4)',
+          background: 'transparent',
+          borderTop: '1px dotted var(--rule)',
+        }}
+      >
+        {label}
+      </td>
+    </tr>
   );
 }
 
@@ -1791,24 +1823,14 @@ function DataRow({
 }
 
 /**
- * Small "ⓘ" icon next to a row label. Hover for the explanation via the
- * native title attribute — light-touch tooltip, no JS, no positioning math.
+ * Small "ⓘ" icon next to a row label. Hover reveals a styled popover.
+ * Pure CSS — no JS state, no positioning libraries.
  */
 function InfoIcon({ text }: { text: string }) {
   return (
-    <span
-      title={text}
-      aria-label={text}
-      style={{
-        marginLeft: 6,
-        fontSize: 11,
-        color: 'var(--ink-4)',
-        cursor: 'help',
-        userSelect: 'none',
-        verticalAlign: 'baseline',
-      }}
-    >
-      ⓘ
+    <span className="rt-info-icon" aria-label={text}>
+      <span className="rt-info-glyph">ⓘ</span>
+      <span className="rt-info-pop" role="tooltip">{text}</span>
     </span>
   );
 }

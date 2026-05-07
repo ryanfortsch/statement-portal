@@ -114,6 +114,59 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
+/* ─── Hover-info tooltip (used in /forecast Monthly Detail) ───────── */
+
+.rt-info-icon {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: baseline;
+}
+.rt-info-glyph {
+  font-size: 11px;
+  color: var(--ink-4);
+  cursor: help;
+  user-select: none;
+}
+.rt-info-glyph:hover { color: var(--signal); }
+.rt-info-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -8px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.45;
+  width: 280px;
+  border-radius: 2px;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity .15s ease, visibility .15s ease;
+  z-index: 100;
+  text-align: left;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.rt-info-pop::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+.rt-info-icon:hover .rt-info-pop,
+.rt-info-icon:focus-within .rt-info-pop {
+  visibility: visible;
+  opacity: 1;
+}
+
 /* ─── Responsive (mobile first pass) ────────────────────────────────── */
 
 /* Phones (≤640px): stack everything, let rules breathe, reduce container padding */
