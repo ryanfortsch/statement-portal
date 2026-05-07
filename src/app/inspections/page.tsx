@@ -34,7 +34,11 @@ async function getProperties(): Promise<PropertyOption[]> {
     .select('id, name, title, city')
     .eq('is_active', true)
     .order('name');
-  return (data ?? []) as PropertyOption[];
+  // Natural-sort by street number so the dropdown reads
+  // "3 Locust, 3 South, 4 Brier Neck, 17 Beach, 20 Enon, 20 Hammond, 21 Horton…"
+  // instead of the lexical "17, 20, 20, 21, 3, 3, 30…" Postgres returns.
+  const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+  return ((data ?? []) as PropertyOption[]).sort((a, b) => collator.compare(a.name, b.name));
 }
 
 async function getRecentInspections(): Promise<RecentInspection[]> {
