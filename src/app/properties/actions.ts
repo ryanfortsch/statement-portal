@@ -155,3 +155,80 @@ export async function markOwnerContacted(args: {
   revalidatePath(`/properties/${args.property_id}`);
   return { ok: true, at };
 }
+
+/**
+ * Bespoke per-property notices — 4 × 6 Stay Cape Ann placards for
+ * property-specific quirks. Persisted in `public.property_notices`. The
+ * three actions below cover the full lifecycle (create / update /
+ * delete); the renderer that prints each notice lives at
+ * `/properties/<id>/notice/<noticeId>` and is auth-public so puppeteer
+ * can hit it.
+ */
+function noticePayload(formData: FormData): { eyebrow: string | null; title: string; body: string } | null {
+  const eyebrow = strOrNull(formData, 'eyebrow');
+  const title = String(formData.get('title') ?? '').trim();
+  const body = String(formData.get('body') ?? '').trim();
+  if (!title || !body) return null;
+  return { eyebrow, title, body };
+}
+
+/** Create a new bespoke notice for a property. Redirects back to the property page. */
+export async function createPropertyNotice(propertyId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const payload = noticePayload(formData);
+  if (!payload) throw new Error('Title and body are required.');
+
+  const { error } = await supabase
+    .from('property_notices')
+    .insert({ property_id: propertyId, ...payload });
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+/**
+ * Update an existing notice in place. Bumps updated_at so the renderer
+ * knows it's been changed (useful later for showing a "last reprinted"
+ * hint). Redirects back to the property page.
+ */
+export async function updatePropertyNotice(propertyId: string, noticeId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const payload = noticePayload(formData);
+  if (!payload) throw new Error('Title and body are required.');
+
+  const { error } = await supabase
+    .from('property_notices')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', noticeId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+/**
+ * Hard-delete a notice. Cascade isn't strictly needed here (notices have
+ * no children), but we re-validate the property page so the tile vanishes
+ * immediately. Redirects back to the property page.
+ */
+export async function deletePropertyNotice(propertyId: string, noticeId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('property_notices')
+    .delete()
+    .eq('id', noticeId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
