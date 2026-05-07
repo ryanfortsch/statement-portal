@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { getCompetitor, summarizeCompetitor, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
+import { getCompetitor, summarizeCompetitor, computeAddressCoverage, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
 import { CompetitorInventory } from '@/components/competitors/CompetitorInventory';
 
 export const dynamic = 'force-static';
@@ -20,6 +20,10 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
   if (!competitor) notFound();
 
   const summary = summarizeCompetitor(competitor.meta, competitor.listings);
+  const coverage = computeAddressCoverage(competitor.listings);
+  const matchedPct = coverage.total > 0
+    ? Math.round(((coverage.high + coverage.medium + coverage.low) / coverage.total) * 100)
+    : 0;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -49,7 +53,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
       />
 
       {/* HEADLINE STATS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
@@ -68,6 +72,37 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
             sub={`${summary.petFriendlyCount} of ${summary.totalListings}`}
             last
           />
+        </div>
+      </section>
+
+      {/* ADDRESS COVERAGE */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Address research</div>
+        <div
+          style={{
+            border: '1px solid var(--rule)',
+            padding: '20px 22px',
+            display: 'grid',
+            gridTemplateColumns: '160px 1fr 220px',
+            gap: 28,
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div className="font-serif tabular-nums" style={{ fontSize: 36, color: 'var(--ink)' }}>
+              {matchedPct}%
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>matched to a place</div>
+          </div>
+
+          <CoverageBar coverage={coverage} />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--ink-3)' }}>
+            <span><b style={{ color: 'var(--positive)' }}>{coverage.high}</b> verified address</span>
+            <span><b style={{ color: 'var(--ink)' }}>{coverage.medium}</b> street known</span>
+            <span><b style={{ color: 'var(--ink-3)' }}>{coverage.low}</b> neighborhood guess</span>
+            <span><b style={{ color: 'var(--ink-4)' }}>{coverage.unknown}</b> not yet researched</span>
+          </div>
         </div>
       </section>
 
@@ -193,6 +228,25 @@ function Breakdown({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function CoverageBar({ coverage }: { coverage: { total: number; high: number; medium: number; low: number; unknown: number } }) {
+  const pct = (n: number) => (coverage.total > 0 ? (n / coverage.total) * 100 : 0);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        height: 12,
+        background: 'var(--paper-2)',
+        border: '1px solid var(--rule)',
+        overflow: 'hidden',
+      }}
+    >
+      <span style={{ width: `${pct(coverage.high)}%`,    background: 'var(--positive)' }} title={`${coverage.high} verified`} />
+      <span style={{ width: `${pct(coverage.medium)}%`,  background: 'var(--ink)' }}      title={`${coverage.medium} street`} />
+      <span style={{ width: `${pct(coverage.low)}%`,     background: 'var(--ink-3)', opacity: 0.55 }} title={`${coverage.low} neighborhood`} />
     </div>
   );
 }

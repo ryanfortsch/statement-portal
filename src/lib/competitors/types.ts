@@ -31,6 +31,32 @@ export type CompetitorListing = {
   petFriendly: boolean;
   /** Absolute URL on the competitor's site — clickable from Helm. */
   url: string;
+  /** Best-guess physical address. Filled in by manual research — vacation
+   *  rental sites deliberately obscure addresses, so this builds up over
+   *  time with confidence bands. Undefined = not yet researched. */
+  address?: AddressMatch;
+};
+
+/**
+ * The address research result for a single listing. We track confidence
+ * because vacation rental managers hide exact addresses by design — most
+ * matches will be neighborhood-level, some street-level, a few full-address.
+ */
+export type AddressMatch = {
+  /** Street name when we know it, even if not the number. e.g. "Niles Beach Avenue". */
+  street?: string;
+  /** Neighborhood / village / landmark cluster. e.g. "Annisquam", "East Gloucester · Niles Beach". */
+  neighborhood?: string;
+  /** Best guess at full address when we have one. e.g. "21 Granite Pier Rd, Rockport". */
+  addressGuess?: string;
+  /** How much we trust this match.
+   *  - high   : verified against assessor records / news / a tax-record fingerprint that uniquely identifies the property
+   *  - medium : street confirmed, number narrowed to ~3 candidates from photo or fingerprints
+   *  - low    : neighborhood/street guessed from property name; not verified
+   *  - unknown: not yet researched */
+  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  /** One-line note on how we got here, for review. e.g. "AVH page says 'across from Niles Beach' + East Gloucester town record". */
+  evidence?: string;
 };
 
 export type CompetitorMeta = {
