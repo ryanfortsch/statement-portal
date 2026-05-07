@@ -37,9 +37,11 @@ type DashboardStats = {
   ownerActionSlips: number | null;
   activeTasks: number | null;
   inspectionsThisWeek: number | null;
-  // Reviews (rolling 7-day window from the reviews table)
-  reviewsLast7: number;
-  reviewsLast7FiveStar: number;
+  // Reviews (rolling 30-day window from the reviews table). Trailing 30
+  // days is more stable than a calendar week and matches how Dotti
+  // thinks about review trend.
+  reviews30dTotal: number;
+  reviews30dFiveStar: number;
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
@@ -48,15 +50,15 @@ async function getDashboardStats(): Promise<DashboardStats> {
     getHelmStats(),
     getOperationalStats(),
     getProjectedCurrentMonthPayout(),
-    getReviewWindowStats(7),
+    getReviewWindowStats(30),
   ]);
   return {
     ...propertyStats,
     ...helmStats,
     ...opsStats,
     projectedCurrentMonthPayout: projected,
-    reviewsLast7: reviews.total,
-    reviewsLast7FiveStar: reviews.fiveStar,
+    reviews30dTotal: reviews.total,
+    reviews30dFiveStar: reviews.fiveStar,
   };
 }
 
@@ -355,18 +357,23 @@ export default async function HelmHome() {
           />
           <Stat
             label="Five-Star Reviews"
-            value={stats.reviewsLast7 > 0 ? `${stats.reviewsLast7FiveStar}/${stats.reviewsLast7}` : '—'}
+            value={
+              stats.reviews30dTotal > 0
+                ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
+                : '—'
+            }
             sub={
-              stats.reviewsLast7 === 0
-                ? 'no reviews this week'
-                : stats.reviewsLast7FiveStar === stats.reviewsLast7
-                  ? 'clean 5★ run'
-                  : `${stats.reviewsLast7 - stats.reviewsLast7FiveStar} below five`
+              stats.reviews30dTotal === 0
+                ? 'no reviews in last 30 days'
+                : stats.reviews30dFiveStar === stats.reviews30dTotal
+                  ? 'clean 5★ run · last 30 days'
+                  : `${stats.reviews30dTotal - stats.reviews30dFiveStar} below five · last 30 days`
             }
             href="/reviews"
             size="hero"
             accent={
-              stats.reviewsLast7 > 0 && stats.reviewsLast7FiveStar === stats.reviewsLast7
+              stats.reviews30dTotal > 0 &&
+              stats.reviews30dFiveStar === stats.reviews30dTotal
             }
           />
           <Stat
