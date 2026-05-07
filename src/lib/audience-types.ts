@@ -136,9 +136,45 @@ export function isProxyEmail(email: string): boolean {
   return PROXY_EMAIL_DOMAINS.some((d) => lower.endsWith('@' + d));
 }
 
+/**
+ * Title-case a name fragment, preserving common connectors lowercase
+ * ("Mary van der Berg" → "Mary van der Berg") and respecting an existing
+ * mixed-case typing ("McWethy", "O'Brien") so we don't normalize the
+ * intentional capitals away.
+ */
+function titleCaseName(s: string): string {
+  if (!s) return s;
+  // If the string already has any uppercase letter mid-word, treat it as
+  // intentionally cased and leave it alone (preserves McWethy, O'Brien).
+  if (/[a-z][A-Z]/.test(s)) return s;
+  const connectors = new Set(['van', 'von', 'de', 'del', 'della', 'di', 'da', 'la', 'le', 'el']);
+  return s
+    .toLowerCase()
+    .split(/(\s+|-)/)
+    .map((part, i) => {
+      if (/^\s+$/.test(part) || part === '-') return part;
+      if (i > 0 && connectors.has(part)) return part;
+      return part.replace(/(^|[\p{L}'’]?)(\p{L})/u, (_, pre: string, ch: string) =>
+        pre + ch.toUpperCase()
+      );
+    })
+    .join('');
+}
+
 export function displayName(c: Pick<AudienceContact, 'first_name' | 'last_name' | 'email'>): string {
-  const first = (c.first_name || '').trim();
-  const last = (c.last_name || '').trim();
+  const first = titleCaseName((c.first_name || '').trim());
+  const last = titleCaseName((c.last_name || '').trim());
   const full = [first, last].filter(Boolean).join(' ');
   return full || c.email;
+}
+
+/**
+ * Pretty-print a tag for chip / filter display. Snake-case programmer
+ * tags ("proxy_email") become title-cased phrases ("Proxy Email").
+ * Place names (Gloucester, Black Rock) round-trip cleanly.
+ */
+export function formatTagLabel(tag: string): string {
+  return tag
+    .replace(/_/g, ' ')
+    .replace(/(^|\s)(\p{L})/gu, (_, pre: string, ch: string) => pre + ch.toUpperCase());
 }

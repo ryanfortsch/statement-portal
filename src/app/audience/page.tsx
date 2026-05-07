@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { getAudienceStats, listContacts, listSegments, listCampaigns } from '@/lib/audience';
-import { displayName, type AudienceContact, type AudienceStatus } from '@/lib/audience-types';
+import { displayName, formatTagLabel, type AudienceContact, type AudienceStatus } from '@/lib/audience-types';
 import { manuallyAddContact } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -181,7 +181,7 @@ export default async function AudiencePage({
                     borderRadius: 0,
                   }}
                 >
-                  {t.tag} · {t.count}
+                  {formatTagLabel(t.tag)} · {t.count}
                 </Link>
               );
             })}
@@ -332,7 +332,7 @@ function ContactRow({ contact, number }: { contact: AudienceContact; number: str
                 whiteSpace: 'nowrap',
               }}
             >
-              {t}
+              {formatTagLabel(t)}
             </span>
           ))}
           {contact.tags.length > 4 && (
