@@ -11,6 +11,12 @@ export type ProjectionRow = {
   created_by_email: string;
   created_by_name: string;
 
+  // Structured owners. The form now collects one card per person (Add Owner
+  // for couples). On save the legacy scalar fields below are re-derived from
+  // owners[0] / owners[*] so render code that reads them keeps working.
+  owners: Owner[] | null;
+
+  // Legacy scalar fields — derived from owners on save. Keep populated.
   prospect_name: string;
   prospect_first_name: string | null;
   prospect_first_names: string | null;     // "Bethany and John" (guide salutation)
@@ -100,6 +106,74 @@ export type CustomClause = {
   title: string;
   body: string;
 };
+
+/**
+ * One owner on a prospect record. The form starts with a single card and the
+ * user clicks "Add owner" to stamp additional cards for couples / families.
+ *
+ * full_legal is optional — defaults to "first_name last_name" when blank.
+ * email is the Gmail-sync key; phone is for contact records.
+ */
+export type Owner = {
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  full_legal: string | null;
+};
+
+/**
+ * Re-derive the legacy scalar fields from a structured owners array, so the
+ * render code (deck, guide, contract) that reads prospect_name etc. keeps
+ * working without changes. Called from buildPayload on every form save.
+ */
+export function deriveLegacyFromOwners(owners: Owner[]): {
+  prospect_name: string;
+  prospect_first_name: string | null;
+  prospect_first_names: string | null;
+  prospect_full_legal: string | null;
+  prospect_phone: string | null;
+  prospect_email: string | null;
+} {
+  const filled = owners.filter((o) => o.first_name || o.last_name);
+  if (filled.length === 0) {
+    return {
+      prospect_name: '',
+      prospect_first_name: null,
+      prospect_first_names: null,
+      prospect_full_legal: null,
+      prospect_phone: null,
+      prospect_email: null,
+    };
+  }
+
+  const fullName = (o: Owner) => `${o.first_name} ${o.last_name}`.trim();
+
+  return {
+    // "Bethany Giblin, John Gavin"
+    prospect_name: filled.map(fullName).filter(Boolean).join(', '),
+
+    // First card's first name — used in the projection-deck hero
+    // ("...PAYOUTS TO BETHANY") and as a generic salutation fallback.
+    prospect_first_name: filled[0].first_name || null,
+
+    // Joined-by-and salutation for the partnership guide
+    // ("Dear Bethany and John,"). Single owner gets just the first name.
+    prospect_first_names:
+      filled.length > 1
+        ? filled.map((o) => o.first_name).filter(Boolean).join(' and ')
+        : filled[0].first_name || null,
+
+    // Contract signature line — first owner. Use full_legal override if set,
+    // else first + last.
+    prospect_full_legal: filled[0].full_legal?.trim() || fullName(filled[0]) || null,
+
+    // Phone + email default to the first owner's. Gmail sync separately
+    // looks at every owner's email.
+    prospect_phone: filled[0].phone || null,
+    prospect_email: filled[0].email || null,
+  };
+}
 
 /**
  * Schema for the JSON blob stored in projections.onboarding_data.

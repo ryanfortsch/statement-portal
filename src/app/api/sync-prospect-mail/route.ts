@@ -4,6 +4,7 @@ import type {
   GmailTouches,
   GmailTouchType,
   GmailTouchEntry,
+  Owner,
 } from '@/lib/projections-types';
 
 /**
@@ -143,6 +144,29 @@ async function searchAndClassify(
   return touches;
 }
 
+/** Collect every email from a prospect record (legacy scalar + every owner). */
+function collectEmails(p: { prospect_email: string | null; owners: Owner[] | null }): string[] {
+  const set = new Set<string>();
+  if (p.prospect_email) set.add(p.prospect_email.trim().toLowerCase());
+  for (const o of p.owners || []) {
+    if (o.email) set.add(o.email.trim().toLowerCase());
+  }
+  return Array.from(set).filter(Boolean);
+}
+
+/** Merge two GmailTouches maps, keeping the latest send per type. */
+function mergeTouches(a: GmailTouches, b: GmailTouches): GmailTouches {
+  const out: GmailTouches = { ...a };
+  for (const k of Object.keys(b) as GmailTouchType[]) {
+    const existing = out[k];
+    const incoming = b[k]!;
+    if (!existing || new Date(incoming.sent_at) > new Date(existing.sent_at)) {
+      out[k] = incoming;
+    }
+  }
+  return out;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -151,24 +175,34 @@ export async function POST(request: NextRequest) {
     const sb = getSupabase();
     let query = sb
       .from('projections')
-      .select('id, prospect_email, gmail_synced_at')
-      .not('prospect_email', 'is', null);
+      .select('id, prospect_email, owners, gmail_synced_at');
     if (onlyId) query = query.eq('id', onlyId);
 
-    const { data: prospects, error: pErr } = await query;
+    const { data: rawProspects, error: pErr } = await query;
     if (pErr) throw new Error(pErr.message);
-    if (!prospects || prospects.length === 0) {
+    const prospects = (rawProspects ?? []).filter((p) => {
+      const emails = collectEmails(p as { prospect_email: string | null; owners: Owner[] | null });
+      return emails.length > 0;
+    });
+    if (prospects.length === 0) {
       return NextResponse.json({ success: true, scanned: 0, results: [] });
     }
 
     const accessToken = await getAccessToken();
     const now = new Date().toISOString();
 
-    const results: { id: string; email: string; touches: GmailTouches; error?: string }[] = [];
+    const results: { id: string; emails: string[]; touches: GmailTouches; error?: string }[] = [];
 
     for (const p of prospects) {
+      const emails = collectEmails(p as { prospect_email: string | null; owners: Owner[] | null });
       try {
-        const touches = await searchAndClassify(accessToken, (p as { prospect_email: string }).prospect_email);
+        // Search per email and merge — Gmail's q-language doesn't OR easily on
+        // `to:` so we run one query per recipient and combine the results.
+        let touches: GmailTouches = {};
+        for (const email of emails) {
+          const t = await searchAndClassify(accessToken, email);
+          touches = mergeTouches(touches, t);
+        }
         await sb
           .from('projections')
           .update({
@@ -176,11 +210,11 @@ export async function POST(request: NextRequest) {
             gmail_synced_at: now,
           })
           .eq('id', (p as { id: string }).id);
-        results.push({ id: (p as { id: string }).id, email: (p as { prospect_email: string }).prospect_email, touches });
+        results.push({ id: (p as { id: string }).id, emails, touches });
       } catch (err) {
         results.push({
           id: (p as { id: string }).id,
-          email: (p as { prospect_email: string }).prospect_email,
+          emails,
           touches: {},
           error: err instanceof Error ? err.message : String(err),
         });
