@@ -102,7 +102,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="revenue" rightContent={<TimeRangePicker value={preset} />} />
+      <HelmMasthead current="revenue" />
 
       <HelmHero
         eyebrow="Helm · Revenue"
@@ -110,7 +110,18 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         emphasis="at a glance."
         paddingTop={48}
         belowDescription={
-          <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</p>
+          <div
+            className="flex items-baseline"
+            style={{
+              marginTop: 22,
+              gap: 20,
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+            }}
+          >
+            <TimeRangePicker value={preset} />
+            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
+          </div>
         }
       />
 
