@@ -51,6 +51,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'Bass Rocks, East Gloucester',
     confidence: 'high',
     evidence: 'Verani MLS #73208421 + Homes.com both name the property "Cranberry Hill" at 33 Way Rd. Matches 22-acre lot, 1924 build, Ezra Phillips architect.',
+    owner: 'Mishra, Sanjay Braj & Shukla, Lata',
+    ownerNote: 'Gloucester VGSI pid 4384. Last sold $3.5M; current owners Mishra/Shukla.',
   },
 
   'shoreway-management::salem-1824-robert-manning': {
@@ -216,6 +218,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'Annisquam (Mill Pond)',
     confidence: 'high',
     evidence: 'Rentable.co / ApartmentList "Winter Rental: Mill Pond Cottage" at 379 Washington St (3BR matches AVH unit-289).',
+    owner: 'Lui-Kwan, Nancy Ann Montgomery TR',
+    ownerNote: 'Gloucester VGSI pid 5755. Held in trust.',
   },
 
   'atlantic-vacation-homes::thorwald-by-the-sea': {
@@ -224,6 +228,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'East Gloucester (Atlantic Rd cliff)',
     confidence: 'high',
     evidence: 'Rentable.co "Winter Rental at the Thorwald Condos" at 19 Atlantic Rd (2BR/1.5BA matches AVH unit-68).',
+    owner: 'Hutchins, Bette M',
+    ownerNote: 'Gloucester VGSI pid 4166.',
   },
 
   'atlantic-vacation-homes::garden-by-the-sea': {
@@ -232,6 +238,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'East Gloucester (Atlantic Rd cliff)',
     confidence: 'high',
     evidence: 'Apartments.com URL "24-atlantic-rd-gloucester-ma-unit-garden-by-the-sea" (2BR matches AVH unit-24, walk to Good Harbor).',
+    owner: 'DiCicco, Robert A & Madeleine P',
+    ownerNote: 'Gloucester VGSI pid 4126.',
   },
 
   'atlantic-vacation-homes::harbortown-hideaway': {
@@ -240,6 +248,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'downtown Gloucester',
     confidence: 'high',
     evidence: 'Trulia "Winter rental: Harbortown Hideaway" at 13 Middle St (matches AVH unit-121).',
+    owner: 'Mobilia, Robert & Lisa Ziino',
+    ownerNote: 'Gloucester VGSI pid 100021.',
   },
 
   'atlantic-vacation-homes::mill-brook-house': {
@@ -506,6 +516,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'East Gloucester (Bass Rocks side)',
     confidence: 'high',
     evidence: 'Apartments.com "Bell View - Entire Home" at 57 Grapevine Rd; Grapevine Rd runs to Bass Rocks, fits the PickleTrip "stone\'s throw from Bass Rocks, Rocky Neck on the way in" description.',
+    owner: 'Sorenson, Mark A & Rebecca B',
+    ownerNote: 'Gloucester VGSI pid 4456.',
   },
 
   'shoreway-management::marblehead-nautical-home': {
