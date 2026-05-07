@@ -49,6 +49,14 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     evidence: 'Verani MLS #73208421 + Homes.com both name the property "Cranberry Hill" at 33 Way Rd. Matches 22-acre lot, 1924 build, Ezra Phillips architect.',
   },
 
+  'shoreway-management::salem-1824-robert-manning': {
+    addressGuess: '33 Dearborn St, Salem, MA 01970',
+    street: 'Dearborn St',
+    neighborhood: 'North Salem',
+    confidence: 'high',
+    evidence: 'Library of Congress HABS MA-187 documents "Robert Manning Place, 33 Dearborn Street, Salem." Salem Public Library wiki: Manning (Hawthorne\'s uncle) built #33 in 1824 for his bride.',
+  },
+
   // ────────────────────────────────────────────────────────────────────
   // ATLANTIC VACATION HOMES — Wave 1: name + Cape Ann geography
   // ────────────────────────────────────────────────────────────────────
@@ -317,15 +325,31 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   },
 
   'shoreway-management::gloucester-seaside-village': {
-    neighborhood: 'Lanesville, Gloucester (Plum Cove)',
+    neighborhood: 'Lanesville, Gloucester (Plum Cove Beach)',
+    street: 'Washington St / Langsford St / Andrews St area',
     confidence: 'medium',
-    evidence: 'Listing: "Plum Cove Beach + Rockport" — Plum Cove is in Lanesville at the north tip of Cape Ann.',
+    evidence: 'Listing + VRBO #4332217ha: Plum Cove Beach steps away, <2 mi to Halibut Point. Lanesville core streets.',
   },
 
   'shoreway-management::gloucester-seaside-plum-cove': {
     neighborhood: 'Lanesville, Gloucester (Plum Cove)',
+    street: 'Washington St / Langsford St / Andrews St area',
     confidence: 'medium',
-    evidence: 'Same Plum Cove fingerprint — Lanesville village.',
+    evidence: 'Same Plum Cove / Lanesville fingerprint as the sister "Seaside Village" listing.',
+  },
+
+  'shoreway-management::gloucester-antique-cottage': {
+    neighborhood: 'Annisquam village, Gloucester',
+    street: 'Wigwam Rd / Leonard St / Norwood Heights area',
+    confidence: 'medium',
+    evidence: 'Booking.com / Expedia cross-listings explicitly say "located in peaceful Annisquam"; "Lighthouse Beach" = Wigwam Beach by Annisquam Light.',
+  },
+
+  'shoreway-management::gloucester-bell-view-pickleball': {
+    neighborhood: 'Bass Rocks / Back Shore, East Gloucester',
+    street: 'Way Rd / Atlantic Rd corridor',
+    confidence: 'medium',
+    evidence: 'PickleTrip cross-listing: "stone\'s throw from Bass Rocks," "Rocky Neck art colony on the way in," long private driveway. Way Rd is the only quiet street fitting that geometry — likely a Cranberry Hill neighbor.',
   },
 
   'shoreway-management::marblehead-nautical-home': {
@@ -335,9 +359,9 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
   },
 
   'shoreway-management::marblehead-1742-studio': {
-    neighborhood: 'Old Town Marblehead',
-    confidence: 'low',
-    evidence: '1742 build year + Marblehead → Old Town historic district.',
+    neighborhood: 'Old Town Marblehead (Captain Ben Andrews House)',
+    confidence: 'medium',
+    evidence: 'Listing identifies the building as "Captain Ben Andrews\'s home, 1742." Old Town Marblehead historic district. Specific street number not yet in MACRIS.',
   },
 
   'shoreway-management::essex-the-little-house': {
