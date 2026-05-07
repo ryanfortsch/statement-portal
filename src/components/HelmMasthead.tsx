@@ -27,25 +27,27 @@ export function HelmMasthead({ current, rightContent }: Props) {
         >
           <div className="flex items-center gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <Link href="/" style={{ display: 'inline-flex' }} aria-label="Helm home">
+            <Link
+              href="/"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}
+              aria-label="Helm home"
+            >
               <img
                 src="/rising-tide-logo.png"
                 alt="Rising Tide"
-                style={{ width: 28, height: 28 }}
+                style={{ width: 36, height: 36, display: 'block' }}
               />
-            </Link>
-            <Link
-              href="/"
-              className="font-serif"
-              style={{
-                fontSize: 20,
-                fontWeight: 500,
-                letterSpacing: '-0.01em',
-                color: 'var(--ink)',
-                textDecoration: 'none',
-              }}
-            >
-              Helm
+              <span
+                className="font-serif"
+                style={{
+                  fontSize: 22,
+                  fontWeight: 500,
+                  letterSpacing: '-0.01em',
+                  color: 'var(--ink)',
+                }}
+              >
+                Helm
+              </span>
             </Link>
             <span
               style={{ width: 1, height: 14, background: 'var(--rule)' }}
