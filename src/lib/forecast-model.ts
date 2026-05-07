@@ -478,7 +478,7 @@ export function calcYear(
       if (m >= start) rev_new += NEW_PROPERTY_FEE * SEASON[NEW_PROPERTY_TYPE][i];
     }
 
-    const rev_total = Math.round(rev_current + rev_presigned + rev_new);
+    const rev_total = rev_current + rev_presigned + rev_new;
 
     // Count contracts whose start month equals this month → multiply by
     // the per-contract onboarding cost. This handles the case where two
@@ -512,9 +512,9 @@ export function calcYear(
 
     monthly.push({
       month: m,
-      rev_current: Math.round(rev_current),
-      rev_presigned: Math.round(rev_presigned),
-      rev_new: Math.round(rev_new),
+      rev_current,
+      rev_presigned,
+      rev_new,
       rev_total,
       exp_office,
       exp_software,
@@ -555,24 +555,30 @@ export function calcYear(
   };
 }
 
+const FMT_OPTS: Intl.NumberFormatOptions = {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+};
+
 /**
- * Format an integer as `$1,234` or `($1,234)` for negatives. Use for display
- * cells where a dollar sign is desired.
+ * Format as `$1,234.56` or `($1,234.56)` for negatives. Always preserves
+ * cents — financial documents shouldn't round.
  */
 export function fmtDollar(n: number): string {
-  const rounded = Math.round(n);
-  const abs = Math.abs(rounded).toLocaleString();
-  return rounded < 0 ? `($${abs})` : `$${abs}`;
+  const abs = Math.abs(n).toLocaleString('en-US', FMT_OPTS);
+  return n < 0 ? `($${abs})` : `$${abs}`;
 }
 
-/** Format an integer with thousands separators, no dollar sign. */
+/**
+ * Format with thousands separators and cents, no dollar sign. Negatives
+ * use parentheses. Used in the Monthly Detail table cells.
+ */
 export function fmtNum(n: number): string {
-  const rounded = Math.round(n);
-  const abs = Math.abs(rounded).toLocaleString();
-  return rounded < 0 ? `(${abs})` : abs;
+  const abs = Math.abs(n).toLocaleString('en-US', FMT_OPTS);
+  return n < 0 ? `(${abs})` : abs;
 }
 
-/** Format as `$1.2K` for compact bar labels. */
+/** Format as `$1.2K` for compact display. */
 export function fmtCompact(n: number): string {
   const k = Math.round(n / 100) / 10;
   const sign = n >= 0 ? '+' : '-';

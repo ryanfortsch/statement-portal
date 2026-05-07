@@ -218,10 +218,13 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
 }
 
 function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
+  // All values shown with cents — no rounding in financials.
   const fmtUsd = (n: number) =>
-    n === 0 ? '—' : `$${Math.round(n).toLocaleString()}`;
-  const fmtUsdCents = (n: number) =>
-    n === 0 ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    n === 0
+      ? '—'
+      : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Same as fmtUsd; alias kept for the FY/portfolio total cells.
+  const fmtUsdCents = fmtUsd;
 
   if (!data) {
     return (
@@ -309,7 +312,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
                   fontSize: 10,
                 })}
               >
-                {mi.pacingPct.toFixed(0)}% / {mi.historicalAvgPct.toFixed(0)}%
+                {mi.pacingPct.toFixed(1)}% / {mi.historicalAvgPct.toFixed(1)}%
               </td>
             ))}
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
@@ -923,8 +926,9 @@ function KpiStrip({
   );
 }
 
+/** Precise USD with cents for inline KPI sub-text. */
 function fmtCompactSimple(n: number): string {
-  return `$${Math.round(n / 1000)}K`;
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function KpiCell({
