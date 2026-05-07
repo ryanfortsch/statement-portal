@@ -4,13 +4,16 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, listCompetitors, summarizeCompetitor } from '@/lib/competitors';
 
-export const dynamic = 'force-static';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export default function CompetitorsIndex() {
-  const competitors = listCompetitors().map((meta) => {
-    const c = getCompetitor(meta.id)!;
-    return summarizeCompetitor(c.meta, c.listings);
-  });
+export default async function CompetitorsIndex() {
+  const competitors = await Promise.all(
+    listCompetitors().map(async (meta) => {
+      const c = (await getCompetitor(meta.id))!;
+      return summarizeCompetitor(c.meta, c.listings);
+    }),
+  );
 
   const totalListings = competitors.reduce((s, c) => s + c.totalListings, 0);
   const totalSleeps = competitors.reduce((s, c) => s + c.totalSleeps, 0);

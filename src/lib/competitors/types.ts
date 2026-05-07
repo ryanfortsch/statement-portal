@@ -57,6 +57,20 @@ export type AddressMatch = {
   confidence: 'high' | 'medium' | 'low' | 'unknown';
   /** One-line note on how we got here, for review. e.g. "AVH page says 'across from Niles Beach' + East Gloucester town record". */
   evidence?: string;
+  /** Property owner of record per the town assessor (Vision Government
+   *  Solutions). Often an LLC for vacation rentals. */
+  owner?: string;
+  /** One-line note about how we got the owner, e.g. assessor portal URL,
+   *  or a Secretary of State LLC lookup that links the LLC to a person. */
+  ownerNote?: string;
+  /** True when this match came from a user-entered override
+   *  (competitor_listing_overrides table) rather than the static research
+   *  overlay. Renders a slightly different "verified by you" chip. */
+  userVerified?: boolean;
+  /** Email of the team member who verified this, surfaced in a tooltip. */
+  verifiedByEmail?: string;
+  /** ISO timestamp the user verification happened, for the tooltip. */
+  verifiedAt?: string;
 };
 
 export type CompetitorMeta = {

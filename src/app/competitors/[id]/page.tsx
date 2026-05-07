@@ -6,17 +6,12 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, summarizeCompetitor, computeAddressCoverage, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
 import { CompetitorInventory } from '@/components/competitors/CompetitorInventory';
 
-export const dynamic = 'force-static';
-
-const KNOWN_IDS: CompetitorId[] = ['atlantic-vacation-homes', 'shoreway-management'];
-
-export function generateStaticParams() {
-  return KNOWN_IDS.map((id) => ({ id }));
-}
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function CompetitorDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const competitor = getCompetitor(id as CompetitorId);
+  const competitor = await getCompetitor(id as CompetitorId);
   if (!competitor) notFound();
 
   const summary = summarizeCompetitor(competitor.meta, competitor.listings);
@@ -102,6 +97,11 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
             <span><b style={{ color: 'var(--ink)' }}>{coverage.medium}</b> street known</span>
             <span><b style={{ color: 'var(--ink-3)' }}>{coverage.low}</b> neighborhood guess</span>
             <span><b style={{ color: 'var(--ink-4)' }}>{coverage.unknown}</b> not yet researched</span>
+            {coverage.withOwner > 0 && (
+              <span style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--rule)' }}>
+                <b style={{ color: 'var(--tide-deep)' }}>{coverage.withOwner}</b> owners identified
+              </span>
+            )}
           </div>
         </div>
       </section>
@@ -140,6 +140,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
         <CompetitorInventory
           listings={competitor.listings}
           cities={summary.cityBreakdown.map((c) => c.city)}
+          competitorId={competitor.meta.id}
         />
       </section>
 
