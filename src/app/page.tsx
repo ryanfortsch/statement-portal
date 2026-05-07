@@ -36,7 +36,12 @@ type DashboardStats = {
   highPrioritySlips: number | null;
   ownerActionSlips: number | null;
   activeTasks: number | null;
+  /** Planned (next 7) + Completed (past 7) inspections, summed for the
+   *  home tile so a walked inspection without a prior plan row still
+   *  counts. null when Supabase isn't configured. */
   inspectionsThisWeek: number | null;
+  inspectionsPlanned: number | null;
+  inspectionsCompleted: number | null;
   // Reviews (rolling 30-day window from the reviews table). Trailing 30
   // days is more stable than a calendar week and matches how Dotti
   // thinks about review trend.
@@ -90,11 +95,14 @@ async function getOperationalStats() {
       ownerActionSlips: null,
       activeTasks: null,
       inspectionsThisWeek: null,
+      inspectionsPlanned: null,
+      inspectionsCompleted: null,
     };
   }
   try {
     const today = new Date().toISOString().slice(0, 10);
     const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const [
       { count: activeSlips },
@@ -102,6 +110,7 @@ async function getOperationalStats() {
       { count: ownerSlips },
       { count: activeTasks },
       { count: planned },
+      { count: completed },
     ] = await Promise.all([
       supabase
         .from('work_slips')
@@ -124,19 +133,33 @@ async function getOperationalStats() {
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_TASK_STATUSES),
+      // Forward-looking: inspections you've planned for the next 7 days.
       supabase
         .from('inspection_plans')
         .select('*', { count: 'exact', head: true })
         .gte('planned_for_date', today)
         .lte('planned_for_date', weekFromNow),
+      // Backward-looking: inspections you actually walked in the past 7
+      // days. Walks can happen without a prior plan row (the inspector
+      // just opens /inspections and starts one), so the home tile needs
+      // both buckets or it under-counts and reads as broken.
+      supabase
+        .from('inspections')
+        .select('*', { count: 'exact', head: true })
+        .gte('started_at', weekAgoIso),
     ]);
+
+    const plannedN = planned ?? 0;
+    const completedN = completed ?? 0;
 
     return {
       activeSlips: activeSlips ?? 0,
       highPrioritySlips: highSlips ?? 0,
       ownerActionSlips: ownerSlips ?? 0,
       activeTasks: activeTasks ?? 0,
-      inspectionsThisWeek: planned ?? 0,
+      inspectionsThisWeek: plannedN + completedN,
+      inspectionsPlanned: plannedN,
+      inspectionsCompleted: completedN,
     };
   } catch {
     return {
@@ -145,6 +168,8 @@ async function getOperationalStats() {
       ownerActionSlips: null,
       activeTasks: null,
       inspectionsThisWeek: null,
+      inspectionsPlanned: null,
+      inspectionsCompleted: null,
     };
   }
 }
@@ -351,7 +376,14 @@ export default async function HelmHome() {
           <Stat
             label="Inspections This Week"
             value={stats.inspectionsThisWeek != null ? String(stats.inspectionsThisWeek) : '—'}
-            sub="planned walks, next 7 days"
+            sub={(() => {
+              const p = stats.inspectionsPlanned ?? 0;
+              const c = stats.inspectionsCompleted ?? 0;
+              if (p === 0 && c === 0) return 'no walks scheduled or done';
+              if (p === 0) return `${c} done, past 7 days`;
+              if (c === 0) return `${p} planned, next 7 days`;
+              return `${c} done · ${p} planned`;
+            })()}
             href="/operations"
             size="hero"
           />
