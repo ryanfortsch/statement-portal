@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { getContact, listContactEvents } from '@/lib/audience';
-import { displayName } from '@/lib/audience-types';
+import { displayName, formatTagLabel } from '@/lib/audience-types';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -72,7 +72,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                   color: 'var(--ink-3)',
                 }}
               >
-                {t}
+                {formatTagLabel(t)}
               </span>
             ))}
           </div>
