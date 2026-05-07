@@ -1,5 +1,4 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { ForecastClient } from './ForecastClient';
 import { isConfigured } from '@/lib/supabase';
@@ -13,6 +12,102 @@ import {
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
 export const dynamic = 'force-dynamic';
+
+/**
+ * 10-K-style cover sheet. Plain Inter, structured key/value rows, no
+ * editorial flourishes. Replaces HelmHero on this page because the
+ * forecast is a financial document, not editorial content.
+ */
+function CoverSheet() {
+  const asOf = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const rows: Array<[string, React.ReactNode]> = [
+    ['Entity', 'Rising Tide STR LLC · management business only'],
+    ['Period', 'Jan 2026 – Dec 2028 · 36 months'],
+    ['As of', asOf],
+    [
+      'Sources',
+      'Chase ...5130 (operating account), Guesty (forward bookings), Cape Ann market occupancy 2018-2026',
+    ],
+    ['Currency', 'USD'],
+    [
+      'Excluded',
+      'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, federal/state taxes, capex, distributions',
+    ],
+  ];
+
+  return (
+    <section
+      className="max-w-[1100px] mx-auto px-10"
+      style={{ paddingTop: 40, paddingBottom: 28, width: '100%' }}
+    >
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 10,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          color: 'var(--ink-4)',
+          marginBottom: 12,
+        }}
+      >
+        Helm · Forecast
+      </div>
+      <h1
+        style={{
+          fontFamily: 'var(--font-inter), system-ui, sans-serif',
+          fontSize: 24,
+          fontWeight: 600,
+          letterSpacing: '-0.005em',
+          color: 'var(--ink)',
+          margin: 0,
+        }}
+      >
+        FY 2026 – 2028 Financial Forecast
+      </h1>
+      <div
+        style={{
+          marginTop: 18,
+          paddingTop: 14,
+          borderTop: '1px solid var(--ink)',
+          display: 'grid',
+          gridTemplateColumns: '120px 1fr',
+          gap: '6px 24px',
+          fontSize: 12,
+          lineHeight: 1.55,
+        }}
+      >
+        {rows.map(([k, v]) => (
+          <CoverRow key={k} k={k} v={v} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CoverRow({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <>
+      <span
+        className="font-mono"
+        style={{
+          fontSize: 10,
+          letterSpacing: '.16em',
+          color: 'var(--ink-4)',
+          textTransform: 'uppercase',
+          paddingTop: 1,
+        }}
+      >
+        {k}
+      </span>
+      <span style={{ color: 'var(--ink-2)' }}>{v}</span>
+    </>
+  );
+}
 
 async function getSmartForecast(endYear: number): Promise<SmartForecast | null> {
   if (!isConfigured) return null;
@@ -89,12 +184,8 @@ export default async function ForecastPage() {
     >
       <HelmMasthead current="forecast" />
 
-      <HelmHero
-        eyebrow="Helm · Forecast"
-        title="The three-year plan,"
-        emphasis="calibrated to the bank."
-        description="Toggle 2026 / 2027 / 2028 and dial in how many new contracts you'd add each year — earlier additions roll forward as full-year actives. Past months use bank actuals; forward months pull live Guesty bookings × historical Gloucester occupancy × each property's mgmt fee. Management business only — RT-owned units, personal draw, and healthcare are out of scope."
-      />
+      <CoverSheet />
+
 
       <ForecastClient smart2026={smart2026} smart2027={smart2027} smart2028={smart2028} />
 

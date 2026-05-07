@@ -1407,17 +1407,18 @@ function SectionTitle({ title, tag }: { title: string; tag?: string }) {
       style={{
         display: 'flex',
         alignItems: 'baseline',
-        gap: 12,
+        gap: 14,
         paddingBottom: 8,
         marginBottom: 4,
       }}
     >
       <h2
-        className="font-serif"
         style={{
-          fontSize: 22,
-          fontWeight: 400,
-          letterSpacing: '-0.01em',
+          fontFamily: 'var(--font-inter), system-ui, sans-serif',
+          fontSize: 13,
+          fontWeight: 600,
+          letterSpacing: '.08em',
+          textTransform: 'uppercase',
           color: 'var(--ink)',
           margin: 0,
         }}
