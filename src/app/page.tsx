@@ -5,6 +5,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
+import { deltaPct } from '@/lib/revenue-date-range';
 import { TeamActivity } from '@/components/TeamActivity';
 import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
 
@@ -19,6 +20,9 @@ type DashboardStats = {
   latestMonth: string | null;
   latestStatus: string | null;
   totalPayout: number;
+  /** Sum of owner_payout for the period BEFORE latestMonth. Used for the
+   *  delta on the Today's Signals strip. null when there's no prior period. */
+  priorPayout: number | null;
   statementsCount: number;
   // Operational signals
   activeSlips: number | null;
@@ -121,37 +125,52 @@ async function getPropertyStats() {
 }
 
 async function getHelmStats() {
-  if (!isHelmConfigured) {
-    return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
-  }
+  const empty = {
+    latestMonth: null as string | null,
+    latestStatus: null as string | null,
+    totalPayout: 0,
+    priorPayout: null as number | null,
+    statementsCount: 0,
+  };
+  if (!isHelmConfigured) return empty;
   try {
+    // Pull the two most recent periods in one round trip so the prior-
+    // period delta is free.
     const { data: periods } = await supabase
       .from('statement_periods')
       .select('id, month, status')
       .order('month', { ascending: false })
-      .limit(1);
+      .limit(2);
 
     const period = periods?.[0];
-    if (!period) return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
+    if (!period) return empty;
+    const priorPeriod = periods?.[1] ?? null;
 
-    const { data: stmts } = await supabase
-      .from('property_statements')
-      .select('owner_payout')
-      .eq('period_id', period.id as string);
+    const sumPayout = (rows: { owner_payout: number | null }[] | null): number =>
+      (rows ?? []).reduce((s, x) => s + (Number(x.owner_payout) || 0), 0);
 
-    const totalPayout = (stmts || []).reduce(
-      (s: number, x: { owner_payout: number | null }) => s + (Number(x.owner_payout) || 0),
-      0
-    );
+    const [{ data: stmts }, priorRes] = await Promise.all([
+      supabase
+        .from('property_statements')
+        .select('owner_payout')
+        .eq('period_id', period.id as string),
+      priorPeriod
+        ? supabase
+            .from('property_statements')
+            .select('owner_payout')
+            .eq('period_id', priorPeriod.id as string)
+        : Promise.resolve({ data: null }),
+    ]);
 
     return {
       latestMonth: period.month as string,
       latestStatus: period.status as string,
-      totalPayout,
+      totalPayout: sumPayout(stmts),
+      priorPayout: priorPeriod ? sumPayout(priorRes.data) : null,
       statementsCount: stmts?.length ?? 0,
     };
   } catch {
-    return { latestMonth: null, latestStatus: null, totalPayout: 0, statementsCount: 0 };
+    return empty;
   }
 }
 
@@ -302,6 +321,7 @@ export default async function HelmHome() {
             label={stats.latestMonth ? `${formatMonth(stats.latestMonth)} Payout` : 'Owner Payouts'}
             value={stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—'}
             sub={stats.latestMonth ? 'latest period total' : 'no statements yet'}
+            delta={deltaPct(stats.totalPayout, stats.priorPayout)}
             href="/statements"
             size="hero"
             last
