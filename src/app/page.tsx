@@ -7,7 +7,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { TeamActivity } from '@/components/TeamActivity';
-import { UniversalSearch } from '@/components/UniversalSearch';
+import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
 
 export const dynamic = 'force-dynamic';
 // Personal count needs the live session, so we can't precompute. Drop the
@@ -243,7 +243,7 @@ export default async function HelmHome() {
           <span>→</span>
         </Link>
 
-        <UniversalSearch placeholder="Search Helm or jump to a page…" />
+        <CommandPaletteTrigger variant="prominent" />
       </section>
 
       {/* OPERATIONAL SIGNALS STRIP */}
