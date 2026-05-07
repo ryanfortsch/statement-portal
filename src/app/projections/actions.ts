@@ -287,58 +287,15 @@ export async function promoteToProperty(projectionId: string) {
 
     management_fee_pct: feePct,
 
-    // Property characteristics (prefer onboarding answers; fall back to
-    // projection inputs where they overlap)
+    // Operational columns from the owner's onboarding answers (utilities,
+    // STR setup, access, emergency contact, inspection/safety). Same
+    // mapping the property-only re-submit path uses.
+    ...propertyColumnsFromOnboarding(ob),
+
+    // Promote-only override: if the prospect originally typed a bedroom
+    // count and the owner left the field blank in onboarding, prefer the
+    // prospect's input over null.
     bedrooms: numOr(ob.bedrooms, projRow.bedrooms as number),
-    bathrooms: numOr(ob.bathrooms, null),
-    square_feet: numOr(ob.square_feet, null),
-    livable_floors: numOr(ob.livable_floors, null),
-    basement: ob.basement || null,
-    parking: ob.parking || null,
-    hoa: ob.hoa || null,
-
-    electricity_provider: ob.electricity_provider || null,
-    heating: ob.heating || null,
-    cooling: ob.cooling || null,
-    internet_provider: ob.internet_provider || null,
-    cable_provider: ob.cable_provider || null,
-    wifi_name: ob.wifi_name || null,
-    wifi_password: ob.wifi_password || null,
-    num_tvs: numOr(ob.num_tvs, null),
-    smart_tv: ob.smart_tv || null,
-
-    currently_listed: ob.currently_listed || null,
-    existing_listing_urls: ob.listing_urls || null,
-    str_registration_id: ob.str_registration || null,
-    str_insurance_carrier: ob.str_insurance || null,
-    guest_access_method: ob.guest_access_method || null,
-    smart_lock_brand: ob.smart_lock_brand || null,
-    smart_lock_code: ob.smart_lock_code || null,
-    security_cameras: ob.security_cameras || null,
-
-    key_code_location: ob.key_code_location || null,
-    alarm_system: ob.alarm_system || null,
-    known_issues: ob.known_issues || null,
-    upcoming_maintenance: ob.upcoming_maintenance || null,
-    property_notes: ob.notes || null,
-
-    emergency_contact_name: ob.emergency_name || null,
-    emergency_contact_relationship: ob.emergency_relationship || null,
-    emergency_contact_phone: ob.emergency_phone || null,
-    emergency_contact_email: ob.emergency_email || null,
-
-    // Inspection & safety (Gloucester STR permit Information Note)
-    trash_day: ob.trash_day || null,
-    recycling_day: ob.recycling_day || null,
-    trash_notes: ob.trash_notes || null,
-    parking_regulations: ob.parking_regulations || null,
-    gas_shutoff_location: ob.gas_shutoff_location || null,
-    water_shutoff_location: ob.water_shutoff_location || null,
-    electrical_panel_location: ob.electrical_panel_location || null,
-    fire_extinguisher_locations: ob.fire_extinguisher_locations || null,
-    smoke_detector_locations: ob.smoke_detector_locations || null,
-    fire_exit_locations: ob.fire_exit_locations || null,
-    str_permit_expires: ob.str_permit_expires || null,
 
     projection_id: projectionId,
   };
@@ -456,14 +413,119 @@ export async function submitContractSignature(formData: FormData) {
 
 /**
  * Public-facing: an owner submits the onboarding form. No auth, gated by
- * knowledge of the token. The token comes in as a hidden field.
+ * knowledge of the token.
+ *
+ * Polymorphic by token: the same `/onboarding/<token>` URL can belong to a
+ * prospect (stored as a JSONB blob on `projections.onboarding_data`) or to
+ * an existing managed property (written straight into the property's
+ * first-class operational columns). We probe `projections` first so the
+ * prospect path is byte-identical to the prior implementation; fall back
+ * to `properties` for the new managed-property re-submit flow.
  */
 export async function submitOnboarding(formData: FormData) {
   const token = String(formData.get('token') || '').trim();
   if (!token || !/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid onboarding link');
 
-  // Pull every field from the form into the JSONB payload. Empty strings
-  // become undefined so we don't bloat the record with junk.
+  const data = parseOnboardingFormData(formData);
+
+  // Try the prospect path first (zero behavior change for projection
+  // tokens). If no row matches, try the property path.
+  const { data: projHit } = await supabase
+    .from('projections')
+    .select('id')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+
+  if (projHit) {
+    const { error } = await supabase
+      .from('projections')
+      .update({
+        onboarding_data: data,
+        onboarding_submitted_at: new Date().toISOString(),
+      })
+      .eq('onboarding_token', token);
+
+    if (error) throw new Error(error.message);
+
+    revalidatePath(`/onboarding/${token}`);
+    redirect(`/onboarding/${token}/thanks`);
+  }
+
+  const { data: propHit } = await supabase
+    .from('properties')
+    .select('id, owner_emails')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+
+  if (!propHit) throw new Error('Invalid onboarding link');
+
+  // Build the property update payload. Operational columns come straight
+  // from the owner's answers; owner-identity fields (phone / mailing /
+  // preferred contact) update if the owner provided them; owner_emails
+  // gets the new email appended only if it isn't already on the record
+  // (Dotti curates that array, so we don't clobber it).
+  const updatePayload: Record<string, unknown> = {
+    ...propertyColumnsFromOnboarding(data),
+    onboarding_submitted_at: new Date().toISOString(),
+  };
+  if (data.phone) updatePayload.owner_phone = data.phone;
+  if (data.mailing_address) updatePayload.owner_mailing_address = data.mailing_address;
+  if (data.preferred_contact) updatePayload.owner_preferred_contact = data.preferred_contact;
+  if (data.email) {
+    const current = (propHit as { owner_emails: string[] | null }).owner_emails ?? [];
+    if (!current.includes(data.email)) {
+      updatePayload.owner_emails = [...current, data.email];
+    }
+  }
+
+  const { error } = await supabase
+    .from('properties')
+    .update(updatePayload)
+    .eq('onboarding_token', token);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/onboarding/${token}`);
+  revalidatePath(`/properties/${propHit.id}`);
+  redirect(`/onboarding/${token}/thanks`);
+}
+
+/**
+ * Generate (or return the existing) onboarding token for a managed property.
+ * Called from the property page when an operator wants to send the public
+ * onboarding form to the owner. Idempotent: the token is generated once,
+ * lazily, and reused on subsequent calls.
+ */
+export async function ensurePropertyOnboardingToken(propertyId: string): Promise<string> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from('properties')
+    .select('onboarding_token')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (lookupErr) throw new Error(lookupErr.message);
+  if (!existing) throw new Error('Property not found');
+
+  if ((existing as { onboarding_token: string | null }).onboarding_token) {
+    return (existing as { onboarding_token: string }).onboarding_token;
+  }
+
+  const token = newOnboardingToken();
+  const { error: updateErr } = await supabase
+    .from('properties')
+    .update({ onboarding_token: token })
+    .eq('id', propertyId);
+  if (updateErr) throw new Error(updateErr.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  return token;
+}
+
+/** Parse the public form's flat field set into the OnboardingData shape.
+ *  Empty strings drop out so we never bloat records with junk. */
+function parseOnboardingFormData(formData: FormData): OnboardingData {
   const ALL_FIELDS: (keyof OnboardingData)[] = [
     'full_name', 'phone', 'email', 'mailing_address', 'preferred_contact',
     'property_address', 'property_type', 'hoa', 'bedrooms', 'bathrooms',
@@ -485,18 +547,66 @@ export async function submitOnboarding(formData: FormData) {
     const v = String(formData.get(f) ?? '').trim();
     if (v) data[f] = v;
   }
+  return data;
+}
 
-  const { error } = await supabase
-    .from('projections')
-    .update({
-      onboarding_data: data,
-      onboarding_submitted_at: new Date().toISOString(),
-    })
-    .eq('onboarding_token', token);
+/** Maps the owner's onboarding answers onto the matching `properties`
+ *  columns. Used by both the prospect promotion path (INSERT) and the
+ *  managed-property re-submit path (UPDATE). Owner-identity fields
+ *  (owner_full / owner_greeting / owner_last / owner_emails) are NOT in
+ *  here — those are set by the caller because the rules differ between
+ *  the two paths. */
+function propertyColumnsFromOnboarding(ob: OnboardingData) {
+  return {
+    bedrooms: numOr(ob.bedrooms, null),
+    bathrooms: numOr(ob.bathrooms, null),
+    square_feet: numOr(ob.square_feet, null),
+    livable_floors: numOr(ob.livable_floors, null),
+    basement: ob.basement || null,
+    parking: ob.parking || null,
+    hoa: ob.hoa || null,
 
-  if (error) throw new Error(error.message);
+    electricity_provider: ob.electricity_provider || null,
+    heating: ob.heating || null,
+    cooling: ob.cooling || null,
+    internet_provider: ob.internet_provider || null,
+    cable_provider: ob.cable_provider || null,
+    wifi_name: ob.wifi_name || null,
+    wifi_password: ob.wifi_password || null,
+    num_tvs: numOr(ob.num_tvs, null),
+    smart_tv: ob.smart_tv || null,
 
-  // Revalidate the public form (so it shows the thank-you state on refresh)
-  revalidatePath(`/onboarding/${token}`);
-  redirect(`/onboarding/${token}/thanks`);
+    currently_listed: ob.currently_listed || null,
+    existing_listing_urls: ob.listing_urls || null,
+    str_registration_id: ob.str_registration || null,
+    str_insurance_carrier: ob.str_insurance || null,
+    guest_access_method: ob.guest_access_method || null,
+    smart_lock_brand: ob.smart_lock_brand || null,
+    smart_lock_code: ob.smart_lock_code || null,
+    security_cameras: ob.security_cameras || null,
+
+    key_code_location: ob.key_code_location || null,
+    alarm_system: ob.alarm_system || null,
+    known_issues: ob.known_issues || null,
+    upcoming_maintenance: ob.upcoming_maintenance || null,
+    property_notes: ob.notes || null,
+
+    emergency_contact_name: ob.emergency_name || null,
+    emergency_contact_relationship: ob.emergency_relationship || null,
+    emergency_contact_phone: ob.emergency_phone || null,
+    emergency_contact_email: ob.emergency_email || null,
+
+    // Inspection & safety (Gloucester STR permit Information Note)
+    trash_day: ob.trash_day || null,
+    recycling_day: ob.recycling_day || null,
+    trash_notes: ob.trash_notes || null,
+    parking_regulations: ob.parking_regulations || null,
+    gas_shutoff_location: ob.gas_shutoff_location || null,
+    water_shutoff_location: ob.water_shutoff_location || null,
+    electrical_panel_location: ob.electrical_panel_location || null,
+    fire_extinguisher_locations: ob.fire_extinguisher_locations || null,
+    smoke_detector_locations: ob.smoke_detector_locations || null,
+    fire_exit_locations: ob.fire_exit_locations || null,
+    str_permit_expires: ob.str_permit_expires || null,
+  };
 }
