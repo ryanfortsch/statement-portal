@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { CompetitorListing } from '@/lib/competitors/types';
 
-type SortKey = 'name' | 'city' | 'bedrooms' | 'bathrooms' | 'maxGuests';
+type SortKey = 'name' | 'city' | 'bedrooms' | 'bathrooms' | 'maxGuests' | 'address';
 type SortDir = 'asc' | 'desc';
 
 type Props = {
@@ -11,6 +11,8 @@ type Props = {
   /** Cities sorted by listing count, used to build the filter chip row. */
   cities: string[];
 };
+
+type AddressFilter = 'all' | 'high' | 'medium' | 'low' | 'unknown';
 
 /**
  * The full inventory table. Filters by town and pet policy, free-text search
@@ -20,6 +22,7 @@ type Props = {
 export function CompetitorInventory({ listings, cities }: Props) {
   const [city, setCity] = useState<string>('All');
   const [pets, setPets] = useState<'all' | 'yes' | 'no'>('all');
+  const [addr, setAddr] = useState<AddressFilter>('all');
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('city');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -30,13 +33,30 @@ export function CompetitorInventory({ listings, cities }: Props) {
       if (city !== 'All' && l.city !== city) return false;
       if (pets === 'yes' && !l.petFriendly) return false;
       if (pets === 'no' && l.petFriendly) return false;
-      if (q && !l.name.toLowerCase().includes(q) && !l.city.toLowerCase().includes(q)) return false;
+      if (addr !== 'all') {
+        const conf = l.address?.confidence ?? 'unknown';
+        if (conf !== addr) return false;
+      }
+      if (q) {
+        const haystack = [
+          l.name,
+          l.city,
+          l.address?.street ?? '',
+          l.address?.neighborhood ?? '',
+          l.address?.addressGuess ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
-  }, [listings, city, pets, query]);
+  }, [listings, city, pets, addr, query]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
+    const addressDisplay = (l: CompetitorListing) =>
+      l.address?.addressGuess ?? l.address?.street ?? l.address?.neighborhood ?? '';
     arr.sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1;
       switch (sortKey) {
@@ -45,6 +65,7 @@ export function CompetitorInventory({ listings, cities }: Props) {
         case 'bedrooms':   return ((a.bedrooms - b.bedrooms) || a.name.localeCompare(b.name)) * dir;
         case 'bathrooms':  return ((a.bathrooms - b.bathrooms) || a.name.localeCompare(b.name)) * dir;
         case 'maxGuests':  return ((a.maxGuests - b.maxGuests) || a.name.localeCompare(b.name)) * dir;
+        case 'address':    return (addressDisplay(a).localeCompare(addressDisplay(b)) || a.name.localeCompare(b.name)) * dir;
       }
     });
     return arr;
@@ -111,6 +132,19 @@ export function CompetitorInventory({ listings, cities }: Props) {
           onChange={(v) => setPets(v as 'all' | 'yes' | 'no')}
         />
 
+        <ChipGroup
+          label="Address"
+          options={[
+            { value: 'all',     label: 'All' },
+            { value: 'high',    label: 'Verified' },
+            { value: 'medium',  label: 'Street' },
+            { value: 'low',     label: 'Hood' },
+            { value: 'unknown', label: 'Unknown' },
+          ]}
+          value={addr}
+          onChange={(v) => setAddr(v as AddressFilter)}
+        />
+
         <span
           style={{
             fontSize: 11,
@@ -130,8 +164,8 @@ export function CompetitorInventory({ listings, cities }: Props) {
           role="row"
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 160px 70px 70px 80px 80px 60px',
-            gap: 16,
+            gridTemplateColumns: '1.1fr 1.1fr 130px 56px 56px 64px 60px 56px',
+            gap: 14,
             padding: '14px 0 10px',
             borderBottom: '1px solid var(--ink)',
             fontSize: 9,
@@ -142,6 +176,7 @@ export function CompetitorInventory({ listings, cities }: Props) {
           }}
         >
           <SortHeader label="Listing"    active={sortKey === 'name'}      dir={sortDir} onClick={() => setSort('name')} />
+          <SortHeader label="Address"    active={sortKey === 'address'}   dir={sortDir} onClick={() => setSort('address')} />
           <SortHeader label="Town"       active={sortKey === 'city'}      dir={sortDir} onClick={() => setSort('city')} />
           <SortHeader label="BR"         active={sortKey === 'bedrooms'}  dir={sortDir} onClick={() => setSort('bedrooms')} align="right" />
           <SortHeader label="BA"         active={sortKey === 'bathrooms'} dir={sortDir} onClick={() => setSort('bathrooms')} align="right" />
@@ -156,8 +191,8 @@ export function CompetitorInventory({ listings, cities }: Props) {
             role="row"
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 160px 70px 70px 80px 80px 60px',
-              gap: 16,
+              gridTemplateColumns: '1.1fr 1.1fr 130px 56px 56px 64px 60px 56px',
+              gap: 14,
               alignItems: 'baseline',
               padding: '14px 0',
               borderBottom: '1px solid var(--rule)',
@@ -165,6 +200,7 @@ export function CompetitorInventory({ listings, cities }: Props) {
             }}
           >
             <span className="font-serif" style={{ fontSize: 16, color: 'var(--ink)' }}>{l.name}</span>
+            <AddressCell address={l.address} />
             <span style={{ color: 'var(--ink-3)' }}>{l.city}</span>
             <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>
               {l.bedrooms === 0 ? <span style={{ fontSize: 11, letterSpacing: '.04em' }}>STD</span> : l.bedrooms}
@@ -255,6 +291,71 @@ function SortHeader({
 function formatBath(n: number): string {
   if (Number.isInteger(n)) return String(n);
   return n.toFixed(1);
+}
+
+function AddressCell({ address }: { address?: CompetitorListing['address'] }) {
+  if (!address || address.confidence === 'unknown') {
+    return <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>—</span>;
+  }
+  const primary = address.addressGuess ?? address.street ?? address.neighborhood ?? '';
+  const sub =
+    address.addressGuess && address.neighborhood
+      ? address.neighborhood
+      : address.street && address.neighborhood && address.street !== address.neighborhood
+      ? address.neighborhood
+      : null;
+
+  const conf = address.confidence;
+  const chipColor =
+    conf === 'high' ? 'var(--positive)'
+    : conf === 'medium' ? 'var(--ink)'
+    : 'var(--ink-4)';
+  const chipBg =
+    conf === 'high' ? 'rgba(58, 107, 74, 0.12)'
+    : conf === 'medium' ? 'rgba(30, 46, 52, 0.08)'
+    : 'transparent';
+  const chipBorder = conf === 'low' ? '1px dashed var(--ink-4)' : 'none';
+  const chipLabel = conf === 'high' ? 'VERIFIED' : conf === 'medium' ? 'STREET' : 'HOOD';
+
+  return (
+    <span
+      title={address.evidence ?? undefined}
+      style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: 2 }}
+    >
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+        <span
+          style={{
+            color: 'var(--ink)',
+            fontSize: 13,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {primary}
+        </span>
+        <span
+          style={{
+            fontSize: 8,
+            letterSpacing: '.16em',
+            fontWeight: 700,
+            color: chipColor,
+            background: chipBg,
+            border: chipBorder,
+            padding: '1px 5px',
+            flexShrink: 0,
+          }}
+        >
+          {chipLabel}
+        </span>
+      </span>
+      {sub && (
+        <span style={{ fontSize: 11, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {sub}
+        </span>
+      )}
+    </span>
+  );
 }
 
 type ChipOption = string | { value: string; label: string };
