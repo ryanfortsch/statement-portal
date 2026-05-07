@@ -61,7 +61,11 @@ export const PROPERTIES: Record<string, Property> = {
   '53_rocky_neck': {
     id: '53_rocky_neck', name: '53 Rocky Neck', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi', owner_greeting: 'Simon',
-    owner_emails: ['senecalglenn@gmail.com'],
+    // Apr 2026 reconcile audit confirmed prudenziwelding@yahoo.com is the
+    // address Melissa @ RTC has been using; senecalglenn@gmail.com is on
+    // file from earlier sends -- keeping both until we confirm with Simon
+    // which he prefers as primary.
+    owner_emails: ['prudenziwelding@yahoo.com', 'senecalglenn@gmail.com'],
     fee_pct: 25, bank_last4: '9910', listing_match: '53 rocky neck',
     // Newer cert from Allie's Apr 29 doc; older C053801070 also listed there.
     tax_cert_id: 'C0554181070',
@@ -85,7 +89,10 @@ export const PROPERTIES: Record<string, Property> = {
   '20_hammond': {
     id: '20_hammond', name: '20 Hammond', address: '20 Hammond Street', city: 'Gloucester, MA',
     owner_last: 'Ramsey', owner_full: 'The Ramsey Family', owner_greeting: 'Danielle and Mark',
-    owner_emails: ['dfry0404@yahoo.com'],
+    // Apr 2026 reconcile audit confirmed Mark's mramsey8@hotmail.com is on
+    // RTC's send list alongside Danielle's dfry0404 -- both belong on
+    // Helm-portal sends so neither owner is left off.
+    owner_emails: ['dfry0404@yahoo.com', 'mramsey8@hotmail.com'],
     fee_pct: 25, bank_last4: '9969', listing_match: '20 hammond',
     tax_cert_id: 'C0548731070',
   },
