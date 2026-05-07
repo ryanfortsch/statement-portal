@@ -8,6 +8,8 @@ import {
   computeDateRange,
   formatRangeLabel,
   presetLabel,
+  previousRange,
+  deltaPct,
   type RangePreset,
 } from '@/lib/revenue-date-range';
 import {
@@ -79,8 +81,18 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     );
   }
 
-  const { lastSyncedAt, isStale } = await readSyncStatus();
-  const { snapshots, portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
+  // Forward-looking presets compare vs the future, which has no actuals
+  // yet. Skip the prior-period fetch (and deltas) for those.
+  const isForwardLooking = preset === 'next_month' || preset === 'next_90';
+  const prior = isForwardLooking ? null : previousRange({ rangeStart, rangeEnd });
+
+  const [{ lastSyncedAt, isStale }, { snapshots, portfolio }, priorPortfolio] = await Promise.all([
+    readSyncStatus(),
+    computeRevenueSnapshot(rangeStart, rangeEnd),
+    prior
+      ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd).then((r) => r.portfolio)
+      : Promise.resolve(null),
+  ]);
 
   const sorted = [...snapshots].sort((a, b) => {
     const av = a.metrics.projectedOwnerPayout ?? -Infinity;
@@ -104,8 +116,15 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
       {/* PORTFOLIO SUMMARY */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Portfolio</div>
-        <PortfolioStrip totals={portfolio} />
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <div className="eyebrow">Portfolio</div>
+          {priorPortfolio && (
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              vs prior {presetTitle.toLowerCase()}
+            </span>
+          )}
+        </div>
+        <PortfolioStrip totals={portfolio} prior={priorPortfolio} />
       </section>
 
       {/* PROPERTY CARDS */}
@@ -144,7 +163,18 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   );
 }
 
-function PortfolioStrip({ totals }: { totals: PortfolioTotals }) {
+function PortfolioStrip({
+  totals,
+  prior,
+}: {
+  totals: PortfolioTotals;
+  prior: PortfolioTotals | null;
+}) {
+  // Compute deltas vs prior period for each metric. null when there's no
+  // prior to compare (forward-looking range, or zero baseline).
+  const d = (a: keyof PortfolioTotals): number | null =>
+    prior ? deltaPct(totals[a] as number, prior[a] as number) : null;
+
   return (
     <div
       style={{
@@ -154,13 +184,13 @@ function PortfolioStrip({ totals }: { totals: PortfolioTotals }) {
         gridTemplateColumns: 'repeat(7, 1fr)',
       }}
     >
-      <Stat label="Stays" value={String(totals.totalStays)} />
-      <Stat label="Avg Occupancy" value={fmtPercent(totals.avgOccupancy)} />
-      <Stat label="Avg ADR" value={fmtCurrency(totals.avgADR)} accent />
-      <Stat label="Owner Revenue" value={fmtCurrency(totals.totalRevenue)} />
-      <Stat label="Owner Payout" value={fmtCurrency(totals.totalPayout)} accent />
-      <Stat label="Rising Tide" value={fmtCurrency(totals.totalManagementFee)} />
-      <Stat label="Portfolio Rev" value={fmtCurrency(totals.totalPortfolioRevenue)} last />
+      <Stat label="Stays" value={String(totals.totalStays)} delta={d('totalStays')} />
+      <Stat label="Avg Occupancy" value={fmtPercent(totals.avgOccupancy)} delta={d('avgOccupancy')} />
+      <Stat label="Avg ADR" value={fmtCurrency(totals.avgADR)} delta={d('avgADR')} accent />
+      <Stat label="Owner Revenue" value={fmtCurrency(totals.totalRevenue)} delta={d('totalRevenue')} />
+      <Stat label="Owner Payout" value={fmtCurrency(totals.totalPayout)} delta={d('totalPayout')} accent />
+      <Stat label="Rising Tide" value={fmtCurrency(totals.totalManagementFee)} delta={d('totalManagementFee')} />
+      <Stat label="Portfolio Rev" value={fmtCurrency(totals.totalPortfolioRevenue)} delta={d('totalPortfolioRevenue')} last />
     </div>
   );
 }
