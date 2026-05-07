@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { supabase } from '@/lib/supabase';
-import type { AudienceEventType, AudienceStatus } from '@/lib/audience-types';
+import type { GuestEventType, GuestStatus } from '@/lib/guests-types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-function mapEventType(resendType: string): AudienceEventType | null {
+function mapEventType(resendType: string): GuestEventType | null {
   switch (resendType) {
     case 'email.sent': return 'sent';
     case 'email.delivered': return 'delivered';
@@ -138,7 +138,7 @@ function extractRecipientEmail(payload: ResendWebhookPayload): string | null {
 
 async function applyContactCounter(
   contactId: string,
-  eventType: AudienceEventType,
+  eventType: GuestEventType,
   occurredAt: string,
 ) {
   // PostgREST has no generic "increment"; we read current counters then
@@ -176,8 +176,8 @@ async function applyContactCounter(
   await supabase.from('audience_contacts').update(final).eq('id', contactId);
 }
 
-async function applyContactStatus(contactId: string, eventType: AudienceEventType) {
-  const newStatus: AudienceStatus | null =
+async function applyContactStatus(contactId: string, eventType: GuestEventType) {
+  const newStatus: GuestStatus | null =
     eventType === 'bounced' ? 'bounced' :
     eventType === 'complained' ? 'complained' :
     eventType === 'unsubscribed' ? 'unsubscribed' :
@@ -194,7 +194,7 @@ async function applyContactStatus(contactId: string, eventType: AudienceEventTyp
   await supabase.from('audience_contacts').update(updates).eq('id', contactId);
 }
 
-async function applyCampaignCounter(campaignId: string, eventType: AudienceEventType) {
+async function applyCampaignCounter(campaignId: string, eventType: GuestEventType) {
   const field =
     eventType === 'delivered' ? 'delivered_count' :
     eventType === 'opened' ? 'opened_count' :

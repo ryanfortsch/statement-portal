@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, isConfigured } from '@/lib/supabase';
-import { isProxyEmail } from '@/lib/audience-types';
+import { isProxyEmail } from '@/lib/guests-types';
 import { pushContactToResend, sendTransactionalViaResend } from '@/lib/resend';
 
 export const runtime = 'nodejs';

@@ -6,11 +6,11 @@ export const dynamic = 'force-dynamic';
 export default function NewCampaignPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="audience" />
+      <HelmMasthead current="guests" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/audience" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Audience</Link>
+          <Link href="/guests" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
         </div>
         <h1 className="font-serif" style={{
           fontSize: 36,
@@ -47,7 +47,7 @@ export default function NewCampaignPage() {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Audience &middot; New Campaign</span>
+          <span>Rising Tide &middot;Guests&middot; New Campaign</span>
         </div>
       </footer>
     </div>

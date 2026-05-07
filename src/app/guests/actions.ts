@@ -5,14 +5,14 @@ import { revalidatePath } from 'next/cache';
 import Papa from 'papaparse';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import { isProxyEmail, type AudienceStatus } from '@/lib/audience-types';
+import { isProxyEmail, type GuestStatus } from '@/lib/guests-types';
 import { pushContactToResend, unsubscribeContactInResend } from '@/lib/resend';
 
 type ImportRow = {
   email: string;
   first_name: string | null;
   last_name: string | null;
-  status: AudienceStatus;
+  status: GuestStatus;
   subscribed_at: string | null;
   source: string;
   source_detail: string | null;
@@ -57,7 +57,7 @@ function parseSquarespaceCsv(csv: string): { rows: ImportRow[]; errors: string[]
     const lastName = (r['Last Name'] || '').trim() || null;
 
     const acceptsMarketing = (r['Accepts Marketing'] || '').toLowerCase() === 'true';
-    const status: AudienceStatus = acceptsMarketing ? 'subscribed' : 'unsubscribed';
+    const status: GuestStatus = acceptsMarketing ? 'subscribed' : 'unsubscribed';
 
     const subscribedRaw = r['Subscriber Since'] || r['Created On'] || '';
     const subscribedAt = parseLooseDate(subscribedRaw);
@@ -157,8 +157,8 @@ export async function importContactsFromCsv(formData: FormData): Promise<void> {
     },
   });
 
-  revalidatePath('/audience');
-  redirect(`/audience?imported=${inserted}`);
+  revalidatePath('/guests');
+  redirect(`/guests?imported=${inserted}`);
 }
 
 export async function unsubscribeContact(formData: FormData): Promise<void> {
@@ -196,8 +196,8 @@ export async function unsubscribeContact(formData: FormData): Promise<void> {
     metadata: { reason, by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/audience');
-  revalidatePath(`/audience/${id}`);
+  revalidatePath('/guests');
+  revalidatePath(`/guests/${id}`);
 }
 
 export async function resubscribeContact(formData: FormData): Promise<void> {
@@ -223,8 +223,8 @@ export async function resubscribeContact(formData: FormData): Promise<void> {
     metadata: { by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/audience');
-  revalidatePath(`/audience/${id}`);
+  revalidatePath('/guests');
+  revalidatePath(`/guests/${id}`);
 }
 
 export async function manuallyAddContact(formData: FormData): Promise<void> {
@@ -248,7 +248,7 @@ export async function manuallyAddContact(formData: FormData): Promise<void> {
         first_name: firstName,
         last_name: lastName,
         tags,
-        status: 'subscribed' as AudienceStatus,
+        status: 'subscribed' as GuestStatus,
         subscribed_at: new Date().toISOString(),
         source: 'manual',
         source_detail: `Added by ${session.user.email}`,
@@ -284,5 +284,5 @@ export async function manuallyAddContact(formData: FormData): Promise<void> {
     metadata: { by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/audience');
+  revalidatePath('/guests');
 }

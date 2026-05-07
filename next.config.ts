@@ -14,6 +14,25 @@ const nextConfig: NextConfig = {
     '/api/draft-email': ['./node_modules/@sparticuz/chromium/**/*'],
     '/api/statement-pdf': ['./node_modules/@sparticuz/chromium/**/*'],
   },
+
+  // Audience → Guests rename (2026-05-07). Permanent redirect so old
+  // bookmarks, emails, and shared links keep working. Subpaths
+  // (campaigns, segments, import, [id]) all funnel through the same
+  // wildcard.
+  async redirects() {
+    return [
+      {
+        source: '/audience',
+        destination: '/guests',
+        permanent: true,
+      },
+      {
+        source: '/audience/:path*',
+        destination: '/guests/:path*',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
