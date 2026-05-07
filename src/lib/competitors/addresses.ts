@@ -39,6 +39,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'downtown Beverly',
     confidence: 'high',
     evidence: 'Hazadiah Smith House — First Period (1686), National Register listed 1990. 0.2 mi from Montserrat (370 Cabot), matches walk-to-Salem-train description.',
+    owner: 'Mcavoy, Elizabeth K',
+    ownerNote: 'Beverly assessor (parcel F_823764_3027769); individual ownership, last sold Dec 2020 for $510k. Not held by a preservation society despite National Register status.',
   },
 
   'shoreway-management::gloucester-cranberry-hill': {
@@ -55,6 +57,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'North Salem',
     confidence: 'high',
     evidence: 'Library of Congress HABS MA-187 documents "Robert Manning Place, 33 Dearborn Street, Salem." Salem Public Library wiki: Manning (Hawthorne\'s uncle) built #33 in 1824 for his bride.',
+    owner: '33 Dearborn Street LLC',
+    ownerNote: 'Salem assessor (Patriot Properties). Single-asset LLC — typical STR investor structure. Manager / registered agent not retrieved (MA SOS lookup behind interactive search).',
   },
 
   // AVH winter-rental cross-listing sweep (verified via Apartments.com /
@@ -75,6 +79,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'Pigeon Cove, Rockport',
     confidence: 'high',
     evidence: 'Apartments.com winter rental "Captain John Butman House" at 7 Granite St + MACRIS RCP.59 ("Butnam, John House" c.1760) at 7 Granite St. VRBO #2299860.',
+    owner: 'Curran, Joseph & Virginia',
+    ownerNote: 'Rockport assessor (Patriot Properties), parcel 18-7-199. Condo, built 1760.',
   },
 
   'atlantic-vacation-homes::twin-lights': {
@@ -83,6 +89,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'Rockport',
     confidence: 'high',
     evidence: 'Rentable.co "Winter Rental: Twin Lights" at 6 Charles St (2BR/2BA matches AVH unit-120). VRBO #2739136. Note: distinct from "Twin Light Terrace" at 9 Twin Light Cir (a 4BR sister listing).',
+    owner: 'Wang, Valerie & Jones, Graham',
+    ownerNote: 'Rockport assessor (Patriot Properties), parcel 18-11. Built 1949 Ranch; sold 8/16/2021 for $580k.',
   },
 
   'atlantic-vacation-homes::squam-light': {
@@ -122,7 +130,9 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     street: 'Mill Lane',
     neighborhood: 'Rockport',
     confidence: 'high',
-    evidence: 'Zillow + Trulia winter rental "Mill Lane" at 6A Mill Ln. Half of a duplex (sister 4BR is "Pleasant House"). AVH unit-38. VRBO #2261641.',
+    evidence: 'Zillow + Trulia winter rental "Mill Lane" at 6A Mill Ln. Half of a duplex; sister 4BR is Mill Brook House. AVH unit-38. VRBO #2261641.',
+    owner: 'Kelley, Kevin Christopher Jr & Gruenberg-Kelley, Sandra',
+    ownerNote: 'Rockport assessor (Patriot Properties), parcel 18-352. 6 / 6A is one Two Family parcel with a single owner pair. Built 1750; sold 8/5/2013 for $580k.',
   },
 
   'atlantic-vacation-homes::granite-cottage': {
@@ -131,6 +141,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'Pigeon Cove, Rockport',
     confidence: 'high',
     evidence: 'Identified during AVH cross-listing sweep as the sister of Granite Pier on the Granite St / Phillips Ave run (Pigeon Cove). 1BR/1BA matches AVH unit-26.',
+    owner: 'Rockport Gem Properties LLC (mgr Robert A Meyer)',
+    ownerNote: 'Rockport assessor parcel 17-22. MA SOS ID 001269399 — manager Robert A Meyer, 97 Montgomery Ave, Scarsdale NY 10583; resident agent Robert L. Visnick, Rockport. LLC was administratively dissolved 12/30/2022 (still assessor owner of record).',
   },
 
   // AVH winter-rental cross-listing sweep — Wave 5 (Apartments.com /
@@ -213,7 +225,9 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     street: 'Mill Lane',
     neighborhood: 'Rockport',
     confidence: 'high',
-    evidence: 'Apartments.com "6 Mill Ln Unit Mill Brook House" (4BR matches AVH unit-310). This is the duplex sister of Mill Lane (6A) — not Pleasant House, which we earlier guessed.',
+    evidence: 'Apartments.com "6 Mill Ln Unit Mill Brook House" (4BR matches AVH unit-310). Duplex sister of Mill Lane (6A) — not Pleasant House.',
+    owner: 'Kelley, Kevin Christopher Jr & Gruenberg-Kelley, Sandra',
+    ownerNote: 'Same Rockport parcel 18-352 as Mill Lane (6 / 6A is one Two Family parcel).',
   },
 
   // ────────────────────────────────────────────────────────────────────
@@ -284,6 +298,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'South Rockport (Gap Cove)',
     confidence: 'high',
     evidence: 'Apartments.com 52 Marmion Way matches AVH Straitsmouth Cove copy ("Gap Cove views, vintage country manor, antique brick fireplace", 5BR/2BA = AVH unit-59).',
+    owner: 'Wagner, Jennifer & Edward',
+    ownerNote: 'Rockport assessor parcel 30-37. Built 1928 Colonial; sold 3/9/2018 for $1.5M.',
   },
 
   'atlantic-vacation-homes::thurston-point-cottage': {
@@ -306,6 +322,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'downtown Rockport (Bearskin Neck side)',
     confidence: 'high',
     evidence: 'Zillow apartments + Trulia "Winter Rental: Portside Glimpse" at 8 Hale St (1BR matches AVH unit-303).',
+    owner: 'Driver, Erin Bridget & Simon James',
+    ownerNote: 'Rockport assessor parcel 18-419. Built 1850, Multi-Conv (Three Family), 5BR/4BA — entire building is one parcel with a single owner pair, despite multiple AVH Portside listings inside.',
   },
 
   'atlantic-vacation-homes::portside-overlook': {
@@ -314,6 +332,8 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     neighborhood: 'downtown Rockport (Bearskin Neck side)',
     confidence: 'high',
     evidence: 'Zillow apartments "Winter Rental: Portside Overlook" at 8 Hale St — same building as the other Portside listings; likely a multi-unit conversion.',
+    owner: 'Driver, Erin Bridget & Simon James',
+    ownerNote: 'Same parcel as Portside Glimpse — Drivers own the entire 8 Hale St building.',
   },
 
   'atlantic-vacation-homes::portside-walkabout': {
