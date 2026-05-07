@@ -27,18 +27,31 @@ type SearchParams = Promise<{
   days?: string;
 }>;
 
-async function getPropertyNameMap(): Promise<Record<string, string>> {
-  if (!isHelmConfigured) return {};
+type PropertyOption = { id: string; name: string };
+
+async function getPropertyOptions(): Promise<PropertyOption[]> {
+  if (!isHelmConfigured) return [];
   try {
-    const { data } = await supabase.from('properties').select('id, name');
-    const map: Record<string, string> = {};
-    for (const r of (data ?? []) as Array<{ id: string; name: string }>) {
-      map[r.id] = r.name;
-    }
-    return map;
+    const { data } = await supabase
+      .from('properties')
+      .select('id, name, is_active')
+      .eq('is_active', true);
+    const rows = ((data ?? []) as Array<{ id: string; name: string }>);
+    // Natural-sort by street number so the dropdown reads
+    // "3 Locust, 3 South, 4 Brier Neck, 17 Beach, 20 Enon, 20 Hammond,
+    // 21 Horton…" instead of the lexical "17, 20, 20, 21, 3, 3, 30…"
+    // Postgres returns. Same collator used on /inspections.
+    const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+    return rows.sort((a, b) => collator.compare(a.name, b.name));
   } catch {
-    return {};
+    return [];
   }
+}
+
+function propertyMapFromOptions(options: PropertyOption[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const r of options) map[r.id] = r.name;
+  return map;
 }
 
 export default async function ReviewsPage({ searchParams }: { searchParams: SearchParams }) {
@@ -56,12 +69,13 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Sear
     ? (daysParam as WindowDays)
     : 7;
 
-  const [stats, reviews, channels, propertyMap] = await Promise.all([
+  const [stats, reviews, channels, propertyOptions] = await Promise.all([
     getReviewWindowStats(days),
     listReviews({ rating, propertyId, channel, search, limit: 100 }),
     listReviewChannels(),
-    getPropertyNameMap(),
+    getPropertyOptions(),
   ]);
+  const propertyMap = propertyMapFromOptions(propertyOptions);
 
   const fiveStarRate = stats.total > 0 ? Math.round((stats.fiveStar / stats.total) * 100) : null;
 
@@ -155,12 +169,12 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Sear
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-          <input
-            name="property"
-            defaultValue={propertyId ?? ''}
-            placeholder="Property id"
-            style={{ ...inputStyle, maxWidth: 140 }}
-          />
+          <select name="property" defaultValue={propertyId ?? ''} style={selectStyle}>
+            <option value="">All properties</option>
+            {propertyOptions.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
           <button type="submit" style={buttonStyle}>Filter</button>
           {(rating || propertyId || channel || search) && (
             <Link
