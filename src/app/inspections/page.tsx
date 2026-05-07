@@ -125,7 +125,7 @@ export default async function InspectionsPage() {
                 <option value="" disabled>Choose a property…</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}{p.title ? ` · ${p.title}` : ''} · {p.city}
+                    {p.name}
                   </option>
                 ))}
               </select>
