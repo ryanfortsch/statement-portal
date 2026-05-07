@@ -2958,7 +2958,7 @@ function DashboardContent() {
             Gmail draft created for <strong>{draftResult.property}</strong>
             {draftResult.attachedPdf
               ? <> with the statement PDF attached. </>
-              : <> (no PDF attached — see warnings). </>}
+              : <> (no PDF attached, see warnings). </>}
             <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
               Open in Gmail →
             </a>
