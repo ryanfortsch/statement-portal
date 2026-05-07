@@ -16,6 +16,7 @@ export type ProjectionRow = {
   prospect_first_names: string | null;     // "Bethany and John" (guide salutation)
   prospect_full_legal: string | null;      // full legal name (contract signature)
   prospect_phone: string | null;
+  prospect_email: string | null;           // recipient address — Gmail sync key
   property_address: string;
   property_city: string | null;
   property_type: string;                   // House / Condo / Cottage / etc.
@@ -76,9 +77,23 @@ export type ProjectionRow = {
   contract_signed_ip: string | null;
   contract_signed_user_agent: string | null;
 
+  // Gmail-derived deliverable status (latest send per type)
+  gmail_touches: GmailTouches | null;
+  gmail_synced_at: string | null;
+
   created_at: string | null;
   updated_at: string | null;
 };
+
+/** Gmail send detection — one entry per deliverable type, latest send wins. */
+export type GmailTouchType = 'projection' | 'guide' | 'contract' | 'onboarding';
+export type GmailTouchEntry = {
+  sent_at: string;       // ISO; from message internalDate
+  message_id: string;    // Gmail message id
+  subject: string;
+  to: string;
+};
+export type GmailTouches = Partial<Record<GmailTouchType, GmailTouchEntry>>;
 
 /** A single per-deal addendum rendered on the contract Rider page. */
 export type CustomClause = {

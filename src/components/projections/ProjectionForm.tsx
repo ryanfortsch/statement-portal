@@ -75,6 +75,15 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               style={inputStyle}
             />
           </Field>
+          <Field label="Email" hint="Used by Gmail sync to detect what's been sent">
+            <input
+              name="prospect_email"
+              type="email"
+              defaultValue={v.prospect_email ?? ''}
+              placeholder="bethany@example.com"
+              style={inputStyle}
+            />
+          </Field>
         </Row>
         <Row>
           <Field label="Property address" required>

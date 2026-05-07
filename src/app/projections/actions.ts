@@ -55,6 +55,7 @@ function buildPayload(formData: FormData) {
     prospect_first_names: strOrNull(formData, 'prospect_first_names'),
     prospect_full_legal: strOrNull(formData, 'prospect_full_legal'),
     prospect_phone: strOrNull(formData, 'prospect_phone'),
+    prospect_email: strOrNull(formData, 'prospect_email'),
     property_address: str(formData, 'property_address'),
     property_city: strOrNull(formData, 'property_city'),
     property_type: str(formData, 'property_type') || 'House',
