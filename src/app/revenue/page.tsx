@@ -86,13 +86,23 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   const isForwardLooking = preset === 'next_month' || preset === 'next_90';
   const prior = isForwardLooking ? null : previousRange({ rangeStart, rangeEnd });
 
-  const [{ lastSyncedAt, isStale }, { snapshots, portfolio }, priorPortfolio] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, current, priorFull] = await Promise.all([
     readSyncStatus(),
     computeRevenueSnapshot(rangeStart, rangeEnd),
     prior
-      ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd).then((r) => r.portfolio)
+      ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd)
       : Promise.resolve(null),
   ]);
+
+  const { snapshots, portfolio } = current;
+  const priorPortfolio = priorFull?.portfolio ?? null;
+
+  // Build a per-property prior-payout lookup so each card can show its own
+  // period-over-period delta on Owner Payout.
+  const priorPayoutById = new Map<string, number | null>();
+  for (const s of priorFull?.snapshots ?? []) {
+    priorPayoutById.set(s.propertyId, s.metrics.projectedOwnerPayout);
+  }
 
   const sorted = [...snapshots].sort((a, b) => {
     const av = a.metrics.projectedOwnerPayout ?? -Infinity;
@@ -156,7 +166,12 @@ export default async function RevenuePage({ searchParams }: PageProps) {
           }}
         >
           {sorted.map((s) => (
-            <PropertyCard key={s.propertyId} snapshot={s} />
+            <PropertyCard
+              key={s.propertyId}
+              snapshot={s}
+              priorPayout={priorPayoutById.get(s.propertyId) ?? null}
+              showDelta={!isForwardLooking}
+            />
           ))}
         </div>
       </section>
@@ -206,9 +221,18 @@ function PortfolioStrip({
   );
 }
 
-function PropertyCard({ snapshot }: { snapshot: PropertySnapshot }) {
+function PropertyCard({
+  snapshot,
+  priorPayout,
+  showDelta,
+}: {
+  snapshot: PropertySnapshot;
+  priorPayout: number | null;
+  showDelta: boolean;
+}) {
   const m = snapshot.metrics;
   const noData = m.staysCount === 0;
+  const delta = showDelta ? deltaPct(m.projectedOwnerPayout, priorPayout) : null;
 
   return (
     <article
@@ -228,9 +252,19 @@ function PropertyCard({ snapshot }: { snapshot: PropertySnapshot }) {
             {snapshot.propertyName}
           </h3>
         </div>
-        {snapshot.turnoversNext30 > 0 && (
+        {delta != null && delta !== 0 && (
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
-            {snapshot.turnoversNext30} turnover{snapshot.turnoversNext30 === 1 ? '' : 's'} in next 30
+            <span
+              className="font-mono tabular-nums"
+              style={{
+                color: delta > 0 ? 'var(--positive)' : 'var(--negative)',
+                fontWeight: 500,
+              }}
+            >
+              {delta > 0 ? '+' : ''}
+              {delta.toFixed(0)}%
+            </span>{' '}
+            owner payout vs prior
           </div>
         )}
       </header>
