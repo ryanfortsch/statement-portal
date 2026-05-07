@@ -6,31 +6,15 @@ import {
   getYearConfig,
   fmtDollar,
   fmtNum,
-  fmtCompact,
   MONTH_LABELS,
-  OFFICE_RENT_MONTHLY,
-  SOFTWARE_MONTHLY,
-  BOOKKEEPER_MONTHLY,
-  INSURANCE_ANNUAL,
-  ACCOUNTING_MONTHLY,
-  BANK_FEES_MONTHLY,
-  CC_OPERATING_MONTHLY,
   type ForecastYear,
-  type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
 import {
-  ACTUALS_TRAILING_12MO,
-  ACTUALS_INFLOWS_TRAILING_12MO,
-  ACTUALS_INFLOWS_BY_MONTH,
-  ACTUALS_WINDOW,
   ACTUALS_2026,
   ACTUALS_2026_THROUGH_MONTH,
-  type ExpenseLine,
 } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
-
-const SCENARIO_RANGE = [0, 1, 2, 3, 4, 5, 6] as const;
 
 type Props = {
   smart2026: SmartForecast | null;
@@ -136,24 +120,11 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
     () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward),
     [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward]
   );
-  const scenarios = useMemo(
-    () =>
-      SCENARIO_RANGE.map((n) => ({
-        n,
-        year: calcYear(n, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward),
-      })),
-    [yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward]
-  );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
   const setYearKeyClamped = (y: ForecastYear) => {
     setYearKey(y);
   };
-
-  const newStartMonthsLabel =
-    year.newStartMonths.length === 0
-      ? 'no new properties'
-      : year.newStartMonths.map((m) => MONTH_LABELS[m - 1]).join(', ');
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
   const posMonths = year.monthly.filter((r) => r.net_business > 0);
@@ -173,9 +144,10 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
         setNumNew2028={setNumNew2028}
       />
 
+      {/* Headline metrics */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 36, width: '100%' }}
+        style={{ paddingBottom: 28, width: '100%' }}
       >
         <KpiStrip
           year={year}
@@ -188,59 +160,12 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
           currentCount={yearConfig.current.length}
           presignedCount={yearConfig.presigned.length}
         />
-
-        <Banner
-          numNew={numNew}
-          newStartMonthsLabel={newStartMonthsLabel}
-          totalManaged={totalManaged}
-          netBusiness={year.totals.net_business}
-          springTrough={springTrough}
-          yearKey={yearKey}
-          baseLine={
-            yearKey === 2026
-              ? '9 current + 5 pre-signed only'
-              : `14 active${rolledForward > 0 ? ` + ${rolledForward} rolled forward` : ''}`
-          }
-        />
       </section>
 
+      {/* Monthly P&L — the centerpiece */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 36, width: '100%' }}
-      >
-        <SectionTitle title="Scenarios" tag="Click any to switch" />
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-            gap: 8,
-            marginTop: 14,
-          }}
-          className="rt-forecast-scenarios"
-        >
-          {scenarios.map(({ n, year: y }) => (
-            <ScenarioCard
-              key={n}
-              n={n}
-              netBusiness={y.totals.net_business}
-              active={n === numNew}
-              onClick={() => setNumNew(n)}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 36, width: '100%' }}
-      >
-        <SectionTitle title="Monthly Net" tag="Revenue minus business expenses" />
-        <CashFlowChart monthly={year.monthly} />
-      </section>
-
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 80, width: '100%' }}
+        style={{ paddingBottom: 32, width: '100%' }}
       >
         <SectionTitle title="Monthly Detail" tag={String(yearKey)} />
         <div
@@ -254,23 +179,14 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
         </div>
       </section>
 
-      {yearKey === 2026 && (
-        <section
-          className="max-w-[1100px] mx-auto px-10"
-          style={{ paddingBottom: 36, width: '100%' }}
-        >
-          <SectionTitle title="2026 actual mgmt fee" tag="By activity month · Chase ...5130 sweep on 1st weekday of next month" />
-          <ActualsByMonth model={year} />
-        </section>
-      )}
-
+      {/* Per-property forward booking detail */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 36, width: '100%' }}
+        style={{ paddingBottom: 32, width: '100%' }}
       >
         <SectionTitle
-          title="Smart forecast"
-          tag={`Per-property · forward bookings × Gloucester pacing × each property's mgmt fee`}
+          title="Per-property forecast"
+          tag="forward bookings × Gloucester pacing × per-property fee %"
         />
         <SmartForecastPanel
           data={
@@ -281,27 +197,17 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
         />
       </section>
 
+      {/* Notes & Methodology — single bottom block */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 36, width: '100%' }}
+        style={{ paddingBottom: 64, width: '100%' }}
       >
-        <SectionTitle title="Reality check" tag={`Trailing 12 mo · Chase ...5130 actuals (${ACTUALS_WINDOW.txCount} tx)`} />
-        <RealityCheck />
-      </section>
-
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingBottom: 80, width: '100%' }}
-      >
-        <SectionTitle title="Assumptions" tag={`What's baked in for ${yearKey}`} />
+        <SectionTitle title="Notes & Methodology" tag={`assumptions for ${yearKey}`} />
         <Assumptions yearKey={yearKey} />
       </section>
 
       <style jsx>{`
         @media (max-width: 720px) {
-          .rt-forecast-scenarios {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-          }
           .rt-forecast-kpi {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
@@ -569,268 +475,6 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
   );
 }
 
-function ActualsByMonth({ model }: { model: YearResult }) {
-  // Chase sweeps the prior month's mgmt fees on the first weekday of the
-  // next month. So a transfer posted "May 4" represents APRIL activity, not
-  // May. We display by activity month — what most people mean when they
-  // ask "how much did we make in April".
-  const fmtCents = (n: number) =>
-    `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  const byPosting = new Map(ACTUALS_INFLOWS_BY_MONTH.map((r) => [r.month, r]));
-
-  // Activity month → posting month for the mgmt fee sweep.
-  const activityRows: Array<{
-    activityMonth: string; // YYYY-MM
-    postingMonth: string;  // YYYY-MM
-    mgmtFee: number;
-    isPartial: boolean;
-  }> = [
-    { activityMonth: '2026-01', postingMonth: '2026-02', mgmtFee: 0, isPartial: false },
-    { activityMonth: '2026-02', postingMonth: '2026-03', mgmtFee: 0, isPartial: false },
-    { activityMonth: '2026-03', postingMonth: '2026-04', mgmtFee: 0, isPartial: false },
-    { activityMonth: '2026-04', postingMonth: '2026-05', mgmtFee: 0, isPartial: false },
-  ].map((r) => {
-    const post = byPosting.get(r.postingMonth);
-    return {
-      ...r,
-      mgmtFee: post?.mgmtFeeIn ?? 0,
-      isPartial: post?.isPartial ?? false,
-    };
-  });
-
-  const totalActual = activityRows.reduce((s, r) => s + r.mgmtFee, 0);
-
-  // Modeled mgmt fee revenue for Jan-Apr from the year's monthly array.
-  // Months 1..4 = Jan..Apr inclusive.
-  const modelByMonth: Record<string, number> = {};
-  for (let i = 0; i < 4; i++) {
-    const r = model.monthly[i];
-    modelByMonth[`2026-${String(i + 1).padStart(2, '0')}`] = r.rev_current + r.rev_presigned + r.rev_new;
-  }
-  const totalModel = Object.values(modelByMonth).reduce((s, v) => s + v, 0);
-
-  return (
-    <div
-      style={{
-        marginTop: 14,
-        border: '1px solid var(--rule)',
-        background: 'var(--paper)',
-        overflowX: 'auto',
-      }}
-    >
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: 'var(--paper)' }}>
-        <thead>
-          <tr>
-            <th style={rcThStyle('left', 160)}>Activity month</th>
-            <th style={rcThStyle('right', 150)}>Mgmt fee · actual</th>
-            <th style={rcThStyle('right', 150)}>Mgmt fee · modeled</th>
-            <th style={rcThStyle('right', 100)}>Variance</th>
-            <th style={rcThStyle('left')}>Sweep</th>
-          </tr>
-        </thead>
-        <tbody>
-          {activityRows.map((r) => {
-            const [, mm] = r.activityMonth.split('-');
-            const monthName = MONTH_LABELS[parseInt(mm, 10) - 1];
-            const [, pmm] = r.postingMonth.split('-');
-            const postingMonthName = MONTH_LABELS[parseInt(pmm, 10) - 1];
-            const modelVal = modelByMonth[r.activityMonth] ?? 0;
-            const variance = r.mgmtFee - modelVal;
-            const variancePct = modelVal > 0 ? (variance / modelVal) * 100 : null;
-            return (
-              <tr key={r.activityMonth}>
-                <td style={rcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
-                  {monthName} 2026
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', fontWeight: 600 })}>
-                  {fmtCents(r.mgmtFee)}
-                  {r.isPartial && <span style={{ fontSize: 10, color: 'var(--ink-4)', fontStyle: 'italic', marginLeft: 6 }}>(partial)</span>}
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: 'var(--ink-3)' })}>
-                  {fmtCents(modelVal)}
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: variance >= 0 ? 'var(--positive)' : 'var(--negative)' })}>
-                  {variancePct != null ? `${variance >= 0 ? '+' : ''}${variancePct.toFixed(0)}%` : '—'}
-                </td>
-                <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
-                  Posted early {postingMonthName}{r.isPartial ? ' (export through May 4)' : ''}
-                </td>
-              </tr>
-            );
-          })}
-          <tr>
-            <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Jan-Apr 2026 (YTD)
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              {fmtCents(totalActual)}
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)', color: 'var(--ink-3)' })}>
-              {fmtCents(totalModel)}
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)', color: totalActual - totalModel >= 0 ? 'var(--positive)' : 'var(--negative)' })}>
-              {totalModel > 0 ? `${totalActual - totalModel >= 0 ? '+' : ''}${(((totalActual - totalModel) / totalModel) * 100).toFixed(0)}%` : '—'}
-            </td>
-            <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Sweep convention: Chase batches month-end fees on the 1st-2nd weekday of the next month.
-              Apr 2026 = $7,869.23 swept May 4 (8 properties contributing).
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function RealityCheck() {
-  // Compare each itemized model expense against the closest actuals line.
-  // Model side: what we're projecting (clean monthly inputs).
-  // Actual side: trailing-12-mo average and exact total from the bank.
-  type Row = {
-    label: string;
-    modelMonthly: number | null;
-    actualMonthly: number | null;
-    actualTotal: number | null;
-    note: string;
-  };
-
-  const findActual = (id: string): ExpenseLine | undefined =>
-    ACTUALS_TRAILING_12MO.find((l) => l.id === id);
-
-  const buildRow = (
-    label: string,
-    modelMonthly: number,
-    actualId: string,
-    note: string
-  ): Row => {
-    const a = findActual(actualId);
-    return {
-      label,
-      modelMonthly,
-      actualMonthly: a?.avgMonthly ?? null,
-      actualTotal: a?.total12mo ?? null,
-      note,
-    };
-  };
-
-  const rows: Row[] = [
-    buildRow('Office rent + dumpster', OFFICE_RENT_MONTHLY + 50, 'office_rent',
-      '$750/mo rent started Mar 2026 + $50/mo dumpster (flat year-round).'),
-    buildRow('Software / SaaS', SOFTWARE_MONTHLY, 'payroll_software',
-      'Bank-visible Gusto fee only. Real total is higher — most SaaS is on the CC.'),
-    buildRow('MH Partners (bookkeeper)', BOOKKEEPER_MONTHLY, 'mh_partners',
-      "Outside bookkeeper retainer. ~$1K/mo through Apr, final $1,800 wrap-up in May 2026, then $0."),
-    buildRow('Insurance (annual lump in March)', INSURANCE_ANNUAL / 12, 'insurance',
-      'Phillips Insurance $5,263.92 paid 03/02/2026 — annual policy, no further payments until next March renewal.'),
-    buildRow('Accounting (one-time)', 0, 'accounting',
-      'MS Consultants $4,442.96 on 04/15/2026 was a one-time engagement, not recurring.'),
-    buildRow('Bank fees', BANK_FEES_MONTHLY, 'bank_fees',
-      'Stop payments + monthly service + returned checks (one $1,208.78 returned check Jan 2026).'),
-    buildRow('Operating CC (Chase ...3878)', CC_OPERATING_MONTHLY, 'cc_main',
-      'Range $3,054.42-$16,340.49/mo. Median used for the model. Decomposing the CC statement would sharpen this.'),
-    buildRow('Payroll · Gusto runs', 0, 'payroll',
-      'NET $12,403.25 + TAX $5,895.15. Gusto stopped Oct 2025. Replaced by hire line ($5K/mo from Oct 2026 in the model).'),
-    buildRow('Maggie Butler (weekly Zelle)', 0, 'staff_zelle',
-      'Stopped 12/03/2025. Folded into hire assumption.'),
-    buildRow('MA DOR (state tax remit)', 0, 'state_tax',
-      'Pass-through — owners owe this, RT remits. Out of model scope but visible.'),
-    buildRow('Maintenance (Zelle)', 0, 'maintenance',
-      'Ian Drometer + Tomer + Jason etc. Per-property and reimbursed via owner statements.'),
-    buildRow('Subcontractors (Zelle)', 0, 'subcontractors',
-      'One-off project work. Project-based, not modeled as recurring.'),
-  ];
-
-  const totalModelMonthly = rows.reduce((s, r) => s + (r.modelMonthly ?? 0), 0);
-  const totalActualMonthly = rows.reduce((s, r) => s + Math.abs(r.actualMonthly ?? 0), 0);
-  const totalActual12mo = rows.reduce((s, r) => s + Math.abs(r.actualTotal ?? 0), 0);
-
-  // Precise USD with cents and thousands separators — used for actuals,
-  // because the bank knows exactly. Model side keeps round numbers since
-  // those are clean modeling inputs.
-  const fmtCents = (n: number) =>
-    `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  return (
-    <div
-      style={{
-        marginTop: 14,
-        border: '1px solid var(--rule)',
-        background: 'var(--paper)',
-        overflowX: 'auto',
-      }}
-    >
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: 12,
-          background: 'var(--paper)',
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={rcThStyle('left', 240)}>Line</th>
-            <th style={rcThStyle('right', 120)}>Model · monthly</th>
-            <th style={rcThStyle('right', 130)}>Actual · 12-mo avg</th>
-            <th style={rcThStyle('right', 140)}>Actual · 12-mo total</th>
-            <th style={rcThStyle('left')}>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const model = r.modelMonthly ?? 0;
-            const actual = Math.abs(r.actualMonthly ?? 0);
-            const actualTotal = Math.abs(r.actualTotal ?? 0);
-            const delta = actual - model;
-            const deltaPct = model > 0 ? (delta / model) * 100 : null;
-            const deltaColor =
-              !model || !actual ? 'var(--ink-4)' :
-              Math.abs(deltaPct ?? 0) < 25 ? 'var(--positive)' :
-              Math.abs(deltaPct ?? 0) < 75 ? 'var(--ink-3)' :
-              'var(--negative)';
-            return (
-              <tr key={r.label}>
-                <td style={rcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
-                  {r.label}
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right' })}>
-                  {model > 0 ? `$${model.toLocaleString()}` : <span style={{ color: 'var(--ink-4)' }}>—</span>}
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: deltaColor })}>
-                  {actual > 0 ? fmtCents(actual) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
-                </td>
-                <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', textAlign: 'right', color: 'var(--ink-2)' })}>
-                  {actualTotal > 0 ? fmtCents(actualTotal) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
-                </td>
-                <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', textAlign: 'left' })}>
-                  {r.note}
-                </td>
-              </tr>
-            );
-          })}
-          <tr>
-            <td style={rcCellStyle({ fontWeight: 700, color: 'var(--ink)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Total
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              ${totalModelMonthly.toLocaleString()}
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              {fmtCents(totalActualMonthly)}
-            </td>
-            <td style={rcCellStyle({ fontFamily: 'var(--font-mono-dash), monospace', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--ink)' })}>
-              {fmtCents(totalActual12mo)}
-            </td>
-            <td style={rcCellStyle({ fontSize: 11, color: 'var(--ink-3)', borderTop: '2px solid var(--ink)', textAlign: 'left' })}>
-              Mgmt fee inflows trailing 12-mo: {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.mgmt_fee_in)}. Plus {fmtCents(ACTUALS_INFLOWS_TRAILING_12MO.capital_infusion)} Fidelity capital infusion when ops needed cushion. Platform direct deposits are pass-through to owners and don't represent RT income.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 function rcThStyle(align: 'left' | 'right', width?: number): React.CSSProperties {
   return {
@@ -1345,302 +989,6 @@ function KpiCell({
 
 /* ---------------------------------------------------------------- Banner */
 
-function Banner({
-  numNew,
-  newStartMonthsLabel,
-  totalManaged,
-  netBusiness,
-  springTrough,
-  yearKey,
-  baseLine,
-}: {
-  numNew: number;
-  newStartMonthsLabel: string;
-  totalManaged: number;
-  netBusiness: number;
-  springTrough: number;
-  yearKey: ForecastYear;
-  baseLine: string;
-}) {
-  return (
-    <div
-      style={{
-        marginTop: 20,
-        padding: '12px 16px',
-        borderLeft: '3px solid var(--positive)',
-        background: 'rgba(58, 107, 74, 0.06)',
-        fontSize: 13,
-        lineHeight: 1.5,
-        color: 'var(--ink-2)',
-      }}
-    >
-      {numNew === 0 ? (
-        <>
-          <strong style={{ color: 'var(--ink)' }}>{yearKey} · no new properties:</strong>{' '}
-          running on {baseLine}. Net business:{' '}
-          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netBusiness)}</strong>.
-        </>
-      ) : (
-        <>
-          <strong style={{ color: 'var(--ink)' }}>
-            {yearKey} · +{numNew} new {numNew === 1 ? 'property' : 'properties'}
-          </strong>{' '}
-          onboarded in {newStartMonthsLabel}. {totalManaged} managed properties by year-end.
-          Net business:{' '}
-          <strong style={{ color: 'var(--ink)' }}>{fmtDollar(netBusiness)}</strong>. Spring crunch:{' '}
-          <strong style={{ color: 'var(--ink)' }}>
-            {springTrough >= 0 ? 'none' : fmtDollar(springTrough)}
-          </strong>
-          .
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------- Section title */
-
-function SectionTitle({ title, tag }: { title: string; tag?: string }) {
-  return (
-    <div
-      className="rule-bottom"
-      style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 14,
-        paddingBottom: 8,
-        marginBottom: 4,
-      }}
-    >
-      <h2
-        style={{
-          fontFamily: 'var(--font-inter), system-ui, sans-serif',
-          fontSize: 13,
-          fontWeight: 600,
-          letterSpacing: '.08em',
-          textTransform: 'uppercase',
-          color: 'var(--ink)',
-          margin: 0,
-        }}
-      >
-        {title}
-      </h2>
-      {tag && <span className="eyebrow">{tag}</span>}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------ Scenarios */
-
-function ScenarioCard({
-  n,
-  netBusiness,
-  active,
-  onClick,
-}: {
-  n: number;
-  netBusiness: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const positive = netBusiness >= 0;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        background: active ? 'rgba(200, 90, 58, 0.08)' : 'var(--paper)',
-        border: active ? '2px solid var(--signal)' : '1px solid var(--rule)',
-        padding: active ? '13px 12px' : '14px 13px',
-        textAlign: 'center',
-        cursor: 'pointer',
-        transition: 'all .15s',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 4,
-      }}
-    >
-      <span className="eyebrow">+{n} new</span>
-      <span
-        className="font-serif tabular-nums"
-        style={{
-          fontSize: 22,
-          fontWeight: 400,
-          color: positive ? 'var(--positive)' : 'var(--negative)',
-          lineHeight: 1,
-          marginTop: 2,
-        }}
-      >
-        {fmtDollar(netBusiness)}
-      </span>
-      <span
-        className="font-mono"
-        style={{
-          fontSize: 9,
-          letterSpacing: '.08em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-4)',
-          marginTop: 2,
-        }}
-      >
-        {n + 12} mgmt props
-      </span>
-    </button>
-  );
-}
-
-/* ----------------------------------------------------------------- Chart */
-
-function CashFlowChart({ monthly }: { monthly: MonthRow[] }) {
-  const HEIGHT = 220;
-  const nets = monthly.map((r) => r.net_business);
-  const maxPos = Math.max(0, ...nets);
-  const maxNeg = Math.max(0, ...nets.map((x) => -x));
-  const total = maxPos + maxNeg;
-  const zeroPx = total > 0 ? Math.round((maxNeg / total) * HEIGHT) : Math.floor(HEIGHT / 2);
-
-  return (
-    <div
-      style={{
-        border: '1px solid var(--rule)',
-        background: 'var(--paper)',
-        padding: '24px 24px 18px',
-        marginTop: 14,
-      }}
-    >
-      <div
-        style={{
-          position: 'relative',
-          paddingRight: 36,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            height: HEIGHT,
-            gap: 4,
-            position: 'relative',
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              height: 1,
-              background: 'var(--rule)',
-              bottom: zeroPx,
-              zIndex: 1,
-            }}
-          />
-          {monthly.map((r, i) => {
-            const isPos = r.net_business >= 0;
-            const barPx = total > 0
-              ? Math.max(2, Math.round((Math.abs(r.net_business) / total) * HEIGHT))
-              : 2;
-            const color = isPos ? 'var(--positive)' : 'var(--negative)';
-            return (
-              <div
-                key={i}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'stretch',
-                  position: 'relative',
-                  height: HEIGHT,
-                }}
-              >
-                {isPos ? (
-                  <>
-                    <div style={{ flex: `0 0 ${HEIGHT - zeroPx - barPx}px` }} />
-                    <div
-                      style={{
-                        height: barPx,
-                        background: color,
-                        borderRadius: '2px 2px 0 0',
-                        transition: 'height .25s ease',
-                      }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <div style={{ flex: `0 0 ${HEIGHT - zeroPx}px` }} />
-                    <div
-                      style={{
-                        height: barPx,
-                        background: color,
-                        borderRadius: '2px 2px 0 0',
-                        transition: 'height .25s ease',
-                      }}
-                    />
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div
-          style={{
-            position: 'absolute',
-            right: -2,
-            bottom: zeroPx - 6,
-            fontSize: 10,
-            color: 'var(--ink-4)',
-            fontFamily: 'var(--font-mono-dash), monospace',
-          }}
-        >
-          $0
-        </div>
-      </div>
-
-      {/* labels under each bar */}
-      <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingRight: 36 }}>
-        {monthly.map((r, i) => {
-          const isPos = r.net_business >= 0;
-          return (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-              }}
-            >
-              <span
-                className="font-mono"
-                style={{
-                  fontSize: 9,
-                  color: isPos ? 'var(--positive)' : 'var(--negative)',
-                  fontWeight: 600,
-                  letterSpacing: '.02em',
-                }}
-              >
-                {fmtCompact(r.net_business)}
-              </span>
-              <span
-                className="font-mono"
-                style={{
-                  fontSize: 9,
-                  color: 'var(--ink-4)',
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {MONTH_LABELS[i]}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 /* ----------------------------------------------------------------- Table */
 
@@ -1845,6 +1193,37 @@ function SubsectionRow({ label }: { label: string }) {
         {label}
       </td>
     </tr>
+  );
+}
+
+/** Top-level section heading. Sans-serif uppercase letter-spaced — corporate. */
+function SectionTitle({ title, tag }: { title: string; tag?: string }) {
+  return (
+    <div
+      className="rule-bottom"
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 14,
+        paddingBottom: 8,
+        marginBottom: 4,
+      }}
+    >
+      <h2
+        style={{
+          fontFamily: 'var(--font-inter), system-ui, sans-serif',
+          fontSize: 13,
+          fontWeight: 600,
+          letterSpacing: '.08em',
+          textTransform: 'uppercase',
+          color: 'var(--ink)',
+          margin: 0,
+        }}
+      >
+        {title}
+      </h2>
+      {tag && <span className="eyebrow">{tag}</span>}
+    </div>
   );
 }
 
