@@ -1,4 +1,5 @@
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
+import { signOutAction } from "@/auth-actions";
 
 /**
  * Sign-in indicator + sign-out button shown in HelmMasthead.
@@ -23,12 +24,7 @@ export async function UserMenu() {
       >
         {username}
       </span>
-      <form
-        action={async () => {
-          "use server";
-          await signOut({ redirectTo: "/auth/signin" });
-        }}
-      >
+      <form action={signOutAction}>
         <button
           type="submit"
           title="Sign out"
