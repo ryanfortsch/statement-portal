@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { HelmModuleNavMore } from './HelmModuleNavMore';
 
 type Props = {
   current?: string;
@@ -7,23 +8,22 @@ type Props = {
 
 export function HelmModuleNav({ current }: Props) {
   // Always show the primary set. If the current module isn't in the primary
-  // set, append it so the user sees a "you are here" anchor in the nav.
+  // set, the More dropdown handles it (no need to append a "you are here"
+  // tab here too, since the More button activates when current is in overflow).
   const visible: HelmModule[] = [...PRIMARY_MODULES];
-  if (current && !visible.find((m) => m.id === current)) {
-    const extra = HELM_MODULES.find((m) => m.id === current);
-    if (extra) visible.push(extra);
-  }
 
   return (
-    <nav className="flex items-baseline gap-4" style={{
+    <nav className="flex items-baseline" style={{
+      gap: 18,
       fontSize: 10,
-      letterSpacing: '0.22em',
+      letterSpacing: '0.16em',
       textTransform: 'uppercase',
       fontWeight: 500,
     }}>
       {visible.map((m) => (
         <ModuleLink key={m.id} module={m} active={m.id === current} />
       ))}
+      <HelmModuleNavMore current={current} />
     </nav>
   );
 }
