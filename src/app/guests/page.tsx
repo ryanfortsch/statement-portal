@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { getAudienceStats, listContacts, listSegments, listCampaigns } from '@/lib/audience';
-import { displayName, formatTagLabel, type AudienceContact, type AudienceStatus } from '@/lib/audience-types';
+import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
+import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { manuallyAddContact } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -9,11 +9,11 @@ export const dynamic = 'force-dynamic';
 type SearchParams = {
   q?: string;
   tag?: string;
-  status?: AudienceStatus | 'all';
+  status?: GuestStatus | 'all';
   imported?: string;
 };
 
-export default async function AudiencePage({
+export default async function GuestPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
@@ -21,11 +21,11 @@ export default async function AudiencePage({
   const sp = await searchParams;
   const search = sp.q?.trim() || '';
   const tag = sp.tag?.trim() || '';
-  const status = (sp.status as AudienceStatus | 'all' | undefined) || 'all';
+  const status = (sp.status as GuestStatus | 'all' | undefined) || 'all';
   const justImported = sp.imported ? Number(sp.imported) : 0;
 
   const [stats, contacts, segments, campaigns] = await Promise.all([
-    getAudienceStats(),
+    getGuestStats(),
     listContacts({ search, tag, status, limit: 200 }),
     listSegments(),
     listCampaigns(),
@@ -33,11 +33,11 @@ export default async function AudiencePage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="audience" />
+      <HelmMasthead current="guests" />
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Audience</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Guests</div>
         <h1 className="font-serif" style={{
           fontSize: 44,
           lineHeight: 1.05,
@@ -90,13 +90,13 @@ export default async function AudiencePage({
       {/* ACTIONS BAR */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
         <div className="flex items-center gap-3 flex-wrap">
-          <Link href="/audience/import" style={primaryButtonStyle}>
+          <Link href="/guests/import" style={primaryButtonStyle}>
             Import CSV →
           </Link>
-          <Link href="/audience/campaigns/new" style={secondaryButtonStyle}>
+          <Link href="/guests/campaigns/new" style={secondaryButtonStyle}>
             New Campaign
           </Link>
-          <Link href="/audience/segments" style={secondaryButtonStyle}>
+          <Link href="/guests/segments" style={secondaryButtonStyle}>
             Segments ({segments.length})
           </Link>
           <span style={{ flex: 1 }} />
@@ -150,7 +150,7 @@ export default async function AudiencePage({
           {tag && <input type="hidden" name="tag" value={tag} />}
           <button type="submit" style={secondaryButtonStyle}>Filter</button>
           {(search || tag || status !== 'all') && (
-            <Link href="/audience" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
+            <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
               Clear
             </Link>
           )}
@@ -165,7 +165,7 @@ export default async function AudiencePage({
               if (search) params.set('q', search);
               if (status !== 'all') params.set('status', status);
               if (!active) params.set('tag', t.tag);
-              const href = `/audience${params.toString() ? '?' + params.toString() : ''}`;
+              const href = `/guests${params.toString() ? '?' + params.toString() : ''}`;
               return (
                 <Link
                   key={t.tag}
@@ -233,7 +233,7 @@ export default async function AudiencePage({
             <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Recent Campaigns
             </h2>
-            <Link href="/audience/campaigns" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.18em', textTransform: 'uppercase' }}>
+            <Link href="/guests/campaigns" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.18em', textTransform: 'uppercase' }}>
               All →
             </Link>
           </div>
@@ -241,7 +241,7 @@ export default async function AudiencePage({
             {campaigns.slice(0, 5).map((c) => (
               <Link
                 key={c.id}
-                href={`/audience/campaigns/${c.id}`}
+                href={`/guests/campaigns/${c.id}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '120px 1fr auto auto',
@@ -275,7 +275,7 @@ export default async function AudiencePage({
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Audience</span>
+          <span>Rising Tide &middot; Guests</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Source: Helm &middot; Delivery: Resend
           </span>
@@ -285,7 +285,7 @@ export default async function AudiencePage({
   );
 }
 
-function ContactRow({ contact, number }: { contact: AudienceContact; number: string }) {
+function ContactRow({ contact, number }: { contact: GuestContact; number: string }) {
   const isSubscribed = contact.status === 'subscribed';
   const subtitleParts: string[] = [];
   if (contact.email !== displayName(contact).toLowerCase()) subtitleParts.push(contact.email);
@@ -293,7 +293,7 @@ function ContactRow({ contact, number }: { contact: AudienceContact; number: str
 
   return (
     <Link
-      href={`/audience/${contact.id}`}
+      href={`/guests/${contact.id}`}
       style={{ display: 'block', textDecoration: 'none', color: 'inherit', opacity: isSubscribed ? 1 : 0.55 }}
     >
       <div

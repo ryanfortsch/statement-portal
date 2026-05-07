@@ -1,16 +1,20 @@
 /**
- * Server-side query helpers for the Audience module.
+ * Server-side query helpers for the Guests module.
+ *
+ * Module is "Guests" user-facing; DB tables retain their legacy
+ * audience_* prefix. Public types are "Guest*" to match the module
+ * name.
  */
 
 import { supabase, isConfigured } from './supabase';
 import type {
-  AudienceContact,
-  AudienceSegment,
-  AudienceCampaign,
-  AudienceStatus,
-} from './audience-types';
+  GuestContact,
+  GuestSegment,
+  GuestCampaign,
+  GuestStatus,
+} from './guests-types';
 
-export type AudienceStats = {
+export type GuestStats = {
   totalContacts: number;
   subscribers: number;
   unsubscribed: number;
@@ -20,8 +24,8 @@ export type AudienceStats = {
   configured: boolean;
 };
 
-export async function getAudienceStats(): Promise<AudienceStats> {
-  const empty: AudienceStats = {
+export async function getGuestStats(): Promise<GuestStats> {
+  const empty: GuestStats = {
     totalContacts: 0,
     subscribers: 0,
     unsubscribed: 0,
@@ -71,11 +75,11 @@ export async function getAudienceStats(): Promise<AudienceStats> {
 export type ContactListParams = {
   search?: string;
   tag?: string;
-  status?: AudienceStatus | 'all';
+  status?: GuestStatus | 'all';
   limit?: number;
 };
 
-export async function listContacts(params: ContactListParams = {}): Promise<AudienceContact[]> {
+export async function listContacts(params: ContactListParams = {}): Promise<GuestContact[]> {
   if (!isConfigured) return [];
   const { search, tag, status = 'all', limit = 200 } = params;
 
@@ -93,37 +97,37 @@ export async function listContacts(params: ContactListParams = {}): Promise<Audi
   }
 
   const { data } = await q;
-  return (data ?? []) as AudienceContact[];
+  return (data ?? []) as GuestContact[];
 }
 
-export async function listSegments(): Promise<AudienceSegment[]> {
+export async function listSegments(): Promise<GuestSegment[]> {
   if (!isConfigured) return [];
   const { data } = await supabase
     .from('audience_segments')
     .select('*')
     .order('is_system', { ascending: false })
     .order('name');
-  return (data ?? []) as AudienceSegment[];
+  return (data ?? []) as GuestSegment[];
 }
 
-export async function listCampaigns(): Promise<AudienceCampaign[]> {
+export async function listCampaigns(): Promise<GuestCampaign[]> {
   if (!isConfigured) return [];
   const { data } = await supabase
     .from('audience_campaigns')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(50);
-  return (data ?? []) as AudienceCampaign[];
+  return (data ?? []) as GuestCampaign[];
 }
 
-export async function getContact(id: string): Promise<AudienceContact | null> {
+export async function getContact(id: string): Promise<GuestContact | null> {
   if (!isConfigured) return null;
   const { data } = await supabase
     .from('audience_contacts')
     .select('*')
     .eq('id', id)
     .maybeSingle();
-  return (data as AudienceContact | null) ?? null;
+  return (data as GuestContact | null) ?? null;
 }
 
 export type ContactEvent = {

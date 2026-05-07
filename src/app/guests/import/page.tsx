@@ -4,14 +4,14 @@ import { importContactsFromCsv } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
-export default function AudienceImportPage() {
+export default function GuestImportPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="audience" />
+      <HelmMasthead current="guests" />
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Audience &middot; Import</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot;Guests&middot; Import</div>
         <h1 className="font-serif" style={{
           fontSize: 44,
           lineHeight: 1.05,
@@ -73,7 +73,7 @@ export default function AudienceImportPage() {
             >
               Import →
             </button>
-            <Link href="/audience" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
               Cancel
             </Link>
           </div>
@@ -102,7 +102,7 @@ export default function AudienceImportPage() {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Audience &middot; Import</span>
+          <span>Rising Tide &middot;Guests&middot; Import</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Squarespace → Helm
           </span>

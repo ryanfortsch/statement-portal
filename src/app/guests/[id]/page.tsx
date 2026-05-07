@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { getContact, listContactEvents } from '@/lib/audience';
-import { displayName, formatTagLabel } from '@/lib/audience-types';
+import { getContact, listContactEvents } from '@/lib/guests';
+import { displayName, formatTagLabel } from '@/lib/guests-types';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -18,12 +18,12 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="audience" />
+      <HelmMasthead current="guests" />
 
       {/* HEADER */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/audience" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Audience</Link>
+          <Link href="/guests" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
         </div>
         <h1 className="font-serif" style={{
           fontSize: 36,
@@ -156,7 +156,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Audience</span>
+          <span>Rising Tide &middot; Guests</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             id: {contact.id.slice(0, 8)}
           </span>

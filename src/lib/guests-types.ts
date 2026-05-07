@@ -1,34 +1,39 @@
 /**
- * Shared types for the Audience module.
+ * Shared types for the Guests module.
  *
- * Audience = guest-facing subscriber list, segments, campaigns, events.
+ * Guests = guest-facing subscriber list, segments, campaigns, events.
  * (Distinct from owner-facing CRM in module 07.)
+ *
+ * Note: the legacy "Audience" name lives on inside DB table prefixes
+ * (audience_contacts, audience_segments, audience_campaigns,
+ * audience_events). Renaming the tables is a separate migration; the
+ * user-facing module is "Guests" everywhere else.
  */
 
-export type AudienceStatus =
+export type GuestStatus =
   | 'subscribed'
   | 'unsubscribed'
   | 'bounced'
   | 'complained'
   | 'pending';
 
-export type AudienceSource =
+export type GuestSource =
   | 'squarespace_import'
   | 'staycapeann_signup'
   | 'guesty_post_stay'
   | 'manual';
 
-export type AudienceContact = {
+export type GuestContact = {
   id: string;
   email: string;
   first_name: string | null;
   last_name: string | null;
-  status: AudienceStatus;
+  status: GuestStatus;
   subscribed_at: string | null;
   unsubscribed_at: string | null;
   unsubscribe_reason: string | null;
   marketing_consent: boolean;
-  source: AudienceSource | null;
+  source: GuestSource | null;
   source_detail: string | null;
   tags: string[];
   resend_contact_id: string | null;
@@ -44,13 +49,13 @@ export type AudienceContact = {
   updated_at: string;
 };
 
-export type AudienceSegment = {
+export type GuestSegment = {
   id: string;
   name: string;
   description: string | null;
   required_tags: string[];
   excluded_tags: string[];
-  status_in: AudienceStatus[];
+  status_in: GuestStatus[];
   cached_recipient_count: number | null;
   cached_at: string | null;
   is_system: boolean;
@@ -58,14 +63,14 @@ export type AudienceSegment = {
   updated_at: string;
 };
 
-export type AudienceCampaignStatus =
+export type GuestCampaignStatus =
   | 'draft'
   | 'scheduled'
   | 'sending'
   | 'sent'
   | 'failed';
 
-export type AudienceCampaign = {
+export type GuestCampaign = {
   id: string;
   name: string;
   subject: string | null;
@@ -77,7 +82,7 @@ export type AudienceCampaign = {
   template_key: string | null;
   segment_id: string | null;
   recipient_count: number | null;
-  status: AudienceCampaignStatus;
+  status: GuestCampaignStatus;
   scheduled_for: string | null;
   sent_at: string | null;
   failed_reason: string | null;
@@ -93,7 +98,7 @@ export type AudienceCampaign = {
   updated_at: string;
 };
 
-export type AudienceEventType =
+export type GuestEventType =
   // Resend events
   | 'sent'
   | 'delivered'
@@ -109,11 +114,11 @@ export type AudienceEventType =
   | 'manually_added'
   | 'resubscribed';
 
-export type AudienceEvent = {
+export type GuestEvent = {
   id: string;
   contact_id: string | null;
   campaign_id: string | null;
-  event_type: AudienceEventType;
+  event_type: GuestEventType;
   occurred_at: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
@@ -161,7 +166,7 @@ function titleCaseName(s: string): string {
     .join('');
 }
 
-export function displayName(c: Pick<AudienceContact, 'first_name' | 'last_name' | 'email'>): string {
+export function displayName(c: Pick<GuestContact, 'first_name' | 'last_name' | 'email'>): string {
   const first = titleCaseName((c.first_name || '').trim());
   const last = titleCaseName((c.last_name || '').trim());
   const full = [first, last].filter(Boolean).join(' ');
