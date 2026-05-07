@@ -8,6 +8,7 @@ import {
   computeSmartForecast,
   type SmartForecast,
 } from '@/lib/forecast-smart';
+import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -84,6 +85,58 @@ function CoverSheet() {
         {rows.map(([k, v]) => (
           <CoverRow key={k} k={k} v={v} />
         ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Banner that surfaces if the bank-derived actuals are more than 30 days
+ * old — prompts Dotti to drop a fresh Chase + corporate-card CSV.
+ */
+function StaleDataBanner() {
+  const today = new Date();
+  const exportDate = new Date(ACTUALS_WINDOW.rangeEnd);
+  const daysSince = Math.floor((today.getTime() - exportDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (daysSince <= 30) return null;
+  return (
+    <section
+      className="max-w-[1100px] mx-auto px-10"
+      style={{ paddingBottom: 12, width: '100%' }}
+    >
+      <div
+        style={{
+          border: '1px solid var(--signal)',
+          background: 'rgba(200, 90, 58, 0.06)',
+          padding: '12px 16px',
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: 'var(--ink-2)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--font-mono-dash), monospace',
+            fontSize: 10,
+            letterSpacing: '.16em',
+            textTransform: 'uppercase',
+            color: 'var(--signal)',
+            fontWeight: 700,
+            paddingTop: 2,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Action needed
+        </span>
+        <span>
+          Bank actuals are <strong>{daysSince} days old</strong> (last export:{' '}
+          {ACTUALS_WINDOW.exportFile}). Re-export the Chase ...5130 transaction CSV and the Rising
+          Tide corporate card CSV, then re-run the parser to refresh actuals through the latest
+          activity month.
+        </span>
       </div>
     </section>
   );
@@ -185,6 +238,7 @@ export default async function ForecastPage() {
       <HelmMasthead current="forecast" />
 
       <CoverSheet />
+      <StaleDataBanner />
 
 
       <ForecastClient smart2026={smart2026} smart2027={smart2027} smart2028={smart2028} />

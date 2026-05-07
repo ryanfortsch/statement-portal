@@ -109,7 +109,7 @@ export const SEASON: Record<SeasonType, number[]> = {
 };
 
 /** Onboarding cost per contract, paid the month it goes live. */
-export const ONBOARDING_COST = 3000;
+export const ONBOARDING_COST = 4000;
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -155,22 +155,36 @@ export const ACCOUNTING_MONTHLY = 0;
 export const BANK_FEES_MONTHLY = 100;
 
 /**
- * Operating CC pass-through. The single biggest line in the bank data
- * (median $5.9K/mo, mean $6.8K/mo over trailing 12 mo). Likely a mix of
- * SaaS subs not on ACH, supplies, marketing, and some property-level
- * spend. Needs CC-statement decomposition someday — for now, conservative
- * median estimate.
+ * Operating CC pass-through. Calibrated to the trailing 12 months
+ * (median $5,900/mo) when ~9 properties were active. Scales with the
+ * portfolio at 0.5× elasticity — so doubling property count adds
+ * +50% to the CC line, not +100%, since fixed software/marketing
+ * doesn't grow linearly with each new contract.
  */
-export const CC_OPERATING_MONTHLY = 5900;
+export const CC_BASELINE_MONTHLY = 5900;
+export const CC_BASELINE_PROP_COUNT = 9;
+export const CC_ELASTICITY = 0.5;
+
+export function ccOperatingCost(activePropCount: number): number {
+  if (activePropCount <= CC_BASELINE_PROP_COUNT) return CC_BASELINE_MONTHLY;
+  const propIncrease = (activePropCount - CC_BASELINE_PROP_COUNT) / CC_BASELINE_PROP_COUNT;
+  return CC_BASELINE_MONTHLY * (1 + propIncrease * CC_ELASTICITY);
+}
 
 /**
- * New hire ($5K/mo) starts in October. Calibrated against actuals: payroll
- * ran ~$3.5K/mo Apr-Oct 2025 + Maggie Butler $2.6K/mo Oct-Dec 2025; the
- * combined run-rate when fully staffed was ~$6K/mo. $5K is a conservative
- * mid-point for the new role.
+ * Hire economics. First hire ($5K/mo) joins August 2026. A second hire
+ * ($5K/mo more) is triggered automatically once active property count
+ * reaches 20 — a step function, not a smooth ramp.
  */
 export const HIRE_MONTHLY = 5000;
-export const HIRE_START_MONTH = 10;
+export const HIRE_START_MONTH = 8;
+export const SECOND_HIRE_AT_PROP_COUNT = 20;
+
+export function hireCost(month: number, hireStartMonth: number, activeCount: number): number {
+  if (month < hireStartMonth) return 0;
+  const numHires = activeCount >= SECOND_HIRE_AT_PROP_COUNT ? 2 : 1;
+  return numHires * HIRE_MONTHLY;
+}
 
 export const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -234,7 +248,7 @@ export function getYearConfig(year: ForecastYear, rolledForward: number = 0): Ye
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
       bookkeeperLastMonth: 5,
-      hireStartMonth: 10,
+      hireStartMonth: 8, // First hire Aug 2026
       officeStartMonth: 3,
     };
   }
@@ -314,6 +328,9 @@ export type MonthRow = {
    * month with a complete record) rather than the model's projection.
    */
   is_actual: boolean;
+
+  /** Count of properties active and producing this month. */
+  active_count: number;
 };
 
 export type YearResult = {
@@ -413,6 +430,13 @@ export function calcYear(
         a.exp_hire +
         a.exp_onboard_presigned +
         a.exp_onboard_new;
+      // Active count for actuals month: derived from config so it matches
+      // the rest of the table; useful for diagnostics even when expense
+      // values are frozen from the bank.
+      let activeForActual = 0;
+      for (const p of config.current) if (m >= p.start) activeForActual += 1;
+      for (const p of config.presigned) if (m >= p.start) activeForActual += 1;
+
       monthly.push({
         month: m,
         rev_current: a.revenue, // attribute everything to current portfolio
@@ -432,6 +456,7 @@ export function calcYear(
         exp_total,
         net_business: a.revenue - exp_total,
         is_actual: true,
+        active_count: activeForActual,
       });
       continue;
     }
@@ -486,14 +511,21 @@ export function calcYear(
     const presignedStartCount = config.presigned.filter((p) => p.start === m).length;
     const newStartCount = newStartMonths.filter((s) => s === m).length;
 
+    // Active property count this month — drives CC scaling + 2nd-hire
+    // trigger.
+    let activeCount = 0;
+    for (const p of config.current) if (m >= p.start) activeCount += 1;
+    for (const p of config.presigned) if (m >= p.start) activeCount += 1;
+    for (const start of newStartMonths) if (m >= start) activeCount += 1;
+
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = SOFTWARE_MONTHLY;
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
-    const exp_cc_ops = CC_OPERATING_MONTHLY;
-    const exp_hire = m >= config.hireStartMonth ? HIRE_MONTHLY : 0;
+    const exp_cc_ops = ccOperatingCost(activeCount);
+    const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;
     const exp_total =
@@ -529,6 +561,7 @@ export function calcYear(
       exp_total,
       net_business,
       is_actual: false,
+      active_count: activeCount,
     });
   }
 

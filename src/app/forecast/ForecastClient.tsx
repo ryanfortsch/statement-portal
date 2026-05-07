@@ -515,9 +515,9 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Insurance', value: 'Phillips $5,263.92 paid as a lump sum in March; $0 every other month' },
     { label: 'Accounting', value: 'One-time MS Consultants $4,443 in April; $0 going forward' },
     { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-    { label: 'Operating CC', value: '$5,900/mo median Chase ...3878 payment — software, supplies, marketing, partial property pass-through' },
-    { label: 'New hire', value: '$5,000/mo from October (replaces Maggie + Gusto runs)' },
-    { label: 'Onboarding', value: '$3,000 one-time per new contract, paid the start month' },
+    { label: 'Operating CC', value: '$5,900/mo baseline at 9 active properties, scales 0.5× elasticity to active count (doubling props adds +50%, not +100%)' },
+    { label: 'New hire', value: 'First hire $5,000/mo from August. Second hire ($5K/mo more) auto-triggers when active props ≥ 20.' },
+    { label: 'Onboarding', value: '$4,000 one-time per new contract, paid the start month' },
     { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, ATM/debit-card personal, federal/state taxes, capex, distributions' },
   ];
   const items2027: Array<{ label: string; value: string }> = [
@@ -529,9 +529,9 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Insurance', value: 'Phillips ~$5,264 lump sum in March (annual renewal); $0 every other month' },
     { label: 'Accounting', value: '$0 (no recurring engagement)' },
     { label: 'Bank fees', value: '$100/mo' },
-    { label: 'Operating CC', value: '$5,900/mo (carried over from 2026 actuals — needs re-calibration with 2026 actual data once the year is closed)' },
-    { label: 'Hire continues', value: '$5,000/mo all year ($60K) — assumes the Oct 2026 hire stays' },
-    { label: 'Onboarding', value: '$3,000 one-time per new contract' },
+    { label: 'Operating CC', value: '$5,900/mo baseline at 9 props, scales 0.5× with active count (driven by rolled-forward + presigned + new in 2027)' },
+    { label: 'Hire', value: '$5,000/mo all year ($60K) — Aug 2026 hire continues. Second hire auto-adds when active count ≥ 20.' },
+    { label: 'Onboarding', value: '$4,000 one-time per new contract' },
     { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
   ];
   const items2028: Array<{ label: string; value: string }> = [
@@ -543,9 +543,9 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
     { label: 'Insurance', value: 'Phillips ~$5,264 lump in March' },
     { label: 'Accounting', value: '$0' },
     { label: 'Bank fees', value: '$100/mo' },
-    { label: 'Operating CC', value: '$5,900/mo (still using 2026-calibrated value; revisit when 2026/2027 actuals are closed)' },
-    { label: 'Hire continues', value: '$5,000/mo all year ($60K)' },
-    { label: 'Onboarding', value: '$3,000 one-time per new contract' },
+    { label: 'Operating CC', value: '$5,900/mo baseline at 9 props, scales 0.5× with active count' },
+    { label: 'Hire', value: '$5,000/mo per hire. Second hire automatically active once portfolio ≥ 20.' },
+    { label: 'Onboarding', value: '$4,000 one-time per new contract' },
     { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
   ];
   const items =
@@ -1055,7 +1055,7 @@ function ForecastTable({
         <SubsectionRow label="Recurring monthly" />
         <DataRow
           label="Operating CC"
-          info="Monthly Chase ...3878 credit-card payment. Median $5,900/mo over the trailing 12 months (range $3K-$16K). Covers software, supplies, marketing, and some property-level pass-through. Decomposing the CC statement would sharpen this further."
+          info="Monthly Chase ...3878 credit-card payment. Baseline $5,900/mo at 9 active properties (the 2025 portfolio). Scales at 0.5× elasticity to active property count: doubling the portfolio adds +50%, not +100%. Covers software, supplies, marketing, and some property-level pass-through."
           values={monthly.map((r) => r.exp_cc_ops)}
           fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
         />
@@ -1081,19 +1081,19 @@ function ForecastTable({
         <SubsectionRow label="People & onboarding" />
         <DataRow
           label="New hire"
-          info="$5,000/mo from October 2026 forward (full year in 2027 = $60K). Replaces the Maggie Butler weekly Zelle and the bi-weekly Gusto runs that ran through Q3 2025."
+          info="First hire at $5,000/mo joins August 2026. A second hire ($5K/mo more) is automatically added once active property count reaches 20 — a step function based on the portfolio size each month."
           values={monthly.map((r) => r.exp_hire)}
           fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
         />
         <DataRow
           label="Onboarding · presigned"
-          info="$3,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $15K total. Zero in 2027 — those properties are already onboarded."
+          info="$4,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $20K total. Zero in 2027 — those properties are already onboarded."
           values={monthly.map((r) => r.exp_onboard_presigned)}
           fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
         />
         <DataRow
           label="Onboarding · new"
-          info="$3,000 one-time per new contract added via the slider, paid its start month."
+          info="$4,000 one-time per new contract added via the slider, paid its start month."
           values={monthly.map((r) => r.exp_onboard_new)}
           fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
           highlight
