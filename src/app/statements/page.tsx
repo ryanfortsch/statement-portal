@@ -862,6 +862,48 @@ function EditorialButton({
   );
 }
 
+/* ─── Sync menu item (used inside the Sync ▾ dropdown) ─── */
+function SyncMenuItem({
+  label, meta, primary, onClick,
+}: {
+  label: string;
+  meta?: string;
+  primary?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'block', width: '100%',
+        textAlign: 'left',
+        padding: '10px 14px',
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase',
+        color: primary ? 'var(--ink)' : 'var(--ink-3)',
+        fontWeight: primary ? 600 : 500,
+        transition: 'background .12s',
+      }}
+      onMouseOver={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--paper-2)'; }}
+      onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <span>{label}</span>
+        {meta && (
+          <span style={{
+            color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0,
+            textTransform: 'none', fontSize: 10,
+          }}>
+            {meta}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 /* ─── Property Card ─── */
 function PropertyCard({
   prop,
@@ -1460,6 +1502,16 @@ function DashboardContent() {
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
   const [addNoteOpen, setAddNoteOpen] = useState(false);
+  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
+  // Bulk-draft progress: tracks the current "n of N" while running. null
+  // when idle. Used by the Draft All button label and to disable the button.
+  const [bulkDraftProgress, setBulkDraftProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkDraftResult, setBulkDraftResult] = useState<
+    | { drafted: number; skipped: number; failed: { property: string; error: string }[] }
+    | string
+    | null
+  >(null);
   const [remittanceRows, setRemittanceRows] = useState<Array<{
     propertyName: string;
     propertyShort: string;
@@ -1873,6 +1925,106 @@ function DashboardContent() {
     }
   }
 
+  /**
+   * Run all three syncs sequentially (Invoices, Bookings, Stripe). The
+   * individual sync functions own their own toast results; this just
+   * orchestrates them in order so the operator can hit one button at
+   * the start of a close instead of three. Stops on first hard failure
+   * since later syncs may depend on earlier data being fresh.
+   */
+  async function syncAll() {
+    setSyncingAll(true);
+    setSyncMenuOpen(false);
+    try {
+      await syncInvoices();
+      await syncGuesty();
+      await syncStripe();
+    } finally {
+      setSyncingAll(false);
+    }
+  }
+
+  /**
+   * Bulk-draft Gmail emails for every property in the current month
+   * that's "ready": confidence !== 'red' (so the math is at least
+   * partially trustworthy) and no existing email_drafted_at stamp.
+   *
+   * Sequential, not parallel: Gmail API rate-limits aggressively when
+   * many drafts hit in flight, and each draft renders a PDF via
+   * headless Chromium which is memory-heavy. Sequential is also nicer
+   * for the progress indicator since the operator sees "3 of 9" tick
+   * forward steadily.
+   */
+  async function draftAll() {
+    if (!period) return;
+    const candidates = props.filter(p =>
+      p.confidence !== 'red' &&
+      !closeTasks[p.property_id]?.email_drafted_at,
+    );
+    if (candidates.length === 0) {
+      setBulkDraftResult('All eligible statements are already drafted.');
+      return;
+    }
+    setBulkDraftProgress({ done: 0, total: candidates.length });
+    setBulkDraftResult(null);
+
+    let drafted = 0;
+    const failed: { property: string; error: string }[] = [];
+
+    for (let i = 0; i < candidates.length; i++) {
+      const p = candidates[i];
+      const tmpl = closeTasks[p.property_id]?.email_template || 'monthly';
+      try {
+        const res = await fetch('/api/draft-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            property_id: p.property_id,
+            month: selectedMonth,
+            template: tmpl,
+            funds_sent_date: fundsSentDate,
+            period_id: period.id,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          drafted++;
+          // Reflect the server-side stamp locally so the property card's
+          // "drafted" state updates without a reload, same as the
+          // single-property createGmailDraft flow does.
+          setCloseTasks(prev => {
+            const existing = prev[p.property_id];
+            return {
+              ...prev,
+              [p.property_id]: {
+                period_id: period.id,
+                property_id: p.property_id,
+                email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+                email_drafted_at: new Date().toISOString(),
+                email_sent_at: existing?.email_sent_at || null,
+                owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+                mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+                notes: existing?.notes || null,
+              },
+            };
+          });
+        } else {
+          failed.push({ property: p.property_name, error: data.error || 'unknown error' });
+        }
+      } catch (err) {
+        failed.push({ property: p.property_name, error: err instanceof Error ? err.message : 'request failed' });
+      }
+      setBulkDraftProgress({ done: i + 1, total: candidates.length });
+    }
+
+    setBulkDraftProgress(null);
+    setBulkDraftResult({
+      drafted,
+      skipped: props.length - candidates.length,
+      failed,
+    });
+  }
+
   /* ─── Login Screen (editorial) ─── */
   if (!authenticated) {
     return (
@@ -2089,103 +2241,183 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* Actions strip */}
+          {/* Actions strip. Until 2026-05-06 this had three separate sync
+              buttons plus a CSV-upload label, which crowded the strip and
+              forced three sequential clicks at the start of every close.
+              Now: a single "Sync ▾" dropdown that bundles all four data
+              sources + a "Sync All" entry, so close-of-month is one click.
+              The Reservations CSV fallback lives inside the dropdown
+              because it's used rarely (only when the Guesty API sync
+              is down). Add Note and Draft All sit next to it as primary
+              workflow actions. */}
           <div className="rt-masthead-actions flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
             <div className="flex items-center gap-2">
-              <EditorialButton
-                onClick={syncInvoices}
-                disabled={syncing}
-                busy={syncing}
-                label={syncing ? 'Syncing…' : 'Sync Invoices'}
-                meta={lastSync['gmail-invoices'] ? relativeTime(lastSync['gmail-invoices']) : undefined}
-                icon={<IconSync className="w-3 h-3" />}
-              />
-              <EditorialButton
-                onClick={syncGuesty}
-                disabled={syncingGuesty}
-                busy={syncingGuesty}
-                label={syncingGuesty ? 'Syncing…' : 'Sync Bookings'}
-                meta={lastSync['guesty-reviews'] ? relativeTime(lastSync['guesty-reviews']) : undefined}
-                icon={<IconSync className="w-3 h-3" />}
-              />
-              <EditorialButton
-                onClick={syncStripe}
-                disabled={syncingStripe || !selectedMonth}
-                busy={syncingStripe}
-                label={syncingStripe ? 'Syncing…' : 'Sync Stripe'}
-                meta={lastSync['stripe'] ? relativeTime(lastSync['stripe']) : undefined}
-                icon={<IconSync className="w-3 h-3" />}
-              />
+              <div style={{ position: 'relative' }}>
+                <EditorialButton
+                  onClick={() => setSyncMenuOpen(o => !o)}
+                  disabled={syncingAll}
+                  busy={syncing || syncingGuesty || syncingStripe || syncingAll}
+                  label={
+                    syncingAll ? 'Syncing all…'
+                    : syncing ? 'Syncing invoices…'
+                    : syncingGuesty ? 'Syncing bookings…'
+                    : syncingStripe ? 'Syncing Stripe…'
+                    : 'Sync ▾'
+                  }
+                  meta={
+                    lastSync['gmail-invoices'] || lastSync['guesty-reviews'] || lastSync['stripe']
+                      ? `last ${relativeTime(
+                          [lastSync['gmail-invoices'], lastSync['guesty-reviews'], lastSync['stripe']]
+                            .filter(Boolean)
+                            .sort()
+                            .reverse()[0],
+                        )}`
+                      : undefined
+                  }
+                  icon={<IconSync className="w-3 h-3" />}
+                />
+                {syncMenuOpen && (
+                  <>
+                    {/* Click-outside backdrop */}
+                    <div
+                      onClick={() => setSyncMenuOpen(false)}
+                      style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        zIndex: 70,
+                        minWidth: 280,
+                        background: 'var(--paper)',
+                        border: '1px solid var(--ink)',
+                        boxShadow: '0 12px 32px -10px rgba(30,46,52,.2)',
+                      }}
+                    >
+                      <SyncMenuItem
+                        label="Sync All"
+                        meta="invoices, bookings, Stripe"
+                        primary
+                        onClick={() => syncAll()}
+                      />
+                      <div style={{ borderTop: '1px solid var(--rule)' }} />
+                      <SyncMenuItem
+                        label="Sync Invoices"
+                        meta={lastSync['gmail-invoices'] ? `last ${relativeTime(lastSync['gmail-invoices'])}` : 'never'}
+                        onClick={() => { setSyncMenuOpen(false); syncInvoices(); }}
+                      />
+                      <SyncMenuItem
+                        label="Sync Bookings"
+                        meta={lastSync['guesty-reviews'] ? `last ${relativeTime(lastSync['guesty-reviews'])}` : 'never'}
+                        onClick={() => { setSyncMenuOpen(false); syncGuesty(); }}
+                      />
+                      <SyncMenuItem
+                        label="Sync Stripe"
+                        meta={lastSync['stripe'] ? `last ${relativeTime(lastSync['stripe'])}` : 'never'}
+                        onClick={() => { setSyncMenuOpen(false); syncStripe(); }}
+                      />
+                      <div style={{ borderTop: '1px solid var(--rule)' }} />
+                      <label
+                        title={lastSync['csv-fallback']
+                          ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'])}`
+                          : 'Guesty reservations CSV fallback. Use only when the Guesty API sync is down.'}
+                        style={{
+                          display: 'block',
+                          padding: '10px 14px',
+                          fontSize: 11, color: 'var(--ink-3)',
+                          letterSpacing: '.08em', textTransform: 'uppercase',
+                          cursor: uploadingCsv ? 'wait' : 'pointer',
+                          background: uploadingCsv ? 'var(--paper-2)' : 'transparent',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <span style={{ fontWeight: 500 }}>
+                            {uploadingCsv ? 'Uploading…' : 'Upload Reservations CSV'}
+                          </span>
+                          <span style={{
+                            color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0,
+                            textTransform: 'none', fontSize: 10,
+                          }}>
+                            fallback
+                          </span>
+                        </div>
+                        {lastSync['csv-fallback'] && !uploadingCsv && (
+                          <div style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10, marginTop: 2 }}>
+                            last {relativeTime(lastSync['csv-fallback'])}
+                          </div>
+                        )}
+                        <input
+                          type="file"
+                          accept=".csv"
+                          className="hidden"
+                          disabled={uploadingCsv}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setSyncMenuOpen(false);
+                            setUploadingCsv(true);
+                            setCsvResult(null);
+                            try {
+                              const text = await file.text();
+                              const res = await fetch('/api/ingest-guesty-csv', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ csv: text }),
+                              });
+                              const data = await res.json();
+                              if (data.success) {
+                                setCsvResult({
+                                  parsed: data.parsed,
+                                  reservations: data.reservations_upserted,
+                                  reviews: data.reviews_upserted,
+                                  unmatched: data.unmatched_listings,
+                                });
+                                await loadLastSync();
+                              } else {
+                                setCsvResult(data.error || 'Upload failed');
+                              }
+                            } catch (err) {
+                              setCsvResult(err instanceof Error ? err.message : 'Upload failed');
+                            } finally {
+                              setUploadingCsv(false);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
               <EditorialButton
                 onClick={() => setAddNoteOpen(true)}
                 label="Add Note"
-                meta="reservation eccentricity"
                 icon={
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                 }
               />
-              <label
-                title={lastSync['csv-fallback']
-                  ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'])}`
-                  : 'Guesty reservations CSV (upcoming bookings + reviews). Fallback for when the API sync is down. Not for monthly statements.'}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  border: '1px solid var(--rule)',
-                  background: uploadingCsv ? 'var(--paper-2)' : 'transparent',
-                  color: 'var(--ink-3)',
-                  fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                  padding: '6px 12px',
-                  cursor: uploadingCsv ? 'wait' : 'pointer',
-                  transition: 'background .15s',
-                }}
-              >
-                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                {uploadingCsv ? 'Uploading' : 'Upload Reservations CSV'}
-                {lastSync['csv-fallback'] && !uploadingCsv && (
-                  <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>&middot; {relativeTime(lastSync['csv-fallback'])}</span>
-                )}
-                <input
-                  type="file"
-                  accept=".csv"
-                  className="hidden"
-                  disabled={uploadingCsv}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setUploadingCsv(true);
-                    setCsvResult(null);
-                    try {
-                      const text = await file.text();
-                      const res = await fetch('/api/ingest-guesty-csv', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ csv: text }),
-                      });
-                      const data = await res.json();
-                      if (data.success) {
-                        setCsvResult({
-                          parsed: data.parsed,
-                          reservations: data.reservations_upserted,
-                          reviews: data.reviews_upserted,
-                          unmatched: data.unmatched_listings,
-                        });
-                        await loadLastSync();
-                      } else {
-                        setCsvResult(data.error || 'Upload failed');
-                      }
-                    } catch (err) {
-                      setCsvResult(err instanceof Error ? err.message : 'Upload failed');
-                    } finally {
-                      setUploadingCsv(false);
-                      e.target.value = '';
-                    }
-                  }}
-                />
-              </label>
+              <EditorialButton
+                onClick={draftAll}
+                disabled={!!bulkDraftProgress || props.length === 0}
+                busy={!!bulkDraftProgress}
+                label={
+                  bulkDraftProgress
+                    ? `Drafting ${bulkDraftProgress.done}/${bulkDraftProgress.total}…`
+                    : 'Draft All'
+                }
+                meta={(() => {
+                  const eligible = props.filter(p => p.confidence !== 'red' && !closeTasks[p.property_id]?.email_drafted_at).length;
+                  return eligible > 0 ? `${eligible} ready` : 'all drafted';
+                })()}
+                icon={
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                }
+              />
             </div>
             <Link href="/statements/upload" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -2231,15 +2463,37 @@ function DashboardContent() {
           <Insight label="Owner Payouts" value={fmtCompact(totalPayout)} sub={totalRevenue > 0 ? `${((totalPayout / totalRevenue) * 100).toFixed(0)}% of revenue` : undefined} last />
         </div>
 
-        {/* Gaps line */}
-        {totalGaps > 0 && (
-          <div className="flex items-center gap-2" style={{ marginTop: 14, fontSize: 11, color: 'var(--signal)' }}>
-            <IconWarning className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              <strong style={{ fontWeight: 600 }}>{totalGaps}</strong> data gap{totalGaps > 1 ? 's' : ''} across <strong style={{ fontWeight: 600 }}>{props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length}</strong> propert{props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length === 1 ? 'y' : 'ies'} requiring attention
-            </span>
-          </div>
-        )}
+        {/* Workflow status -- always visible when there are properties.
+            Tells the operator at a glance: how many statements are
+            drafted / sent, and how many still have data gaps. The
+            financial Insights strip above answers "how much?"; this
+            answers "how far along?". Each segment colors itself: ink-4
+            when nothing's there, positive once work is done, signal
+            when gaps need attention. */}
+        {props.length > 0 && (() => {
+          const draftedCount = Object.values(closeTasks).filter(t => !!t.email_drafted_at).length;
+          const sentCount = Object.values(closeTasks).filter(t => !!t.email_sent_at).length;
+          const gappyCount = props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length;
+          return (
+            <div className="flex items-center gap-5 flex-wrap" style={{ marginTop: 14, fontSize: 11 }}>
+              <span style={{ color: gappyCount > 0 ? 'var(--signal)' : 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {gappyCount > 0 && <IconWarning className="w-3.5 h-3.5 shrink-0" />}
+                <strong style={{ fontWeight: 600 }}>{totalGaps}</strong> data gap{totalGaps === 1 ? '' : 's'}
+                {gappyCount > 0 && (
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    &middot; {gappyCount} propert{gappyCount === 1 ? 'y' : 'ies'}
+                  </span>
+                )}
+              </span>
+              <span style={{ color: draftedCount > 0 ? 'var(--positive)' : 'var(--ink-4)' }}>
+                <strong style={{ fontWeight: 600 }}>{draftedCount}</strong> of {props.length} drafted
+              </span>
+              <span style={{ color: sentCount > 0 ? 'var(--positive)' : 'var(--ink-4)' }}>
+                <strong style={{ fontWeight: 600 }}>{sentCount}</strong> sent
+              </span>
+            </div>
+          );
+        })()}
       </section>
 
       {/* ─── CLOSE-OUT PANEL ─── */}
@@ -2712,6 +2966,37 @@ function DashboardContent() {
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
                 {draftResult.warnings.join(' · ')}
               </span>
+            )}
+          </Toast>
+        )
+      )}
+      {bulkDraftResult && (
+        typeof bulkDraftResult === 'string' ? (
+          <Toast tone="tide" onDismiss={() => setBulkDraftResult(null)}>{bulkDraftResult}</Toast>
+        ) : (
+          <Toast
+            tone={bulkDraftResult.failed.length > 0 ? 'tide' : 'positive'}
+            onDismiss={() => setBulkDraftResult(null)}
+          >
+            <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
+            {bulkDraftResult.skipped > 0 && (
+              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted or red)</span>
+            )}
+            {bulkDraftResult.failed.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {bulkDraftResult.failed.length} failed: {bulkDraftResult.failed.slice(0, 3).map(f => `${f.property} (${f.error})`).join(' · ')}
+                {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
+              </span>
+            )}
+            {bulkDraftResult.drafted > 0 && (
+              <a
+                href="https://mail.google.com/mail/u/0/#drafts"
+                target="_blank"
+                rel="noopener"
+                style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
+              >
+                Open Gmail drafts →
+              </a>
             )}
           </Toast>
         )
