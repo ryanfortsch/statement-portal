@@ -77,12 +77,34 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
             gridTemplateColumns: 'repeat(5, 1fr)',
           }}
         >
-          <Stat label="Sessions" value={current.sessions} delta={deltaPct(current.sessions, previous.sessions)} />
-          <Stat label="Users" value={current.users} delta={deltaPct(current.users, previous.users)} />
-          <Stat label="New users" value={current.new_users} delta={deltaPct(current.new_users, previous.new_users)} />
-          <Stat label="Conversions" value={current.conversions} delta={deltaPct(current.conversions, previous.conversions)} accent />
+          <Stat
+            label="Sessions"
+            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. GA4's default session timeout is 30 min of inactivity."
+            value={current.sessions}
+            delta={deltaPct(current.sessions, previous.sessions)}
+          />
+          <Stat
+            label="Users"
+            info="Distinct visitors over the date range. A person returning multiple times counts once. Identified by an anonymous cookie, so a guest in private browsing or on a new device counts as a separate user."
+            value={current.users}
+            delta={deltaPct(current.users, previous.users)}
+          />
+          <Stat
+            label="New users"
+            info="Visitors GA4 hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
+            value={current.new_users}
+            delta={deltaPct(current.new_users, previous.new_users)}
+          />
+          <Stat
+            label="Conversions"
+            info="Sum of GA4 key events fired in the window. SCA tracks book_started, book_completed, email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, income_estimator_used. Configure which events count as key in GA4 → Admin → Events."
+            value={current.conversions}
+            delta={deltaPct(current.conversions, previous.conversions)}
+            accent
+          />
           <Stat
             label="Avg LCP"
+            info="Largest Contentful Paint, p75. Time until the largest visible piece of content paints in the viewport. Google's Core Web Vital thresholds: ≤2.5s good, ≤4s needs work, >4s poor. Pulled from Vercel Speed Insights (real-user measurements)."
             value={lcpDisplay(speed)}
             sub={lcpStatus(speed)}
             last
@@ -184,8 +206,40 @@ function lcpStatus(speed: { lcp_p75_ms: number | null }[]): string {
 
 // ── components ───────────────────────────────────────────────────────
 
+// Small superscript "i" with a native-browser tooltip on hover. Plain
+// title-attribute is enough for an internal dashboard; if we ever want
+// a styled / mobile-friendly popover we can swap in @/components/ui/tooltip
+// (Radix), which would require this becoming a client component.
+function InfoMark({ tip }: { tip: string }) {
+  return (
+    <sup
+      title={tip}
+      aria-label={tip}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 12,
+        height: 12,
+        borderRadius: '50%',
+        border: '1px solid var(--ink-4)',
+        color: 'var(--ink-4)',
+        fontSize: 8,
+        fontWeight: 600,
+        lineHeight: 1,
+        cursor: 'help',
+        verticalAlign: 'top',
+        marginTop: 1,
+      }}
+    >
+      i
+    </sup>
+  );
+}
+
 function Stat({
   label,
+  info,
   value,
   delta,
   sub,
@@ -193,6 +247,7 @@ function Stat({
   last,
 }: {
   label: string;
+  info?: string;
   value: number | string;
   delta?: number | null;
   sub?: string;
@@ -206,7 +261,10 @@ function Stat({
 
   return (
     <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
+      <div className="eyebrow" style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        {info && <InfoMark tip={info} />}
+      </div>
       <div
         className="font-serif tabular-nums"
         style={{
