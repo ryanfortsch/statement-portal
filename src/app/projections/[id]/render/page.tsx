@@ -44,7 +44,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
         <SlideYear2 computed={c} footer={footerLabel} />
         <SlideServices footer={footerLabel} />
-        <SlideOwnerControl footer={footerLabel} />
+        <SlideOwnerControl projection={projection} computed={c} footer={footerLabel} />
         <SlideClose footer={footerLabel} />
         <SlideEndnotes footer={footerLabel} />
       </div>
@@ -466,7 +466,15 @@ function SlideLocal({ footer }: { footer: string }) {
   );
 }
 
-function SlideOwnerControl({ footer }: { footer: string }) {
+function SlideOwnerControl({
+  projection,
+  computed,
+  footer,
+}: {
+  projection: ProjectionRow;
+  computed: ProjectionComputed;
+  footer: string;
+}) {
   const items = [
     'Block dates and schedule owner stays via the Owner Portal',
     'Net payout deposited monthly via ACH',
@@ -489,7 +497,7 @@ function SlideOwnerControl({ footer }: { footer: string }) {
         </div>
         <div className="rt-owner-right">
           <div className="rt-eyebrow rt-stmt-eyebrow">Your monthly statement</div>
-          <StatementPreview />
+          <StatementPreview projection={projection} computed={computed} />
         </div>
       </div>
       <Footer label={footer} />
@@ -498,14 +506,72 @@ function SlideOwnerControl({ footer }: { footer: string }) {
 }
 
 /**
- * Mini owner statement that mirrors src/app/statements/render/page.tsx,
- * masthead, header row with logo + italic display title, addressee 3-cell,
- * hero payout with cents, two-column Reservations/Financials.
+ * Mini owner statement personalized to the prospect. The Owner Payout in
+ * the hero matches the prospect's projected Year 1 monthly net (an easter
+ * egg: refresh the deck, refresh the preview, the number you'll see on
+ * your real statement is the same number you see here). Revenue is worked
+ * back from that target so every line reconciles:
  *
- * No real data; the values are illustrative. The layout is what matters
- * (it's recognisably a Rising Tide owner statement).
+ *   target net = year1MonthlyAvg
+ *   cleaning   = 4 turns × per-turn (capped at $325, same as the model)
+ *   revenue    = (target net + cleaning) / (1 − mgmt fee %)
+ *   mgmt fee   = revenue × mgmt fee %
+ *
+ * Reservations are split across 4 stays (3+3+6+4 = 16 nights of 30) using
+ * fixed share percentages so the visual doesn't shift between properties.
+ * The last reservation absorbs the rounding remainder so individual rows
+ * sum exactly to the revenue line.
  */
-function StatementPreview() {
+function StatementPreview({
+  projection,
+  computed,
+}: {
+  projection: ProjectionRow;
+  computed: ProjectionComputed;
+}) {
+  const targetNet = computed.year1MonthlyAvg;
+  const mgmtFeePct = projection.mgmt_fee_pct;
+  const mgmtFeePctDisplay = Math.round(mgmtFeePct * 100);
+
+  // Cleaning: per-turn from the property's own settings, capped at the
+  // model's $325 ceiling, × 4 turns for an April month.
+  const perTurn = Math.min(
+    325,
+    projection.base_cleaning + Math.max(0, projection.bedrooms - 2) * projection.addl_cleaning_per_br,
+  );
+  const turnoverCount = 4;
+  const cleaning = perTurn * turnoverCount;
+
+  // Work back: revenue → mgmt → cleaning → target net.
+  const revenue = (targetNet + cleaning) / (1 - mgmtFeePct);
+  const mgmtFee = revenue * mgmtFeePct;
+
+  // Reservation distribution. Shares sum to 1.00. The last one absorbs
+  // the rounding remainder so amounts sum to revenue exactly.
+  const stays: { guest: string; dates: string; channel: string; share: number }[] = [
+    { guest: 'Sofia G.', dates: 'Apr 4 → 7',   channel: 'Vrbo',   share: 0.18 },
+    { guest: 'James K.', dates: 'Apr 11 → 14', channel: 'Airbnb', share: 0.20 },
+    { guest: 'Priya S.', dates: 'Apr 18 → 24', channel: 'Airbnb', share: 0.39 },
+    { guest: 'Mike R.',  dates: 'Apr 26 → 30', channel: 'Direct', share: 0.23 },
+  ];
+  const partial = stays.slice(0, -1).map((s) => Math.round(revenue * s.share * 100) / 100);
+  const last = Math.round((revenue - partial.reduce((a, b) => a + b, 0)) * 100) / 100;
+  const amounts = [...partial, last];
+
+  // Display helpers
+  const totalNights = 16;
+  const occupancy = Math.round((totalNights / 30) * 100);
+  const adr = Math.round(revenue / totalNights);
+  const f2 = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Hero net: split into whole dollars + cents superscript
+  const netWhole = Math.floor(targetNet);
+  const netCents = Math.round((targetNet - netWhole) * 100).toString().padStart(2, '0');
+
+  // Header-line property tag (uppercased city if present)
+  const propertyHeader = `${projection.property_address.toUpperCase()}${projection.property_city ? ` · ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`;
+  const propertyAddressee = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0]}` : ''}`;
+  const ownerName = projection.prospect_full_legal || projection.prospect_name;
+
   return (
     <div className="rt-stmt-card">
       {/* Masthead */}
@@ -522,7 +588,7 @@ function StatementPreview() {
         <div className="rt-stmt-headline">
           <div className="rt-stmt-kicker">April &middot; 2026</div>
           <div className="rt-stmt-display">April <em>Statement</em></div>
-          <div className="rt-stmt-display-sub">YOUR PROPERTY ADDRESS &middot; GLOUCESTER, MA</div>
+          <div className="rt-stmt-display-sub">{propertyHeader}</div>
         </div>
       </div>
 
@@ -530,13 +596,13 @@ function StatementPreview() {
       <div className="rt-stmt-addressee">
         <div>
           <div className="rt-stmt-cell-label">Prepared for</div>
-          <div className="rt-stmt-cell-val">The Owner Family</div>
-          <div className="rt-stmt-cell-sub">Property &middot; Gloucester, MA</div>
+          <div className="rt-stmt-cell-val">{ownerName}</div>
+          <div className="rt-stmt-cell-sub">{propertyAddressee}</div>
         </div>
         <div>
           <div className="rt-stmt-cell-label">Period</div>
           <div className="rt-stmt-cell-val">Apr 1 to Apr 30, 2026</div>
-          <div className="rt-stmt-cell-sub">30 days &middot; 16 nights booked</div>
+          <div className="rt-stmt-cell-sub">30 days &middot; {totalNights} nights booked</div>
         </div>
         <div>
           <div className="rt-stmt-cell-label">Issued &middot; Payout</div>
@@ -551,23 +617,23 @@ function StatementPreview() {
           <div className="rt-stmt-payout-label">Owner Payout</div>
           <div className="rt-stmt-payout-amt">
             <span className="rt-stmt-dollar">$</span>
-            <span>8,815</span>
-            <span className="rt-stmt-cents">.75</span>
+            <span>{netWhole.toLocaleString('en-US')}</span>
+            <span className="rt-stmt-cents">.{netCents}</span>
           </div>
         </div>
         <div className="rt-stmt-mini-grid">
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">Stays</div>
-            <div className="rt-stmt-mini-val">4</div>
+            <div className="rt-stmt-mini-val">{stays.length}</div>
           </div>
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">Nights</div>
-            <div className="rt-stmt-mini-val">16<span className="rt-stmt-mini-u">/30</span></div>
-            <div className="rt-stmt-mini-sub">53% occupancy</div>
+            <div className="rt-stmt-mini-val">{totalNights}<span className="rt-stmt-mini-u">/30</span></div>
+            <div className="rt-stmt-mini-sub">{occupancy}% occupancy</div>
           </div>
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">ADR</div>
-            <div className="rt-stmt-mini-val">$826</div>
+            <div className="rt-stmt-mini-val">${adr}</div>
           </div>
         </div>
       </div>
@@ -578,20 +644,15 @@ function StatementPreview() {
           <div className="rt-stmt-sec-head">
             <span className="rt-stmt-sec-num">01</span>
             <span className="rt-stmt-sec-title">Reservations</span>
-            <span className="rt-stmt-sec-meta">4 stays</span>
+            <span className="rt-stmt-sec-meta">{stays.length} stays</span>
           </div>
           <div className="rt-stmt-rows">
-            {[
-              ['Sofia G.', 'Apr 4 → 7', 'Vrbo', '$2,397'],
-              ['James K.', 'Apr 11 → 14', 'Airbnb', '$2,694'],
-              ['Priya S.', 'Apr 18 → 24', 'Airbnb', '$5,118'],
-              ['Mike R.', 'Apr 26 → 30', 'Direct', '$3,012'],
-            ].map(([guest, dates, ch, amt]) => (
-              <div key={guest} className="rt-stmt-row">
-                <span className="rt-stmt-guest">{guest}</span>
-                <span className="rt-stmt-dates">{dates}</span>
-                <span className="rt-stmt-channel" data-ch={ch}>{ch}</span>
-                <span className="rt-stmt-amt">{amt}</span>
+            {stays.map((s, i) => (
+              <div key={s.guest} className="rt-stmt-row">
+                <span className="rt-stmt-guest">{s.guest}</span>
+                <span className="rt-stmt-dates">{s.dates}</span>
+                <span className="rt-stmt-channel" data-ch={s.channel}>{s.channel}</span>
+                <span className="rt-stmt-amt">{f2(amounts[i])}</span>
               </div>
             ))}
           </div>
@@ -600,13 +661,13 @@ function StatementPreview() {
           <div className="rt-stmt-sec-head">
             <span className="rt-stmt-sec-num">02</span>
             <span className="rt-stmt-sec-title">Financials</span>
-            <span className="rt-stmt-sec-meta">Net $8,815.75</span>
+            <span className="rt-stmt-sec-meta">Net {f2(targetNet)}</span>
           </div>
           <div className="rt-stmt-rows">
-            <div className="rt-stmt-fin"><span>Rental Revenue</span><span>$13,221.00</span></div>
-            <div className="rt-stmt-fin"><span>Mgmt Fee <small>(25%)</small></span><span className="rt-stmt-neg">−$3,305.25</span></div>
-            <div className="rt-stmt-fin"><span>Cleaning <small>(4 turns)</small></span><span className="rt-stmt-neg">−$1,100.00</span></div>
-            <div className="rt-stmt-fin rt-stmt-fin-total"><span>Owner Payout</span><span>$8,815.75</span></div>
+            <div className="rt-stmt-fin"><span>Rental Revenue</span><span>{f2(revenue)}</span></div>
+            <div className="rt-stmt-fin"><span>Mgmt Fee <small>({mgmtFeePctDisplay}%)</small></span><span className="rt-stmt-neg">−{f2(mgmtFee)}</span></div>
+            <div className="rt-stmt-fin"><span>Cleaning <small>({turnoverCount} turns)</small></span><span className="rt-stmt-neg">−{f2(cleaning)}</span></div>
+            <div className="rt-stmt-fin rt-stmt-fin-total"><span>Owner Payout</span><span>{f2(targetNet)}</span></div>
           </div>
         </div>
       </div>
