@@ -294,7 +294,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
             {data.months.map((m) => (
               <Th key={m}>{fmtMonth(m)}</Th>
             ))}
-            <Th totals>Mgmt fee</Th>
+            <Th totals>FY total</Th>
           </tr>
         </thead>
         <tbody>
