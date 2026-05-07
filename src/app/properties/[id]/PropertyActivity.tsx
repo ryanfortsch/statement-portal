@@ -15,7 +15,7 @@ type ActivityKind =
   | 'property-contacted'
   | 'contact-touch';
 
-type ActivityEvent = {
+export type ActivityEvent = {
   at: string;             // ISO timestamp
   kind: ActivityKind;
   actor: string | null;   // email — rendered as displayName
@@ -65,8 +65,6 @@ const KIND_COLOR: Record<ActivityKind, string> = {
  */
 export async function PropertyActivity({ property }: Props) {
   const events = await loadActivity(property);
-  const visible = events.slice(0, 30);
-
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
@@ -74,21 +72,39 @@ export async function PropertyActivity({ property }: Props) {
           Activity
         </h2>
         <span className="eyebrow">
-          {events.length === 0 ? 'no activity' : `last ${visible.length} of ${events.length}`}
+          {events.length === 0 ? 'no activity' : `last ${Math.min(events.length, 30)} of ${events.length}`}
         </span>
       </div>
-      {events.length === 0 ? (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-          No activity recorded for this property yet.
-        </div>
-      ) : (
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {visible.map((e, i) => (
-            <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
-          ))}
-        </div>
-      )}
+      <PropertyActivityList events={events} />
     </section>
+  );
+}
+
+/** Loads the same event stream the full PropertyActivity component renders.
+ *  Exported so callers (e.g. the property page's CollapsibleSection wrapping)
+ *  can derive their own summary chip without doing the queries twice. */
+export async function loadPropertyActivity(property: HelmPropertyRow): Promise<ActivityEvent[]> {
+  return loadActivity(property);
+}
+
+/** Body-only renderer — no `<section>`, no header, no eyebrow chip. The
+ *  parent supplies the title (typically a CollapsibleSection summary line).
+ *  Caps display at the most recent 30 events. */
+export function PropertyActivityList({ events }: { events: ActivityEvent[] }) {
+  const visible = events.slice(0, 30);
+  if (events.length === 0) {
+    return (
+      <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+        No activity recorded for this property yet.
+      </div>
+    );
+  }
+  return (
+    <div>
+      {visible.map((e, i) => (
+        <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
+      ))}
+    </div>
   );
 }
 
