@@ -90,6 +90,12 @@ export function PropertyBackfillButton({ propertyId }: Props) {
             </div>
           )}
 
+          {result.sources.length > 0 && (
+            <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', lineHeight: 1.55 }}>
+              Pulled from: {result.sources.join('; ')}
+            </div>
+          )}
+
           {result.filled.length > 0 && (
             <>
               <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--positive)' }}>
