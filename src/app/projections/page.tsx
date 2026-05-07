@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { SyncGmailButton } from '@/components/projections/SyncGmailButton';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { ProjectionRow } from '@/lib/projections-types';
+import type { GmailTouchType, ProjectionRow } from '@/lib/projections-types';
 import { computeProjection, fmtMoneyRange } from '@/lib/projections-model';
 
 export const dynamic = 'force-dynamic';
@@ -49,7 +50,7 @@ export default async function ProjectionsPage() {
 
       {/* CTA */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
+        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
           <Link
             href="/projections/new"
             style={{
@@ -66,6 +67,11 @@ export default async function ProjectionsPage() {
           >
             New Prospect →
           </Link>
+          <SyncGmailButton />
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+            Sync scans Allie&rsquo;s sent folder for prospect emails and tags each row with the last deliverable seen.
+          </span>
         </div>
       </section>
 
@@ -120,6 +126,13 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   const computed = computeProjection(p);
   const range = fmtMoneyRange(computed.heroLow, computed.heroHigh);
   const sent = p.status === 'sent';
+  const touches = p.gmail_touches || {};
+  const touchTypes: GmailTouchType[] = ['projection', 'guide', 'contract', 'onboarding'];
+  const seen = touchTypes.filter((t) => touches[t]);
+  const latestTouch = seen
+    .map((t) => ({ type: t, at: touches[t]!.sent_at }))
+    .sort((a, b) => b.at.localeCompare(a.at))[0];
+
   return (
     <Link href={`/projections/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
       <div
@@ -128,7 +141,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           gridTemplateColumns: '64px 1fr auto auto',
           gap: 24,
           alignItems: 'baseline',
-          padding: '24px 0',
+          padding: '20px 0 18px',
           borderBottom: '1px solid var(--rule)',
         }}
       >
@@ -144,6 +157,13 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             {p.market ? ` · ${p.market}` : ''}
             {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
           </p>
+          {seen.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {seen.map((t) => (
+                <TouchBadge key={t} type={t} sentAt={touches[t]!.sent_at} />
+              ))}
+            </div>
+          )}
         </div>
         <span className="tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           {range}
@@ -154,13 +174,57 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             letterSpacing: '.22em',
             textTransform: 'uppercase',
             fontWeight: 500,
-            color: sent ? 'var(--positive)' : 'var(--ink-4)',
+            color: latestTouch ? 'var(--positive)' : sent ? 'var(--positive)' : 'var(--ink-4)',
             whiteSpace: 'nowrap',
+            textAlign: 'right',
           }}
         >
-          {sent ? 'Sent' : 'Draft'}
+          {latestTouch
+            ? `Last touch ${shortDate(latestTouch.at)}`
+            : sent
+              ? 'Marked sent'
+              : 'Draft'}
         </span>
       </div>
     </Link>
   );
+}
+
+const TOUCH_LABEL: Record<GmailTouchType, string> = {
+  projection: 'Projection',
+  guide: 'Guide',
+  contract: 'Contract',
+  onboarding: 'Onboarding',
+};
+
+function TouchBadge({ type, sentAt }: { type: GmailTouchType; sentAt: string }) {
+  return (
+    <span
+      title={`${TOUCH_LABEL[type]} sent ${new Date(sentAt).toLocaleString()}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 8px',
+        background: 'var(--paper-2)',
+        border: '1px solid var(--rule)',
+        fontSize: 10,
+        letterSpacing: '.06em',
+        color: 'var(--ink)',
+        fontWeight: 500,
+        borderRadius: 999,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--positive)' }} aria-hidden />
+      {TOUCH_LABEL[type]} · {shortDate(sentAt)}
+    </span>
+  );
+}
+
+function shortDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return iso.slice(0, 10);
+  }
 }
