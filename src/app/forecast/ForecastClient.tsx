@@ -504,85 +504,191 @@ function rcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
   };
 }
 
+type AssumptionItem = { label: string; value: string };
+type AssumptionSection = { heading: string; items: AssumptionItem[] };
+
 function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
-  const items2026: Array<{ label: string; value: string }> = [
-    { label: 'Current portfolio', value: '9 properties already managed (fees $18.7K-$44K/yr)' },
-    { label: 'Pre-signed', value: '5 contracts at $25K/yr — 2 May (incl. 79 Main St), 3 June (incl. 16 Waterman)' },
-    { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality, default 3 sprinkled Jul · Sep · Nov' },
-    { label: 'Office', value: '$750/mo rent from March + $50/mo dumpster (flat year-round)' },
-    { label: 'Software / SaaS', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
-    { label: 'MH Partners (bookkeeper)', value: '~$1K/mo Jan-Apr + $1,800 final wrap-up in May, then $0 (engagement ends)' },
-    { label: 'Insurance', value: 'Phillips $5,263.92 paid as a lump sum in March; $0 every other month' },
-    { label: 'Accounting', value: 'One-time MS Consultants $4,443 in April; $0 going forward' },
-    { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-    { label: 'Operating CC', value: '$5,900/mo baseline at 9 active properties, scales 0.5× elasticity to active count (doubling props adds +50%, not +100%)' },
-    { label: 'New hire', value: 'First hire $5,000/mo from August. Second hire ($5K/mo more) auto-triggers when active props ≥ 20.' },
-    { label: 'Onboarding', value: '$4,000 one-time per new contract, paid the start month' },
-    { label: 'Excludes', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, ATM/debit-card personal, federal/state taxes, capex, distributions' },
-  ];
-  const items2027: Array<{ label: string; value: string }> = [
-    { label: 'Active portfolio (Jan 1)', value: '14 properties full-year (9 original + 5 ex-presigned including 79 Main, 16 Waterman)' },
-    { label: 'New mandates', value: '$25K/yr each, default 3 sprinkled Mar · Jun · Sep' },
-    { label: 'Office', value: '$750/mo rent all year + $50/mo dumpster' },
-    { label: 'Software / SaaS', value: '$200/mo' },
-    { label: 'MH Partners (bookkeeper)', value: '$0 — engagement ended May 2026' },
-    { label: 'Insurance', value: 'Phillips ~$5,264 lump sum in March (annual renewal); $0 every other month' },
-    { label: 'Accounting', value: '$0 (no recurring engagement)' },
-    { label: 'Bank fees', value: '$100/mo' },
-    { label: 'Operating CC', value: '$5,900/mo baseline at 9 props, scales 0.5× with active count (driven by rolled-forward + presigned + new in 2027)' },
-    { label: 'Hire', value: '$5,000/mo all year ($60K) — Aug 2026 hire continues. Second hire auto-adds when active count ≥ 20.' },
-    { label: 'Onboarding', value: '$4,000 one-time per new contract' },
-    { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
-  ];
-  const items2028: Array<{ label: string; value: string }> = [
-    { label: 'Active portfolio (Jan 1)', value: '14 properties from 2027 baseline + everything added 2026/2027 rolled forward as full-year actives' },
-    { label: 'New mandates', value: '$25K/yr each, default 3 sprinkled Mar · Jun · Sep' },
-    { label: 'Office', value: '$750/mo rent all year + $50/mo dumpster' },
-    { label: 'Software / SaaS', value: '$200/mo' },
-    { label: 'MH Partners (bookkeeper)', value: '$0 — long retired' },
-    { label: 'Insurance', value: 'Phillips ~$5,264 lump in March' },
-    { label: 'Accounting', value: '$0' },
-    { label: 'Bank fees', value: '$100/mo' },
-    { label: 'Operating CC', value: '$5,900/mo baseline at 9 props, scales 0.5× with active count' },
-    { label: 'Hire', value: '$5,000/mo per hire. Second hire automatically active once portfolio ≥ 20.' },
-    { label: 'Onboarding', value: '$4,000 one-time per new contract' },
-    { label: 'Excludes', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions' },
-  ];
-  const items =
-    yearKey === 2026 ? items2026 :
-    yearKey === 2027 ? items2027 :
-    items2028;
+  const sections =
+    yearKey === 2026 ? sections2026 :
+    yearKey === 2027 ? sections2027 :
+    sections2028;
+
   return (
     <div
       style={{
         marginTop: 14,
         border: '1px solid var(--rule)',
         background: 'var(--paper)',
-        padding: '4px 0',
       }}
     >
-      {items.map((it, i) => (
-        <div
-          key={it.label}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '180px 1fr',
-            gap: 24,
-            padding: '10px 18px',
-            borderBottom: i === items.length - 1 ? 'none' : '1px dotted var(--rule)',
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
-        >
-          <span className="eyebrow" style={{ paddingTop: 2 }}>
-            {it.label}
-          </span>
-          <span style={{ color: 'var(--ink-2)' }}>{it.value}</span>
+      {sections.map((sec, si) => (
+        <div key={sec.heading}>
+          <div
+            style={{
+              padding: '10px 18px 6px',
+              fontSize: 10,
+              fontFamily: 'var(--font-inter), system-ui, sans-serif',
+              fontWeight: 600,
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              borderTop: si === 0 ? 'none' : '1px solid var(--rule)',
+              background: 'var(--paper-2)',
+            }}
+          >
+            {sec.heading}
+          </div>
+          {sec.items.map((it, i) => (
+            <div
+              key={it.label}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '200px 1fr',
+                gap: 24,
+                padding: '10px 18px',
+                borderBottom: i === sec.items.length - 1 ? 'none' : '1px dotted var(--rule)',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              <span className="eyebrow" style={{ paddingTop: 2 }}>
+                {it.label}
+              </span>
+              <span style={{ color: 'var(--ink-2)' }}>{it.value}</span>
+            </div>
+          ))}
         </div>
       ))}
     </div>
   );
 }
+
+const sections2026: AssumptionSection[] = [
+  {
+    heading: 'Portfolio',
+    items: [
+      { label: 'Current 9', value: 'Already managed as of Jan 2026 (annual fees $18.7K-$44K each)' },
+      { label: 'Pre-signed 5', value: '$25K/yr each. 2 onboard May (Pre-signed #1 + 79 Main), 3 onboard June (Pre-signed #2/#3 + 16 Waterman). Use seasonality projection until they appear in Guesty.' },
+      { label: 'New mandates', value: '$25K/yr each, Cape Ann seasonality. Default 3 sprinkled Jul · Sep · Nov via slider.' },
+    ],
+  },
+  {
+    heading: 'Recurring monthly',
+    items: [
+      { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
+      { label: 'Software', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
+      { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
+      { label: 'Operating CC', value: '$5,900/mo baseline at 9 active props. Scales 0.5× elasticity to active count.' },
+    ],
+  },
+  {
+    heading: 'Step changes & triggers',
+    items: [
+      { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
+      { label: 'May 2026', value: 'Pre-signed onboardings: 2 contracts × $4K = $8K spike. Bookkeeper final wrap-up payment $1,800 (above the regular $1K).' },
+      { label: 'Jun 2026', value: 'Pre-signed onboardings: 3 contracts × $4K = $12K spike. Bookkeeper drops to $0 (engagement ends).' },
+      { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
+      { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
+      { label: 'Each new month', value: '$4K onboarding charged. Property starts contributing revenue from that month forward.' },
+      { label: 'CC scaling per month', value: 'CC = $5,900 × (1 + 0.5 × (active_count − 9) / 9). Examples: 14 active = $7,539/mo, 17 active = $8,194/mo, 20 active = $9,506/mo.' },
+    ],
+  },
+  {
+    heading: 'Periodic & one-time',
+    items: [
+      { label: 'Mar 2026', value: 'Phillips Insurance annual lump sum: $5,263.92 paid 03/02. $0 in every other month.' },
+      { label: 'Apr 2026', value: 'MS Consultants one-time accounting engagement: $4,442.96 paid 04/15. Not recurring; $0 going forward.' },
+    ],
+  },
+  {
+    heading: 'Out of scope',
+    items: [
+      { label: 'Excluded', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare premium (paid from biz account but treated as personal), ATM/debit-card personal, federal/state taxes, capex, distributions.' },
+    ],
+  },
+];
+
+const sections2027: AssumptionSection[] = [
+  {
+    heading: 'Portfolio',
+    items: [
+      { label: 'Active (Jan 1)', value: '14 properties full-year: 9 original + 5 ex-presigned (incl. 79 Main, 16 Waterman) + however many new were added in 2026, all rolled forward as $25K/yr CA contracts.' },
+      { label: 'New mandates', value: '$25K/yr each. Default 3 sprinkled Mar · Jun · Sep via slider.' },
+    ],
+  },
+  {
+    heading: 'Recurring monthly',
+    items: [
+      { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
+      { label: 'Software', value: '$200/mo' },
+      { label: 'Bank fees', value: '$100/mo' },
+      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count.' },
+      { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
+    ],
+  },
+  {
+    heading: 'Step changes & triggers',
+    items: [
+      { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
+      { label: 'Each new month', value: '$4K onboarding charged. Adds to active count and bumps CC line.' },
+      { label: 'CC scaling per month', value: '$5,900 × (1 + 0.5 × (active − 9) / 9). With 17-20+ active properties most of the year, CC runs $8K-$10K/mo.' },
+    ],
+  },
+  {
+    heading: 'Periodic & wind-down',
+    items: [
+      { label: 'Mar 2027', value: 'Phillips Insurance lump renewal (~$5,264, same as 2026 assumption).' },
+      { label: 'Bookkeeper', value: '$0 — engagement ended May 2026.' },
+      { label: 'Accounting', value: '$0 — MS Consultants was a one-time engagement.' },
+    ],
+  },
+  {
+    heading: 'Out of scope',
+    items: [
+      { label: 'Excluded', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions.' },
+    ],
+  },
+];
+
+const sections2028: AssumptionSection[] = [
+  {
+    heading: 'Portfolio',
+    items: [
+      { label: 'Active (Jan 1)', value: '14 baseline properties + everything added in 2026 + everything added in 2027, all rolled forward as full-year $25K/yr CA contracts.' },
+      { label: 'New mandates', value: '$25K/yr each. Default 3 sprinkled Mar · Jun · Sep via slider.' },
+    ],
+  },
+  {
+    heading: 'Recurring monthly',
+    items: [
+      { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
+      { label: 'Software', value: '$200/mo' },
+      { label: 'Bank fees', value: '$100/mo' },
+      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count. Likely $9K-$11K/mo at this portfolio size.' },
+      { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
+    ],
+  },
+  {
+    heading: 'Step changes & triggers',
+    items: [
+      { label: 'Each new month', value: '$4K onboarding charged.' },
+      { label: 'CC scaling per month', value: 'Continuous: $5,900 × (1 + 0.5 × (active − 9) / 9).' },
+    ],
+  },
+  {
+    heading: 'Periodic',
+    items: [
+      { label: 'Mar 2028', value: 'Phillips Insurance lump renewal (~$5,264).' },
+      { label: 'Bookkeeper / Accounting', value: '$0' },
+    ],
+  },
+  {
+    heading: 'Out of scope',
+    items: [
+      { label: 'Excluded', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions.' },
+    ],
+  },
+];
 
 /* ---------------------------------------------------------------- Control */
 

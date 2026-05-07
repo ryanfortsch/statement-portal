@@ -131,18 +131,19 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-info-glyph:hover { color: var(--signal); }
 .rt-info-pop {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: -8px;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
   background: var(--ink);
   color: var(--paper);
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 11px;
   font-weight: 400;
   font-style: normal;
   letter-spacing: 0;
   text-transform: none;
-  line-height: 1.45;
-  width: 280px;
+  line-height: 1.5;
+  width: 320px;
   border-radius: 2px;
   visibility: hidden;
   opacity: 0;
@@ -152,14 +153,16 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   font-family: var(--font-inter), system-ui, sans-serif;
+  white-space: normal;
 }
 .rt-info-pop::after {
   content: '';
   position: absolute;
-  top: 100%;
-  left: 12px;
+  top: 50%;
+  right: 100%;
+  transform: translateY(-50%);
   border: 5px solid transparent;
-  border-top-color: var(--ink);
+  border-right-color: var(--ink);
 }
 .rt-info-icon:hover .rt-info-pop,
 .rt-info-icon:focus-within .rt-info-pop {
