@@ -50,6 +50,10 @@ export type ProjectionRow = {
   apply_ramp: boolean;             // when false (the new norm), full seasonality from Jan
   presentation_month: string;
 
+  // Drive time (minutes) from Rising Tide HQ to the prospect's property.
+  // Personalizes the Cape Ann slide; falls back to 10 when null.
+  drive_time_minutes: number | null;
+
   status: 'draft' | 'sent';
   sent_at: string | null;
 

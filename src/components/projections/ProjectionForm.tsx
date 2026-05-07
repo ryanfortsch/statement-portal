@@ -171,12 +171,24 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
       {/* ─── Presentation ──────────────────────────────────────────────────── */}
       <Section eyebrow="02" title="Presentation">
         <Row>
-          <Field label="Presentation month" required hint="Cover page date — e.g. March 2026">
+          <Field label="Presentation month" required hint="Cover page date, e.g. March 2026">
             <input
               name="presentation_month"
               required
               type="month"
               defaultValue={v.presentation_month ?? DEFAULT_PRESENTATION_MONTH}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Drive time from HQ (min)" hint="From 85 Eastern Ave, Gloucester. Look up on Google Maps. Leave blank for the default ~10 min.">
+            <input
+              name="drive_time_minutes"
+              type="number"
+              min={0}
+              max={120}
+              step={1}
+              defaultValue={v.drive_time_minutes ?? ''}
+              placeholder="10"
               style={inputStyle}
             />
           </Field>
