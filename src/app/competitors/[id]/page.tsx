@@ -4,7 +4,10 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, summarizeCompetitor, computeAddressCoverage, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
+import { getRecentCompetitorEvents, getLastSyncAt } from '@/lib/competitors/events';
 import { CompetitorInventory } from '@/components/competitors/CompetitorInventory';
+import { SyncNowButton } from '@/components/competitors/SyncNowButton';
+import { RecentChanges } from '@/components/competitors/RecentChanges';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,6 +19,10 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
 
   const summary = summarizeCompetitor(competitor.meta, competitor.listings);
   const coverage = computeAddressCoverage(competitor.listings);
+  const [events, lastSyncAt] = await Promise.all([
+    getRecentCompetitorEvents(competitor.meta.id),
+    getLastSyncAt(competitor.meta.id),
+  ]);
   const matchedPct = coverage.total > 0
     ? Math.round(((coverage.high + coverage.medium + coverage.low) / coverage.total) * 100)
     : 0;
@@ -129,10 +136,18 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
         />
       </section>
 
-      {/* LINK OUT */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      {/* LINK OUT + SYNC */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <ExternalChip href={competitor.meta.listingsUrl} label="Browse listings →" />
         <ExternalChip href={competitor.meta.homepage} label="Their homepage →" />
+        <span style={{ marginLeft: 'auto' }}>
+          <SyncNowButton />
+        </span>
+      </section>
+
+      {/* RECENT CHANGES */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+        <RecentChanges events={events} lastSyncAt={lastSyncAt} />
       </section>
 
       {/* INVENTORY (client, filterable) */}
