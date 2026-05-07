@@ -166,7 +166,9 @@ export function CompetitorInventory({ listings, cities }: Props) {
           >
             <span className="font-serif" style={{ fontSize: 16, color: 'var(--ink)' }}>{l.name}</span>
             <span style={{ color: 'var(--ink-3)' }}>{l.city}</span>
-            <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{l.bedrooms}</span>
+            <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>
+              {l.bedrooms === 0 ? <span style={{ fontSize: 11, letterSpacing: '.04em' }}>STD</span> : l.bedrooms}
+            </span>
             <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{formatBath(l.bathrooms)}</span>
             <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{l.maxGuests}</span>
             <span style={{ textAlign: 'center' }}>

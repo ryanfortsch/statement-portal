@@ -3,12 +3,12 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { getCompetitor, summarizeCompetitor, type CompetitorId } from '@/lib/competitors';
+import { getCompetitor, summarizeCompetitor, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
 import { CompetitorInventory } from '@/components/competitors/CompetitorInventory';
 
 export const dynamic = 'force-static';
 
-const KNOWN_IDS: CompetitorId[] = ['atlantic-vacation-homes'];
+const KNOWN_IDS: CompetitorId[] = ['atlantic-vacation-homes', 'shoreway-management'];
 
 export function generateStaticParams() {
   return KNOWN_IDS.map((id) => ({ id }));
@@ -87,7 +87,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
         <Breakdown
           title="By bedroom count"
           rows={summary.bedroomBreakdown.map((b) => ({
-            label: `${b.bedrooms} BR`,
+            label: formatBedroomLabel(b.bedrooms),
             count: b.count,
             pct: (b.count / summary.totalListings) * 100,
           }))}
@@ -96,7 +96,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
 
       {/* LINK OUT */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        <ExternalChip href={competitor.meta.listingsUrl} label="Browse on AVH →" />
+        <ExternalChip href={competitor.meta.listingsUrl} label="Browse listings →" />
         <ExternalChip href={competitor.meta.homepage} label="Their homepage →" />
       </section>
 

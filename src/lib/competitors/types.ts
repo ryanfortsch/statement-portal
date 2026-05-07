@@ -11,7 +11,7 @@
  * stay in sync without manual updates.
  */
 
-export type CompetitorId = 'atlantic-vacation-homes';
+export type CompetitorId = 'atlantic-vacation-homes' | 'shoreway-management';
 
 export type CompetitorListing = {
   /** Stable slug taken from the competitor's site, used as the primary key. */
@@ -21,6 +21,7 @@ export type CompetitorListing = {
   /** Town/city. We use the competitor's own classification (so AVH's
    *  "Manchester-by-the-Sea" stays as-is rather than getting normalized). */
   city: string;
+  /** Number of bedrooms. 0 = studio. */
   bedrooms: number;
   /** Half baths are common on the North Shore, so this is a number with a
    *  half step (e.g. 2.5). */
