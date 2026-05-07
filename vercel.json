@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/marketing-sync", "schedule": "0 5 * * *" },
-    { "path": "/api/cron/sync-gmail-replies", "schedule": "0 * * * *" }
+    { "path": "/api/cron/sync-gmail-replies", "schedule": "0 * * * *" },
+    { "path": "/api/cron/sync-guesty", "schedule": "30 4 * * *" }
   ]
 }
