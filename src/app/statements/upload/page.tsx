@@ -733,7 +733,7 @@ export default function UploadPage() {
                   >
                     <option value="">Select property…</option>
                     {PROPERTIES.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} — {p.owner} ({p.location})</option>
+                      <option key={p.id} value={p.id}>{p.name} · {p.owner} ({p.location})</option>
                     ))}
                   </select>
                 </div>

@@ -687,7 +687,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 }
 
 /* ────────────────────────────────────────────────
-   CSS — copied verbatim from the Claude Design HTML
+   CSS, copied verbatim from the Claude Design HTML
    ──────────────────────────────────────────────── */
 const CSS = `
 :root {
@@ -861,7 +861,7 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 }
 .download-chip:hover { transform:translateY(-1px); box-shadow:0 14px 30px -8px rgba(30,46,52,.35); }
 
-/* PRINT — compact the layout so dense statements (many reservations or
+/* PRINT: compact the layout so dense statements (many reservations or
    cleaning events) still land on one page. Adjustments only trigger in
    print/PDF output; the on-screen editorial feel stays unchanged. */
 @media print {
