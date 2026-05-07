@@ -109,6 +109,17 @@ export async function listRecentSyncRuns(limit = 50): Promise<IcalSyncRun[]> {
   return (data ?? []) as IcalSyncRun[];
 }
 
+export async function listOpenInquiries(): Promise<Booking[]> {
+  if (!isConfigured) return [];
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('status', 'inquiry')
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return (data ?? []) as Booking[];
+}
+
 export type BookingConflict = {
   property_id: string;
   a: Booking;

@@ -9,9 +9,10 @@ import {
   listUpcomingBookings,
   listRecentSyncRuns,
   findBookingConflicts,
+  listOpenInquiries,
   type BookingConflict,
 } from '@/lib/channels';
-import { CHANNEL_LABELS } from '@/lib/channels-types';
+import { CHANNEL_LABELS, type Booking } from '@/lib/channels-types';
 import { PROPERTIES } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,7 @@ export default async function ChannelsPage({
   const upcoming = await safeUpcoming();
   const recentRuns = await safeRuns();
   const conflicts = await safeConflicts();
+  const inquiries = await safeInquiries();
   const dbReady = stats.dbReady;
 
   return (
@@ -60,6 +62,7 @@ export default async function ChannelsPage({
           )}
           <StatsStrip stats={stats} />
           <ActionsBar listingsCount={listings.length} />
+          {inquiries.length > 0 && <InquiriesBlock inquiries={inquiries} />}
           {conflicts.length > 0 && <ConflictsBlock conflicts={conflicts} />}
           <CoverageGrid listings={listings} />
           <UpcomingBlock bookings={upcoming} />
@@ -118,6 +121,14 @@ async function safeRuns() {
 async function safeConflicts() {
   try {
     return await findBookingConflicts(365);
+  } catch {
+    return [];
+  }
+}
+
+async function safeInquiries() {
+  try {
+    return await listOpenInquiries();
   } catch {
     return [];
   }
@@ -383,6 +394,49 @@ function UpcomingBlock({ bookings }: { bookings: Array<{ id: string; property_id
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function InquiriesBlock({ inquiries }: { inquiries: Booking[] }) {
+  return (
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--signal)' }}>
+        Direct inquiries · {inquiries.length} pending
+      </div>
+      <div style={{ borderTop: '2px solid var(--signal)', borderBottom: '1px solid var(--rule)' }}>
+        {inquiries.slice(0, 8).map((b, i) => {
+          const p = PROPERTIES[b.property_id];
+          return (
+            <div
+              key={b.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '110px 1fr 1fr 1fr 90px',
+                gap: 12,
+                padding: '14px 0',
+                alignItems: 'baseline',
+                borderBottom: i === inquiries.length - 1 ? 'none' : '1px solid var(--rule)',
+              }}
+            >
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{b.check_in}</span>
+              <Link href={`/channels/${b.property_id}`} className="font-serif" style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'none' }}>
+                {p?.name ?? b.property_id}
+              </Link>
+              <span style={{ fontSize: 13, color: 'var(--ink)' }}>{b.guest_name ?? '—'}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {b.guest_email ?? ''}{b.guest_phone ? ` · ${b.guest_phone}` : ''}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'right' }}>{b.nights ?? '—'} nts</span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, maxWidth: 720 }}>
+        Inquiries land here as <code className="font-mono" style={{ background: 'var(--paper-2)', padding: '1px 6px' }}>status=inquiry</code>{' '}
+        and don&apos;t block dates yet. Reply to the guest, then promote the row to <em>confirmed</em> or <em>cancelled</em> in
+        the bookings list.
+      </p>
     </section>
   );
 }

@@ -70,6 +70,7 @@ export default async function ChannelsPropertyPage({
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/channels" style={ghostButton}>← Back to Channels</Link>
           <Link href={`/properties/${propertyId}`} style={ghostButton}>Open in Properties →</Link>
+          <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
           <span style={{ flex: 1 }} />
           <Link href={`/channels/bookings/new?property=${propertyId}`} style={primaryButton}>+ Booking</Link>
           <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={secondaryButton}>+ Block</Link>
