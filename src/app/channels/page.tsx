@@ -13,6 +13,7 @@ import {
   type BookingConflict,
 } from '@/lib/channels';
 import { CHANNEL_LABELS, type Booking } from '@/lib/channels-types';
+import { setBookingStatus } from './inquiry-actions';
 import { PROPERTIES } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
@@ -412,14 +413,16 @@ function InquiriesBlock({ inquiries }: { inquiries: Booking[] }) {
               key={b.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '110px 1fr 1fr 1fr 90px',
+                gridTemplateColumns: '110px 1fr 1fr 1fr auto',
                 gap: 12,
                 padding: '14px 0',
                 alignItems: 'baseline',
                 borderBottom: i === inquiries.length - 1 ? 'none' : '1px solid var(--rule)',
               }}
             >
-              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{b.check_in}</span>
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                {b.check_in} → {b.check_out}
+              </span>
               <Link href={`/channels/${b.property_id}`} className="font-serif" style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'none' }}>
                 {p?.name ?? b.property_id}
               </Link>
@@ -427,19 +430,54 @@ function InquiriesBlock({ inquiries }: { inquiries: Booking[] }) {
               <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                 {b.guest_email ?? ''}{b.guest_phone ? ` · ${b.guest_phone}` : ''}
               </span>
-              <span style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'right' }}>{b.nights ?? '—'} nts</span>
+              <span style={{ display: 'inline-flex', gap: 6 }}>
+                <form action={setBookingStatus}>
+                  <input type="hidden" name="id" value={b.id} />
+                  <input type="hidden" name="status" value="confirmed" />
+                  <button type="submit" title="Confirm this booking" style={chipPrimary}>Confirm</button>
+                </form>
+                <form action={setBookingStatus}>
+                  <input type="hidden" name="id" value={b.id} />
+                  <input type="hidden" name="status" value="cancelled" />
+                  <button type="submit" title="Decline / cancel this inquiry" style={chipGhost}>Decline</button>
+                </form>
+              </span>
             </div>
           );
         })}
       </div>
       <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, maxWidth: 720 }}>
         Inquiries land here as <code className="font-mono" style={{ background: 'var(--paper-2)', padding: '1px 6px' }}>status=inquiry</code>{' '}
-        and don&apos;t block dates yet. Reply to the guest, then promote the row to <em>confirmed</em> or <em>cancelled</em> in
-        the bookings list.
+        and don&apos;t block dates until confirmed. Reply to the guest first, then promote — the email goes to Allie + Ryan
+        automatically when the inquiry comes in.
       </p>
     </section>
   );
 }
+
+const chipPrimary: React.CSSProperties = {
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  fontSize: 10,
+  letterSpacing: '.12em',
+  textTransform: 'uppercase',
+  fontWeight: 600,
+  padding: '6px 12px',
+  border: 'none',
+  cursor: 'pointer',
+};
+
+const chipGhost: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink-3)',
+  fontSize: 10,
+  letterSpacing: '.12em',
+  textTransform: 'uppercase',
+  fontWeight: 600,
+  padding: '5px 11px',
+  border: '1px solid var(--rule)',
+  cursor: 'pointer',
+};
 
 function ConflictsBlock({ conflicts }: { conflicts: BookingConflict[] }) {
   return (

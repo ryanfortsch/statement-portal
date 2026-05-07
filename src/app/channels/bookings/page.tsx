@@ -152,29 +152,34 @@ function BookingsTable({ bookings }: { bookings: Booking[] }) {
         const p = PROPERTIES[b.property_id];
         const isCancelled = b.status === 'cancelled';
         return (
-          <div
+          <Link
             key={b.id}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '110px 1fr 110px 1fr 90px 80px 90px',
-              gap: 12,
-              padding: '12px 0',
-              alignItems: 'baseline',
-              borderBottom: '1px solid var(--rule)',
-              opacity: isCancelled ? 0.45 : 1,
-              textDecoration: isCancelled ? 'line-through' : 'none',
-            }}
+            href={`/channels/bookings/${b.id}`}
+            style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
           >
-            <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{b.check_in}</span>
-            <Link href={`/channels/${b.property_id}`} style={{ fontSize: 13, textDecoration: 'none', color: 'var(--ink)' }}>{p?.name ?? b.property_id}</Link>
-            <span style={{ fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</span>
-            <span style={{ fontSize: 13 }}>{b.guest_name ?? <em style={{ color: 'var(--ink-4)' }}>not in feed</em>}</span>
-            <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right' }}>{b.nights ?? '—'}</span>
-            <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout ? `$${Math.round(b.payout)}` : '—'}</span>
-            <span style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', textAlign: 'right', color: isCancelled ? 'var(--negative)' : 'var(--ink-3)' }}>
-              {STATUS_LABELS[b.status]}
-            </span>
-          </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '110px 1fr 110px 1fr 90px 80px 90px',
+                gap: 12,
+                padding: '12px 0',
+                alignItems: 'baseline',
+                borderBottom: '1px solid var(--rule)',
+                opacity: isCancelled ? 0.45 : 1,
+                textDecoration: isCancelled ? 'line-through' : 'none',
+              }}
+            >
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{b.check_in}</span>
+              <span style={{ fontSize: 13 }}>{p?.name ?? b.property_id}</span>
+              <span style={{ fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</span>
+              <span style={{ fontSize: 13 }}>{b.guest_name ?? <em style={{ color: 'var(--ink-4)' }}>not in feed</em>}</span>
+              <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right' }}>{b.nights ?? '—'}</span>
+              <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout ? `$${Math.round(b.payout)}` : '—'}</span>
+              <span style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', textAlign: 'right', color: isCancelled ? 'var(--negative)' : 'var(--ink-3)' }}>
+                {STATUS_LABELS[b.status]}
+              </span>
+            </div>
+          </Link>
         );
       })}
     </div>
