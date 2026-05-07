@@ -42,7 +42,7 @@ export async function createManualBooking(formData: FormData) {
   const sb = getSb();
   const nights = nightsBetween(checkIn, checkOut);
 
-  const { data, error } = await sb
+  const { error } = await sb
     .from('bookings')
     .insert({
       property_id: propertyId,
@@ -60,9 +60,7 @@ export async function createManualBooking(formData: FormData) {
       cleaning_fee: cleaningFee,
       payout,
       notes,
-    })
-    .select('id')
-    .maybeSingle();
+    });
 
   if (error) throw new Error(error.message);
 

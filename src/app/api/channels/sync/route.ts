@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 }
 
 /** GET form so curl/manual debugging is easy. Returns JSON. */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const result = await syncAllListings({});
     return NextResponse.json({ ok: true, ...result });

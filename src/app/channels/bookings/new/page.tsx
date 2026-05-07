@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { PROPERTIES } from '@/lib/properties';
-import { CHANNEL_LABELS, BOOKING_CHANNELS, type BookingChannel } from '@/lib/channels-types';
+import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { createManualBooking } from './actions';
 
 export const dynamic = 'force-dynamic';

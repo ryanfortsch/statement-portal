@@ -50,7 +50,6 @@ export default async function ChannelsCalendarPage({
   }
 
   const properties = Object.values(PROPERTIES);
-  const startIso = startDate.toISOString().slice(0, 10);
   const prevStart = addDays(startDate, -DAYS_SHOWN).toISOString().slice(0, 10);
   const nextStart = addDays(startDate, DAYS_SHOWN).toISOString().slice(0, 10);
 
@@ -87,7 +86,7 @@ export default async function ChannelsCalendarPage({
 
       <section className="max-w-[1400px] mx-auto" style={{ width: '100%', paddingBottom: 80, paddingLeft: 24, paddingRight: 24 }}>
         <Legend />
-        <CalendarGrid days={days} properties={properties} byProperty={byProperty} startIso={startIso} />
+        <CalendarGrid days={days} properties={properties} byProperty={byProperty} />
       </section>
 
       <HelmFooter module="Channels · Calendar" right={`${bookings.length} stays in window`} />
@@ -99,12 +98,10 @@ function CalendarGrid({
   days,
   properties,
   byProperty,
-  startIso,
 }: {
   days: Date[];
   properties: Array<{ id: string; name: string; owner_last: string }>;
   byProperty: Map<string, Booking[]>;
-  startIso: string;
 }) {
   const cellWidth = 18; // px per day
   const labelWidth = 140;
@@ -170,7 +167,6 @@ function CalendarGrid({
           bookings={byProperty.get(p.id) ?? []}
           cellWidth={cellWidth}
           labelWidth={labelWidth}
-          startIso={startIso}
         />
       ))}
     </div>
@@ -183,14 +179,12 @@ function PropertyRow({
   bookings,
   cellWidth,
   labelWidth,
-  startIso,
 }: {
   property: { id: string; name: string; owner_last: string };
   days: Date[];
   bookings: Booking[];
   cellWidth: number;
   labelWidth: number;
-  startIso: string;
 }) {
   return (
     <div

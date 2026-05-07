@@ -25,8 +25,9 @@ export default async function ChannelsBookingsPage({
   const channel = sp.channel || undefined;
   const range = sp.range || 'upcoming';
 
-  const today = new Date().toISOString().slice(0, 10);
-  const past30 = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const past30 = new Date(now.getTime() - 30 * 86400_000).toISOString().slice(0, 10);
 
   const fromDate = range === 'upcoming' ? today : range === 'past_30' ? past30 : undefined;
   const toDate = undefined;
