@@ -24,7 +24,7 @@ import {
   guestyGet,
   GuestyNotFound,
 } from './guesty-client';
-import { isProxyEmail, type AudienceStatus } from './audience-types';
+import { isProxyEmail, type GuestStatus } from './guests-types';
 
 let _sb: SupabaseClient | null = null;
 function sb(): SupabaseClient {
@@ -69,7 +69,7 @@ export type GuestSyncResult = {
 
 const DEFAULT_LOOKBACK_DAYS = 730;
 
-export async function syncGuestyGuestsToAudience(
+export async function syncGuestyGuestsToList(
   options: { sinceCheckOut?: string; maxGuests?: number } = {},
 ): Promise<GuestSyncResult> {
   const t0 = Date.now();
@@ -159,9 +159,9 @@ export async function syncGuestyGuestsToAudience(
     else if (upsertResult === 'updated') updated++;
   }
 
-  // Log to sync_status so /audience can show "last synced X minutes ago".
+  // Log to sync_status so /guests can show "last synced X minutes ago".
   await sb().from('sync_status').upsert({
-    source: 'guesty-audience',
+    source: 'guesty-guests',
     last_synced_at: new Date().toISOString(),
     last_result: {
       reservations_scanned: reservations.length,
@@ -175,7 +175,7 @@ export async function syncGuestyGuestsToAudience(
     },
   });
 
-  // Audit event so the /audience timeline shows the import.
+  // Audit event so the /guests timeline shows the import.
   await sb().from('audience_events').insert({
     event_type: 'imported',
     metadata: {
@@ -261,7 +261,7 @@ async function upsertContact(args: {
       email,
       first_name: firstName,
       last_name: lastName,
-      status: 'subscribed' as AudienceStatus,
+      status: 'subscribed' as GuestStatus,
       subscribed_at: new Date().toISOString(),
       source: 'guesty_post_stay',
       source_detail: `Guesty guest ${guestyGuestId}`,
@@ -269,7 +269,7 @@ async function upsertContact(args: {
       marketing_consent: true,
     });
     if (error) {
-      console.error('[audience-guesty-sync] insert failed', email, error);
+      console.error('[guests-guesty-sync] insert failed', email, error);
       return 'noop';
     }
     return 'inserted';
@@ -288,7 +288,7 @@ async function upsertContact(args: {
 
   const { error } = await sb().from('audience_contacts').update(updates).eq('id', existing.id);
   if (error) {
-    console.error('[audience-guesty-sync] update failed', email, error);
+    console.error('[guests-guesty-sync] update failed', email, error);
     return 'noop';
   }
   return 'updated';
@@ -301,7 +301,7 @@ export async function getLastGuestySyncStatus(): Promise<{
   const { data } = await sb()
     .from('sync_status')
     .select('last_synced_at, last_result')
-    .eq('source', 'guesty-audience')
+    .eq('source', 'guesty-guests')
     .maybeSingle();
   return {
     last_synced_at: data?.last_synced_at ?? null,

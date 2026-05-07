@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { listSegments } from '@/lib/audience';
+import { listSegments } from '@/lib/guests';
 import {
   getCampaign,
   getSegment,
   resolveSegmentRecipients,
-} from '@/lib/audience-campaigns';
+} from '@/lib/guests-campaigns';
 import { renderEmail } from '@/lib/email-render';
 import {
   updateDraftCampaign,
@@ -52,11 +52,11 @@ export default async function CampaignDetailPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="audience" />
+      <HelmMasthead current="guests" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 48, paddingBottom: 24, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/audience/campaigns" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Campaigns</Link>
+          <Link href="/guests/campaigns" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Campaigns</Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
           <h1 className="font-serif" style={{
@@ -273,7 +273,7 @@ export default async function CampaignDetailPage({
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Audience &middot; Campaign</span>
+          <span>Rising Tide &middot; Guests &middot; Campaign</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             id: {campaign.id.slice(0, 8)}
           </span>

@@ -5,13 +5,13 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import { renderEmail } from '@/lib/email-render';
-import { unsubscribeUrl } from '@/lib/audience-unsubscribe-token';
+import { unsubscribeUrl } from '@/lib/guests-unsubscribe-token';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import {
   getCampaign,
   getSegment,
   resolveSegmentRecipients,
-} from '@/lib/audience-campaigns';
+} from '@/lib/guests-campaigns';
 
 const FROM_NAME_DEFAULT = 'Rising Tide';
 const FROM_EMAIL_DEFAULT = process.env.RESEND_FROM_EMAIL || 'hello@staycapeann.com';
@@ -49,8 +49,8 @@ export async function createDraftCampaign(formData: FormData): Promise<void> {
 
   if (error || !data) throw new Error(error?.message || 'Failed to create campaign');
 
-  revalidatePath('/audience/campaigns');
-  redirect(`/audience/campaigns/${data.id}`);
+  revalidatePath('/guests/campaigns');
+  redirect(`/guests/campaigns/${data.id}`);
 }
 
 /**
@@ -86,7 +86,7 @@ export async function updateDraftCampaign(formData: FormData): Promise<void> {
     .eq('id', id);
   if (error) throw new Error(error.message);
 
-  revalidatePath(`/audience/campaigns/${id}`);
+  revalidatePath(`/guests/campaigns/${id}`);
 }
 
 /**
@@ -141,7 +141,7 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
     metadata: { test: true, to: session.user.email },
   });
 
-  revalidatePath(`/audience/campaigns/${id}`);
+  revalidatePath(`/guests/campaigns/${id}`);
 }
 
 /**
@@ -250,6 +250,6 @@ export async function sendCampaign(formData: FormData): Promise<void> {
     })
     .eq('id', id);
 
-  revalidatePath('/audience/campaigns');
-  revalidatePath(`/audience/campaigns/${id}`);
+  revalidatePath('/guests/campaigns');
+  revalidatePath(`/guests/campaigns/${id}`);
 }

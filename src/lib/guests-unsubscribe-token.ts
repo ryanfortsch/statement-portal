@@ -2,7 +2,7 @@
  * One-click unsubscribe tokens.
  *
  * Each campaign send embeds a per-contact URL like:
- *   https://statements.risingtidestr.com/api/audience/unsubscribe?t=<token>
+ *   https://statements.risingtidestr.com/api/guests/unsubscribe?t=<token>
  *
  * The token is a base64url-encoded JSON payload + HMAC-SHA256 signature.
  * Payload: { contact_id, campaign_id?, exp }. Signature scoped by
@@ -88,5 +88,5 @@ export function unsubscribeUrl(
     process.env.NEXT_PUBLIC_SITE_URL ||
     'https://statements.risingtidestr.com';
   const t = createUnsubscribeToken(contactId, campaignId);
-  return `${base}/api/audience/unsubscribe?t=${encodeURIComponent(t)}`;
+  return `${base}/api/guests/unsubscribe?t=${encodeURIComponent(t)}`;
 }

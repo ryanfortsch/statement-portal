@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { syncGuestyGuestsToAudience } from '@/lib/audience-guesty-sync';
+import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -20,10 +20,10 @@ export async function POST() {
   }
 
   try {
-    const result = await syncGuestyGuestsToAudience();
+    const result = await syncGuestyGuestsToList();
     return NextResponse.json({ ok: true, result });
   } catch (err) {
-    console.error('[audience/sync-guesty] failed', err);
+    console.error('[guests/sync-guesty] failed', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

@@ -7,7 +7,7 @@ import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import { isProxyEmail, type GuestStatus } from '@/lib/guests-types';
 import { pushContactToResend, unsubscribeContactInResend } from '@/lib/resend';
-import { syncGuestyGuestsToAudience } from '@/lib/audience-guesty-sync';
+import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
 
 type ImportRow = {
   email: string;
@@ -232,7 +232,7 @@ export async function syncFromGuesty(): Promise<void> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const result = await syncGuestyGuestsToAudience();
+  const result = await syncGuestyGuestsToList();
 
   await supabase.from('audience_events').insert({
     event_type: 'imported',

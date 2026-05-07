@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { syncGuestyGuestsToAudience } from '@/lib/audience-guesty-sync';
+import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -23,10 +23,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await syncGuestyGuestsToAudience();
+    const result = await syncGuestyGuestsToList();
     return NextResponse.json({ ok: true, result });
   } catch (err) {
-    console.error('[cron/audience-guesty-sync] failed', err);
+    console.error('[cron/guests-guesty-sync] failed', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

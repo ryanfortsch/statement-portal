@@ -8,24 +8,24 @@
  */
 
 import { supabase } from './supabase';
-import type { AudienceCampaign, AudienceContact, AudienceSegment } from './audience-types';
+import type { GuestCampaign, GuestContact, GuestSegment } from './guests-types';
 
-export async function getCampaign(id: string): Promise<AudienceCampaign | null> {
+export async function getCampaign(id: string): Promise<GuestCampaign | null> {
   const { data } = await supabase
     .from('audience_campaigns')
     .select('*')
     .eq('id', id)
     .maybeSingle();
-  return (data as AudienceCampaign | null) ?? null;
+  return (data as GuestCampaign | null) ?? null;
 }
 
-export async function getSegment(id: string): Promise<AudienceSegment | null> {
+export async function getSegment(id: string): Promise<GuestSegment | null> {
   const { data } = await supabase
     .from('audience_segments')
     .select('*')
     .eq('id', id)
     .maybeSingle();
-  return (data as AudienceSegment | null) ?? null;
+  return (data as GuestSegment | null) ?? null;
 }
 
 /**
@@ -35,9 +35,9 @@ export async function getSegment(id: string): Promise<AudienceSegment | null> {
  * left here as a future hint if we move to a leaner shape.
  */
 export async function resolveSegmentRecipients(
-  segment: AudienceSegment,
+  segment: GuestSegment,
   options: { limit?: number; emailOnly?: boolean } = {},
-): Promise<AudienceContact[]> {
+): Promise<GuestContact[]> {
   const { limit = 5000 } = options;
 
   let q = supabase
@@ -57,13 +57,13 @@ export async function resolveSegmentRecipients(
 
   const { data, error } = await q;
   if (error) {
-    console.error('[audience-campaigns] resolveSegmentRecipients failed', error);
+    console.error('[guests-campaigns] resolveSegmentRecipients failed', error);
     return [];
   }
-  return (data ?? []) as AudienceContact[];
+  return (data ?? []) as GuestContact[];
 }
 
-export async function countSegmentRecipients(segment: AudienceSegment): Promise<number> {
+export async function countSegmentRecipients(segment: GuestSegment): Promise<number> {
   const recipients = await resolveSegmentRecipients(segment, { emailOnly: true });
   return recipients.length;
 }

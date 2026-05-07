@@ -1,7 +1,7 @@
 /**
  * Public unsubscribe endpoint, hit from the link in every campaign email.
  *
- * URL: /api/audience/unsubscribe?t=<signed-token>
+ * URL: /api/guests/unsubscribe?t=<signed-token>
  *
  * Verifies the HMAC token, flips the contact to status='unsubscribed',
  * logs an event, and renders a small confirmation page. No auth required;
@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { verifyUnsubscribeToken } from '@/lib/audience-unsubscribe-token';
+import { verifyUnsubscribeToken } from '@/lib/guests-unsubscribe-token';
 import { unsubscribeContactInResend } from '@/lib/resend';
 
 export const runtime = 'nodejs';
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       try {
         await unsubscribeContactInResend(contact.resend_contact_id);
       } catch (err) {
-        console.error('[audience/unsubscribe] resend mirror failed', err);
+        console.error('[guests/unsubscribe] resend mirror failed', err);
       }
     }
 
