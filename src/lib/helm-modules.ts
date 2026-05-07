@@ -28,7 +28,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Statements',
     description: 'Monthly owner statements. Ingest data, reconcile bank deposits, send the deliverable.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'operations',
@@ -46,7 +46,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Inspections',
     description: 'Walk a property, run the standard 50-item checklist, mark Pass / Issue / N/A, and produce a summary. Helm-native.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'work',
@@ -55,7 +55,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Work',
     description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'properties',
@@ -64,7 +64,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Properties',
     description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
-    primary: false,
+    primary: true,
   },
   {
     id: 'projections',
@@ -82,7 +82,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'CRM',
     description: 'Owners, vendors, leads. Every touch logged in one place.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'guest-intel',
@@ -109,7 +109,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Revenue',
     description: 'Portfolio revenue snapshot. Stays, ADR, occupancy, owner payout. Pro-rated by nights from Guesty bookings.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'marketing',
@@ -136,7 +136,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Audience',
     description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'reviews',
@@ -163,7 +163,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Channels',
     description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings, and direct-stay foundations. Phase 1: read-only iCal import from Airbnb / VRBO / Booking.com.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
 ];
 
