@@ -33,7 +33,12 @@ export type QuoCall = {
   id: string;
   phoneNumberId: string;
   userId: string | null;
-  participants: string[];
+  // REST list-calls returns `participants: string[]`; webhook events
+  // omit that and ship `from`/`to` instead. Both shapes are accepted via
+  // callOtherParty().
+  participants?: string[];
+  from?: string;
+  to?: string;
   direction: 'incoming' | 'outgoing';
   status: string;
   duration: number | null;
@@ -48,6 +53,15 @@ export type QuoCall = {
   forwardedTo: string | null;
   aiHandled: boolean | null;
 };
+
+export function callOtherParty(
+  call: Pick<QuoCall, 'direction' | 'from' | 'to' | 'participants'>,
+): string {
+  if (call.direction === 'incoming') {
+    return call.from ?? call.participants?.[0] ?? '';
+  }
+  return call.to ?? call.participants?.[0] ?? '';
+}
 
 export type QuoPhoneNumber = {
   id: string;

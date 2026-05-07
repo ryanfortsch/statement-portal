@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   verifyWebhookSignature,
   normalizePhone,
+  callOtherParty,
   type QuoMessage,
   type QuoCall,
   type QuoWebhookEvent,
@@ -216,7 +217,7 @@ async function handleOutboundMessage(ev: QuoWebhookEvent<QuoMessage>): Promise<v
 
 async function handleCall(ev: QuoWebhookEvent<QuoCall>): Promise<void> {
   const call = ev.data.object;
-  const otherParty = call.participants[0] ?? '';
+  const otherParty = callOtherParty(call);
   if (!otherParty) return;
 
   const contact = await findContactByPhone(otherParty);
