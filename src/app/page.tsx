@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { auth } from '@/auth';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -200,6 +199,7 @@ export default async function HelmHome() {
         eyebrow="The Bridge"
         title="Run Rising Tide from"
         emphasis="one place."
+        paddingTop={36}
         paddingBottom={20}
       />
 
@@ -246,15 +246,15 @@ export default async function HelmHome() {
         <CommandPaletteTrigger variant="prominent" />
       </section>
 
-      {/* OPERATIONAL SIGNALS STRIP */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+      {/* SIGNALS STRIP — what needs attention today, with the headline payout pinned right */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Today&rsquo;s signals</div>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(5, 1fr)',
           }}
         >
           <Stat
@@ -297,66 +297,16 @@ export default async function HelmHome() {
             sub="planned walks, next 7 days"
             href="/operations"
             size="hero"
-            last
-          />
-        </div>
-      </section>
-
-      {/* TODAY STRIP */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>The state of things</div>
-        <div
-          style={{
-            borderTop: '1px solid var(--ink)',
-            borderBottom: '1px solid var(--ink)',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-          }}
-        >
-          <Stat
-            label="Active Properties"
-            value={stats.activeProperties != null ? String(stats.activeProperties) : '—'}
-            sub={
-              stats.activeProperties != null && stats.totalProperties != null
-                ? `${stats.totalProperties} total`
-                : 'configure env vars'
-            }
-            href="/properties"
-            size="hero"
           />
           <Stat
-            label="Latest Period"
-            value={stats.latestMonth ? formatMonth(stats.latestMonth) : '—'}
-            sub={stats.latestStatus ? statusLabel(stats.latestStatus) : 'no statements yet'}
-            href="/statements"
-            size="hero"
-          />
-          <Stat
-            label="Statements"
-            value={stats.statementsCount > 0 ? String(stats.statementsCount) : '—'}
-            sub={stats.latestMonth ? 'in latest period' : ''}
-            href="/statements"
-            size="hero"
-          />
-          <Stat
-            label="Owner Payouts"
+            label={stats.latestMonth ? `${formatMonth(stats.latestMonth)} Payout` : 'Owner Payouts'}
             value={stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—'}
-            sub={stats.latestMonth ? 'latest period total' : ''}
+            sub={stats.latestMonth ? 'latest period total' : 'no statements yet'}
             href="/statements"
             size="hero"
             last
             accent
           />
-        </div>
-      </section>
-
-      {/* MODULES */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Modules</div>
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {HELM_MODULES.map((m) => (
-            <ModuleRow key={m.id} module={m} />
-          ))}
         </div>
       </section>
 
@@ -372,91 +322,6 @@ export default async function HelmHome() {
   );
 }
 
-function ModuleRow({ module: m }: { module: HelmModule }) {
-  const reachable = m.status === 'active' || m.status === 'external';
-
-  const callToAction =
-    m.status === 'active' ? 'Open →' :
-    m.status === 'external' ? 'Open ↗' :
-    'Soon';
-
-  const content = (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '64px 1fr auto',
-        gap: 24,
-        alignItems: 'baseline',
-        padding: '24px 0',
-        borderBottom: '1px solid var(--rule)',
-        opacity: reachable ? 1 : 0.5,
-        transition: 'opacity 0.15s',
-      }}
-    >
-      <span className="font-mono" style={{
-        fontSize: 11,
-        color: reachable ? 'var(--signal)' : 'var(--ink-4)',
-        letterSpacing: '.08em',
-      }}>
-        {m.number}
-      </span>
-      <div>
-        <h2 className="font-serif" style={{
-          fontSize: 24,
-          fontWeight: 400,
-          letterSpacing: '-0.02em',
-          color: 'var(--ink)',
-          margin: 0,
-        }}>
-          {m.title}
-        </h2>
-        <p style={{
-          marginTop: 4,
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: 'var(--ink-3)',
-          maxWidth: 620,
-        }}>
-          {m.description}
-        </p>
-      </div>
-      <span style={{
-        fontSize: 10,
-        letterSpacing: '.22em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        color: reachable ? 'var(--ink)' : 'var(--ink-4)',
-        whiteSpace: 'nowrap',
-      }}>
-        {callToAction}
-      </span>
-    </div>
-  );
-
-  if (m.status === 'external') {
-    return (
-      <a
-        href={m.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-      >
-        {content}
-      </a>
-    );
-  }
-
-  if (m.status === 'active') {
-    return (
-      <Link href={m.href} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-        {content}
-      </Link>
-    );
-  }
-
-  return <div>{content}</div>;
-}
-
 function formatMonth(month: string): string {
   try {
     const [year, m] = month.split('-');
@@ -465,10 +330,6 @@ function formatMonth(month: string): string {
   } catch {
     return month;
   }
-}
-
-function statusLabel(status: string): string {
-  return status.replaceAll('_', ' ');
 }
 
 function formatCurrency(value: number): string {
