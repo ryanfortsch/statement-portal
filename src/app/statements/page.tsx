@@ -8,7 +8,7 @@ import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-t
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { HelmModuleNav } from '@/components/HelmModuleNav';
+import { HelmMasthead } from '@/components/HelmMasthead';
 import { AddNoteModal } from '@/components/AddNoteModal';
 
 /* ─── Types ─── */
@@ -2165,91 +2165,61 @@ function DashboardContent() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       {/* ─── MASTHEAD ─── */}
-      <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
-        <div className="max-w-[1100px] mx-auto px-10">
-          {/* Top strip: brand + period */}
-          <div className="rt-masthead-top flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
-            <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <Link href="/" style={{ display: 'inline-flex' }} aria-label="Helm home">
-                <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
-              </Link>
-              <Link href="/" className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>Helm</Link>
-              <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
-              <HelmModuleNav current="statements" />
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-4">
-                <div className="eyebrow">Period</div>
-                {/* Always show the dropdown so month-switching is a visible
-                    affordance even when only one period exists yet. The
-                    "+ New month..." sentinel routes to the upload flow,
-                    which is how new periods get created (the ingest
-                    endpoint inserts the period row when it sees a month
-                    that doesn't exist). */}
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => {
-                    if (e.target.value === '__new__') {
-                      window.location.href = '/statements/upload';
-                      return;
-                    }
-                    loadPeriod(e.target.value);
-                  }}
-                  className="font-serif"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--rule)',
-                    color: 'var(--ink)',
-                    fontSize: 15,
-                    fontWeight: 500,
-                    padding: '4px 24px 4px 10px',
-                    outline: 'none',
-                    cursor: 'pointer',
-                    appearance: 'none',
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 6px center',
-                    backgroundSize: '14px',
-                  }}
-                >
-                  {periods.map(p => (
-                    <option key={p.month} value={p.month}>{monthLabel(p.month)}</option>
-                  ))}
-                  <option disabled style={{ color: 'var(--ink-4)' }}>──────────</option>
-                  <option value="__new__">+ New month…</option>
-                </select>
-              </div>
-              <form action="/api/auth/signout" method="post">
-                <button
-                  type="submit"
-                  title="Sign out"
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: '.18em',
-                    textTransform: 'uppercase',
-                    color: 'var(--ink-4)',
-                    background: 'none',
-                    border: '1px solid var(--rule)',
-                    cursor: 'pointer',
-                    padding: '4px 10px',
-                  }}
-                >
-                  Sign out
-                </button>
-              </form>
-            </div>
-          </div>
+      {/* Use the shared HelmMasthead so /statements matches every other module
+          on the logo, wordmark, nav, search trigger, and user menu. The
+          Period dropdown rides in the rightContent slot. The bespoke close-
+          of-month actions strip below is its own non-sticky section. */}
+      <HelmMasthead
+        current="statements"
+        rightContent={
+          <select
+            value={selectedMonth}
+            onChange={(e) => {
+              if (e.target.value === '__new__') {
+                window.location.href = '/statements/upload';
+                return;
+              }
+              loadPeriod(e.target.value);
+            }}
+            aria-label="Statement period"
+            className="font-serif"
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--rule)',
+              color: 'var(--ink)',
+              fontSize: 15,
+              fontWeight: 500,
+              padding: '4px 24px 4px 10px',
+              outline: 'none',
+              cursor: 'pointer',
+              appearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 6px center',
+              backgroundSize: '14px',
+            }}
+          >
+            {periods.map(p => (
+              <option key={p.month} value={p.month}>{monthLabel(p.month)}</option>
+            ))}
+            <option disabled style={{ color: 'var(--ink-4)' }}>──────────</option>
+            <option value="__new__">+ New month…</option>
+          </select>
+        }
+      />
 
-          {/* Actions strip. Until 2026-05-06 this had three separate sync
-              buttons plus a CSV-upload label, which crowded the strip and
-              forced three sequential clicks at the start of every close.
-              Now: a single "Sync ▾" dropdown that bundles all four data
-              sources + a "Sync All" entry, so close-of-month is one click.
-              The Reservations CSV fallback lives inside the dropdown
-              because it's used rarely (only when the Guesty API sync
-              is down). Add Note and Draft All sit next to it as primary
-              workflow actions. */}
+      {/* ─── ACTIONS STRIP ───
+          Module-specific close-of-month controls. Lives directly under the
+          masthead with a thin rule divider. Until 2026-05-06 this was three
+          separate sync buttons plus a CSV-upload label, which crowded the
+          strip and forced three sequential clicks at the start of every
+          close. Now: a single "Sync ▾" dropdown that bundles all four data
+          sources + a "Sync All" entry, so close-of-month is one click. The
+          Reservations CSV fallback lives inside the dropdown because it's
+          used rarely (only when the Guesty API sync is down). Add Note and
+          Draft All sit next to it as primary workflow actions. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', borderBottom: '1px solid var(--ink)' }}>
+        <div>
           <div className="rt-masthead-actions flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
             <div className="flex items-center gap-2">
               <div style={{ position: 'relative' }}>
@@ -2432,7 +2402,7 @@ function DashboardContent() {
             </Link>
           </div>
         </div>
-      </header>
+      </section>
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>

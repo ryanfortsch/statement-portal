@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { HelmModuleNav } from '@/components/HelmModuleNav';
+import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 
 const PROPERTIES = [
@@ -422,68 +423,14 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      {/* ─── MASTHEAD ─── */}
-      <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
-        <div className="max-w-[1100px] mx-auto px-10">
-          <div className="rt-masthead-top flex items-center justify-between" style={{ padding: '16px 0 12px', borderBottom: '1px solid var(--rule)' }}>
-            <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <Link href="/" style={{ display: 'inline-flex' }} aria-label="Helm home">
-                <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 28, height: 28 }} />
-              </Link>
-              <Link href="/" className="font-serif" style={{ fontSize: 20, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>Helm</Link>
-              <span style={{ width: 1, height: 14, background: 'var(--rule)' }} aria-hidden="true" />
-              <HelmModuleNav current="statements" />
-            </div>
-            <div className="flex items-center gap-3">
-              <Link href="/statements" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                border: '1px solid var(--rule)',
-                background: 'transparent',
-                color: 'var(--ink-3)',
-                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                padding: '6px 12px',
-              }}>
-                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                </svg>
-                Statements
-              </Link>
-              <form action="/api/auth/signout" method="post">
-                <button
-                  type="submit"
-                  title="Sign out"
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: '.18em',
-                    textTransform: 'uppercase',
-                    color: 'var(--ink-4)',
-                    background: 'none',
-                    border: '1px solid var(--rule)',
-                    cursor: 'pointer',
-                    padding: '4px 10px',
-                  }}
-                >
-                  Sign out
-                </button>
-              </form>
-            </div>
-          </div>
-          <div style={{ padding: '14px 0 4px' }}>
-            <div className="eyebrow">Step</div>
-            <h1 className="font-serif" style={{
-              fontSize: 32, lineHeight: 1.05, fontWeight: 300,
-              letterSpacing: '-0.02em', marginTop: 4,
-            }}>
-              {result ? (
-                <>Processed <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>{result.property}</em></>
-              ) : (
-                <>Upload <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Monthly Data</em></>
-              )}
-            </h1>
-          </div>
-        </div>
-      </header>
+      <HelmMasthead current="statements" />
+      <HelmHero
+        eyebrow="Step"
+        title={result ? 'Processed' : 'Upload'}
+        emphasis={result ? result.property : 'Monthly Data'}
+        paddingTop={36}
+        paddingBottom={20}
+      />
 
       <main className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 36, paddingBottom: 60 }}>
 
