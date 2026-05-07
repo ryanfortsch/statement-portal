@@ -271,6 +271,18 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       ? 'not yet onboarded'
       : `${operationalCounts.populated} of ${operationalCounts.total} fields populated`;
 
+  // Guest-deliverable readiness: welcome guide always ready; WiFi placard
+  // gates on wifi_name + wifi_password; info note (Gloucester-only) gates
+  // on the six fields the doc renders.
+  const totalDeliverables = 2 + (isGloucester ? 1 : 0);
+  const wifiReady = Boolean(p.wifi_name && p.wifi_password);
+  const infoNoteReady = isGloucester && missingInfoNoteFields(p).length === 0;
+  const readyDeliverables = 1 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0);
+  const deliverablesSummary =
+    readyDeliverables === totalDeliverables
+      ? `${totalDeliverables} ready to print`
+      : `${readyDeliverables} of ${totalDeliverables} ready · needs data`;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="properties" />
@@ -364,88 +376,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             />
             <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} />
             <Stat label="Owner" value={p.owner_last} last />
-          </div>
-        </div>
-      </section>
-
-      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard + Information Note */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Guest Deliverables
-          </h2>
-          <span className="eyebrow">Stay Cape Ann</span>
-        </div>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 22 }}>
-          <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-            Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-            (WiFi, parking, climate, safety equipment, etc). Edit operational data below to refresh.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            {/* Welcome Guide tile */}
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Welcome Guide</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Stay Cape Ann home guide
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                One-page editorial guide. Wi-Fi, climate, kitchen, parking, trash, hassle-free departure.
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
-              </div>
-            </div>
-            {/* WiFi Placard tile */}
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Wi-Fi Placard</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                4 × 6 placard with QR code
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
-                {!p.wifi_name || !p.wifi_password ? (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    Add Wi-Fi name + password to this property to generate the QR.
-                  </span>
-                ) : null}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
-              </div>
-            </div>
-            {/* Information Note tile — Gloucester-only. The note cites the
-                Gloucester STR ordinance and renders a Gloucester-issued
-                permit ID in the footer, so it's not a fit for Rockport,
-                Beverly, or out-of-state properties. */}
-            {isGloucester && (
-              <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div className="eyebrow">Information Note</div>
-                <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                  Posted house &amp; civic info
-                </h3>
-                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                  Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
-                  noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
-                  {missingInfoNoteFields(p).length > 0 ? (
-                    <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                      Missing: {missingInfoNoteFields(p).join(', ')}.
-                    </span>
-                  ) : null}
-                </p>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                  <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
-                    Open ↗
-                  </Link>
-                  <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </section>
@@ -890,6 +820,83 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           >
             Open Perfection ↗
           </a>
+        </div>
+      </CollapsibleSection>
+
+      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
+          Information Note. Collapsed by default and parked at the bottom
+          since these are produced once at onboarding then occasionally
+          reprinted, not consulted day-to-day. */}
+      <CollapsibleSection title="Guest Deliverables" summary={deliverablesSummary}>
+        <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
+          (WiFi, parking, climate, safety equipment, etc). Edit operational data above to refresh.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          {/* Welcome Guide tile */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Welcome Guide</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              Stay Cape Ann home guide
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              One-page editorial guide. Wi-Fi, climate, kitchen, parking, trash, hassle-free departure.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
+            </div>
+          </div>
+          {/* WiFi Placard tile */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Wi-Fi Placard</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              4 × 6 placard with QR code
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
+              {!p.wifi_name || !p.wifi_password ? (
+                <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                  Add Wi-Fi name + password to this property to generate the QR.
+                </span>
+              ) : null}
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
+            </div>
+          </div>
+          {/* Information Note tile — Gloucester-only. The note cites the
+              Gloucester STR ordinance and renders a Gloucester-issued
+              permit ID in the footer, so it's not a fit for Rockport,
+              Beverly, or out-of-state properties. */}
+          {isGloucester && (
+            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Information Note</div>
+              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                Posted house &amp; civic info
+              </h3>
+              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
+                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
+                {missingInfoNoteFields(p).length > 0 ? (
+                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                    Missing: {missingInfoNoteFields(p).join(', ')}.
+                  </span>
+                ) : null}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
+                  Open ↗
+                </Link>
+                <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
+              </div>
+            </div>
+          )}
         </div>
       </CollapsibleSection>
 
