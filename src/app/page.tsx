@@ -374,16 +374,9 @@ export default async function HelmHome() {
             size="hero"
           />
           <Stat
-            label="Inspections This Week"
-            value={stats.inspectionsThisWeek != null ? String(stats.inspectionsThisWeek) : '—'}
-            sub={(() => {
-              const p = stats.inspectionsPlanned ?? 0;
-              const c = stats.inspectionsCompleted ?? 0;
-              if (p === 0 && c === 0) return 'no walks scheduled or done';
-              if (p === 0) return `${c} done, past 7 days`;
-              if (c === 0) return `${p} planned, next 7 days`;
-              return `${c} done · ${p} planned`;
-            })()}
+            label="Upcoming Inspections"
+            value={stats.inspectionsPlanned != null ? String(stats.inspectionsPlanned) : '—'}
+            sub="next 7 days"
             href="/operations"
             size="hero"
           />
