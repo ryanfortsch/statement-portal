@@ -180,7 +180,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               style={inputStyle}
             />
           </Field>
-          <Field label="Drive time from HQ (min)" hint="From 85 Eastern Ave, Gloucester. Look up on Google Maps. Leave blank for the default ~10 min.">
+          <Field label="Drive time from HQ (min)" hint="From 85 Eastern Ave, Gloucester. Auto-computed via OpenStreetMap on save when blank. Enter a value to override.">
             <input
               name="drive_time_minutes"
               type="number"
@@ -188,7 +188,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
               max={120}
               step={1}
               defaultValue={v.drive_time_minutes ?? ''}
-              placeholder="10"
+              placeholder="auto"
               style={inputStyle}
             />
           </Field>

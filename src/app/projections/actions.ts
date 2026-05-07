@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { OnboardingData, CustomClause } from '@/lib/projections-types';
+import { getDriveTimeMinutes } from '@/lib/projections-distance';
 
 /** 32-hex-char random token for the public onboarding link. */
 function newOnboardingToken(): string {
@@ -108,19 +109,34 @@ function parseCustomClauses(formData: FormData): CustomClause[] | null {
   return out.length ? out : null;
 }
 
+/**
+ * Resolve the drive_time_minutes value for a save. If the form had an
+ * explicit value, that wins (manual override). Otherwise auto-compute via
+ * Nominatim + OSRM. Network/geocode failures return null and the slide
+ * silently falls back to the generic "~10 min" positioning.
+ */
+async function resolveDriveTime(payload: ReturnType<typeof buildPayload>): Promise<number | null> {
+  if (payload.drive_time_minutes != null) return payload.drive_time_minutes;
+  const addr = `${payload.property_address ?? ''}${payload.property_city ? `, ${payload.property_city}` : ''}`.trim();
+  if (!addr) return null;
+  return getDriveTimeMinutes(addr);
+}
+
 // ─── Actions ────────────────────────────────────────────────────────────────
 export async function createProjection(formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
   const localPart = session.user.email.split('@')[0];
+  const basePayload = buildPayload(formData);
   const payload = {
-    ...buildPayload(formData),
+    ...basePayload,
     created_by_email: session.user.email,
     created_by_name:
       session.user.name?.trim() ||
       (localPart ? localPart.charAt(0).toUpperCase() + localPart.slice(1) : 'User'),
     onboarding_token: newOnboardingToken(),
+    drive_time_minutes: await resolveDriveTime(basePayload),
   };
 
   const { data, error } = await supabase
@@ -139,9 +155,15 @@ export async function updateProjection(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  const basePayload = buildPayload(formData);
+  const payload = {
+    ...basePayload,
+    drive_time_minutes: await resolveDriveTime(basePayload),
+  };
+
   const { error } = await supabase
     .from('projections')
-    .update(buildPayload(formData))
+    .update(payload)
     .eq('id', id);
 
   if (error) throw new Error(error.message);
