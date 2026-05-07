@@ -30,6 +30,8 @@ type FlatItem = {
 type Props = {
   /** Placeholder text when empty. */
   placeholder?: string;
+  /** Auto-focus the input on mount (used inside the Cmd+K palette). */
+  autoFocus?: boolean;
 };
 
 const EMPTY: SearchResults = {
@@ -41,7 +43,7 @@ const EMPTY: SearchResults = {
   total: 0,
 };
 
-export function UniversalSearch({ placeholder = 'Search Helm or jump to a page…' }: Props) {
+export function UniversalSearch({ placeholder = 'Search Helm or jump to a page…', autoFocus = false }: Props) {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResults>(EMPTY);
@@ -183,6 +185,7 @@ export function UniversalSearch({ placeholder = 'Search Helm or jump to a page�
         ref={inputRef}
         type="search"
         value={q}
+        autoFocus={autoFocus}
         onChange={(e) => {
           setQ(e.target.value);
           setOpen(true);
