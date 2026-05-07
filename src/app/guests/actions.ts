@@ -7,6 +7,7 @@ import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import { isProxyEmail, type GuestStatus } from '@/lib/guests-types';
 import { pushContactToResend, unsubscribeContactInResend } from '@/lib/resend';
+import { syncGuestyGuestsToAudience } from '@/lib/audience-guesty-sync';
 
 type ImportRow = {
   email: string;
@@ -225,6 +226,27 @@ export async function resubscribeContact(formData: FormData): Promise<void> {
 
   revalidatePath('/guests');
   revalidatePath(`/guests/${id}`);
+}
+
+export async function syncFromGuesty(): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const result = await syncGuestyGuestsToAudience();
+
+  await supabase.from('audience_events').insert({
+    event_type: 'imported',
+    metadata: {
+      source: 'guesty_sync_manual',
+      triggered_by: session.user.email,
+      ...result,
+    },
+  });
+
+  revalidatePath('/audience');
+  redirect(
+    `/audience?synced=${result.inserted}&updated=${result.updated}&scanned=${result.unique_guests}`,
+  );
 }
 
 export async function manuallyAddContact(formData: FormData): Promise<void> {
