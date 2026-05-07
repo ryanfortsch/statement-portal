@@ -16,6 +16,7 @@ import {
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { FilterBar } from './FilterBar';
 import { TrafficLineChart } from './Charts';
+import { InfoTip } from './InfoTip';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -206,37 +207,6 @@ function lcpStatus(speed: { lcp_p75_ms: number | null }[]): string {
 
 // ── components ───────────────────────────────────────────────────────
 
-// Small superscript "i" with a native-browser tooltip on hover. Plain
-// title-attribute is enough for an internal dashboard; if we ever want
-// a styled / mobile-friendly popover we can swap in @/components/ui/tooltip
-// (Radix), which would require this becoming a client component.
-function InfoMark({ tip }: { tip: string }) {
-  return (
-    <sup
-      title={tip}
-      aria-label={tip}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 12,
-        height: 12,
-        borderRadius: '50%',
-        border: '1px solid var(--ink-4)',
-        color: 'var(--ink-4)',
-        fontSize: 8,
-        fontWeight: 600,
-        lineHeight: 1,
-        cursor: 'help',
-        verticalAlign: 'top',
-        marginTop: 1,
-      }}
-    >
-      i
-    </sup>
-  );
-}
-
 function Stat({
   label,
   info,
@@ -263,7 +233,7 @@ function Stat({
     <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         {label}
-        {info && <InfoMark tip={info} />}
+        {info && <InfoTip tip={info} />}
       </div>
       <div
         className="font-serif tabular-nums"
