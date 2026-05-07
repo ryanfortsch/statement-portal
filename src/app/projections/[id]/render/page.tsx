@@ -447,7 +447,6 @@ function SlideLocal({ projection, footer }: { projection: ProjectionRow; footer:
           </div>
           <div className="rt-local-right">
             <div className="rt-local-stat">
-              <span className="rt-local-tilde" aria-hidden="true">~</span>
               <span className="rt-local-num">{projection.drive_time_minutes ?? 10}</span>
               <span className="rt-local-unit">min.</span>
             </div>
@@ -1329,18 +1328,7 @@ const deckCss = `
     flex-direction: column;
     align-items: flex-start;
   }
-  .rt-local-stat { display: flex; align-items: baseline; gap: 6px; }
-  .rt-local-tilde {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 64px;
-    line-height: 1;
-    font-weight: 300;
-    color: var(--signal);
-    letter-spacing: -0.02em;
-    align-self: flex-start;
-    margin-top: 18px;
-    margin-right: 4px;
-  }
+  .rt-local-stat { display: flex; align-items: baseline; gap: 12px; }
   .rt-local-num {
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 156px;
