@@ -60,26 +60,25 @@ type Props = { limit?: number };
 export async function TeamActivity({ limit = 20 }: Props) {
   const events = await loadTeamActivity(limit);
 
+  // Hide the whole section on quiet days. When activity is empty, the
+  // "Recent Activity / no recent activity" wall is more noise than signal
+  // on the home; the user knows where to find activity when there is some.
+  if (events.length === 0) return null;
+
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
         <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
           Recent Activity
         </h2>
-        <span className="eyebrow">{events.length === 0 ? 'no recent activity' : `last ${events.length}`}</span>
+        <span className="eyebrow">last {events.length}</span>
       </div>
 
-      {events.length === 0 ? (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-          Nothing has happened in the last seven days. File a slip or run an inspection to get started.
-        </div>
-      ) : (
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {events.map((e, i) => (
-            <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
-          ))}
-        </div>
-      )}
+      <div style={{ borderTop: '1px solid var(--ink)' }}>
+        {events.map((e, i) => (
+          <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
+        ))}
+      </div>
     </section>
   );
 }
