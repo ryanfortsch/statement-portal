@@ -5,7 +5,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
-import { deltaPct } from '@/lib/revenue-date-range';
+import { computeDateRange, deltaPct } from '@/lib/revenue-date-range';
+import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { TeamActivity } from '@/components/TeamActivity';
 import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
 
@@ -24,6 +25,11 @@ type DashboardStats = {
    *  delta on the Today's Signals strip. null when there's no prior period. */
   priorPayout: number | null;
   statementsCount: number;
+  /** Projected total owner payout for the CURRENT month, derived from
+   *  Guesty bookings on the books (pro-rated by nights). The "what we're
+   *  tracking to" complement to the closed-period payout. null when
+   *  Guesty data isn't available. */
+  projectedCurrentMonthPayout: number | null;
   // Operational signals
   activeSlips: number | null;
   highPrioritySlips: number | null;
@@ -33,12 +39,30 @@ type DashboardStats = {
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [propertyStats, helmStats, opsStats] = await Promise.all([
+  const [propertyStats, helmStats, opsStats, projected] = await Promise.all([
     getPropertyStats(),
     getHelmStats(),
     getOperationalStats(),
+    getProjectedCurrentMonthPayout(),
   ]);
-  return { ...propertyStats, ...helmStats, ...opsStats };
+  return { ...propertyStats, ...helmStats, ...opsStats, projectedCurrentMonthPayout: projected };
+}
+
+/**
+ * Forecast for the *current calendar month* based on Guesty bookings
+ * already on the books, pro-rated by nights. Reuses the same
+ * computeRevenueSnapshot logic the /revenue page renders, just scoped
+ * to "this month" so the home tile shows what we're tracking to.
+ */
+async function getProjectedCurrentMonthPayout(): Promise<number | null> {
+  if (!isHelmConfigured) return null;
+  try {
+    const { rangeStart, rangeEnd } = computeDateRange('this_month');
+    const { portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
+    return portfolio.totalPayout;
+  } catch {
+    return null;
+  }
 }
 
 const ACTIVE_SLIP_STATUSES = ['open', 'in_progress', 'scheduled'];
@@ -318,11 +342,38 @@ export default async function HelmHome() {
             size="hero"
           />
           <Stat
-            label={stats.latestMonth ? `${formatMonth(stats.latestMonth)} Payout` : 'Owner Payouts'}
-            value={stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—'}
-            sub={stats.latestMonth ? 'latest period total' : 'no statements yet'}
-            delta={deltaPct(stats.totalPayout, stats.priorPayout)}
-            href="/statements"
+            label={(() => {
+              // When projection is available, headline the current month
+              // (what we're tracking to). Falls back to the latest closed
+              // period when there's no Guesty projection yet.
+              if (stats.projectedCurrentMonthPayout != null) {
+                return `${currentMonthShortName()} Tracking`;
+              }
+              return stats.latestMonth ? `${formatMonth(stats.latestMonth)} Payout` : 'Owner Payouts';
+            })()}
+            value={(() => {
+              const tracking = stats.projectedCurrentMonthPayout;
+              if (tracking != null) return formatCurrency(tracking);
+              return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
+            })()}
+            sub={(() => {
+              const tracking = stats.projectedCurrentMonthPayout;
+              if (tracking != null && stats.latestMonth && stats.totalPayout > 0) {
+                return `${formatMonth(stats.latestMonth)} closed at ${formatCurrency(stats.totalPayout)}`;
+              }
+              if (tracking != null) return 'projected from bookings';
+              return stats.latestMonth ? 'latest period total' : 'no statements yet';
+            })()}
+            delta={(() => {
+              const tracking = stats.projectedCurrentMonthPayout;
+              // When showing tracking: compare to last closed month (apples
+              // to oranges in calendar terms but the right "trending up vs
+              // last month" signal). Otherwise keep the closed-vs-prior
+              // delta the tile used before.
+              if (tracking != null && stats.totalPayout > 0) return deltaPct(tracking, stats.totalPayout);
+              return deltaPct(stats.totalPayout, stats.priorPayout);
+            })()}
+            href={stats.projectedCurrentMonthPayout != null ? '/revenue?range=this_month' : '/statements'}
             size="hero"
             last
             accent
@@ -350,6 +401,11 @@ function formatMonth(month: string): string {
   } catch {
     return month;
   }
+}
+
+/** "May" — used in the headline of the current-month tracking tile. */
+function currentMonthShortName(): string {
+  return new Date().toLocaleDateString('en-US', { month: 'long' });
 }
 
 function formatCurrency(value: number): string {
