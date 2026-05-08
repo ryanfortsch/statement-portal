@@ -386,10 +386,26 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Status chips: cleaning + inspection stacked. Cleaning is the
-          earlier signal in the prep window, inspection is the final
-          gate, so they read top-to-bottom in order of when each fires. */}
+      {/* Status chips: work slips + cleaning + inspection stacked. Work
+          slips are persistent property issues you bring on the walk;
+          cleaning + inspection are the per-turnover prep gates. */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+        {t.openWorkSlipsCount > 0 && (
+          <Link
+            href={`/properties/${t.propertyId}/work-slips/print`}
+            title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: 'var(--tide-deep)',
+              textDecoration: 'none',
+            }}
+          >
+            {t.openWorkSlipsCount} work {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · Print →
+          </Link>
+        )}
         {cleaningExpected && (
           <span
             style={{
