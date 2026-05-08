@@ -132,8 +132,10 @@ export type GuestEvent = {
  * them and we don't burn deliverability sending to them.
  */
 export const PROXY_EMAIL_DOMAINS = [
-  'mchat.booking.com',
-  'privaterelay.appleid.com',
+  'mchat.booking.com',          // Booking.com guest proxy
+  'privaterelay.appleid.com',   // Apple Hide-My-Email
+  'guest.airbnb.com',           // Airbnb guest proxy
+  'guest.booking.com',          // Booking.com newer proxy format
 ];
 
 export function isProxyEmail(email: string): boolean {

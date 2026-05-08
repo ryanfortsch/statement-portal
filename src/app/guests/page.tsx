@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
-import { manuallyAddContact } from './actions';
+import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
+import { manuallyAddContact, syncFromGuesty } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,9 @@ type SearchParams = {
   tag?: string;
   status?: GuestStatus | 'all';
   imported?: string;
+  synced?: string;
+  updated?: string;
+  scanned?: string;
 };
 
 export default async function GuestPage({
@@ -23,13 +27,21 @@ export default async function GuestPage({
   const tag = sp.tag?.trim() || '';
   const status = (sp.status as GuestStatus | 'all' | undefined) || 'all';
   const justImported = sp.imported ? Number(sp.imported) : 0;
+  const syncedInserted = sp.synced ? Number(sp.synced) : 0;
+  const syncedUpdated = sp.updated ? Number(sp.updated) : 0;
+  const syncedScanned = sp.scanned ? Number(sp.scanned) : 0;
 
-  const [stats, contacts, segments, campaigns] = await Promise.all([
+  const [stats, contacts, segments, campaigns, guestySync] = await Promise.all([
     getGuestStats(),
     listContacts({ search, tag, status, limit: 200 }),
     listSegments(),
     listCampaigns(),
+    getLastGuestySyncStatus(),
   ]);
+
+  const lastGuestySyncRel = guestySync.last_synced_at
+    ? formatRelativeTime(guestySync.last_synced_at)
+    : null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -87,12 +99,34 @@ export default async function GuestPage({
         </section>
       )}
 
+      {/* JUST SYNCED FROM GUESTY FLASH */}
+      {(syncedInserted > 0 || syncedUpdated > 0 || syncedScanned > 0) && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
+          <div
+            style={{
+              borderLeft: '3px solid var(--positive, #2d6b50)',
+              padding: '12px 16px',
+              background: 'var(--paper-2, #f4f0e6)',
+              fontSize: 13,
+              color: 'var(--ink)',
+            }}
+          >
+            Guesty sync: scanned <strong>{syncedScanned}</strong> guests, added <strong>{syncedInserted}</strong>, updated <strong>{syncedUpdated}</strong>.
+          </div>
+        </section>
+      )}
+
       {/* ACTIONS BAR */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/guests/import" style={primaryButtonStyle}>
             Import CSV →
           </Link>
+          <form action={syncFromGuesty}>
+            <button type="submit" style={secondaryButtonStyle} title="Pull guest emails from Guesty into the contact list">
+              Sync from Guesty{lastGuestySyncRel ? ` · ${lastGuestySyncRel}` : ''}
+            </button>
+          </form>
           <Link href="/guests/campaigns/new" style={secondaryButtonStyle}>
             New Campaign
           </Link>
@@ -377,6 +411,20 @@ function Stat({
       {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
     </div>
   );
+}
+
+function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return 'just now';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function EmptyBlock({ body, hint }: { body: string; hint?: React.ReactNode }) {

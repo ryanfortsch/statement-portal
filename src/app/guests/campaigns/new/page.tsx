@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { createDraftCampaign } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,24 +20,73 @@ export default function NewCampaignPage() {
           letterSpacing: '-0.02em',
           color: 'var(--ink)',
         }}>
-          New Campaign
+          New campaign
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 580 }}>
-          The composer ships in the next iteration. It will use React Email templates, segment-based targeting, preview, and send via Resend Broadcasts.
+          Give it a working name. The next page is the composer where you write the subject, body, and pick the segment.
         </p>
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '32px 0' }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>What's coming</div>
-          <ul style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--ink)', listStyle: 'none', padding: 0 }}>
-            <li>· Subject + preheader + from-name fields</li>
-            <li>· Body composer (Markdown to start, React Email later)</li>
-            <li>· Segment selector with live recipient count</li>
-            <li>· Send-self test, then full send</li>
-            <li>· Engagement dashboard (opens, clicks, unsubs) via webhook</li>
-          </ul>
-        </div>
+        <form
+          action={createDraftCampaign}
+          style={{
+            borderTop: '1px solid var(--ink)',
+            borderBottom: '1px solid var(--ink)',
+            padding: '32px 0',
+            display: 'grid',
+            gap: 16,
+            maxWidth: 560,
+          }}
+        >
+          <div>
+            <label htmlFor="name" className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
+              Working name
+            </label>
+            <input
+              id="name"
+              name="name"
+              type="text"
+              required
+              placeholder="The Weekly · vol 12"
+              className="font-serif"
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: '1px solid var(--rule)',
+                color: 'var(--ink)',
+                fontSize: 18,
+                fontWeight: 400,
+                padding: '10px 14px',
+                outline: 'none',
+              }}
+            />
+            <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)' }}>
+              Internal label. Recipients never see this.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button
+              type="submit"
+              style={{
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                padding: '14px 28px',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              Create draft →
+            </button>
+            <Link href="/audience/campaigns" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+              Cancel
+            </Link>
+          </div>
+        </form>
       </section>
 
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
