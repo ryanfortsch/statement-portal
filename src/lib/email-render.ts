@@ -49,7 +49,7 @@ function renderHtml(args: {
   unsubscribeUrl: string;
   fromName?: string;
 }): string {
-  const fromName = args.fromName || 'Rising Tide';
+  const fromName = args.fromName || 'Stay Cape Ann';
   const preheader = args.preheader || '';
   const bodyHtml = markdownToHtml(args.bodyMarkdown);
 
@@ -85,7 +85,7 @@ function renderHtml(args: {
             <tr>
               <td style="padding:0 32px 32px; font-size:12px; line-height:1.6; color:#506068;">
                 <p style="margin:0 0 8px;">
-                  Rising Tide STR &middot; ${escapeHtml(PHYSICAL_ADDRESS)}
+                  Stay Cape Ann &middot; ${escapeHtml(PHYSICAL_ADDRESS)}
                 </p>
                 <p style="margin:0;">
                   <a href="${escapeAttr(args.unsubscribeUrl)}" style="color:#506068; text-decoration:underline;">Unsubscribe</a>
@@ -108,14 +108,14 @@ function renderText(args: {
   unsubscribeUrl: string;
   fromName?: string;
 }): string {
-  const fromName = args.fromName || 'Rising Tide';
+  const fromName = args.fromName || 'Stay Cape Ann';
   const lines: string[] = [];
   lines.push(fromName.toUpperCase());
   lines.push('');
   lines.push(stripMarkdown(args.bodyMarkdown).trim());
   lines.push('');
   lines.push('-- ');
-  lines.push(`Rising Tide STR · ${PHYSICAL_ADDRESS}`);
+  lines.push(`Stay Cape Ann · ${PHYSICAL_ADDRESS}`);
   lines.push(`Unsubscribe: ${args.unsubscribeUrl}`);
   return lines.join('\n');
 }
