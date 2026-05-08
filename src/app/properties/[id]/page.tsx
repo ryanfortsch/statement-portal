@@ -505,6 +505,23 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               propertyId={p.id}
               disabled={openSlips.filter((s) => s.owner_action_required).length === 0}
             />
+            {openSlips.length > 0 && (
+              <Link
+                href={`/properties/${p.id}/work-slips/print`}
+                style={{
+                  fontSize: 11,
+                  letterSpacing: '.18em',
+                  textTransform: 'uppercase',
+                  color: 'var(--ink)',
+                  textDecoration: 'none',
+                  border: '1px solid var(--ink)',
+                  padding: '8px 14px',
+                  fontWeight: 600,
+                }}
+              >
+                Print →
+              </Link>
+            )}
           </div>
         </div>
 
