@@ -82,7 +82,7 @@ function renderPage(message: string, ok: boolean): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Unsubscribe &middot; Rising Tide</title>
+    <title>Unsubscribe &middot; Stay Cape Ann</title>
     <style>
       body { margin:0; padding:0; background:#faf7f1; color:#1e2e34; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; line-height:1.6; min-height:100vh; display:flex; align-items:center; justify-content:center; }
       main { max-width:480px; padding:32px; text-align:center; }
@@ -95,7 +95,7 @@ function renderPage(message: string, ok: boolean): string {
   </head>
   <body>
     <main>
-      <div class="eyebrow">Rising Tide</div>
+      <div class="eyebrow">Stay Cape Ann</div>
       <h1>${ok ? '<span class="accent">All set.</span>' : '<span class="accent">Hmm.</span>'}</h1>
       <p>${escapeHtml(message)}</p>
       ${ok ? '<a class="btn" href="https://staycapeann.com">Stay Cape Ann &rarr;</a>' : ''}

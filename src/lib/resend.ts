@@ -162,7 +162,7 @@ export async function sendTransactionalViaResend(args: {
 }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
 
-  const fromName = args.fromName || 'Rising Tide';
+  const fromName = args.fromName || 'Stay Cape Ann';
   const fromEmail = args.fromEmail || process.env.RESEND_FROM_EMAIL || '';
   if (!fromEmail) return false;
 

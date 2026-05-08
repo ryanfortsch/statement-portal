@@ -175,12 +175,13 @@ export async function POST(req: NextRequest) {
     try {
       await sendTransactionalViaResend({
         to: email,
-        subject: 'Welcome to Rising Tide',
+        subject: 'Welcome to Stay Cape Ann',
+        fromName: 'Stay Cape Ann',
         html: welcomeHtml({ firstName }),
         text: welcomeText({ firstName }),
       });
     } catch (err) {
-      console.error('[audience/subscribe] welcome send failed', err);
+      console.error('[guests/subscribe] welcome send failed', err);
     }
   }
 
@@ -199,13 +200,13 @@ function welcomeHtml({ firstName }: { firstName: string | null }): string {
   <body style="font-family: Georgia, 'Times New Roman', serif; color:#1e2e34; background:#faf7f1; padding:32px; max-width:560px; margin:0 auto;">
     <p style="font-size:16px; line-height:1.6;">${greeting}</p>
     <p style="font-size:16px; line-height:1.6;">
-      Welcome to the Rising Tide list. We'll send the occasional note from Cape Ann — what's open, what's new, the kind of thing we'd tell a friend visiting for the weekend.
+      Welcome to Stay Cape Ann. You'll be the first to hear when a new home opens, when a calendar frees up unexpectedly, and when an insider rate is on the table.
     </p>
     <p style="font-size:16px; line-height:1.6;">
-      No fluff. Easy to unsubscribe. Glad you're here.
+      Quiet by default. Easy to leave. Glad you're here.
     </p>
     <p style="font-size:16px; line-height:1.6; margin-top:32px;">
-      &mdash; The Rising Tide team<br />
+      The Stay Cape Ann team<br />
       <a href="https://staycapeann.com" style="color:#c85a3a; text-decoration:none;">staycapeann.com</a>
     </p>
   </body>
@@ -216,11 +217,11 @@ function welcomeText({ firstName }: { firstName: string | null }): string {
   const greeting = firstName ? `Hi ${firstName},` : 'Hi there,';
   return `${greeting}
 
-Welcome to the Rising Tide list. We'll send the occasional note from Cape Ann — what's open, what's new, the kind of thing we'd tell a friend visiting for the weekend.
+Welcome to Stay Cape Ann. You'll be the first to hear when a new home opens, when a calendar frees up unexpectedly, and when an insider rate is on the table.
 
-No fluff. Easy to unsubscribe. Glad you're here.
+Quiet by default. Easy to leave. Glad you're here.
 
-— The Rising Tide team
+The Stay Cape Ann team
 https://staycapeann.com
 `;
 }

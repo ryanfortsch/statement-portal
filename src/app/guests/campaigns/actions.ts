@@ -13,7 +13,7 @@ import {
   resolveSegmentRecipients,
 } from '@/lib/guests-campaigns';
 
-const FROM_NAME_DEFAULT = 'Rising Tide';
+const FROM_NAME_DEFAULT = 'Stay Cape Ann';
 const FROM_EMAIL_DEFAULT = process.env.RESEND_FROM_EMAIL || 'hello@staycapeann.com';
 
 /**

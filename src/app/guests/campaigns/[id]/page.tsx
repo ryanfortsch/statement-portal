@@ -47,7 +47,7 @@ export default async function CampaignDetailPage({
     preheader: campaign.preheader || undefined,
     bodyMarkdown: previewBody,
     unsubscribeUrl: '#unsubscribe',
-    fromName: campaign.from_name || 'Rising Tide',
+    fromName: campaign.from_name || 'Stay Cape Ann',
   });
 
   return (
@@ -159,7 +159,7 @@ export default async function CampaignDetailPage({
                 <input
                   name="from_name"
                   type="text"
-                  defaultValue={campaign.from_name ?? 'Rising Tide'}
+                  defaultValue={campaign.from_name ?? 'Stay Cape Ann'}
                   disabled={!isDraft}
                   style={inputStyle}
                 />
