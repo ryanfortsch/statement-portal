@@ -132,12 +132,15 @@ const cardCss = `
     font-family: var(--font-inter), system-ui, sans-serif;
   }
 
-  /* 4in × 6in @ 96dpi = 384 × 576 px */
+  /* 4in × 6in @ 96dpi = 384 × 576 px. Outer navy padding is intentionally
+     generous (36px ≈ 0.375") so consumer printers that crop ~0.125" of
+     bleed still leave a visibly substantial navy frame on the printed
+     card — matches the WiFi placard so the two cards print as a set. */
   .rt-card {
     width: 384px;
     height: 576px;
     background: var(--sca-navy);
-    padding: 20px 20px 0;
+    padding: 36px 36px 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -238,7 +241,8 @@ const cardCss = `
     opacity: 0.75;
   }
 
-  /* Navy footer band — staycapeann.com */
+  /* Navy footer band — staycapeann.com. Bottom padding generous so the
+     wordmark sits well inside the bleed-safe zone on a printed card. */
   .rt-footer {
     color: var(--sca-cream);
     text-align: center;
@@ -246,6 +250,6 @@ const cardCss = `
     font-style: italic;
     font-size: 13px;
     letter-spacing: 0.04em;
-    padding: 14px 0 12px;
+    padding: 18px 0 22px;
   }
 `;
