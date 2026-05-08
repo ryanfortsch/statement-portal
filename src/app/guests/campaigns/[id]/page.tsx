@@ -197,6 +197,37 @@ export default async function CampaignDetailPage({
               )}
             </Field>
 
+            {/* SEND BUTTONS — pulled up here so they sit right under the
+                segment picker, visible without scrolling past the body
+                textarea. The test button always works regardless of
+                segment; the broadcast button respects the picked segment. */}
+            {isDraft && (
+              <div style={{ display: 'grid', gap: 10, padding: '14px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)' }}>
+                <div className="eyebrow">Send</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <form action={sendCampaignTest} style={{ display: 'inline' }}>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <button type="submit" style={secondaryButtonStyle}>
+                      Send test to me
+                    </button>
+                  </form>
+                  <form action={sendCampaign} style={{ display: 'inline' }}>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <button
+                      type="submit"
+                      style={dangerButtonStyle}
+                      disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}
+                    >
+                      Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →
+                    </button>
+                  </form>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
+                  Save the draft before sending so the latest body goes out. Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign.
+                </p>
+              </div>
+            )}
+
             <Field label="Body (Markdown)">
               <textarea
                 name="body"
@@ -233,36 +264,6 @@ export default async function CampaignDetailPage({
           </div>
         </div>
 
-        {/* SEND ACTIONS — separate form so they don't get tangled with Save */}
-        {isDraft && (
-          <div
-            style={{
-              marginTop: 36,
-              borderTop: '1px solid var(--ink)',
-              paddingTop: 24,
-              display: 'flex',
-              gap: 12,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
-            <form action={sendCampaignTest}>
-              <input type="hidden" name="id" value={campaign.id} />
-              <button type="submit" style={secondaryButtonStyle}>
-                Send test to me
-              </button>
-            </form>
-            <form action={sendCampaign}>
-              <input type="hidden" name="id" value={campaign.id} />
-              <button type="submit" style={dangerButtonStyle} disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}>
-                Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →
-              </button>
-            </form>
-            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              Save the draft before sending so the latest body goes out.
-            </span>
-          </div>
-        )}
       </section>
 
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
