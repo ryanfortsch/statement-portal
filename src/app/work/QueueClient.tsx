@@ -474,7 +474,11 @@ function PropertyGroup({
   commentCounts: Record<string, number>;
   onAddSlip: () => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // Default collapsed: with 8+ properties × ~8 slips each, the queue
+  // is a long scroll if every group renders expanded. Triaging starts
+  // with "which property has the most work" — that's all in the
+  // header (count, high-priority badge). Click a group to drill in.
+  const [expanded, setExpanded] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
   const highCount = slips.filter((s) => s.priority === 'high').length;
