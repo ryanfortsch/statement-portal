@@ -81,7 +81,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead current="operations" />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <div className="eyebrow">Operations</div>
+          <div className="eyebrow">Turnovers</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
             Configure Supabase env vars to load turnovers.
           </p>
@@ -108,7 +108,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       <HelmMasthead current="operations" />
 
       <HelmHero
-        eyebrow="Helm · Operations"
+        eyebrow="Helm · Turnovers"
         title="The"
         emphasis="turnover pipeline."
         description="Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections."
@@ -296,7 +296,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         <CalendarGrid calendar={data.calendar} />
       </section>
 
-      <HelmFooter module="Operations" right="Source: Guesty + Helm inspections" />
+      <HelmFooter module="Turnovers" right="Source: Guesty + Helm inspections" />
     </div>
   );
 }

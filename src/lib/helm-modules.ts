@@ -34,7 +34,7 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'operations',
     href: '/operations',
     number: '02',
-    title: 'Operations',
+    title: 'Turnovers',
     description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty.',
     status: 'active',
     primary: true,
@@ -55,7 +55,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Work',
     description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
     status: 'active',
-    primary: false,
+    primary: true,
   },
   {
     id: 'properties',
@@ -167,4 +167,21 @@ export const HELM_MODULES: HelmModule[] = [
   },
 ];
 
-export const PRIMARY_MODULES = HELM_MODULES.filter((m) => m.primary);
+/**
+ * Display order for the primary masthead nav. Independent of HELM_MODULES
+ * array order so the master list can stay in module-number order while
+ * the nav shows the four daily-flow tabs in the order Dotti reads them
+ * left-to-right.
+ */
+const PRIMARY_ORDER: string[] = ['work', 'operations', 'properties', 'projections'];
+
+export const PRIMARY_MODULES = HELM_MODULES
+  .filter((m) => m.primary)
+  .sort((a, b) => {
+    const ai = PRIMARY_ORDER.indexOf(a.id);
+    const bi = PRIMARY_ORDER.indexOf(b.id);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
