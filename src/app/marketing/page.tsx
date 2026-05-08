@@ -16,6 +16,7 @@ import {
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { FilterBar } from './FilterBar';
 import { TrafficLineChart } from './Charts';
+import { InfoTip } from './InfoTip';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -54,7 +55,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
         title="How the"
         emphasis="sites"
         titleSuffix="are doing."
-        description="GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
+        description="Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
       />
 
       {/* CONTROLS */}
@@ -79,7 +80,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
         >
           <Stat
             label="Sessions"
-            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. GA4's default session timeout is 30 min of inactivity."
+            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. Google Analytics' default session timeout is 30 minutes of inactivity."
             value={current.sessions}
             delta={deltaPct(current.sessions, previous.sessions)}
           />
@@ -91,13 +92,13 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
           />
           <Stat
             label="New users"
-            info="Visitors GA4 hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
+            info="Visitors Google Analytics hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
             value={current.new_users}
             delta={deltaPct(current.new_users, previous.new_users)}
           />
           <Stat
             label="Conversions"
-            info="Sum of GA4 key events fired in the window. SCA tracks book_started, book_completed, email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, income_estimator_used. Configure which events count as key in GA4 → Admin → Events."
+            info="Sum of the key events fired during the window. Stay Cape Ann tracks book_started, book_completed, and email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, and income_estimator_used. Which events count as 'key' is configured in Google Analytics → Admin → Events."
             value={current.conversions}
             delta={deltaPct(current.conversions, previous.conversions)}
             accent
@@ -206,37 +207,6 @@ function lcpStatus(speed: { lcp_p75_ms: number | null }[]): string {
 
 // ── components ───────────────────────────────────────────────────────
 
-// Small superscript "i" with a native-browser tooltip on hover. Plain
-// title-attribute is enough for an internal dashboard; if we ever want
-// a styled / mobile-friendly popover we can swap in @/components/ui/tooltip
-// (Radix), which would require this becoming a client component.
-function InfoMark({ tip }: { tip: string }) {
-  return (
-    <sup
-      title={tip}
-      aria-label={tip}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 12,
-        height: 12,
-        borderRadius: '50%',
-        border: '1px solid var(--ink-4)',
-        color: 'var(--ink-4)',
-        fontSize: 8,
-        fontWeight: 600,
-        lineHeight: 1,
-        cursor: 'help',
-        verticalAlign: 'top',
-        marginTop: 1,
-      }}
-    >
-      i
-    </sup>
-  );
-}
-
 function Stat({
   label,
   info,
@@ -263,7 +233,7 @@ function Stat({
     <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         {label}
-        {info && <InfoMark tip={info} />}
+        {info && <InfoTip tip={info} />}
       </div>
       <div
         className="font-serif tabular-nums"
