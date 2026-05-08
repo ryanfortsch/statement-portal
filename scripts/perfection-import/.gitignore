@@ -1,0 +1,8 @@
+# Locally-exported Perfection data — secrets-adjacent (contains owner
+# names, work history, etc.). Do not commit. Generated SQL is fine.
+properties.json
+work_slips.json
+tasks.json
+task_comments.json
+user-map.json
+inserts.sql
