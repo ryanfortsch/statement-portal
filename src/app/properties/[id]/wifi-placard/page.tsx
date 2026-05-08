@@ -175,13 +175,17 @@ const placardCss = `
     letter-spacing: -0.01em;
   }
 
-  /* QR — square, no chrome, sits naturally on the cream. Sized so it
-     scans cleanly from arm's length while leaving the cream panel
-     enough breathing room for the editorial network/password rows. */
+  /* QR — square, no chrome, sits naturally on the cream. 140px is the
+     floor for reliable scanning at 4×6 print: SSIDs that contain a
+     space (e.g. "73 Rocky Neck") force the encoder into byte mode +
+     QR version 5 (37×37 modules), which at 120px prints at ~0.86mm
+     per module — under the ~1.0mm threshold consumer printers
+     reproduce reliably. At 140px each module is ~1.0mm, which scans
+     cleanly even after print blur. Don't shrink below this. */
   .rt-qr {
-    margin-top: 26px;
-    width: 120px;
-    height: 120px;
+    margin-top: 24px;
+    width: 140px;
+    height: 140px;
     display: flex;
     align-items: center;
     justify-content: center;
