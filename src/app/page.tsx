@@ -133,12 +133,16 @@ async function getOperationalStats() {
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_TASK_STATUSES),
-      // Forward-looking: inspections you've planned for the next 7 days.
+      // Forward-looking: inspections coming up in the next 7 days.
+      // Counts inspection_plans whose related reservation checks out
+      // within the window. checkout_date is the natural anchor —
+      // planned_for_date is optional, so filtering on it under-counts
+      // any plan where the inspector hasn't picked an exact day yet.
       supabase
         .from('inspection_plans')
         .select('*', { count: 'exact', head: true })
-        .gte('planned_for_date', today)
-        .lte('planned_for_date', weekFromNow),
+        .gte('checkout_date', today)
+        .lte('checkout_date', weekFromNow),
       // Backward-looking: inspections you actually walked in the past 7
       // days. Walks can happen without a prior plan row (the inspector
       // just opens /inspections and starts one), so the home tile needs
