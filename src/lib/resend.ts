@@ -46,7 +46,7 @@ export async function pushContactToResend(args: {
   }
 
   const audienceId = process.env.RESEND_AUDIENCE_ID!;
-  const url = `${RESEND_API}/guestss/${audienceId}/contacts`;
+  const url = `${RESEND_API}/audiences/${audienceId}/contacts`;
 
   const body = {
     email: args.email,
@@ -80,7 +80,7 @@ export async function unsubscribeContactInResend(
 ): Promise<boolean> {
   if (!isResendConfigured) return false;
   const audienceId = process.env.RESEND_AUDIENCE_ID!;
-  const url = `${RESEND_API}/guestss/${audienceId}/contacts/${resendContactId}`;
+  const url = `${RESEND_API}/audiences/${audienceId}/contacts/${resendContactId}`;
 
   const res = await fetch(url, {
     method: 'PATCH',
