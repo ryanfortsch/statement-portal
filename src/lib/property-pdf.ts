@@ -4,20 +4,27 @@ import puppeteer, { Browser } from 'puppeteer-core';
 /**
  * PDF rendering for the Properties module's guest-facing deliverables:
  *
- *   home-guide   — 8.5" × 11" portrait (US Letter)
- *   wifi-placard — 4" × 6" portrait (slips into the glass case)
- *   info-note    — 8.5" × 11" portrait, the Gloucester STR permit posted
- *                   Information Note (contacts, trash, parking, ordinances,
- *                   safety equipment locations)
- *   notice       — 4" × 6" portrait, a bespoke per-property placard
- *                   addressed by an additional `noticeId` UUID
+ *   home-guide    — 8.5" × 11" portrait (US Letter)
+ *   wifi-placard  — 4" × 6" portrait (slips into the glass case)
+ *   info-note     — 8.5" × 11" portrait, the Gloucester STR permit posted
+ *                    Information Note (contacts, trash, parking, ordinances,
+ *                    safety equipment locations)
+ *   notice        — 4" × 6" portrait, a bespoke per-property placard
+ *                    addressed by an additional `noticeId` UUID
+ *   welcome-card  — 4" × 6" portrait, the on-arrival welcome + subscribe
+ *                    pitch with a QR to staycapeann.com/contact
  *
  * Same Puppeteer + Vercel-protection-bypass pattern as the Statements and
  * Projections PDFs. The deliverable render pages set their own @page rule;
  * preferCSSPageSize honors that and we pass an explicit width/height for
  * paint correctness before the @page rule kicks in.
  */
-export type PropertyDeliverable = 'home-guide' | 'wifi-placard' | 'info-note' | 'notice';
+export type PropertyDeliverable =
+  | 'home-guide'
+  | 'wifi-placard'
+  | 'info-note'
+  | 'notice'
+  | 'welcome-card';
 
 type Geometry = {
   viewportWidth: number;
@@ -27,10 +34,11 @@ type Geometry = {
 };
 
 const GEOMETRIES: Record<PropertyDeliverable, Geometry> = {
-  'home-guide':   { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
-  'wifi-placard': { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
-  'info-note':    { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
-  'notice':       { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
+  'home-guide':    { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
+  'wifi-placard':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
+  'info-note':     { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
+  'notice':        { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
+  'welcome-card':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
 };
 
 export async function renderPropertyPdf(args: {
@@ -102,6 +110,7 @@ export function propertyPdfFilename(
     'wifi-placard': 'WiFi Placard',
     'info-note': 'Information Note',
     'notice': 'Notice',
+    'welcome-card': 'Welcome Card',
   };
   const baseLabel =
     type === 'notice' && noticeTitle
