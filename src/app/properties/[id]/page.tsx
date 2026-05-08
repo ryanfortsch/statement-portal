@@ -284,14 +284,15 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       ? 'not yet onboarded'
       : `${operationalCounts.populated} of ${operationalCounts.total} fields populated`;
 
-  // Guest-deliverable readiness: welcome guide always ready; WiFi placard
-  // gates on wifi_name + wifi_password; info note (Gloucester-only) gates
-  // on the six fields the doc renders. Bespoke notices are by definition
-  // optional, so they ride alongside in the summary as a separate count.
-  const totalDeliverables = 2 + (isGloucester ? 1 : 0);
+  // Guest-deliverable readiness: welcome guide + welcome card are always
+  // ready (no per-property data needed); WiFi placard gates on wifi_name +
+  // wifi_password; info note (Gloucester-only) gates on the six fields the
+  // doc renders. Bespoke notices are by definition optional, so they ride
+  // alongside in the summary as a separate count.
+  const totalDeliverables = 3 + (isGloucester ? 1 : 0);
   const wifiReady = Boolean(p.wifi_name && p.wifi_password);
   const infoNoteReady = isGloucester && missingInfoNoteFields(p).length === 0;
-  const readyDeliverables = 1 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0);
+  const readyDeliverables = 2 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0);
   const noticeCountLabel = propertyNotices.length === 1 ? '1 bespoke notice' : `${propertyNotices.length} bespoke notices`;
   const standardSummary =
     readyDeliverables === totalDeliverables
@@ -901,6 +902,26 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 Open ↗
               </Link>
               <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
+            </div>
+          </div>
+          {/* Welcome Card tile — 4 × 6 on-arrival card combining the warm
+              welcome with a subscribe pitch. QR points to
+              staycapeann.com/contact. Universal copy (no per-property data),
+              so it's always ready to print. */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Welcome Card</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              4 × 6 welcome + subscribe card
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              On-arrival counter card. &ldquo;Welcome.&rdquo; on top, a soft subscribe pitch on the bottom with a QR
+              to staycapeann.com/contact.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/welcome-card`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="welcome-card" label="Download PDF" />
             </div>
           </div>
           {/* WiFi Placard tile */}

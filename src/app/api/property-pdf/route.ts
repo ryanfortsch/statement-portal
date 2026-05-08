@@ -20,7 +20,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice'];
+const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card'];
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
