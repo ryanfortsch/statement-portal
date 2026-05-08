@@ -55,7 +55,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
         title="How the"
         emphasis="sites"
         titleSuffix="are doing."
-        description="GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
+        description="Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
       />
 
       {/* CONTROLS */}
@@ -80,7 +80,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
         >
           <Stat
             label="Sessions"
-            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. GA4's default session timeout is 30 min of inactivity."
+            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. Google Analytics' default session timeout is 30 minutes of inactivity."
             value={current.sessions}
             delta={deltaPct(current.sessions, previous.sessions)}
           />
@@ -92,13 +92,13 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
           />
           <Stat
             label="New users"
-            info="Visitors GA4 hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
+            info="Visitors Google Analytics hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
             value={current.new_users}
             delta={deltaPct(current.new_users, previous.new_users)}
           />
           <Stat
             label="Conversions"
-            info="Sum of GA4 key events fired in the window. SCA tracks book_started, book_completed, email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, income_estimator_used. Configure which events count as key in GA4 → Admin → Events."
+            info="Sum of the key events fired during the window. Stay Cape Ann tracks book_started, book_completed, and email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, and income_estimator_used. Which events count as 'key' is configured in Google Analytics → Admin → Events."
             value={current.conversions}
             delta={deltaPct(current.conversions, previous.conversions)}
             accent

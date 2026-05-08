@@ -116,7 +116,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/marketing',
     number: '11',
     title: 'Marketing',
-    description: 'GA4 traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
+    description: 'Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
     status: 'active',
     primary: false,
   },
