@@ -7,6 +7,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { computeDateRange, deltaPct } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
+import { loadOperationsData } from '@/lib/operations';
 import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
 import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
@@ -101,16 +102,13 @@ async function getOperationalStats() {
   }
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const [
       { count: activeSlips },
       { count: highSlips },
       { count: ownerSlips },
       { count: activeTasks },
-      { count: planned },
-      { count: completed },
+      ops,
     ] = await Promise.all([
       supabase
         .from('work_slips')
@@ -133,37 +131,26 @@ async function getOperationalStats() {
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_TASK_STATUSES),
-      // Forward-looking: inspections coming up in the next 7 days.
-      // Counts inspection_plans whose related reservation checks out
-      // within the window. checkout_date is the natural anchor —
-      // planned_for_date is optional, so filtering on it under-counts
-      // any plan where the inspector hasn't picked an exact day yet.
-      supabase
-        .from('inspection_plans')
-        .select('*', { count: 'exact', head: true })
-        .gte('checkout_date', today)
-        .lte('checkout_date', weekFromNow),
-      // Backward-looking: inspections you actually walked in the past 7
-      // days. Walks can happen without a prior plan row (the inspector
-      // just opens /inspections and starts one), so the home tile needs
-      // both buckets or it under-counts and reads as broken.
-      supabase
-        .from('inspections')
-        .select('*', { count: 'exact', head: true })
-        .gte('started_at', weekAgoIso),
+      // Use the same source /operations uses so the home tile and the
+      // operations page agree. loadOperationsData filters out cancelled
+      // reservations and non-operations properties; counting plan rows
+      // directly under-counts because most check-ins don't have a plan
+      // row yet (the plan is created when someone clicks Plan a walk).
+      loadOperationsData('7d', '7d'),
     ]);
 
-    const plannedN = planned ?? 0;
-    const completedN = completed ?? 0;
+    const opsTotal = ops?.totalCount ?? 0;
+    const opsDone = ops?.inspectionDoneCount ?? 0;
+    const upcoming = Math.max(0, opsTotal - opsDone);
 
     return {
       activeSlips: activeSlips ?? 0,
       highPrioritySlips: highSlips ?? 0,
       ownerActionSlips: ownerSlips ?? 0,
       activeTasks: activeTasks ?? 0,
-      inspectionsThisWeek: plannedN + completedN,
-      inspectionsPlanned: plannedN,
-      inspectionsCompleted: completedN,
+      inspectionsThisWeek: upcoming,
+      inspectionsPlanned: upcoming,
+      inspectionsCompleted: opsDone,
     };
   } catch {
     return {
