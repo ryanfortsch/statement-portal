@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
-import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { renderQrForPlacard } from '@/lib/qr-sizing';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,12 +44,16 @@ export default async function WelcomeCardPage({
 
   // QR rendered straight onto cream so it prints with no transparency
   // artifacts. ECC level Q balances density against scuffs in a printed
-  // tabletop context — same setting we use for the WiFi placard.
-  const qrSvg = await QRCode.toString(SUBSCRIBE_URL, {
-    type: 'svg',
+  // tabletop context — same setting we use for the WiFi placard. Size
+  // scales with module count via renderQrForPlacard so the printed
+  // module never falls below the ~1.0mm consumer-printer floor; URL is
+  // short today (fits QR Version 3) but future copy edits won't silently
+  // break the scan.
+  const { svg: qrSvg, sizePx: qrSize } = await renderQrForPlacard({
+    uri: SUBSCRIBE_URL,
     errorCorrectionLevel: 'Q',
-    margin: 0,
     color: { dark: '#0F2A44', light: '#F4ECD8' },
+    floorPx: 110,
   });
 
   return (
@@ -79,7 +83,7 @@ export default async function WelcomeCardPage({
               and infrequently.
             </p>
 
-            <div className="rt-qr">
+            <div className="rt-qr" style={{ width: qrSize, height: qrSize }}>
               <span dangerouslySetInnerHTML={{ __html: qrSvg }} />
             </div>
 
@@ -220,12 +224,12 @@ const cardCss = `
   }
 
   /* QR — sized so the whole card reads as welcome-first, subscribe-second.
-     Smaller than the WiFi placard's QR because the network credentials
-     placard is the one guests actually scan multiple times. */
+     Width and height come from inline style (set by renderQrForPlacard so
+     module size stays ≥ ~1.06mm at 4×6 print regardless of URL length —
+     see lib/qr-sizing.ts). Floor is 110px since the welcome-card URL is
+     short and that's the visually-balanced size on this layout. */
   .rt-qr {
     margin-top: 14px;
-    width: 110px;
-    height: 110px;
     display: flex;
     align-items: center;
     justify-content: center;
