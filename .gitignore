@@ -10,3 +10,5 @@ node_modules
 
 # Supabase CLI local state (linked-project.json, etc.)
 supabase/.temp/
+
+.claude/worktrees/
