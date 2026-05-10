@@ -32,6 +32,13 @@ type Props = {
   delta?: number | null;
   /** Use the signal color for the value. Reserved for headline metrics. */
   accent?: boolean;
+  /**
+   * Override the value color directly. Wins over `accent`. Use for cases
+   * like the inspection summary's Pass / Issue / N/A strip where each
+   * cell maps to a domain-specific semantic color (positive / signal /
+   * ink-4) rather than the single signal-accent pattern.
+   */
+  valueColor?: string;
   /** No right border. Pass on the last cell of a horizontal grid. */
   last?: boolean;
   /** Wraps the cell in a Next Link. */
@@ -49,6 +56,7 @@ export function Stat({
   sub,
   delta,
   accent = false,
+  valueColor,
   last = false,
   href,
   size = 'default',
@@ -71,7 +79,7 @@ export function Stat({
           style={{
             fontSize: valueSize,
             fontWeight: 400,
-            color: accent ? 'var(--signal)' : 'var(--ink)',
+            color: valueColor ?? (accent ? 'var(--signal)' : 'var(--ink)'),
             lineHeight: 1.05,
           }}
         >

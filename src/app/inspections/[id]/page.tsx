@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
 import { supabase } from '@/lib/supabase';
 import type {
   InspectionRow,
@@ -96,16 +97,18 @@ export default async function InspectionInProgressPage({
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead current="inspections" />
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, flex: 1, width: '100%' }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Inspection complete</div>
-          <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em' }}>
-            This inspection is already done.
-          </h1>
-          <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
-            View the <Link href={`/inspections/${id}/summary`} style={{ color: 'var(--tide-deep)' }}>summary</Link> or
-            start a <Link href="/inspections" style={{ color: 'var(--tide-deep)' }}>new inspection</Link>.
-          </p>
-        </section>
+        <HelmHero
+          eyebrow="Inspection complete"
+          title="This inspection is"
+          emphasis="already done."
+          description=""
+          belowDescription={
+            <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)' }}>
+              View the <Link href={`/inspections/${id}/summary`} style={{ color: 'var(--tide-deep)' }}>summary</Link> or
+              start a <Link href="/inspections" style={{ color: 'var(--tide-deep)' }}>new inspection</Link>.
+            </p>
+          }
+        />
       </div>
     );
   }
