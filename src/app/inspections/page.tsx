@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { Section } from '@/components/Section';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import { startInspection } from './actions';
@@ -155,26 +156,19 @@ export default async function InspectionsPage() {
       </section>
 
       {/* RECENTS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Recent Inspections
-          </h2>
-          <span className="eyebrow">last 10</span>
+      <Section
+        title="Recent Inspections"
+        eyebrow={recents.length > 0 ? `last ${recents.length}` : undefined}
+        empty={recents.length === 0}
+        emptyMessage="No inspections yet. Start one above."
+        paddingBottom={80}
+      >
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {recents.map((r) => (
+            <RecentRow key={r.id} inspection={r} />
+          ))}
         </div>
-
-        {recents.length === 0 ? (
-          <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
-            No inspections yet. Start one above.
-          </div>
-        ) : (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {recents.map((r) => (
-              <RecentRow key={r.id} inspection={r} />
-            ))}
-          </div>
-        )}
-      </section>
+      </Section>
 
       <HelmFooter module="Inspections" right="Source: Helm" />
     </div>
@@ -186,17 +180,23 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
   const summary = isComplete
     ? `${r.pass_count} pass · ${r.issue_count} issue · ${r.na_count} N/A`
     : 'In progress';
+  const summaryColor = isComplete
+    ? r.issue_count > 0
+      ? 'var(--signal)'
+      : 'var(--positive)'
+    : 'var(--ink-4)';
 
   return (
     <Link
       href={`/inspections/${r.id}${isComplete ? '/summary' : ''}`}
+      className="rt-inspections-recent-row"
       style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
     >
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '160px 1fr auto auto',
-          gap: 24,
+          gridTemplateColumns: '120px 1fr auto auto',
+          gap: 20,
           alignItems: 'baseline',
           padding: '18px 0',
           borderBottom: '1px solid var(--rule)',
@@ -205,8 +205,10 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
         <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
           {formatDateShort(r.started_at)}
         </span>
-        <div>
-          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{r.property_name}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.property_name}
+          </div>
           <div style={{ marginTop: 2, fontSize: 12, color: 'var(--ink-3)' }}>{r.inspector_name}</div>
         </div>
         <span
@@ -214,12 +216,13 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
             fontSize: 11,
             letterSpacing: '.08em',
             textTransform: 'uppercase',
-            color: isComplete ? (r.issue_count > 0 ? 'var(--signal)' : 'var(--positive)') : 'var(--ink-4)',
+            color: summaryColor,
+            whiteSpace: 'nowrap',
           }}
         >
           {summary}
         </span>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
           {isComplete ? 'Summary →' : 'Resume →'}
         </span>
       </div>
