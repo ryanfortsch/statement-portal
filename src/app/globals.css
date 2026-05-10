@@ -237,6 +237,65 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   /* File drop zone: stack icon/label/button */
   .rt-dropzone > label { flex-wrap: wrap; gap: 12px !important; }
   .rt-dropzone > label > :last-child { margin-left: auto; }
+
+  /* ─── Helm shared components (mobile pass 2026-05-08) ─────────────── */
+
+  /* Hero h1: 44px is too aggressive on phones. Drop to 28 and tighten the
+     description size so the hero takes one swipe of vertical space, not two. */
+  .rt-helm-hero { padding-top: 28px !important; padding-bottom: 18px !important; }
+  .rt-helm-hero-h1 { font-size: 28px !important; line-height: 1.08 !important; }
+  .rt-helm-hero p { font-size: 13px !important; }
+
+  /* Section headings: 22px → 18px so the section h2 doesn't compete with
+     the hero. Reduce vertical padding too so sections stack tighter. */
+  .rt-helm-section { padding-top: 18px !important; padding-bottom: 32px !important; }
+  .rt-helm-section-h2 { font-size: 18px !important; }
+  .rt-helm-section-head { flex-wrap: wrap !important; gap: 8px; }
+
+  /* Stat strips: every modules's stat strip uses repeat(N, 1fr) inline. On
+     phones we collapse to 2 columns regardless of N, then patch the borders
+     so each row's right-edge cell drops its right border and intra-grid
+     bottom borders give shape. The inline borders live on the inner
+     .rt-helm-stat div (Stat sometimes wraps in a Link), so the rules
+     descend through the strip's direct child rather than overriding the
+     child itself. */
+  .rt-helm-stat-strip {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .rt-helm-stat-strip .rt-helm-stat {
+    border-right: none !important;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-helm-stat-strip > *:nth-child(odd) .rt-helm-stat {
+    border-right: 1px solid var(--rule) !important;
+  }
+  .rt-helm-stat-strip > *:nth-last-child(-n+2) .rt-helm-stat {
+    border-bottom: none;
+  }
+  .rt-helm-stat { padding: 14px 12px !important; }
+  .rt-helm-stat-value { font-size: 22px !important; }
+
+  /* Module nav: horizontal scroll instead of wrapping or overflowing. The
+     four primary tabs + More always render on one strip; if it doesn't fit,
+     swipe horizontally. Hide the scrollbar in iOS Safari. */
+  .rt-helm-modulenav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+  }
+  .rt-helm-modulenav::-webkit-scrollbar { display: none; }
+
+  /* Drop the Cmd+K trigger from the masthead on phones — there's no
+     keyboard, the kbd hint reads as decoration, and it eats real estate
+     on the right cluster. Search is still reachable via the More dropdown
+     entry once we plumb it; for now, tap the avatar or pick a module. */
+  .rt-helm-search-trigger { display: none !important; }
+
+  /* Filter bar on /reviews and similar: stack inputs vertically. */
+  .rt-helm-filter-bar { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+  .rt-helm-filter-bar > * { width: 100% !important; min-width: 0 !important; max-width: none !important; }
 }
 
 /* Tablets (641-1024px): keep 6-col insights but tighten padding */

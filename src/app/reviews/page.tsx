@@ -106,6 +106,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Sear
           <WindowSwitcher current={days} />
         </div>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
@@ -149,6 +150,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Sear
       >
         <form
           method="get"
+          className="rt-helm-filter-bar"
           style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
         >
           <input type="hidden" name="days" value={days} />

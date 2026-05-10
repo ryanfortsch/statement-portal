@@ -58,6 +58,7 @@ export function Stat({
 
   const inner = (
     <div
+      className="rt-helm-stat"
       style={{
         padding,
         borderRight: last ? 'none' : '1px solid var(--rule)',
@@ -66,7 +67,7 @@ export function Stat({
       <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       <div className="flex items-baseline" style={{ gap: 8 }}>
         <div
-          className="font-serif tabular-nums"
+          className="font-serif tabular-nums rt-helm-stat-value"
           style={{
             fontSize: valueSize,
             fontWeight: 400,
