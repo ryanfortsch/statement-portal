@@ -71,6 +71,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
       {/* HERO STATS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',

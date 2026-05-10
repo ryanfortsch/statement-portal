@@ -13,7 +13,7 @@ export function HelmModuleNav({ current }: Props) {
   const visible: HelmModule[] = [...PRIMARY_MODULES];
 
   return (
-    <nav className="flex items-baseline" style={{
+    <nav className="flex items-baseline rt-helm-modulenav" style={{
       gap: 18,
       fontSize: 10,
       letterSpacing: '0.16em',

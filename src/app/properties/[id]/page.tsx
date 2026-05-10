@@ -414,7 +414,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       {/* STAT GRID */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
             <Stat
               label="Cleaning Est"

@@ -52,12 +52,12 @@ export function HelmHero({
 }: Props) {
   return (
     <section
-      className="max-w-[1100px] mx-auto px-10"
+      className="max-w-[1100px] mx-auto px-10 rt-helm-hero"
       style={{ paddingTop, paddingBottom, width: '100%' }}
     >
       <div className="eyebrow" style={{ marginBottom: 14 }}>{eyebrow}</div>
       <h1
-        className="font-serif"
+        className="font-serif rt-helm-hero-h1"
         style={{
           fontSize: 44,
           lineHeight: 1.05,
