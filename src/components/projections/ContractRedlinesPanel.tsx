@@ -229,7 +229,7 @@ function InterpretInput({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={5}
-        maxLength={4000}
+        maxLength={20000}
         placeholder={
           'e.g. "Owner wants min availability dropped to 150 days, mgmt fee to 22%, and a clause that no parties or weddings are allowed."'
         }
@@ -245,7 +245,7 @@ function InterpretInput({
         >
           {pending ? 'Interpreting…' : 'Interpret edits'}
         </button>
-        <span style={hintStyle}>{text.length}/4000 · Claude reads, you approve.</span>
+        <span style={hintStyle}>{text.length.toLocaleString()}/20,000 · Claude reads, you approve.</span>
       </div>
     </>
   );

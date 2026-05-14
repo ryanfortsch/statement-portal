@@ -633,7 +633,11 @@ export async function proposeContractRedlines(
 
   const trimmed = requested.trim();
   if (!trimmed) return { ok: false, error: 'Paste the owner’s redlines first.' };
-  if (trimmed.length > 4000) return { ok: false, error: 'Redline text is too long; trim it under 4000 characters.' };
+  // Soft ceiling — Claude Sonnet 4.5 handles ~200K tokens (≈600K+ chars)
+  // natively, but capping at 20K keeps the API spend bounded if someone
+  // accidentally pastes an entire PDF. Should fit any realistic owner
+  // email + forwarded thread + lawyer's negotiation list.
+  if (trimmed.length > 20000) return { ok: false, error: 'Redline text is too long; trim it under 20,000 characters.' };
 
   const { data, error } = await supabase
     .from('projections')
