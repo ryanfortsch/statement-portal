@@ -3,12 +3,13 @@
 import { useState, useTransition } from 'react';
 import { Section } from '@/components/Section';
 import { fetchStats } from './stats-action';
-import type { MessagingStats, LearningEntry } from '@/lib/stay-concierge';
+import type { MessagingStats, Fact } from '@/lib/stay-concierge';
 
 type Props = {
   initialStats: MessagingStats | null;
   initialError: string | null;
-  initialLearnings: LearningEntry[];
+  initialFacts: Fact[];
+  totalFacts: number;
 };
 
 type Window = { label: string; hours: number };
@@ -25,7 +26,7 @@ const WINDOWS: Window[] = [
 // shorter window to see recent trend.
 const DEFAULT_WINDOW = WINDOWS[3];
 
-export function PerformanceDropdown({ initialStats, initialError, initialLearnings }: Props) {
+export function PerformanceDropdown({ initialStats, initialError, initialFacts, totalFacts }: Props) {
   // Default open. The user came to /messaging to see this; the dropdown
   // chip was too easy to miss. Keeping the open/close affordance for
   // density when she's done.
@@ -108,7 +109,8 @@ export function PerformanceDropdown({ initialStats, initialError, initialLearnin
           windows={WINDOWS}
           onWindowChange={loadWindow}
           loading={isPending}
-          learnings={initialLearnings}
+          facts={initialFacts}
+          totalFacts={totalFacts}
         />
       )}
     </Section>
@@ -151,14 +153,16 @@ function StatsBody({
   windows,
   onWindowChange,
   loading,
-  learnings,
+  facts,
+  totalFacts,
 }: {
   stats: MessagingStats;
   window: Window;
   windows: Window[];
   onWindowChange: (w: Window) => void;
   loading: boolean;
-  learnings: LearningEntry[];
+  facts: Fact[];
+  totalFacts: number;
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -289,7 +293,7 @@ function StatsBody({
       </div>
 
       {/* Learning corpus */}
-      <LearningSection stats={stats} learnings={learnings} />
+      <LearningSection stats={stats} facts={facts} totalFacts={totalFacts} />
     </div>
   );
 }
@@ -385,10 +389,12 @@ function KpiTile({
 
 function LearningSection({
   stats,
-  learnings,
+  facts,
+  totalFacts,
 }: {
   stats: MessagingStats;
-  learnings: LearningEntry[];
+  facts: Fact[];
+  totalFacts: number;
 }) {
   return (
     <div style={{ marginTop: 28 }}>
@@ -405,7 +411,7 @@ function LearningSection({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: 24,
             fontSize: 14,
             color: 'var(--ink-2)',
@@ -417,10 +423,21 @@ function LearningSection({
               className="font-serif"
               style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
             >
+              {totalFacts}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+              distilled facts the AI now follows
+            </div>
+          </div>
+          <div>
+            <div
+              className="font-serif"
+              style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
+            >
               {stats.learning.qa_pairs_total}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-              ground-truth Q&amp;A pairs in the learning corpus
+              ground-truth Q&amp;A pairs in the corpus
             </div>
           </div>
           <div>
@@ -431,13 +448,13 @@ function LearningSection({
               {stats.coaching.coaching_notes_total}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-              coaching directives logged in policy
+              coaching directives logged
             </div>
           </div>
         </div>
         {stats.learning.qa_latest_captured_at && (
           <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
-            last captured {relativeTime(stats.learning.qa_latest_captured_at)}
+            last Q&amp;A captured {relativeTime(stats.learning.qa_latest_captured_at)}
             {stats.learning.qa_latest_property
               ? ` at ${prettifySlug(stats.learning.qa_latest_property)}`
               : ''}
@@ -445,17 +462,17 @@ function LearningSection({
         )}
       </div>
 
-      {learnings.length > 0 && (
-        <div style={{ marginTop: 20 }}>
+      {facts.length > 0 && (
+        <div style={{ marginTop: 24 }}>
           <div
             className="eyebrow"
-            style={{ color: 'var(--ink-3)', marginBottom: 12 }}
+            style={{ color: 'var(--ink-3)', marginBottom: 14 }}
           >
-            Recent directives ({learnings.length} most recent)
+            Facts the AI knows now ({facts.length} most recent)
           </div>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {learnings.map((entry, i) => (
-              <LearningCard key={`${entry.date}-${i}`} entry={entry} />
+            {facts.map((f, i) => (
+              <FactCard key={`${f.source_heading}-${i}`} fact={f} />
             ))}
           </ul>
         </div>
@@ -464,103 +481,129 @@ function LearningSection({
   );
 }
 
-function LearningCard({ entry }: { entry: LearningEntry }) {
-  const [expanded, setExpanded] = useState(false);
-
-  // Pull the meaningful body out: prefer the > quoted block (which holds
-  // Allie's verbatim coaching), fall back to the first non-quote paragraph.
-  const summary = extractSummary(entry.body);
-  const isLong = entry.body.length > summary.length + 20;
-
+function FactCard({ fact }: { fact: Fact }) {
+  const [showSource, setShowSource] = useState(false);
   return (
     <li
       style={{
         borderTop: '1px solid var(--rule)',
-        padding: '14px 4px',
+        padding: '16px 4px',
       }}
     >
       <div
         style={{
           display: 'flex',
-          justifyContent: 'space-between',
           gap: 12,
-          marginBottom: 6,
           alignItems: 'baseline',
+          flexWrap: 'wrap',
+          marginBottom: 8,
         }}
       >
+        <ScopeChip scope={fact.scope} />
         <span
-          className="font-serif"
-          style={{
-            fontSize: 15,
-            fontWeight: 500,
-            color: 'var(--ink)',
-            letterSpacing: '-0.005em',
-          }}
+          className="eyebrow"
+          style={{ color: 'var(--ink-4)', fontSize: 10 }}
         >
-          {entry.title || entry.heading}
+          {fact.topic.replace(/_/g, ' ')}
         </span>
+        {fact.confidence !== 'high' && (
+          <span
+            className="eyebrow"
+            style={{
+              color: 'var(--ink-4)',
+              fontSize: 10,
+              fontStyle: 'italic',
+            }}
+          >
+            {fact.confidence} confidence
+          </span>
+        )}
         <span
           className="eyebrow"
           style={{
             color: 'var(--ink-4)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
             fontSize: 10,
+            marginLeft: 'auto',
           }}
         >
-          {entry.date}
+          {fact.source_date}
         </span>
       </div>
-      <div
+      <p
         style={{
-          fontSize: 13,
-          lineHeight: 1.55,
-          color: 'var(--ink-2)',
-          whiteSpace: 'pre-wrap',
+          margin: 0,
+          fontSize: 15,
+          lineHeight: 1.5,
+          color: 'var(--ink)',
+          fontWeight: 600,
         }}
       >
-        {expanded ? entry.body : summary}
-      </div>
-      {isLong && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
+        {fact.fact}
+      </p>
+      <button
+        type="button"
+        onClick={() => setShowSource((v) => !v)}
+        style={{
+          marginTop: 8,
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          fontSize: 11,
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          fontWeight: 500,
+          color: 'var(--ink-3)',
+          cursor: 'pointer',
+        }}
+      >
+        {showSource ? 'Hide source ▴' : 'Show source ▾'}
+      </button>
+      {showSource && (
+        <div
           style={{
-            marginTop: 6,
-            background: 'transparent',
-            border: 'none',
-            padding: 0,
-            fontSize: 11,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
+            marginTop: 10,
+            padding: '12px 14px',
+            background: 'var(--paper-2)',
+            border: '1px solid var(--rule)',
+            fontSize: 12,
+            lineHeight: 1.5,
             color: 'var(--ink-3)',
-            cursor: 'pointer',
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
           }}
         >
-          {expanded ? 'Show less ▴' : 'Show more ▾'}
-        </button>
+          {fact.source_body_short}
+        </div>
       )}
     </li>
   );
 }
 
-function extractSummary(body: string): string {
-  // Strip retrospective-coaching boilerplate: skip "Context:" and "Guest
-  // message:" prefix lines, surface the actual Coaching: directive.
-  const lines = body.split('\n').filter((l) => l.trim());
-  const coachingLine = lines.find((l) => l.toLowerCase().includes('coaching:'));
-  if (coachingLine) {
-    const idx = coachingLine.toLowerCase().indexOf('coaching:');
-    return coachingLine.slice(idx + 'coaching:'.length).trim();
-  }
-  // For non-retrospective entries: take the first quoted paragraph (Allie's
-  // verbatim SMS) or the first 240 chars.
-  const quoteLine = lines.find((l) => l.startsWith('>'));
-  if (quoteLine) {
-    return quoteLine.replace(/^>\s*/, '').slice(0, 240);
-  }
-  return body.slice(0, 240) + (body.length > 240 ? '…' : '');
+function ScopeChip({ scope }: { scope: string }) {
+  const label = scope === 'all properties'
+    ? 'All properties'
+    : scope === 'voice'
+      ? 'Voice'
+      : scope === 'process'
+        ? 'Process'
+        : prettifySlug(scope) || 'Unknown';
+  const isProperty = scope && scope !== 'all properties' && scope !== 'voice' && scope !== 'process';
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '3px 9px',
+        background: isProperty ? 'var(--signal)' : 'var(--ink)',
+        color: 'var(--paper)',
+        fontSize: 10,
+        letterSpacing: '0.14em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
 function relativeTime(iso: string): string {

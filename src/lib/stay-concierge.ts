@@ -159,6 +159,28 @@ export async function getLearnings(limit = 12) {
   return request<LearningsResponse>(`/api/learnings?limit=${limit}`);
 }
 
+export type Fact = {
+  fact: string;
+  scope: string;
+  topic: string;
+  confidence: 'high' | 'medium' | 'low';
+  source_heading: string;
+  source_date: string;
+  source_title: string;
+  source_body_short: string;
+};
+
+export type FactsResponse = {
+  facts: Fact[];
+  count: number;
+  total_facts: number;
+};
+
+export async function getFacts(limit = 20, scope?: string) {
+  const q = scope ? `?limit=${limit}&scope=${encodeURIComponent(scope)}` : `?limit=${limit}`;
+  return request<FactsResponse>(`/api/facts${q}`);
+}
+
 export async function coachApproval(id: string, feedback: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/coach`, {
     method: 'POST',
