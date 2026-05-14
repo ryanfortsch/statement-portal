@@ -308,35 +308,47 @@ function StatsBody({
 }
 
 function OneShotExplainer({ stats }: { stats: MessagingStats }) {
-  const engaged = stats.approved_total + stats.manual_sent + stats.auto_rejected_stale;
+  const engaged =
+    stats.approved_total +
+    stats.manual_sent +
+    stats.auto_rejected_stale +
+    stats.escalated;
   if (engaged === 0) {
     return (
       <span style={{ color: 'var(--ink-4)' }}>
-        No drafts have been resolved yet in this window. Approve, mark
-        handled, or reject a few from the queue to start the score.
+        No inbound activity in this window yet.
       </span>
     );
   }
   return (
     <>
-      Of the <b>{engaged}</b> drafts the AI made for messages you handled,{' '}
+      Of the <b>{engaged}</b> inbound{' '}
+      {engaged === 1 ? 'message' : 'messages'} the AI processed,{' '}
       <b>{stats.first_pass_clean}</b> shipped via Helm without coaching.
       {stats.approved_after_coaching > 0 && (
         <>
-          {' '}Another <b>{stats.approved_after_coaching}</b> shipped via Helm after a coaching round.
+          {' '}Another <b>{stats.approved_after_coaching}</b> shipped after coaching.
         </>
       )}
       {(stats.manual_sent + stats.auto_rejected_stale) > 0 && (
         <>
-          {' '}
-          You handled <b>{stats.manual_sent + stats.auto_rejected_stale}</b>{' '}
-          {stats.manual_sent + stats.auto_rejected_stale === 1 ? 'message' : 'messages'} directly in Guesty
+          {' '}You handled <b>{stats.manual_sent + stats.auto_rejected_stale}</b>{' '}
+          directly in Guesty
           {stats.auto_rejected_stale > 0 && (
             <>
-              {' '}({stats.manual_sent} captured, {stats.auto_rejected_stale} expired before the poller could catch them)
+              {' '}({stats.manual_sent} captured by the poller, {stats.auto_rejected_stale} expired pre-poller)
             </>
           )}
           .
+        </>
+      )}
+      {stats.escalated > 0 && (
+        <>
+          {' '}
+          <span style={{ color: 'var(--signal)', fontWeight: 600 }}>
+            The AI punted {stats.escalated} {stats.escalated === 1 ? 'message' : 'messages'} to SMS without drafting
+          </span>{' '}
+          — the new classifier should drive this toward zero.
         </>
       )}
     </>
