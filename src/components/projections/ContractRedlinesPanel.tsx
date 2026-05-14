@@ -5,8 +5,10 @@ import { proposeContractRedlines, applyContractRedlines } from '@/app/projection
 import {
   FIELD_DESCRIPTORS,
   formatFieldValueForPreview,
+  POSITION_LABELS,
   type ContractRedlineEdits,
   type EditableField,
+  type RedlinePosition,
 } from '@/lib/projection-redlines';
 import type { ProjectionRow } from '@/lib/projections-types';
 
@@ -615,6 +617,14 @@ function placeholderForKind(kind: 'date' | 'money' | 'integer' | 'percent'): str
   }
 }
 
+/**
+ * Precise-mode authoring doesn't have a Claude round-trip, so the rich
+ * metadata fields get sensible defaults: ourPosition is 'restructure' (we
+ * authored a substantively new term), ownerAsk is a tag indicating staff
+ * authorship, reviewPriority normal, sensitiveSection false. The user can
+ * still see + override via the projection's main edit form if they need
+ * to flip something to high.
+ */
 function buildPreciseEdits(
   fieldChanges: DraftFieldChange[],
   clausesToAdd: DraftClauseAdd[],
@@ -631,10 +641,8 @@ function buildPreciseEdits(
         const cleaned = r.newValueText.replace(/[^0-9.\-]/g, '');
         const n = Number(cleaned);
         if (!Number.isFinite(n)) {
-          // Will surface as null on apply; better than silent corruption.
           newValue = r.newValueText.trim();
         } else if (kind === 'percent') {
-          // Allow either 22 or 0.22; normalize to decimal.
           newValue = n > 1 ? n / 100 : n;
         } else if (kind === 'integer') {
           newValue = Math.round(n);
@@ -645,7 +653,11 @@ function buildPreciseEdits(
       return {
         field,
         new_value: newValue,
-        reason: r.reason.trim() || 'Manual precise-mode edit.',
+        ownerAsk: '(staff-authored, no owner ask)',
+        ourPosition: 'restructure' as RedlinePosition,
+        positionDetail: r.reason.trim() || 'Manual precise-mode edit.',
+        reviewPriority: 'normal' as const,
+        sensitiveSection: false,
       };
     });
 
@@ -654,12 +666,16 @@ function buildPreciseEdits(
     .map((r) => ({
       title: r.title.trim(),
       body: r.body.trim(),
-      reason: r.reason.trim() || 'Manual precise-mode addition.',
+      ownerAsk: '(staff-authored, no owner ask)',
+      ourPosition: 'restructure' as RedlinePosition,
+      positionDetail: r.reason.trim() || 'Manual precise-mode addition.',
+      reviewPriority: 'normal' as const,
+      sensitiveSection: false,
     }));
 
   if (builtFieldChanges.length === 0 && builtClauseAdds.length === 0) return null;
 
-  const summary = [
+  const counts = [
     builtFieldChanges.length
       ? `${builtFieldChanges.length} field ${builtFieldChanges.length === 1 ? 'change' : 'changes'}`
       : null,
@@ -675,13 +691,19 @@ function buildPreciseEdits(
     clauses_to_add: builtClauseAdds,
     clauses_to_edit: [],
     clauses_to_remove: [],
-    unsupported_requests: [],
-    summary: `Precise-mode edits: ${summary}.`,
+    summary: `Staff-authored precise edits: ${counts}.`,
   };
 }
 
 // ─── Preview (shared between modes) ─────────────────────────────────────────
 
+/**
+ * Render preview of the structured edit set. Sensitive items (anything
+ * with sensitiveSection: true or reviewPriority: 'high') get pulled to a
+ * dedicated block at the top under "Attorney review recommended" — same
+ * UI shape as the rest, just with a signal-accent border and a
+ * stand-alone position in the doc.
+ */
 function Preview({
   edits,
   projection,
@@ -693,14 +715,36 @@ function Preview({
   acceptance: Acceptance;
   setAcceptance: (a: Acceptance) => void;
 }) {
-  const hasFieldChanges = edits.field_changes.length > 0;
-  const hasClauseAdds = edits.clauses_to_add.length > 0;
-  const hasClauseEdits = edits.clauses_to_edit.length > 0;
-  const hasClauseRemoves = edits.clauses_to_remove.length > 0;
-  const hasUnsupported = edits.unsupported_requests.length > 0;
-
   const projectionAsRecord = projection as unknown as Record<string, string | number | null>;
   const currentClauses = useMemo(() => projection.custom_clauses ?? [], [projection.custom_clauses]);
+
+  // Partition each change list into sensitive / standard with the original
+  // index preserved so the acceptance toggles map back to the right slot.
+  type WithIdx<T> = { item: T; index: number };
+  const partition = <T extends { sensitiveSection: boolean; reviewPriority: 'normal' | 'high' }>(
+    arr: T[],
+  ): { sensitive: WithIdx<T>[]; standard: WithIdx<T>[] } => {
+    const sensitive: WithIdx<T>[] = [];
+    const standard: WithIdx<T>[] = [];
+    arr.forEach((item, index) => {
+      if (item.sensitiveSection || item.reviewPriority === 'high') {
+        sensitive.push({ item, index });
+      } else {
+        standard.push({ item, index });
+      }
+    });
+    return { sensitive, standard };
+  };
+
+  const fc = partition(edits.field_changes);
+  const ca = partition(edits.clauses_to_add);
+  const ce = partition(edits.clauses_to_edit);
+  const cr = partition(edits.clauses_to_remove);
+
+  const sensitiveTotal =
+    fc.sensitive.length + ca.sensitive.length + ce.sensitive.length + cr.sensitive.length;
+  const totalChanges =
+    edits.field_changes.length + edits.clauses_to_add.length + edits.clauses_to_edit.length + edits.clauses_to_remove.length;
 
   const toggleFieldChange = (i: number) =>
     setAcceptance({
@@ -723,6 +767,30 @@ function Preview({
       clauseRemoves: acceptance.clauseRemoves.map((v, j) => (j === i ? !v : v)),
     });
 
+  const renderFieldRow = (
+    entry: { item: ContractRedlineEdits['field_changes'][number]; index: number },
+    key: number,
+  ) => {
+    const { item: c, index: i } = entry;
+    const f = c.field as EditableField;
+    const current = projectionAsRecord[f];
+    const accepted = acceptance.fieldChanges[i] ?? true;
+    return (
+      <FieldChangeReviewRow
+        key={`fc-${i}-${key}`}
+        accepted={accepted}
+        onToggle={() => toggleFieldChange(i)}
+        label={FIELD_DESCRIPTORS[f].label}
+        currentValue={formatFieldValueForPreview(f, current ?? null)}
+        newValue={formatFieldValueForPreview(f, c.new_value)}
+        ownerAsk={c.ownerAsk}
+        ourPosition={c.ourPosition}
+        positionDetail={c.positionDetail}
+        sensitive={c.sensitiveSection || c.reviewPriority === 'high'}
+      />
+    );
+  };
+
   return (
     <div style={previewStyle}>
       <div style={previewSummaryStyle}>
@@ -735,113 +803,283 @@ function Preview({
         </p>
       </div>
 
-      {hasFieldChanges && (
+      {sensitiveTotal > 0 && (
+        <div style={attorneyBlockStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span
+              style={{
+                background: 'var(--signal)',
+                color: 'var(--paper)',
+                fontSize: 9,
+                letterSpacing: '.22em',
+                textTransform: 'uppercase',
+                padding: '3px 6px',
+                fontWeight: 600,
+              }}
+            >
+              Attorney review recommended
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              {sensitiveTotal} of {totalChanges} {totalChanges === 1 ? 'edit' : 'edits'} touches a sensitive section
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 10px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            These changes draft a candidate the same as any other edit — they&rsquo;re not blocked. They&rsquo;re
+            surfaced here because they touch hard-coded legal language (Liability, Force Majeure, Governing Law,
+            etc.) and warrant a counsel pass before the contract goes back to the owner.
+          </p>
+
+          {fc.sensitive.map((e, k) => renderFieldRow(e, k))}
+          {ca.sensitive.map((e) => (
+            <ClauseCard
+              key={`ca-sens-${e.index}`}
+              title={e.item.title}
+              body={e.item.body}
+              ownerAsk={e.item.ownerAsk}
+              ourPosition={e.item.ourPosition}
+              positionDetail={e.item.positionDetail}
+              sensitive
+              kind="add"
+              accepted={acceptance.clauseAdds[e.index] ?? true}
+              onToggle={() => toggleClauseAdd(e.index)}
+            />
+          ))}
+          {ce.sensitive.map((e) => {
+            const current = currentClauses[e.item.index];
+            return (
+              <ClauseCard
+                key={`ce-sens-${e.index}`}
+                title={e.item.title ?? current?.title ?? '(missing)'}
+                body={e.item.body ?? current?.body ?? '(missing)'}
+                ownerAsk={e.item.ownerAsk}
+                ourPosition={e.item.ourPosition}
+                positionDetail={e.item.positionDetail}
+                sensitive
+                kind="edit"
+                accepted={acceptance.clauseEdits[e.index] ?? true}
+                onToggle={() => toggleClauseEdit(e.index)}
+              />
+            );
+          })}
+          {cr.sensitive.map((e) => {
+            const current = currentClauses[e.item.index];
+            return (
+              <ClauseCard
+                key={`cr-sens-${e.index}`}
+                title={current?.title ?? `Clause #${e.item.index}`}
+                body={current?.body ?? ''}
+                ownerAsk={e.item.ownerAsk}
+                ourPosition={e.item.ourPosition}
+                positionDetail={e.item.positionDetail}
+                sensitive
+                kind="remove"
+                accepted={acceptance.clauseRemoves[e.index] ?? true}
+                onToggle={() => toggleClauseRemove(e.index)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {fc.standard.length > 0 && (
         <PreviewBlock title="Field changes">
-          <table style={diffTableStyle}>
-            <tbody>
-              {edits.field_changes.map((c, i) => {
-                const f = c.field as EditableField;
-                const current = projectionAsRecord[f];
-                const accepted = acceptance.fieldChanges[i] ?? true;
-                return (
-                  <tr
-                    key={i}
-                    style={{ ...diffRowStyle, opacity: accepted ? 1 : 0.45 }}
-                  >
-                    <td style={diffCheckStyle}>
-                      <input
-                        type="checkbox"
-                        checked={accepted}
-                        onChange={() => toggleFieldChange(i)}
-                        aria-label={`Accept change to ${FIELD_DESCRIPTORS[f].label}`}
-                      />
-                    </td>
-                    <td style={diffLabelStyle}>{FIELD_DESCRIPTORS[f].label}</td>
-                    <td style={diffOldStyle}>{formatFieldValueForPreview(f, current ?? null)}</td>
-                    <td style={diffArrowStyle}>→</td>
-                    <td style={diffNewStyle}>{formatFieldValueForPreview(f, c.new_value)}</td>
-                    <td style={diffReasonStyle}>{c.reason}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {fc.standard.map((e, k) => renderFieldRow(e, k))}
         </PreviewBlock>
       )}
 
-      {hasClauseAdds && (
+      {ca.standard.length > 0 && (
         <PreviewBlock title="Clauses to add">
-          {edits.clauses_to_add.map((c, i) => (
+          {ca.standard.map((e) => (
             <ClauseCard
-              key={i}
-              title={c.title}
-              body={c.body}
-              reason={c.reason}
+              key={`ca-${e.index}`}
+              title={e.item.title}
+              body={e.item.body}
+              ownerAsk={e.item.ownerAsk}
+              ourPosition={e.item.ourPosition}
+              positionDetail={e.item.positionDetail}
+              sensitive={false}
               kind="add"
-              accepted={acceptance.clauseAdds[i] ?? true}
-              onToggle={() => toggleClauseAdd(i)}
+              accepted={acceptance.clauseAdds[e.index] ?? true}
+              onToggle={() => toggleClauseAdd(e.index)}
             />
           ))}
         </PreviewBlock>
       )}
 
-      {hasClauseEdits && (
+      {ce.standard.length > 0 && (
         <PreviewBlock title="Clauses to edit">
-          {edits.clauses_to_edit.map((c, i) => {
-            const current = currentClauses[c.index];
+          {ce.standard.map((e) => {
+            const current = currentClauses[e.item.index];
             return (
               <ClauseCard
-                key={i}
-                title={c.title ?? current?.title ?? '(missing)'}
-                body={c.body ?? current?.body ?? '(missing)'}
-                reason={c.reason}
+                key={`ce-${e.index}`}
+                title={e.item.title ?? current?.title ?? '(missing)'}
+                body={e.item.body ?? current?.body ?? '(missing)'}
+                ownerAsk={e.item.ownerAsk}
+                ourPosition={e.item.ourPosition}
+                positionDetail={e.item.positionDetail}
+                sensitive={false}
                 kind="edit"
-                accepted={acceptance.clauseEdits[i] ?? true}
-                onToggle={() => toggleClauseEdit(i)}
+                accepted={acceptance.clauseEdits[e.index] ?? true}
+                onToggle={() => toggleClauseEdit(e.index)}
               />
             );
           })}
         </PreviewBlock>
       )}
 
-      {hasClauseRemoves && (
+      {cr.standard.length > 0 && (
         <PreviewBlock title="Clauses to remove">
-          {edits.clauses_to_remove.map((c, i) => {
-            const current = currentClauses[c.index];
+          {cr.standard.map((e) => {
+            const current = currentClauses[e.item.index];
             return (
               <ClauseCard
-                key={i}
-                title={current?.title ?? `Clause #${c.index}`}
+                key={`cr-${e.index}`}
+                title={current?.title ?? `Clause #${e.item.index}`}
                 body={current?.body ?? ''}
-                reason={c.reason}
+                ownerAsk={e.item.ownerAsk}
+                ourPosition={e.item.ourPosition}
+                positionDetail={e.item.positionDetail}
+                sensitive={false}
                 kind="remove"
-                accepted={acceptance.clauseRemoves[i] ?? true}
-                onToggle={() => toggleClauseRemove(i)}
+                accepted={acceptance.clauseRemoves[e.index] ?? true}
+                onToggle={() => toggleClauseRemove(e.index)}
               />
             );
           })}
         </PreviewBlock>
       )}
 
-      {hasUnsupported && (
-        <PreviewBlock title="Needs out-of-band handling" tone="warning">
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--ink)', lineHeight: 1.6 }}>
-            {edits.unsupported_requests.map((u, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>{u}</li>
-            ))}
-          </ul>
-          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>
-            These touch hard-coded legal boilerplate or fall outside the editable scope. Handle by hand
-            or loop in counsel; not applied automatically.
-          </p>
-        </PreviewBlock>
-      )}
-
-      {!hasFieldChanges && !hasClauseAdds && !hasClauseEdits && !hasClauseRemoves && !hasUnsupported && (
+      {totalChanges === 0 && (
         <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}>
           Nothing actionable was staged. Discard and try again.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Field-change preview row (used in the Review preview only — distinct
+ * from FieldChangeRow above which is the Precise-mode builder row).
+ * Renders a checkbox + diff + the three-field rationale stacked
+ * underneath. Sensitive items get a thin signal accent on the left edge.
+ */
+function FieldChangeReviewRow({
+  accepted,
+  onToggle,
+  label,
+  currentValue,
+  newValue,
+  ownerAsk,
+  ourPosition,
+  positionDetail,
+  sensitive,
+}: {
+  accepted: boolean;
+  onToggle: () => void;
+  label: string;
+  currentValue: string;
+  newValue: string;
+  ownerAsk: string;
+  ourPosition: RedlinePosition;
+  positionDetail: string;
+  sensitive: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr',
+        gap: 10,
+        padding: '10px 12px',
+        marginBottom: 8,
+        border: '1px solid var(--rule)',
+        borderLeft: sensitive ? '3px solid var(--signal)' : '1px solid var(--rule)',
+        background: 'var(--paper)',
+        opacity: accepted ? 1 : 0.45,
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={accepted}
+        onChange={onToggle}
+        aria-label={`Accept change to ${label}`}
+        style={{ marginTop: 4 }}
+      />
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{label}</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'line-through' }}>{currentValue}</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>→</span>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{newValue}</span>
+          <PositionPill position={ourPosition} />
+        </div>
+        <RationaleStack ownerAsk={ownerAsk} positionDetail={positionDetail} />
+      </div>
+    </div>
+  );
+}
+
+function PositionPill({ position }: { position: RedlinePosition }) {
+  const tones: Record<RedlinePosition, { bg: string; fg: string }> = {
+    accept: { bg: 'rgba(74, 157, 107, 0.18)', fg: '#3a7a55' },
+    'accept-with-modification': { bg: 'rgba(184, 155, 110, 0.22)', fg: '#7c6638' },
+    counter: { bg: 'rgba(200, 90, 58, 0.18)', fg: 'var(--signal)' },
+    hold: { bg: 'rgba(80, 100, 112, 0.18)', fg: 'var(--ink-3)' },
+    restructure: { bg: 'rgba(80, 100, 112, 0.18)', fg: 'var(--ink-3)' },
+  };
+  const t = tones[position];
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        letterSpacing: '.18em',
+        textTransform: 'uppercase',
+        padding: '3px 6px',
+        background: t.bg,
+        color: t.fg,
+        fontWeight: 600,
+      }}
+    >
+      {POSITION_LABELS[position]}
+    </span>
+  );
+}
+
+function RationaleStack({ ownerAsk, positionDetail }: { ownerAsk: string; positionDetail: string }) {
+  return (
+    <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.55 }}>
+      <div style={{ color: 'var(--ink-3)' }}>
+        <span
+          style={{
+            fontSize: 9,
+            letterSpacing: '.22em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-4)',
+            fontWeight: 600,
+            marginRight: 6,
+          }}
+        >
+          Owner asked
+        </span>
+        {ownerAsk}
+      </div>
+      <div style={{ color: 'var(--ink)', marginTop: 4 }}>
+        <span
+          style={{
+            fontSize: 9,
+            letterSpacing: '.22em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-4)',
+            fontWeight: 600,
+            marginRight: 6,
+          }}
+        >
+          Our position
+        </span>
+        {positionDetail}
+      </div>
     </div>
   );
 }
@@ -881,24 +1119,32 @@ function PreviewBlock({
 function ClauseCard({
   title,
   body,
-  reason,
+  ownerAsk,
+  ourPosition,
+  positionDetail,
   kind,
   accepted,
   onToggle,
+  sensitive,
 }: {
   title: string;
   body: string;
-  reason: string;
+  ownerAsk: string;
+  ourPosition: RedlinePosition;
+  positionDetail: string;
   kind: 'add' | 'edit' | 'remove';
   accepted: boolean;
   onToggle: () => void;
+  sensitive: boolean;
 }) {
-  const accent = kind === 'remove' ? 'var(--signal)' : kind === 'edit' ? '#B89B6E' : 'var(--positive, #4a9d6b)';
+  const kindAccent =
+    kind === 'remove' ? 'var(--signal)' : kind === 'edit' ? '#B89B6E' : 'var(--positive, #4a9d6b)';
+  const leftAccent = sensitive ? 'var(--signal)' : kindAccent;
   return (
     <div
       style={{
-        borderLeft: `3px solid ${accent}`,
-        padding: '6px 12px',
+        borderLeft: `3px solid ${leftAccent}`,
+        padding: '10px 12px',
         marginBottom: 10,
         background: 'var(--paper-2)',
         opacity: accepted ? 1 : 0.45,
@@ -916,11 +1162,14 @@ function ClauseCard({
         style={{ marginTop: 4 }}
       />
       <div>
-        <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}>
-          {title}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+          <span className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
+            {title}
+          </span>
+          <PositionPill position={ourPosition} />
         </div>
         <p style={{ margin: 0, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55 }}>{body}</p>
-        <p style={{ margin: '6px 0 0', fontSize: 11, fontStyle: 'italic', color: 'var(--ink-3)' }}>{reason}</p>
+        <RationaleStack ownerAsk={ownerAsk} positionDetail={positionDetail} />
       </div>
     </div>
   );
@@ -946,8 +1195,8 @@ function initAcceptance(edits: ContractRedlineEdits): Acceptance {
 
 /**
  * Return a new edit set containing only the entries the reviewer accepted.
- * Pass-through fields (summary, unsupported_requests) are kept as-is so the
- * audit log on the apply step still has the original interpreter context.
+ * Summary is preserved so the post-apply confirmation reads the
+ * position-framed sentence Claude generated.
  */
 function filterEditsByAcceptance(edits: ContractRedlineEdits, accept: Acceptance): ContractRedlineEdits {
   return {
@@ -955,7 +1204,6 @@ function filterEditsByAcceptance(edits: ContractRedlineEdits, accept: Acceptance
     clauses_to_add: edits.clauses_to_add.filter((_, i) => accept.clauseAdds[i] ?? true),
     clauses_to_edit: edits.clauses_to_edit.filter((_, i) => accept.clauseEdits[i] ?? true),
     clauses_to_remove: edits.clauses_to_remove.filter((_, i) => accept.clauseRemoves[i] ?? true),
-    unsupported_requests: edits.unsupported_requests,
     summary: edits.summary,
   };
 }
@@ -1152,6 +1400,13 @@ const refineBlockStyle: React.CSSProperties = {
   marginTop: 18,
   padding: '12px 14px',
   border: '1px dashed var(--rule)',
+  background: 'var(--paper)',
+};
+const attorneyBlockStyle: React.CSSProperties = {
+  marginTop: 14,
+  padding: '14px 16px',
+  borderTop: '2px solid var(--signal)',
+  borderBottom: '1px solid var(--rule)',
   background: 'var(--paper)',
 };
 const diffRowStyle: React.CSSProperties = {

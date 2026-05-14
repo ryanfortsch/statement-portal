@@ -5,31 +5,36 @@ import type { ProjectionRow } from '@/lib/projections-types';
 /**
  * AI-driven contract redline engine for the Prospects module.
  *
- * Why this exists: owners routinely want to negotiate management-contract
- * terms before signing — "knock the management fee to 22%", "add a 'no
- * weddings' clause", "push the term start back to May 1". Previously the
- * only path was a Word doc round-trip, which (a) lost the brand language
- * of the printed PDF, and (b) split the source of truth across staff
- * laptops. This module replaces that flow.
+ * Operating philosophy (per 36 Granite St / Bethany Giblin retro, May 2026):
+ *   The tool drafts a candidate for every change implied by the owner's
+ *   input. Sensitivity is a review-priority flag on the change, NOT a
+ *   reason to skip. Owners get one document with everything in it,
+ *   marked draft, that staff + counsel review together.
  *
- * How it works:
- *   1. Staff pastes the owner's email / SMS / call notes into the panel
- *      on /projections/<id>.
- *   2. interpretContractRedlines() sends the current contract state +
- *      the requested edits to Claude via the Vercel AI Gateway. Claude
- *      returns a structured edit set (field changes + clause add/remove
- *      + unsupported requests for human handling).
- *   3. Panel renders a preview ("Min availability days: 180 → 120") with
- *      Apply / Reject buttons.
- *   4. On Apply, the action persists the field changes + clause edits to
- *      the projection record. The PDF is data-driven, so the next time
- *      someone clicks "Open Contract" or "Download Contract" the new
- *      values are baked in.
+ * That means: do not produce an "unsupported / out-of-band" output.
+ * If the owner's request touches the hard-coded legal sections
+ * (Liability, Force Majeure, Governing Law, Dispute Resolution,
+ * Severability) — Claude drafts a Rider clause that captures the spirit
+ * of the request, sets sensitiveSection: true + reviewPriority: 'high',
+ * and the preview surfaces those at the top under an "Attorney review
+ * recommended" header.
  *
- * Conservative bias: anything ambiguous — or anything that would touch
- * the hard-coded legal boilerplate (Force Majeure, Liability, Governing
- * Law, etc.) — gets surfaced in `unsupported_requests` rather than
- * silently applied. Staff handles those out of band.
+ * Each change carries a three-field rationale instead of a single
+ * conflated reason:
+ *   ownerAsk        — what the owner asked for (verbatim or paraphrase)
+ *   ourPosition     — accept / accept-with-modification / counter / hold / restructure
+ *   positionDetail  — plain-language explanation of our response
+ *
+ * This shape is what feeds the summary view ("accepted X, countered Y,
+ * held Z") and, eventually, the cover letter back to the owner.
+ *
+ * Note on scope (May 2026): the contract is still mostly hard-coded in
+ * ContractDocument.tsx, so today's applyEditsToProjection can persist:
+ *   - field changes on the projection record
+ *   - add/edit/remove on custom_clauses (the Rider page)
+ * A separate PR (contract-overrides infra) will enable modify/replace/
+ * rename/delete on hard-coded sections. Until then, sensitive-section
+ * requests land as flagged Rider clauses.
  */
 
 /** Fields on the projection record that the engine is allowed to mutate. */
@@ -60,40 +65,77 @@ export const FIELD_DESCRIPTORS: Record<
   mgmt_fee_pct: { label: 'Management fee (%)', kind: 'percent' },
 };
 
+const POSITIONS = ['accept', 'accept-with-modification', 'counter', 'hold', 'restructure'] as const;
+export type RedlinePosition = (typeof POSITIONS)[number];
+
+export const POSITION_LABELS: Record<RedlinePosition, string> = {
+  accept: 'Accept',
+  'accept-with-modification': 'Accept w/ mod',
+  counter: 'Counter',
+  hold: 'Hold',
+  restructure: 'Restructure',
+};
+
+/** Shared three-field rationale + sensitivity metadata on every change. */
+const RichMetaShape = {
+  ownerAsk: z
+    .string()
+    .describe(
+      "What the owner asked for, verbatim or close paraphrase. NOT our response — the request itself.",
+    ),
+  ourPosition: z
+    .enum(POSITIONS)
+    .describe(
+      "Our response: 'accept' (yes as asked); 'accept-with-modification' (close to what they asked, with a small tweak); 'counter' (different value/text we're proposing back); 'hold' (no change — we kept the original term); 'restructure' (substantively different approach to the same intent).",
+    ),
+  positionDetail: z
+    .string()
+    .describe(
+      "Plain-language explanation of our response. For 'accept': brief 'going along with the request.' For 'counter' / 'hold' / 'restructure': the business reason and what we're proposing instead. For 'accept-with-modification': what the tweak is and why.",
+    ),
+  reviewPriority: z
+    .enum(['normal', 'high'])
+    .describe(
+      "'high' when the change touches a sensitive section (Liability, Force Majeure, Governing Law, Dispute Resolution, Severability) or contains sensitive keywords (indemnify, liquidated damages, release, waive, limitation of liability). Otherwise 'normal'.",
+    ),
+  sensitiveSection: z
+    .boolean()
+    .describe(
+      "True when the change is a Rider clause that effectively modifies the spirit of a hard-coded legal section, OR when it directly involves indemnification, liability limitation, governing law, etc. Forces the change to the top of the preview under 'Attorney review recommended'.",
+    ),
+};
+
 const FieldChange = z.object({
   field: z.enum(EDITABLE_FIELDS),
   new_value: z
     .union([z.string(), z.number()])
     .nullable()
     .describe(
-      'New value for the field. Dates are YYYY-MM-DD strings. mgmt_fee_pct is a decimal (0.22 for 22%). All other numbers are plain numbers. null means clear the field.',
+      'New value for the field. Dates are YYYY-MM-DD strings. mgmt_fee_pct is a decimal (0.22 for 22%). All other numbers are plain numbers.',
     ),
-  reason: z.string().describe('Why this change is being made, in one short sentence.'),
+  ...RichMetaShape,
 });
 
 const ClauseAdd = z.object({
-  title: z.string().describe('A short title for the clause, sentence case. Example: "No weddings".'),
+  title: z.string().describe('Short sentence-case title for the clause.'),
   body: z
     .string()
     .describe(
-      'The clause body in 1-3 sentences. Write in formal contract voice: third-person, no "you / I", future-tense obligations.',
+      'Clause body in formal contract voice — third person, future-tense obligations, no "you / I". 1-3 sentences typical.',
     ),
-  reason: z.string().describe('Why this clause is being added, in one short sentence.'),
+  ...RichMetaShape,
 });
 
 const ClauseEdit = z.object({
-  index: z
-    .number()
-    .int()
-    .describe('Zero-based index into projection.custom_clauses to edit.'),
+  index: z.number().int().describe('Zero-based index into projection.custom_clauses to edit.'),
   title: z.string().nullable().describe('New title; null to keep current.'),
   body: z.string().nullable().describe('New body; null to keep current.'),
-  reason: z.string(),
+  ...RichMetaShape,
 });
 
 const ClauseRemove = z.object({
   index: z.number().int().describe('Zero-based index into projection.custom_clauses to remove.'),
-  reason: z.string(),
+  ...RichMetaShape,
 });
 
 export const ContractRedlineEdits = z.object({
@@ -101,17 +143,41 @@ export const ContractRedlineEdits = z.object({
   clauses_to_add: z.array(ClauseAdd),
   clauses_to_edit: z.array(ClauseEdit),
   clauses_to_remove: z.array(ClauseRemove),
-  unsupported_requests: z
-    .array(z.string())
-    .describe(
-      'Anything the owner asked for that does not map to an editable field or clause — e.g. "remove the force majeure section", "change the governing law to New York". These need legal-review handling out of band and should NOT be silently dropped.',
-    ),
   summary: z
     .string()
-    .describe('1-2 sentence plain-English summary of the changes being proposed.'),
+    .describe(
+      'A position-framed 1-3 sentence summary of all proposed changes. Phrase using our positions, NOT the owner\'s requests. Example: "Owner requested 5 changes. Property Manager accepted 2 outright, accepted 1 with modification, countered on 1, and held on 1. Notable hold: 185-day sale notice period."',
+    ),
 });
 
 export type ContractRedlineEdits = z.infer<typeof ContractRedlineEdits>;
+export type FieldChangeT = z.infer<typeof FieldChange>;
+export type ClauseAddT = z.infer<typeof ClauseAdd>;
+export type ClauseEditT = z.infer<typeof ClauseEdit>;
+export type ClauseRemoveT = z.infer<typeof ClauseRemove>;
+
+const SENSITIVE_KEYWORDS = [
+  'indemnif',
+  'liquidated damages',
+  'release',
+  'waive',
+  'waiver',
+  'limitation of liability',
+  'force majeure',
+  'governing law',
+  'arbitration',
+  'attorneys\' fees',
+  'severability',
+];
+
+const SENSITIVE_SECTION_NAMES = [
+  'Liability and Indemnification',
+  'Insurance & Liability Coverage',
+  'Force Majeure',
+  "Dispute Resolution & Attorneys' Fees",
+  'Severability',
+  'Governing Law & Entire Agreement',
+];
 
 /**
  * Send the current contract state + the owner's requested edits to Claude
@@ -137,29 +203,58 @@ export async function interpretContractRedlines(args: {
   const { object } = await generateObject({
     model: 'anthropic/claude-sonnet-4.5',
     schema: ContractRedlineEdits,
-    system: `You are processing owner-requested edits to a Rising Tide STR management contract. The contract is a draft heading toward e-signature; the requested edits are the owner's redlines.
+    system: `You are processing owner-requested edits to a Rising Tide STR management contract.
 
-Today is ${today}. Your job: map the owner's request to a structured edit set that Rising Tide staff will review before applying to the database. The PDF re-renders automatically once edits are persisted, so accuracy matters.
+Today is ${today}.
 
-Editable fields and their units:
-- term_start, term_end: YYYY-MM-DD date strings.
-- initial_deposit, min_account_balance, reputation_fee: dollar amounts as numbers (no $ sign).
-- min_availability_days, sale_notification_days: integers (days).
-- mgmt_fee_pct: decimal (0.22 = 22%, not 22).
+OPERATING PHILOSOPHY
+Draft a candidate for EVERY change implied by the owner's input. Do not skip changes because they touch legal boilerplate. The tool's job is to produce one complete draft that staff and counsel review together; partial drafts ("we have some of your changes, others are pending") destroy trust with the owner.
 
-Custom clauses: an ordered array of {title, body}. You can add, edit, or remove. Bodies should be in formal contract voice — third person, future-tense, no first person.
+When the owner asks for changes that map cleanly to editable contract fields or to a custom Rider clause, propose them directly.
 
-Hard rules:
-- Do not modify the hard-coded legal boilerplate (Liability and Indemnification, Insurance, Force Majeure, Dispute Resolution, Severability, Governing Law, Termination). If the owner asks for changes to those sections, put the request in unsupported_requests so legal can handle out of band.
-- Do not invent edits the owner did not ask for. If they say "knock the mgmt fee to 22%", only change mgmt_fee_pct — do not also adjust other terms to "rebalance."
-- If a number lacks a unit (e.g. "lower the deposit to 5000" vs "lower the deposit to 5 thousand"), interpret in dollars or days based on the field's type.
-- Always populate reason with a one-sentence explanation grounded in the owner's words.`,
+When the owner asks for changes that would normally require editing hard-coded legal sections (Liability, Force Majeure, Governing Law, Dispute Resolution, Severability, etc.), DO NOT refuse. Draft a Rider clause that captures the spirit of the request. The Rider sits after Sale Protection and overrides / supplements the standard terms when the parties have explicitly agreed. Mark such changes \`sensitiveSection: true\` and \`reviewPriority: 'high'\` so staff sees them at the top of the preview under "Attorney review recommended."
+
+THREE-FIELD RATIONALE
+Every change carries:
+  ownerAsk        — verbatim or close paraphrase of what the owner asked for
+  ourPosition     — accept | accept-with-modification | counter | hold | restructure
+  positionDetail  — plain-language explanation of our response
+
+Use 'hold' when we keep the original term unchanged (e.g. owner asked for 90 days, we kept 185). Even on a 'hold' you still emit a change record — the change is "no change," but the ownerAsk + positionDetail document our position. Without this, the audit trail looks like the owner asked for what we proposed.
+
+EDITABLE FIELDS (units)
+- term_start, term_end: YYYY-MM-DD
+- initial_deposit, min_account_balance, reputation_fee: dollars (plain number)
+- min_availability_days, sale_notification_days: integer days
+- mgmt_fee_pct: decimal (0.22 = 22%)
+
+CUSTOM CLAUSES
+An ordered array of { title, body }. Add / edit / remove freely. Bodies in formal contract voice — third person, future-tense, no first person.
+
+SENSITIVE-SECTION FLAGGING
+Mark \`sensitiveSection: true\` AND \`reviewPriority: 'high'\` when the change touches any of:
+${SENSITIVE_SECTION_NAMES.map((s) => `  - ${s}`).join('\n')}
+…or when its body contains any of these keywords: ${SENSITIVE_KEYWORDS.join(', ')}.
+
+SUMMARY
+Frame using OUR positions, not the owner's requests. Example:
+  "Owner requested 18 changes. Property Manager accepted 8 outright,
+   accepted 4 with modifications, countered on 2, held on 3, and
+   restructured 1. Notable holds: the 185-day sale notice period and
+   the $5,000 reputation damages fee. Notable restructure: the
+   cancellation compensation provision, now tied to 50% of Gross
+   Rental Income."
+
+HARD RULES
+- Do not invent edits the owner did not ask for, even to "rebalance."
+- Always populate ownerAsk grounded in the owner's actual words.
+- If the owner is silent on a topic, do not emit a change for it.`,
     prompt: `CURRENT CONTRACT STATE
 ======================
 Owner: ${ownerName}
 Property: ${propertyAddress}
 
-Current terms:
+Current contract values:
 ${currentTerms}
 
 Current custom clauses (0-indexed):
@@ -171,16 +266,22 @@ OWNER'S REQUESTED EDITS (raw text):
 ${requested}
 
 
-Produce a structured edit set. If the owner asked for nothing actionable, return empty arrays and surface any blocked requests in unsupported_requests.`,
+Produce a structured edit set per the schema, with three-field rationale on every change. Flag sensitive items per the rules above. Write the summary using OUR positions.`,
   });
 
   return object;
 }
 
 /**
- * Apply a previously-interpreted edit set to a projection record. Pure
- * write — does not call the LLM. Returns the new custom_clauses array
- * (helpful for the audit log) and a count of field changes applied.
+ * Apply a previously-interpreted (or precise-mode authored) edit set to a
+ * projection record. Pure write — does not call the LLM. Returns the
+ * field payload and the new custom_clauses array.
+ *
+ * Note: the rich metadata (ownerAsk, ourPosition, positionDetail,
+ * reviewPriority, sensitiveSection) is informational only — it's
+ * displayed in the preview and surfaces in the post-apply confirmation,
+ * but it isn't persisted on the projection record itself in this phase.
+ * A follow-on PR will add a redline audit log table.
  */
 export function applyEditsToProjection(args: {
   projection: ProjectionRow;
@@ -191,15 +292,11 @@ export function applyEditsToProjection(args: {
 } {
   const { projection, edits } = args;
 
-  // Build the field updates payload.
   const fieldUpdates: Partial<Record<EditableField, string | number | null>> = {};
   for (const change of edits.field_changes) {
     fieldUpdates[change.field] = coerceFieldValue(change.field, change.new_value);
   }
 
-  // Clauses — start from the current array, apply edits, then add/remove.
-  // Order matters: edits first (by current index), then removes (by current
-  // index, reverse order so indices stay valid), then adds (appended).
   const current = projection.custom_clauses ?? [];
   let working = current.map((c) => ({ ...c }));
 
@@ -255,31 +352,19 @@ function formatValueForPrompt(v: unknown, kind: 'date' | 'money' | 'integer' | '
   return String(v);
 }
 
-/**
- * Coerce the LLM's new_value to the right type for the column. The Zod
- * schema lets the LLM return either string or number; this normalizes.
- */
 function coerceFieldValue(
   field: EditableField,
   raw: string | number | null,
 ): string | number | null {
   if (raw == null) return null;
   const kind = FIELD_DESCRIPTORS[field].kind;
-  if (kind === 'date') {
-    // Already YYYY-MM-DD per the prompt; pass through.
-    return String(raw);
-  }
+  if (kind === 'date') return String(raw);
   const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^0-9.\-]/g, ''));
   if (!Number.isFinite(n)) return null;
   if (kind === 'integer') return Math.round(n);
-  if (kind === 'percent') {
-    // Defensive: if the LLM returned 22 instead of 0.22, normalize.
-    return n > 1 ? n / 100 : n;
-  }
+  if (kind === 'percent') return n > 1 ? n / 100 : n;
   return n;
 }
-
-// ─── Preview formatters (used by the UI) ────────────────────────────────────
 
 export function formatFieldValueForPreview(
   field: EditableField,
@@ -291,4 +376,25 @@ export function formatFieldValueForPreview(
   if (kind === 'percent' && typeof value === 'number') return `${(value * 100).toFixed(0)}%`;
   if (kind === 'integer' && typeof value === 'number') return `${value.toLocaleString()}`;
   return String(value);
+}
+
+/**
+ * Compute counts by position for the preview pill row.
+ */
+export function countPositions(edits: ContractRedlineEdits): Record<RedlinePosition, number> {
+  const counts: Record<RedlinePosition, number> = {
+    accept: 0,
+    'accept-with-modification': 0,
+    counter: 0,
+    hold: 0,
+    restructure: 0,
+  };
+  const allChanges = [
+    ...edits.field_changes,
+    ...edits.clauses_to_add,
+    ...edits.clauses_to_edit,
+    ...edits.clauses_to_remove,
+  ];
+  for (const c of allChanges) counts[c.ourPosition]++;
+  return counts;
 }
