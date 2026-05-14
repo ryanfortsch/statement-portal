@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
-import { DownloadContractDocxButton } from '@/components/projections/DownloadContractDocxButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -146,14 +145,13 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
               Contract ↗
             </Link>
           </div>
-          {/* Download PDFs (server-rendered via Puppeteer) + editable
-              contract docx for the management contact to redline before
-              signing. PDFs are print-final; the docx is for negotiation. */}
+          {/* Download PDFs (server-rendered via Puppeteer). PDFs are
+              print-final; for negotiation, the Redlines panel below
+              applies edits to the projection record and re-renders. */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
             <DownloadPdfButton projectionId={id} type="projection" label="Download Projection" />
             <DownloadPdfButton projectionId={id} type="guide" label="Download Guide" />
             <DownloadPdfButton projectionId={id} type="contract" label="Download Contract" />
-            <DownloadContractDocxButton projectionId={id} />
           </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 18 }}>
