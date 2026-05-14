@@ -6,7 +6,7 @@ export type CompetitorEvent = {
   competitorId: CompetitorId;
   listingSlug: string;
   listingName: string;
-  eventType: 'added' | 'dropped' | 'returned' | 'changed';
+  eventType: 'added' | 'dropped' | 'returned' | 'changed' | 'renamed';
   changes: Record<string, { from: unknown; to: unknown }> | null;
   detectedAt: string;
 };
