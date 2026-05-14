@@ -689,6 +689,26 @@ export async function proposeContractRedlines(
       projection: data as ProjectionRow,
       requested: trimmed,
     });
+    // Log the structured interpreter output so Vercel runtime logs
+    // capture it. Crucial for diagnosing prompt regressions — the May
+    // 2026 36 Granite incident had no recoverable JSON because we
+    // hadn't logged the apply-step payload anywhere.
+    console.log(
+      JSON.stringify({
+        event: 'contract_redlines_proposed',
+        projection_id: projectionId,
+        requested_chars: trimmed.length,
+        field_change_count: edits.field_changes.length,
+        override_count: edits.contract_overrides.length,
+        overrides_by_action: edits.contract_overrides.reduce<Record<string, number>>(
+          (acc, o) => ({ ...acc, [o.action]: (acc[o.action] ?? 0) + 1 }),
+          {},
+        ),
+        // Full structured edit set — useful for reproducing or rolling
+        // back. Bounded by the 20K input cap so this stays log-safe.
+        edits,
+      }),
+    );
     return { ok: true, edits };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -734,6 +754,23 @@ export async function applyContractRedlines(
     // load — the user's next Save would clobber the redline edits.
     updated_at: new Date().toISOString(),
   };
+
+  // Log what's actually being persisted — the user-accepted subset of
+  // the interpreter's proposal, plus the resulting overrides array.
+  // Recoverable from Vercel logs if the row is later deleted or
+  // overwritten.
+  console.log(
+    JSON.stringify({
+      event: 'contract_redlines_applied',
+      projection_id: projectionId,
+      applied_by: session.user.email,
+      field_change_count: edits.field_changes.length,
+      override_count_in: edits.contract_overrides.length,
+      override_count_persisted: newContractOverrides.length,
+      field_updates: fieldUpdates,
+      overrides: newContractOverrides,
+    }),
+  );
 
   const { error: updateErr } = await supabase
     .from('projections')

@@ -245,12 +245,44 @@ DEFAULT TO IN-PLACE
 If the owner's request modifies language that already exists somewhere in the contract — even partially — use replace or modify on that clause, not add. Detect overlap: if the new text mentions a topic that the contract already covers (e.g. "Additional Insured," "$5,000 reputation fee," "Lost Gross Rental Income," "185 days notice"), it is a replace/modify on the existing clause, not a new add.
 
 STRONGLY PREFER MODIFY OVER REPLACE
-Use modify (find / replaceWith on a span) whenever the change is local to part of a clause. Replace destroys the surrounding context; modify keeps the sentence stable. The only time to replace is when the entire clause body genuinely changes — e.g. swapping a definition. Specific examples:
-  - "Change 120 days to 90 days in the renewal notice" → modify on term-renewal-notice, find: "120 days", replaceWith: "90 days". DO NOT replace the whole clause; the 60-day calendar-year-2026 variant must stay.
-  - "Make the Additional Insured language reciprocal" → modify on insurance-additional-insured covering the specific span that changes, OR replace if the whole clause is being rewritten.
+Use modify (find / replaceWith on a span) whenever the change is local to part of a clause. Modify is span-level — it touches only the matched substring and leaves the rest of the clause stable. Replace overwrites the whole template. Default to modify for any number, name, day-count, or phrase swap.
 
-PRESERVE DUAL-PERIOD STRUCTURES
-Some clauses contain multiple conditional rules. The TERM section's renewal-notice clause has TWO rules: 60 days for calendar year 2026, 120 days for renewal years thereafter. If the owner asks about the renewal-year period only, target the "120 days" span with modify and leave the 60-day variant intact. NEVER use replace on this clause to change only one of the two rules — that drops the other.
+DUAL-PERIOD CLAUSES — MODIFY EACH PERIOD INDEPENDENTLY
+The TERM section's renewal-notice clause (\`term-renewal-notice\`) contains two notice-period rules in a single paragraph:
+  - 60 days for calendar year 2026
+  - 120 days for renewal years thereafter
+
+Both are editable independently with modify. Use modify even if it feels like a "big" clause — the dual structure is a feature, not a reason to refuse the edit.
+
+WORKED EXAMPLES (apply these patterns, don't paraphrase them):
+
+  Owner: "Reduce the renewal notice period from 120 to 90 days."
+  →  ONE modify on term-renewal-notice:
+       { action: "modify",
+         targetId: "term-renewal-notice",
+         find: "120 days",
+         replaceWith: "90 days",
+         ourPosition: "accept" (or counter/restructure as the deal calls for),
+         ... }
+     The 60-day calendar-year-2026 variant is preserved automatically
+     because modify only touches the matched span. Do NOT use replace;
+     that would drop the 60-day rule.
+
+  Owner: "Make both notice periods 60 days."
+  →  ZERO edits to the 60-day variant (already 60). ONE modify changing
+     "120 days" → "60 days" on term-renewal-notice. Two separate modify
+     actions are fine if you prefer to be explicit.
+
+  Owner: "Additional Insured should be reciprocal."
+  →  modify on insurance-additional-insured spanning just the wording
+     that changes, OR replace if you're rewriting the whole clause.
+
+  Owner: "Drop the reputation damages fee."
+  →  modify on protection-comp-reputation, find: "$5,000", replaceWith:
+     "an amount mutually agreed" — span-level. If you're rewriting the
+     bullet's entire framing, use replace on the same target.
+
+The dual-period clause is NOT a do-not-touch zone. The "preserve" framing only means: don't use REPLACE when only ONE of the two rules is changing (replace would clobber the other). Modify is always available and is the correct action for span swaps.
 
 HIERARCHY: NEW CLAUSE LEVEL MATCHES ANCHOR LEVEL
 The clause inventory below lists every clause with [d=N] showing its nesting depth (0 = top-level bullet in a section, 1 = sub-bullet, etc.). When you anchor an 'add' to a clause at depth N, the new clause appears at depth N. To insert a new top-level bullet, anchor to another top-level bullet. To insert a sub-bullet, anchor to a sub-bullet.
