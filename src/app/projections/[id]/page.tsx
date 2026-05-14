@@ -131,11 +131,6 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
-      {/* CONTRACT REDLINES — AI-driven edit applier */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 16, width: '100%' }}>
-        <ContractRedlinesPanel projection={projection} />
-      </section>
-
       {/* DELIVERABLE LINKS + STATE ACTIONS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -206,6 +201,13 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             </button>
           </form>
         </div>
+      </section>
+
+      {/* CONTRACT REDLINES — AI-driven or precise edit applier. Slots
+          between the deliverable downloads and the contract signing /
+          edit form so it reads as a step in the negotiation flow. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
+        <ContractRedlinesPanel projection={projection} />
       </section>
 
       {/* CONTRACT SIGNING: public link + signed status */}
