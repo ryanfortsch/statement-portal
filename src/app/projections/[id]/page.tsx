@@ -144,29 +144,33 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
           </Stage>
 
-          {/* 02 — Partnership Guide */}
+          {/* 02 — Partnership Guide & Contract (sent together) */}
           <Stage
             num="02"
-            title="Partnership Guide"
-            state={guideSent ? 'done' : 'active'}
-            status={guideSent ? gmailStatus(guideTouch) : 'Not yet sent'}
+            title="Partnership Guide & Contract"
+            state={guideSent && contractSent ? 'done' : 'active'}
+            status={
+              guideSent && contractSent
+                // Both sent — show the most recent of the two so the status
+                // line tracks the latest touch.
+                ? gmailStatus(
+                    [guideTouch, contractTouch]
+                      .filter((t): t is NonNullable<typeof t> => !!t)
+                      .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
+                  )
+                : guideSent
+                  ? 'Guide sent · contract pending'
+                  : contractSent
+                    ? 'Contract sent · guide pending'
+                    : 'Not yet sent'
+            }
           >
-            <DeliverableActions projectionId={id} type="guide" openSlug="guide" downloadLabel="Download Guide" />
+            <GuideAndContractStageBody projection={projection} projectionId={id} />
           </Stage>
 
-          {/* 03 — Contract */}
+          {/* 03 — Signed */}
           <Stage
             num="03"
-            title="Contract"
-            state={contractSent ? 'done' : 'active'}
-            status={contractSent ? gmailStatus(contractTouch) : 'Not yet sent'}
-          >
-            <ContractStageBody projection={projection} projectionId={id} />
-          </Stage>
-
-          {/* 04 — Signed */}
-          <Stage
-            num="04"
             title="Signed"
             state={signed ? 'done' : 'active'}
             status={
@@ -178,9 +182,9 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <SignedStageBody projection={projection} />
           </Stage>
 
-          {/* 05 — Onboarding */}
+          {/* 04 — Onboarding */}
           <Stage
-            num="05"
+            num="04"
             title="Onboarding"
             state={onboardingDone ? 'done' : 'active'}
             status={
@@ -192,9 +196,9 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <OnboardingStageBody projection={projection} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
           </Stage>
 
-          {/* 06 — Promote to managed property */}
+          {/* 05 — Promote to managed property */}
           <Stage
-            num="06"
+            num="05"
             title="Promote to managed property"
             state={promoteState}
             status={
@@ -354,39 +358,86 @@ function ProjectionStageBody({
   );
 }
 
-function ContractStageBody({ projection, projectionId }: { projection: ProjectionRow; projectionId: string }) {
+/**
+ * Combined Guide + Contract stage body. They're sent together in the funnel
+ * (the partnership guide explains the management relationship that the
+ * contract codifies), so the UI groups them as one stage with two
+ * sub-deliverables. Each gets its own download/open row; the contract sub-
+ * deliverable also surfaces the live term/fee summary and the Apply Owner
+ * Redlines disclosure.
+ */
+function GuideAndContractStageBody({ projection, projectionId }: { projection: ProjectionRow; projectionId: string }) {
   const termRange = projection.term_start && projection.term_end
     ? `Term ${fmtTouchDate(projection.term_start)} → ${fmtTouchDate(projection.term_end)}`
     : 'Term dates pending';
   const fee = `${fmtPercent(projection.mgmt_fee_pct)} mgmt fee`;
   return (
     <>
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
-        {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
-      </div>
-      <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
-      <details style={{ marginTop: 18, borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
-        <summary
-          style={{
-            listStyle: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 10,
-            userSelect: 'none',
-          }}
-        >
-          <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
-          <span className="eyebrow">Apply owner redlines</span>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-            paste their email / call notes, Claude maps to contract edits
-          </span>
-        </summary>
-        <div style={{ paddingTop: 14 }}>
-          <ContractRedlinesPanel projection={projection} />
+      {/* Partnership Guide sub-deliverable */}
+      <SubDeliverable label="Partnership Guide">
+        <DeliverableActions projectionId={projectionId} type="guide" openSlug="guide" downloadLabel="Download Guide" />
+      </SubDeliverable>
+
+      {/* Contract sub-deliverable */}
+      <SubDeliverable label="Contract" isLast>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
+          {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
         </div>
-      </details>
+        <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
+        <details style={{ marginTop: 14 }}>
+          <summary
+            style={{
+              listStyle: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 10,
+              userSelect: 'none',
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
+            <span className="eyebrow">Apply owner redlines</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              paste their email / call notes, Claude maps to contract edits
+            </span>
+          </summary>
+          <div style={{ paddingTop: 14 }}>
+            <ContractRedlinesPanel projection={projection} />
+          </div>
+        </details>
+      </SubDeliverable>
     </>
+  );
+}
+
+/** Header + body wrapper for one of the two deliverables inside the combined
+ *  Guide + Contract stage. Renders a small caps label, then the children.
+ *  The last sub-deliverable drops the trailing rule + margin so the stage
+ *  card doesn't end with a stray separator. */
+function SubDeliverable({
+  label,
+  children,
+  isLast,
+}: {
+  label: string;
+  children: React.ReactNode;
+  isLast?: boolean;
+}) {
+  return (
+    <div
+      style={
+        isLast
+          ? undefined
+          : {
+              paddingBottom: 16,
+              marginBottom: 16,
+              borderBottom: '1px solid var(--rule)',
+            }
+      }
+    >
+      <div className="eyebrow" style={{ marginBottom: 10 }}>{label}</div>
+      {children}
+    </div>
   );
 }
 
