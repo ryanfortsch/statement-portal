@@ -17,6 +17,50 @@ const FROM_NAME_DEFAULT = 'Stay Cape Ann';
 const FROM_EMAIL_DEFAULT = process.env.RESEND_FROM_EMAIL || 'hello@staycapeann.com';
 
 /**
+ * Save whatever's in the campaign-edit form into the draft row, then
+ * return. Used by sendCampaignTest and sendCampaign so the buttons act
+ * on the latest typed values without requiring an explicit Save first.
+ *
+ * Only updates fields that look "intentionally edited" (present in
+ * formData and non-empty for string fields). Leaves segment_id alone
+ * when missing so a stray empty form doesn't blow away the targeting.
+ */
+async function persistDraftFromFormData(id: string, formData: FormData): Promise<void> {
+  const updates: Record<string, unknown> = {};
+
+  const name = (formData.get('name') as string | null)?.trim();
+  if (name) updates.name = name;
+
+  const subject = (formData.get('subject') as string | null)?.trim();
+  if (subject !== undefined) updates.subject = subject || null;
+
+  const preheader = (formData.get('preheader') as string | null)?.trim();
+  if (preheader !== undefined) updates.preheader = preheader || null;
+
+  const fromName = (formData.get('from_name') as string | null)?.trim();
+  if (fromName) updates.from_name = fromName;
+
+  const fromEmail = (formData.get('from_email') as string | null)?.trim();
+  if (fromEmail) updates.from_email = fromEmail;
+
+  const body = formData.get('body') as string | null;
+  if (body !== null) updates.body_text = body || null;
+
+  const segmentId = (formData.get('segment_id') as string | null)?.trim();
+  if (segmentId) updates.segment_id = segmentId;
+
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await supabase
+    .from('audience_campaigns')
+    .update(updates)
+    .eq('id', id)
+    .eq('status', 'draft'); // never overwrite a sent campaign
+
+  if (error) throw new Error('Failed to persist draft: ' + error.message);
+}
+
+/**
  * Create a fresh draft campaign and jump to its detail page for editing.
  * The "new campaign" page just submits to this; saves a round-trip vs.
  * having an empty edit form that posts elsewhere.
@@ -101,6 +145,11 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
   const id = formData.get('id') as string;
   if (!id) throw new Error('Missing campaign id');
 
+  // Persist whatever's in the form right now so the test reflects current
+  // edits. Avoids the "click Send Test, get the previously-saved body"
+  // foot-gun.
+  await persistDraftFromFormData(id, formData);
+
   const campaign = await getCampaign(id);
   if (!campaign) throw new Error('Campaign not found');
 
@@ -164,6 +213,10 @@ export async function sendCampaign(formData: FormData): Promise<void> {
 
   const id = formData.get('id') as string;
   if (!id) throw new Error('Missing campaign id');
+
+  // Persist current form values before sending so the record reflects
+  // exactly what went out.
+  await persistDraftFromFormData(id, formData);
 
   const campaign = await getCampaign(id);
   if (!campaign) throw new Error('Campaign not found');
