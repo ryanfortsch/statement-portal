@@ -42,6 +42,9 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
     at: Date;
     edits: ContractRedlineEdits;
     selectedCount: number;
+    /** Per-override apply failures detected by the server's dry-run.
+     *  Empty when everything landed cleanly. */
+    failures: { summary: string }[];
   } | null>(null);
 
   // Interpret-mode input state
@@ -142,7 +145,12 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         return;
       }
       router.refresh();
-      setLastApplied({ at: new Date(), edits: filtered, selectedCount: filteredCount });
+      setLastApplied({
+        at: new Date(),
+        edits: filtered,
+        selectedCount: filteredCount,
+        failures: res.failures,
+      });
       setStep('applied');
     });
   };
@@ -274,10 +282,15 @@ function AppliedConfirmation({
   onAnotherRound,
 }: {
   projectionId: string;
-  applied: { at: Date; edits: ContractRedlineEdits; selectedCount: number };
+  applied: {
+    at: Date;
+    edits: ContractRedlineEdits;
+    selectedCount: number;
+    failures: { summary: string }[];
+  };
   onAnotherRound: () => void;
 }) {
-  const { at, edits, selectedCount } = applied;
+  const { at, edits, selectedCount, failures } = applied;
   const overrideCount = edits.contract_overrides.length;
   const fieldCount = edits.field_changes.length;
   const tally = [
@@ -289,6 +302,11 @@ function AppliedConfirmation({
     .filter(Boolean)
     .join(' · ');
 
+  const persistedOverrideCount = overrideCount - failures.length;
+  const effectiveTally = failures.length > 0
+    ? `${fieldCount} field ${fieldCount === 1 ? 'change' : 'changes'} · ${persistedOverrideCount} of ${overrideCount} contract ${overrideCount === 1 ? 'edit' : 'edits'} applied`
+    : tally;
+
   return (
     <div style={appliedBannerStyle}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
@@ -297,8 +315,26 @@ function AppliedConfirmation({
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>at {formatTime(at)}</span>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
-        Applied <strong>{selectedCount}</strong> {selectedCount === 1 ? 'edit' : 'edits'} ({tally}) — body edits land in place, no Rider.
+        Applied <strong>{selectedCount - failures.length}</strong> {selectedCount - failures.length === 1 ? 'edit' : 'edits'} ({effectiveTally}) — body edits land in place, no Rider.
       </p>
+
+      {failures.length > 0 && (
+        <div style={appliedFailuresBlockStyle}>
+          <div style={{ marginBottom: 6 }}>
+            <strong style={{ fontSize: 12, color: 'var(--signal)' }}>
+              {failures.length} edit{failures.length === 1 ? '' : 's'} couldn&rsquo;t land
+            </strong>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)', marginLeft: 8 }}>
+              The other {selectedCount - failures.length} did. Re-run the interpreter for these.
+            </span>
+          </div>
+          <ul style={appliedFailuresListStyle}>
+            {failures.map((f, i) => (
+              <li key={i}>{f.summary}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <ul style={appliedListStyle}>
         {edits.field_changes.map((c, i) => (
@@ -1047,4 +1083,19 @@ const appliedCheckStyle: React.CSSProperties = { display: 'inline-flex', alignIt
 const appliedListStyle: React.CSSProperties = { margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--ink)', lineHeight: 1.7 };
 const appliedRowMetaStyle: React.CSSProperties = { marginLeft: 8, fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 };
 const appliedHeadsUpStyle: React.CSSProperties = { margin: '12px 0 0', fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' };
+const appliedFailuresBlockStyle: React.CSSProperties = {
+  marginBottom: 12,
+  padding: '10px 12px',
+  border: '1px solid var(--signal)',
+  borderLeft: '3px solid var(--signal)',
+  background: 'rgba(200, 90, 58, 0.08)',
+};
+const appliedFailuresListStyle: React.CSSProperties = {
+  margin: 0,
+  paddingLeft: 18,
+  fontFamily: 'var(--font-mono-dash, ui-monospace), monospace',
+  fontSize: 11,
+  color: 'var(--ink)',
+  lineHeight: 1.55,
+};
 const errorStyle: React.CSSProperties = { marginTop: 12, padding: 10, borderLeft: '3px solid var(--signal)', background: 'var(--paper)', fontSize: 12, color: 'var(--ink)' };
