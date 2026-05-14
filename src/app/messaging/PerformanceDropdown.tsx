@@ -193,36 +193,41 @@ function StatsBody({
       {/* Hero one-shot rate */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1.2fr 2fr',
-          gap: 24,
-          alignItems: 'baseline',
           padding: '24px 0',
           borderBottom: '1px solid var(--rule)',
           marginBottom: 20,
         }}
         className="rt-msg-stats-hero"
       >
-        <div>
-          <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+          }}
+        >
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
             One-shot rate
-          </div>
-          <div
-            className="font-serif"
-            style={{
-              fontSize: 56,
-              lineHeight: 1,
-              fontWeight: 500,
-              color: oneShotPct == null ? 'var(--ink-4)' : 'var(--ink)',
-              letterSpacing: '-0.02em',
-            }}
-          >
-            {oneShotPct == null ? '—' : `${oneShotPct}%`}
-          </div>
+          </span>
+          <InfoTooltip>
+            <OneShotExplainer stats={stats} />
+          </InfoTooltip>
         </div>
-        <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink-2)' }}>
-          <OneShotExplainer stats={stats} />
+        <div
+          className="font-serif"
+          style={{
+            fontSize: 56,
+            lineHeight: 1,
+            fontWeight: 500,
+            color: oneShotPct == null ? 'var(--ink-4)' : 'var(--ink)',
+            letterSpacing: '-0.02em',
+            marginBottom: 8,
+          }}
+        >
+          {oneShotPct == null ? '—' : `${oneShotPct}%`}
         </div>
+        <OneShotSubtitle stats={stats} />
       </div>
 
       {/* Trend: rolling one-shot rate over the last 30 days. Sits between
@@ -322,6 +327,91 @@ function StatsBody({
       {/* Learning corpus */}
       <LearningSection stats={stats} facts={facts} totalFacts={totalFacts} />
     </div>
+  );
+}
+
+function OneShotSubtitle({ stats }: { stats: MessagingStats }) {
+  const helmEngaged = stats.approved_total + stats.escalated;
+  if (helmEngaged === 0) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
+        No drafts processed yet in this window.
+      </div>
+    );
+  }
+  return (
+    <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+      <b style={{ color: 'var(--ink)' }}>{stats.first_pass_clean}</b> of{' '}
+      <b style={{ color: 'var(--ink)' }}>{helmEngaged}</b> first-try
+      {stats.escalated > 0 && (
+        <>
+          {' · '}
+          <span style={{ color: 'var(--signal)' }}>
+            {stats.escalated} punted to SMS
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function InfoTooltip({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      style={{ position: 'relative', display: 'inline-flex' }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        aria-label="What does this mean?"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: '50%',
+          border: '1px solid var(--ink-4)',
+          background: 'transparent',
+          color: 'var(--ink-4)',
+          fontSize: 10,
+          fontStyle: 'italic',
+          fontFamily: 'Georgia, serif',
+          fontWeight: 600,
+          lineHeight: 1,
+          cursor: 'help',
+          padding: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        i
+      </button>
+      {open && (
+        <div
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            left: 0,
+            zIndex: 50,
+            width: 360,
+            background: 'var(--paper)',
+            border: '1px solid var(--ink)',
+            padding: '12px 14px',
+            fontSize: 13,
+            lineHeight: 1.55,
+            color: 'var(--ink-2)',
+            boxShadow: '0 4px 16px rgba(30, 46, 52, 0.08)',
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </span>
   );
 }
 
