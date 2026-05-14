@@ -4,6 +4,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
+import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
+import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import {
@@ -14,7 +16,7 @@ import {
   fmtPercent,
   roundToThousand,
 } from '@/lib/projections-model';
-import { updateProjection, deleteProjection, markSent, promoteToProperty } from '../actions';
+import { updateProjection, markSent, promoteToProperty } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,9 +33,21 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
 
   const computed = computeProjection(projection);
   const update = updateProjection.bind(null, id);
-  const remove = deleteProjection.bind(null, id);
   const send = markSent.bind(null, id);
   const promote = promoteToProperty.bind(null, id);
+
+  // For the Danger zone delete confirmation: prefer the structured
+  // owner's last name when populated; otherwise fall back to the last
+  // token of the legacy prospect_name string. Prospects with no
+  // surname at all (rare — manual entries) get a minimal "type
+  // DELETE" guard so the typed-confirm panel still works.
+  const ownerLastName =
+    projection.owners?.[0]?.last_name?.trim() ||
+    projection.prospect_name?.trim().split(/\s+/).slice(-1)[0] ||
+    'DELETE';
+  const hasContractEdits =
+    ((projection.contract_overrides as unknown[] | null)?.length ?? 0) > 0 ||
+    (projection.custom_clauses?.length ?? 0) > 0;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -154,6 +168,11 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <DownloadPdfButton projectionId={id} type="contract" label="Download Contract" />
           </div>
         </div>
+        {/* Active state actions only — no destructive operations here.
+            Reset / Delete live in the Danger zone block at the bottom
+            of the page so a misclick can't wipe the prospect (Dotti hit
+            an old one-click DELETE on 36 Granite thinking it would
+            reset the contract). */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 18 }}>
           {projection.status === 'draft' ? (
             <form action={send}>
@@ -179,25 +198,6 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
               Sent {projection.sent_at ? new Date(projection.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
             </span>
           )}
-          <span style={{ flex: 1 }} />
-          <form action={remove}>
-            <button
-              type="submit"
-              style={{
-                background: 'transparent',
-                color: 'var(--negative)',
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                padding: '14px 20px',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Delete
-            </button>
-          </form>
         </div>
       </section>
 
@@ -230,7 +230,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           `defaultValue` which only sets on mount — so the user would see
           stale values after a redline apply and risk clobbering them on
           their next Save. */}
-      <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+      <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 40, flex: 1, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Edit inputs</div>
         <ProjectionForm
           key={projection.updated_at ?? 'no-ts'}
@@ -239,6 +239,64 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           submitLabel="Save changes"
           lastSavedAt={projection.updated_at}
         />
+      </section>
+
+      {/* DANGER ZONE
+          Reset Contract = wipe all redline overrides + legacy Rider
+          clauses, revert the contract to the standard template. The
+          prospect record itself stays intact. This is what Dotti was
+          reaching for when she hit the old one-click DELETE on the
+          36 Granite prospect thinking it meant "restart the contract."
+
+          Delete Prospect = the full destructive action. Now requires
+          typing the owner's last name to confirm; nuclear option for
+          when a prospect was created in error.
+
+          Lives at the very bottom of the page, visually walled off
+          with a red border so a misclick is impossible. */}
+      <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
+        <div
+          style={{
+            borderTop: '1px solid var(--rule)',
+            paddingTop: 24,
+            marginTop: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+        >
+          <div className="eyebrow" style={{ color: 'var(--negative)' }}>Danger zone</div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
+            <div style={{ flex: '1 1 320px', minWidth: 280 }}>
+              <div className="font-serif" style={{ fontSize: 16, color: 'var(--ink)', margin: '0 0 4px' }}>
+                Reset contract
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
+                Clears every redline override + Rider clause applied to this prospect&rsquo;s contract.
+                The contract reverts to the standard template. <strong>Prospect record, inputs,
+                signing token, and onboarding intake stay intact.</strong>
+              </p>
+              <ResetContractButton projectionId={id} hasOverrides={hasContractEdits} />
+            </div>
+
+            <div style={{ flex: '1 1 320px', minWidth: 280 }}>
+              <div className="font-serif" style={{ fontSize: 16, color: 'var(--negative)', margin: '0 0 4px' }}>
+                Delete prospect
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
+                Permanently removes <strong>{projection.prospect_name}</strong> and everything tied to
+                this projection. Recovery is a Supabase support ticket. Use Reset contract instead
+                if you just want to restart the negotiation.
+              </p>
+              <DeleteProspectButton
+                projectionId={id}
+                prospectName={projection.prospect_name || 'this prospect'}
+                prospectLastName={ownerLastName}
+              />
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   );

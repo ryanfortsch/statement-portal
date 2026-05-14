@@ -219,6 +219,38 @@ export async function deleteProjection(id: string) {
   redirect('/projections');
 }
 
+/**
+ * Clear all contract edits applied via the Redlines tool (action-aware
+ * overrides) plus the legacy custom_clauses Rider. Reverts the contract
+ * to the standard template without touching the prospect record itself
+ * — projection inputs (term dates, fees, owner info, etc.) stay intact.
+ *
+ * Use this when a negotiation needs to restart from a clean slate. The
+ * prospect, the projection model, the signing token, and any onboarding
+ * intake all survive; only the Rider/override state is wiped.
+ */
+export async function resetContractOverrides(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      contract_overrides: null,
+      custom_clauses: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/projections/${id}/contract`);
+  return { ok: true };
+}
+
 export async function markSent(id: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
