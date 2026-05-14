@@ -14,6 +14,7 @@ import {
   applyEditsToProjection,
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
+import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -725,10 +726,25 @@ export async function proposeContractRedlines(
  * server-side state (in case someone else edited the record in the
  * meantime).
  */
+/**
+ * Outcome of an apply call. `failures` is non-empty when one or more
+ * overrides couldn't be applied at render time (e.g. a modify whose
+ * find span no longer matches the current clause text). The panel
+ * surfaces these inline on the applied-confirmation banner so staff
+ * sees the mismatch immediately, not only when they open the contract.
+ */
+export type ApplyContractRedlinesResult =
+  | {
+      ok: true;
+      failures: { summary: string }[];
+      appliedCount: number;
+    }
+  | { ok: false; error: string };
+
 export async function applyContractRedlines(
   projectionId: string,
   edits: ContractRedlineEdits,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<ApplyContractRedlinesResult> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
 
@@ -780,5 +796,24 @@ export async function applyContractRedlines(
 
   revalidatePath(`/projections/${projectionId}`);
   revalidatePath(`/projections/${projectionId}/contract`);
-  return { ok: true };
+
+  // Dry-run the persisted overrides through the renderer's apply engine
+  // to detect any that won't actually land (typically: a modify whose
+  // find span has already been changed by an earlier override, or a
+  // targetId that doesn't exist in the base contract). Surface the
+  // failures back to the panel so the user sees the mismatch on the
+  // applied-confirmation banner, not only when they open the contract
+  // preview.
+  const { failures } = applyContractOverrides(newContractOverrides);
+  if (failures.length > 0) {
+    console.warn(
+      `[applyContractRedlines] ${failures.length} of ${newContractOverrides.length} override(s) failed dry-run on projection ${projectionId}:`,
+      failures.map((f) => describeOverrideFailure(f)),
+    );
+  }
+  return {
+    ok: true,
+    appliedCount: newContractOverrides.length - failures.length,
+    failures: failures.map((f) => ({ summary: describeOverrideFailure(f) })),
+  };
 }

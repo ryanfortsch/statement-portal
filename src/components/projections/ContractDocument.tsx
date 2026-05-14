@@ -7,7 +7,11 @@ import {
   type ContractSection,
   type ContractSectionContent,
 } from '@/lib/contract-base';
-import { applyContractOverrides, type ContractOverride } from '@/lib/contract-overrides';
+import {
+  applyContractOverrides,
+  describeOverrideFailure,
+  type ContractOverride,
+} from '@/lib/contract-overrides';
 
 /**
  * Rising Tide management contract — data-driven renderer.
@@ -37,15 +41,15 @@ export function ContractDocument({
   signingForm?: React.ReactNode;
 }) {
   const overrides = (projection.contract_overrides ?? []) as ContractOverride[];
-  let pages: ContractPage[];
-  try {
-    pages = applyContractOverrides(overrides, CONTRACT_BASE);
-  } catch (err) {
-    // A failing override should not break the whole contract preview.
-    // Log + fall back to the un-overridden base so staff still sees the
-    // baseline contract and can fix the broken override.
-    console.error('Contract override apply failed; rendering base:', err);
-    pages = CONTRACT_BASE;
+  // Fail-soft apply: failures are collected per-override; the successful
+  // ones still land. console.error captures the failures in Vercel logs
+  // so staff can diagnose; the visible banner below alerts them inline.
+  const { pages, failures } = applyContractOverrides(overrides, CONTRACT_BASE);
+  if (failures.length > 0) {
+    console.error(
+      `[ContractDocument] ${failures.length} of ${overrides.length} override(s) failed to apply on projection ${projection.id}:`,
+      failures.map((f) => describeOverrideFailure(f)),
+    );
   }
 
   const vars = buildTemplateVars(projection);
@@ -74,6 +78,28 @@ export function ContractDocument({
     <>
       <style>{contractCss}</style>
       <div className="rt-doc">
+        {/* Failure banner — screen-only (.rt-c-skipped is display:none
+            inside @media print so the printed contract stays clean).
+            Surfaces silently-failing overrides to staff so they can
+            diagnose; without this, a misaligned modify find string
+            silently fails and the rendered text matches the base
+            contract, looking exactly like nothing was applied. */}
+        {failures.length > 0 && (
+          <div className="rt-c-skipped">
+            <div className="rt-c-skipped-head">
+              <strong>
+                {failures.length} of {overrides.length} redline edit{overrides.length === 1 ? '' : 's'} couldn&rsquo;t apply
+              </strong>
+              <span>The remaining {overrides.length - failures.length} edit{overrides.length - failures.length === 1 ? '' : 's'} did land. Common cause: the modify&rsquo;s find span doesn&rsquo;t match the current clause text (e.g. punctuation drift, or an earlier edit already changed that span). Re-run the interpreter for the affected edits.</span>
+            </div>
+            <ul className="rt-c-skipped-list">
+              {failures.map((f, i) => (
+                <li key={i}>{describeOverrideFailure(f)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Page 1 — cover */}
         <section className="rt-doc-page rt-cover">
           <div className="rt-cover-inner">
@@ -453,7 +479,38 @@ const contractCss = `
     .rt-doc-page { box-shadow: none; page-break-after: always; break-after: page; }
     .rt-doc-page:last-child { page-break-after: auto; break-after: auto; }
     .rt-c-signing-slot { display: none !important; }
+    .rt-c-skipped { display: none !important; }
   }
+
+  /* Override-failure banner — staff-only, screen-only. */
+  .rt-c-skipped {
+    width: 816px;
+    background: rgba(200, 90, 58, 0.10);
+    border: 1px solid var(--signal);
+    border-left: 4px solid var(--signal);
+    padding: 14px 18px;
+    box-sizing: border-box;
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .rt-c-skipped-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .rt-c-skipped-head strong { font-size: 13px; color: var(--ink); }
+  .rt-c-skipped-head span { font-size: 11px; color: var(--ink-3); }
+  .rt-c-skipped-list {
+    margin: 0;
+    padding-left: 20px;
+    font-family: var(--font-mono-dash, ui-monospace), monospace;
+    font-size: 10.5px;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .rt-c-skipped-list li { margin-bottom: 2px; }
 
   /* Cover */
   .rt-cover {

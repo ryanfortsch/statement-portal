@@ -96,21 +96,71 @@ export class ContractOverrideError extends Error {
 }
 
 /**
- * Apply a list of overrides to the base contract and return a new
- * ContractPage[] tree. Order matters: overrides are applied in the
- * given order, so a later modify can target text inserted by an
- * earlier add. Throws ContractOverrideError on any unresolvable
- * target (deliberately loud — see file header).
+ * Per-override failure record returned alongside the rendered tree.
+ * Carries enough context for staff to diagnose: the action verb, the
+ * targetId (or newId for adds), and the underlying error message.
+ */
+export type ContractOverrideFailure = {
+  /** Index into the original overrides array. */
+  index: number;
+  override: ContractOverride;
+  error: string;
+};
+
+export type ApplyResult = {
+  pages: ContractPage[];
+  failures: ContractOverrideFailure[];
+};
+
+/**
+ * Apply a list of overrides to the base contract. Fail-soft: each
+ * override is applied independently; failures are collected into the
+ * `failures` array and the rest still land. Callers (ContractDocument,
+ * the server action) decide whether to surface failures in the UI or
+ * just log them.
+ *
+ * Why fail-soft: an earlier implementation threw on the first failure.
+ * Combined with ContractDocument's catch-all that fell back to
+ * CONTRACT_BASE, one bad override would silently hide ALL the others —
+ * the rendered contract would look as if NO redlines had ever been
+ * applied. Dotti's 47-override 36 Granite run hit this: a single
+ * non-matching modify took down the entire renewal-period edit she
+ * could see in the applied-confirmation banner.
+ *
+ * Order still matters within the same apply call — a later override
+ * sees the result of earlier overrides. If overrides #5 and #20 both
+ * target the same span and #5 succeeds (changing the template), #20's
+ * find won't match anymore; it gets recorded as a failure and skipped.
+ * That's correct: the second edit's premise is gone.
  */
 export function applyContractOverrides(
   overrides: ContractOverride[],
   base: ContractPage[] = CONTRACT_BASE,
-): ContractPage[] {
+): ApplyResult {
   let working = cloneContract(base);
-  for (const override of overrides) {
-    working = applyOne(working, override);
-  }
-  return working;
+  const failures: ContractOverrideFailure[] = [];
+  overrides.forEach((override, index) => {
+    try {
+      working = applyOne(working, override);
+    } catch (err) {
+      failures.push({
+        index,
+        override,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+  return { pages: working, failures };
+}
+
+/**
+ * Human-readable summary of a failed override — used in UI banners +
+ * Vercel log messages. Keeps the action verb + target prominent.
+ */
+export function describeOverrideFailure(f: ContractOverrideFailure): string {
+  const o = f.override;
+  if (o.action === 'add') return `add "${o.newId}" — ${f.error}`;
+  return `${o.action} "${o.targetId}" — ${f.error}`;
 }
 
 function applyOne(pages: ContractPage[], override: ContractOverride): ContractPage[] {
