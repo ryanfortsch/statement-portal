@@ -160,6 +160,7 @@ export function ForecastClient({
         setNumNew2027={setNumNew2027}
         numNew2028={numNew2028}
         setNumNew2028={setNumNew2028}
+        prospectsCount2026={prospects2026.totals.count}
       />
 
       {/* Headline metrics */}
@@ -921,6 +922,7 @@ function ScenarioControl({
   setNumNew2027,
   numNew2028,
   setNumNew2028,
+  prospectsCount2026,
 }: {
   yearKey: ForecastYear;
   setYearKey: (y: ForecastYear) => void;
@@ -930,6 +932,7 @@ function ScenarioControl({
   setNumNew2027: (n: number) => void;
   numNew2028: number;
   setNumNew2028: (n: number) => void;
+  prospectsCount2026: number;
 }) {
   // Show prior-year sliders too — earlier additions roll forward as
   // full-year actives, and the user often wants to dial them in alongside
@@ -983,7 +986,7 @@ function ScenarioControl({
           setN={setNumNew2026}
           newOrder={getYearConfig(2026).newOrder}
           isActiveYear={yearKey === 2026}
-          subLabel="beyond 9 current + 5 pre-signed"
+          subLabel={`beyond 9 current + ${prospectsCount2026} prospect${prospectsCount2026 === 1 ? '' : 's'}`}
         />
         {showRow2027 && (
           <NumNewRow

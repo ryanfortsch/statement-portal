@@ -71,22 +71,53 @@ function CoverSheet() {
       >
         FY 2026 – 2028 Financial Forecast
       </h1>
-      <div
+      <details
         style={{
-          marginTop: 18,
-          paddingTop: 14,
+          marginTop: 14,
           borderTop: '1px solid var(--ink)',
-          display: 'grid',
-          gridTemplateColumns: '120px 1fr',
-          gap: '6px 24px',
-          fontSize: 12,
-          lineHeight: 1.55,
         }}
       >
-        {rows.map(([k, v]) => (
-          <CoverRow key={k} k={k} v={v} />
-        ))}
-      </div>
+        <summary
+          style={{
+            padding: '10px 0 0',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono-dash), monospace',
+            fontSize: 10,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-4)',
+            userSelect: 'none',
+            listStyle: 'none',
+          }}
+        >
+          Assumptions & sources
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 11,
+              letterSpacing: '.04em',
+              textTransform: 'none',
+              color: 'var(--ink-4)',
+            }}
+          >
+            (expand)
+          </span>
+        </summary>
+        <div
+          style={{
+            marginTop: 12,
+            display: 'grid',
+            gridTemplateColumns: '120px 1fr',
+            gap: '6px 24px',
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
+        >
+          {rows.map(([k, v]) => (
+            <CoverRow key={k} k={k} v={v} />
+          ))}
+        </div>
+      </details>
     </section>
   );
 }
