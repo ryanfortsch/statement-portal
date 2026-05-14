@@ -21,11 +21,12 @@ export default async function CampaignDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ test_sent?: string }>;
+  searchParams: Promise<{ test_sent?: string; drafted?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const testSentTo = sp.test_sent || null;
+  const justDrafted = sp.drafted === '1';
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
 
@@ -112,6 +113,15 @@ export default async function CampaignDetailPage({
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
           <div style={{ borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13 }}>
             {campaign.failed_reason}
+          </div>
+        </section>
+      )}
+
+      {/* JUST-DRAFTED FLASH (after AI draft) */}
+      {justDrafted && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
+          <div style={{ borderLeft: '3px solid var(--positive, #2d6b50)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink)' }}>
+            Helm drafted this for you. Read it through, tweak anything that doesn&rsquo;t sound right, then send a test to yourself before the real send.
           </div>
         </section>
       )}
