@@ -12,15 +12,11 @@
  * of a portfolio. The map gives "here is our footprint" in one glance
  * while the list below stays for fast lookup by name.
  *
- * Coordinates: hardcoded here as UI-layer data rather than seeded into
- * the `properties` table. The DB has lat/long columns but no values yet
- * (the seed migration didn't populate them) and a proper geocode
- * pipeline is out of scope for this change. Approximate coordinates are
- * fine for portfolio overview - pin precision within a block is plenty.
- * Borrowed from stay-cape-ann's mockData where the listing was
- * identifiable (3 Locust = Niles Beach, 30 Woodward = Little River) and
- * estimated from Gloucester / Rockport / Beverly street knowledge for
- * the rest.
+ * Coordinates come from property.latitude / property.longitude on the
+ * row (backfilled by migration 20260514d via Nominatim geocode). The
+ * map skips any property whose lat/long is null, so a newly-onboarded
+ * property without geo data drops off the map until it gets geocoded
+ * rather than appearing at (0, 0).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -31,22 +27,6 @@ import type { HelmPropertyRow } from '@/lib/properties';
 // Center is roughly the geographic midpoint of the active set.
 const MAP_CENTER: [number, number] = [42.605, -70.690];
 const DEFAULT_ZOOM = 11;
-
-// Property id → [lat, lng]. Approximate coordinates for the 10 active
-// Rising Tide properties as of 2026-05-14. Update as we add properties or
-// when the DB column gets backfilled by a proper geocode pass.
-const PROPERTY_COORDINATES: Record<string, [number, number]> = {
-  '3_south_st': [42.659, -70.616],      // 3 South Street, Rockport (Old Garden Beach)
-  '21_horton': [42.610, -70.656],       // 21 Horton Street, Gloucester (Rocky Neck)
-  '53_rocky_neck': [42.609, -70.655],   // 53 Rocky Neck Ave, Gloucester
-  '4_brier_neck': [42.617, -70.629],    // 4 Brier Neck Rd, Gloucester (Good Harbor)
-  '30_woodward': [42.6215, -70.6890],   // 30 Woodward Ave, Gloucester (Little River)
-  '20_hammond': [42.572, -70.692],      // 20 Hammond Street, Gloucester (Magnolia)
-  '20_enon': [42.578, -70.875],         // 20 Enon Road, Beverly
-  '73_rocky_neck': [42.611, -70.654],   // 73 Rocky Neck Ave, Gloucester
-  '17_beach_rd': [42.611, -70.673],     // 17 Beach Road, Gloucester
-  '3_locust': [42.5959, -70.6544],      // 3 Locust Lane, Gloucester (Niles Beach)
-};
 
 type Props = {
   properties: HelmPropertyRow[];
@@ -93,10 +73,15 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
     const markersById = new Map<string, unknown>();
 
     properties.forEach((p) => {
-      const coords = PROPERTY_COORDINATES[p.id];
-      if (!coords) return;
+      // Skip rows that haven't been geocoded yet. Numeric columns from
+      // Supabase come through as strings, so coerce + sanity-check before
+      // handing to Leaflet (which silently puts NaN markers at the
+      // equator).
+      const lat = p.latitude != null ? Number(p.latitude) : NaN;
+      const lng = p.longitude != null ? Number(p.longitude) : NaN;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      const marker = L.marker(coords, { icon: markerIcon });
+      const marker = L.marker([lat, lng], { icon: markerIcon });
       markersById.set(p.id, marker);
 
       marker.on('click', () => {
@@ -197,6 +182,7 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
     >
       <div
         ref={mapRef}
+        className="rt-properties-map-tile"
         role="region"
         aria-label="Map of Rising Tide properties"
         style={{ width: '100%', height: 420, background: 'var(--paper-2)' }}
@@ -223,6 +209,7 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
 
       {activeProperty && (
         <div
+          className="rt-properties-map-card"
           style={{
             position: 'absolute',
             bottom: 18,
