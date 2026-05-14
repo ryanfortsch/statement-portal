@@ -2,9 +2,24 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
+
+/**
+ * Default month for a fresh upload. Until 2026-05-14 this was hardcoded
+ * to '2026-04', which silently sent every upload to April even when the
+ * operator was working on May -- the ingest then overwrote real April
+ * data with the misplaced May payload. We now read `?month=YYYY-MM` from
+ * the URL when present (dashboard passes it on the "Upload Month" link)
+ * and otherwise default to the current calendar month.
+ */
+function currentMonthString(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
 
 const PROPERTIES = [
   { id: '3_south_st', name: '3 South', owner: 'Bailey', location: 'Rockport' },
@@ -389,8 +404,32 @@ function relativeTimeShort(iso: string): string {
 
 /* ─── Main Upload Page ─── */
 export default function UploadPage() {
-  const [month, setMonth] = useState('2026-04');
-  const [propertyId, setPropertyId] = useState('');
+  return (
+    <Suspense fallback={null}>
+      <UploadPageInner />
+    </Suspense>
+  );
+}
+
+function UploadPageInner() {
+  const searchParams = useSearchParams();
+  // Initialise from ?month=YYYY-MM when the dashboard passes one; fall back to
+  // today's calendar month. NEVER hard-code a constant -- that's how data ended
+  // up under April when the operator was working on May.
+  const initialMonth = (() => {
+    const fromQuery = searchParams.get('month');
+    if (fromQuery && /^\d{4}-\d{2}$/.test(fromQuery)) return fromQuery;
+    return currentMonthString();
+  })();
+  // Pre-select the property too when the dashboard passes ?property=<id>.
+  // The PropertyCard's "Re-upload Data" link uses this so the operator
+  // lands on the right property + month combo with one click.
+  const initialPropertyId = (() => {
+    const fromQuery = searchParams.get('property');
+    return fromQuery && PROPERTIES.some(p => p.id === fromQuery) ? fromQuery : '';
+  })();
+  const [month, setMonth] = useState(initialMonth);
+  const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [guestyPDF, setGuestyPDF] = useState<File | null>(null);
   const [platformCSV, setPlatformCSV] = useState<File | null>(null);
   const [bankCSV, setBankCSV] = useState<File | null>(null);
