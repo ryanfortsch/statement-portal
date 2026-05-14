@@ -411,7 +411,7 @@ export function Stepper({
         )}
 
         {/* Action row: + Add note · + Photo · + Work slip */}
-        <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="rt-stepper-actions" style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => setShowNoteModal(true)}
