@@ -383,6 +383,74 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     justify-content: center;
   }
 
+  /* /projections (Prospects) — desktop grid is 64px / 1fr / auto / auto and
+     blows out on phones: address h3 wraps mid-word (“36 Granite / St”),
+     the status badge clips off the right edge, and the range column eats
+     space the title needs. Stack into a one-column card: number + status
+     on an eyebrow row, address as the headline, prospect/market line, and
+     the range pinned below. */
+  .rt-projections-row {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    padding: 16px 0 14px !important;
+  }
+  .rt-projections-row .rt-projections-row-num {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: baseline;
+  }
+  .rt-projections-row .rt-projections-row-body {
+    grid-row: 2;
+    grid-column: 1;
+  }
+  .rt-projections-row .rt-projections-row-title {
+    font-size: 18px !important;
+    line-height: 1.2 !important;
+  }
+  .rt-projections-row .rt-projections-row-range {
+    grid-row: 3;
+    grid-column: 1;
+    text-align: left !important;
+    font-size: 12px !important;
+    color: var(--ink-3) !important;
+    margin-top: 2px;
+  }
+  .rt-projections-row .rt-projections-row-status {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    text-align: right !important;
+    font-size: 9px !important;
+    letter-spacing: .16em !important;
+  }
+
+  /* /projections CTA strip: side-by-side buttons + flex spacer + italic note
+     overflows past 380px viewports. Stack into rows: buttons on row 1
+     (50/50), italic helper text below as muted prose. */
+  .rt-projections-cta {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    padding: 18px 0 !important;
+  }
+  .rt-projections-cta .rt-projections-cta-primary,
+  .rt-projections-cta > button {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    justify-content: center;
+    padding: 12px 10px !important;
+    font-size: 11px !important;
+    letter-spacing: .12em !important;
+  }
+  .rt-projections-cta .rt-projections-cta-spacer {
+    display: none !important;
+  }
+  .rt-projections-cta .rt-projections-cta-note {
+    flex: 1 1 100%;
+    font-size: 11px !important;
+    line-height: 1.4;
+  }
+
   /* Module nav scroll: add a soft fade on the right edge so the user
      sees there's more nav off-screen, AND give the nav real bounds so
      overflow-x: auto actually engages. The masthead's left cluster
