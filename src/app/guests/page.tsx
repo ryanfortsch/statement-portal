@@ -127,6 +127,9 @@ export default async function GuestPage({
               Sync from Guesty{lastGuestySyncRel ? ` · ${lastGuestySyncRel}` : ''}
             </button>
           </form>
+          <Link href="/guests/campaigns" style={secondaryButtonStyle}>
+            Campaigns ({campaigns.length})
+          </Link>
           <Link href="/guests/campaigns/new" style={secondaryButtonStyle}>
             New Campaign
           </Link>
