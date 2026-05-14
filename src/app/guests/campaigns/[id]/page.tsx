@@ -212,31 +212,33 @@ export default async function CampaignDetailPage({
 
             {/* SEND BUTTONS — pulled up here so they sit right under the
                 segment picker, visible without scrolling past the body
-                textarea. The test button always works regardless of
-                segment; the broadcast button respects the picked segment. */}
+                textarea. These submit the SAME parent form but route to
+                different server actions via formAction. (Inline <form>s
+                here would be nested inside the outer Save form, which
+                browsers silently flatten — so the buttons looked like
+                they did nothing.) */}
             {isDraft && (
               <div style={{ display: 'grid', gap: 10, padding: '14px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)' }}>
                 <div className="eyebrow">Send</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <form action={sendCampaignTest} style={{ display: 'inline' }}>
-                    <input type="hidden" name="id" value={campaign.id} />
-                    <button type="submit" style={secondaryButtonStyle}>
-                      Send test to me
-                    </button>
-                  </form>
-                  <form action={sendCampaign} style={{ display: 'inline' }}>
-                    <input type="hidden" name="id" value={campaign.id} />
-                    <button
-                      type="submit"
-                      style={dangerButtonStyle}
-                      disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}
-                    >
-                      Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →
-                    </button>
-                  </form>
+                  <button
+                    type="submit"
+                    formAction={sendCampaignTest}
+                    style={secondaryButtonStyle}
+                  >
+                    Send test to me
+                  </button>
+                  <button
+                    type="submit"
+                    formAction={sendCampaign}
+                    style={dangerButtonStyle}
+                    disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}
+                  >
+                    Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →
+                  </button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
-                  Save the draft before sending so the latest body goes out. Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign.
+                  Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign. Both buttons use the latest values in this form — no need to Save first.
                 </p>
               </div>
             )}
