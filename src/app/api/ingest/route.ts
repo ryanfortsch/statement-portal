@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -351,11 +352,44 @@ export async function POST(request: NextRequest) {
       reservations = parsed.map(r => ({ ...r, guest_name: '' }));
     }
 
-    // 2. Parse platform CSV (maps confirmation codes to platforms + guest names)
+    // 2. Parse platform CSV (maps confirmation codes to platforms + guest names).
+    //
+    //    Source waterfall:
+    //      a) File in the FormData -> use it AND save to the per-month
+    //         Supabase Storage cache so the next property's upload doesn't
+    //         have to re-attach the same portfolio-wide export.
+    //      b) No file uploaded -> try the cached CSV for this month.
+    //         Same file works for every property; this is the typical
+    //         case after the first ingest of the month.
+    //      c) Neither -> skip platform CSV parsing entirely (existing
+    //         degrade-gracefully behavior).
     const platformMap: Record<string, { platform: string; guest: string }> = {};
     const guestyReservationUpserts: Record<string, string | number | null>[] = [];
+    let platformText: string | null = null;
+    let platformCsvSource: 'upload' | 'cache' | null = null;
     if (platformCSVFile) {
-      const platformText = await platformCSVFile.text();
+      platformText = await platformCSVFile.text();
+      platformCsvSource = 'upload';
+      // Persist to cache so subsequent ingests for this month don't need
+      // the operator to re-attach the same file. Failure here is logged
+      // but doesn't fail the ingest -- the request still has the data.
+      try {
+        await cachePlatformCSV(supabase, month, platformCSVFile);
+      } catch (err) {
+        console.warn('platform CSV cache write failed:', err instanceof Error ? err.message : err);
+      }
+    } else {
+      try {
+        const cached = await loadCachedPlatformCSVText(supabase, month);
+        if (cached) {
+          platformText = cached.text;
+          platformCsvSource = 'cache';
+        }
+      } catch (err) {
+        console.warn('platform CSV cache read failed:', err instanceof Error ? err.message : err);
+      }
+    }
+    if (platformText) {
       const platformRows = parseCSV(platformText);
       for (const row of platformRows) {
         const code = (row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '').trim();
@@ -949,6 +983,7 @@ export async function POST(request: NextRequest) {
         data_gaps: gaps.length + (stripeSync?.refunds_detected.length || 0) + (stripeSync?.gross_mismatches.length || 0) + (stripeSync?.reservations_missing_charge.length || 0),
       },
       stripe_sync: stripeSync,
+      platform_csv_source: platformCsvSource,
       parsed_reservations: processedReservations,
       debug: { pdf_text_preview: pdfDebug, bank_rows_in_month: bankRows.filter(r => isInMonth(r['Posting Date'] || '', month)).length },
     });
