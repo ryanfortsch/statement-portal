@@ -328,7 +328,7 @@ export default async function HelmHome() {
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
+            gridTemplateColumns: 'repeat(4, 1fr)',
           }}
         >
           <Stat
@@ -346,24 +346,6 @@ export default async function HelmHome() {
             }
             size="hero"
             accent={stats.highPrioritySlips != null && stats.highPrioritySlips > 0}
-          />
-          <Stat
-            label="Owner Action Backlog"
-            value={stats.ownerActionSlips != null ? String(stats.ownerActionSlips) : '—'}
-            sub={
-              stats.ownerActionSlips != null && stats.ownerActionSlips > 0
-                ? 'awaiting owner input'
-                : 'all caught up'
-            }
-            href="/work?filter=owner-action"
-            size="hero"
-          />
-          <Stat
-            label="Active Tasks"
-            value={stats.activeTasks != null ? String(stats.activeTasks) : '—'}
-            sub="team backlog"
-            href="/work?tab=tasks"
-            size="hero"
           />
           <Stat
             label="Upcoming Inspections"
