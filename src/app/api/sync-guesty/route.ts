@@ -425,6 +425,17 @@ export async function POST(request: NextRequest) {
       reviewsResult = { error: err instanceof Error ? err.message : String(err) };
     }
 
+    // Auto-create work slips for any actionable reviews (below-five or
+    // with private feedback) that don't already have one. Idempotent
+    // via work_slips.from_review_id unique partial index.
+    let reviewsToSlipsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
+    try {
+      const { createSlipsFromActionableReviews } = await import('@/lib/reviews-to-slips');
+      reviewsToSlipsResult = await createSlipsFromActionableReviews(sb) as unknown as Record<string, unknown>;
+    } catch (err) {
+      reviewsToSlipsResult = { error: err instanceof Error ? err.message : String(err) };
+    }
+
     // Reservations (may fail on scope — don't take down the whole sync)
     let reservationsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
     try {
@@ -440,6 +451,7 @@ export async function POST(request: NextRequest) {
       success: true,
       listings_mapped: mapped,
       reviews: reviewsResult,
+      reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,
     });
   } catch (err) {
