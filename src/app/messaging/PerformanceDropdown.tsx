@@ -326,12 +326,9 @@ function StatsBody({
 }
 
 function OneShotExplainer({ stats }: { stats: MessagingStats }) {
-  const engaged =
-    stats.approved_total +
-    stats.manual_sent +
-    stats.auto_rejected_stale +
-    stats.escalated;
-  if (engaged === 0) {
+  const helmEngaged = stats.approved_total + stats.escalated;
+  const guestyOnly = stats.manual_sent + stats.auto_rejected_stale;
+  if (helmEngaged === 0 && guestyOnly === 0) {
     return (
       <span style={{ color: 'var(--ink-4)' }}>
         No inbound activity in this window yet.
@@ -340,24 +337,12 @@ function OneShotExplainer({ stats }: { stats: MessagingStats }) {
   }
   return (
     <>
-      Of the <b>{engaged}</b> inbound{' '}
-      {engaged === 1 ? 'message' : 'messages'} the AI processed,{' '}
-      <b>{stats.first_pass_clean}</b> shipped via Helm without coaching.
+      Of the <b>{helmEngaged}</b>{' '}
+      {helmEngaged === 1 ? 'message' : 'messages'} the AI tried to handle,{' '}
+      <b>{stats.first_pass_clean}</b> shipped on the first draft.
       {stats.approved_after_coaching > 0 && (
         <>
           {' '}Another <b>{stats.approved_after_coaching}</b> shipped after coaching.
-        </>
-      )}
-      {(stats.manual_sent + stats.auto_rejected_stale) > 0 && (
-        <>
-          {' '}You handled <b>{stats.manual_sent + stats.auto_rejected_stale}</b>{' '}
-          directly in Guesty
-          {stats.auto_rejected_stale > 0 && (
-            <>
-              {' '}({stats.manual_sent} captured by the poller, {stats.auto_rejected_stale} expired pre-poller)
-            </>
-          )}
-          .
         </>
       )}
       {stats.escalated > 0 && (
@@ -365,8 +350,20 @@ function OneShotExplainer({ stats }: { stats: MessagingStats }) {
           {' '}
           <span style={{ color: 'var(--signal)', fontWeight: 600 }}>
             The AI punted {stats.escalated} {stats.escalated === 1 ? 'message' : 'messages'} to SMS without drafting
-          </span>{' '}
-          — the new classifier should drive this toward zero.
+          </span>
+          {' '}— the new classifier should drive this toward zero.
+        </>
+      )}
+      {guestyOnly > 0 && (
+        <>
+          {' '}You also handled <b>{guestyOnly}</b>{' '}
+          {guestyOnly === 1 ? 'message' : 'messages'} directly in Guesty
+          {stats.auto_rejected_stale > 0 && (
+            <>
+              {' '}({stats.manual_sent} captured by the poller, {stats.auto_rejected_stale} expired pre-poller)
+            </>
+          )}
+          {' '}— those don&rsquo;t count against the AI score; we can&rsquo;t tell whether the draft was good or you just preferred Guesty.
         </>
       )}
     </>
