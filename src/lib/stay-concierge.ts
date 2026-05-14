@@ -105,6 +105,10 @@ export async function rejectApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/reject`, { method: 'POST' });
 }
 
+export async function markHandledApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
 export async function coachApproval(id: string, feedback: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/coach`, {
     method: 'POST',

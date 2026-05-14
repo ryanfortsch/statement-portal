@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
-import { approveDraft, rejectDraft, coachDraft } from './actions';
+import { approveDraft, rejectDraft, coachDraft, markHandled } from './actions';
 
 type Props = {
   initialPending: Approval[];
@@ -126,6 +126,18 @@ function ApprovalCard({
     });
   };
 
+  const handleMarkHandled = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await markHandled(approval.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onResolved();
+    });
+  };
+
   const handleCoach = () => {
     setError(null);
     startTransition(async () => {
@@ -232,7 +244,18 @@ function ApprovalCard({
         <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
           {showCoach ? 'Cancel coaching' : 'Coach the AI'}
         </SecondaryButton>
-        <SecondaryButton onClick={handleReject} disabled={isPending}>
+        <SecondaryButton
+          onClick={handleMarkHandled}
+          disabled={isPending}
+          title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
+        >
+          Mark handled
+        </SecondaryButton>
+        <SecondaryButton
+          onClick={handleReject}
+          disabled={isPending}
+          title="This guest message doesn't need a reply. Drops the draft."
+        >
           Reject
         </SecondaryButton>
       </footer>
@@ -347,16 +370,19 @@ function SecondaryButton({
   children,
   onClick,
   disabled,
+  title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       style={{
         background: 'var(--paper)',
         color: 'var(--ink)',

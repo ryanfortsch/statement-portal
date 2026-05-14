@@ -6,6 +6,7 @@ import {
   approveApproval,
   rejectApproval,
   coachApproval,
+  markHandledApproval,
   explainError,
 } from '@/lib/stay-concierge';
 
@@ -30,6 +31,15 @@ export async function rejectDraft(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const result = await rejectApproval(approvalId);
+  if (!result.ok) return { ok: false, error: explainError(result.error) };
+  revalidatePath('/messaging');
+  return { ok: true };
+}
+
+export async function markHandled(approvalId: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const result = await markHandledApproval(approvalId);
   if (!result.ok) return { ok: false, error: explainError(result.error) };
   revalidatePath('/messaging');
   return { ok: true };
