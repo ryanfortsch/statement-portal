@@ -37,8 +37,9 @@ export default async function GuestCampaignsPage() {
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {campaigns.map((c) => (
-              <div
+              <Link
                 key={c.id}
+                href={`/guests/campaigns/${c.id}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '120px 1fr auto auto',
@@ -46,6 +47,8 @@ export default async function GuestCampaignsPage() {
                   padding: '18px 0',
                   borderBottom: '1px solid var(--rule)',
                   alignItems: 'baseline',
+                  textDecoration: 'none',
+                  color: 'inherit',
                 }}
               >
                 <span className="eyebrow">{c.status}</span>
@@ -57,9 +60,9 @@ export default async function GuestCampaignsPage() {
                   {c.recipient_count != null ? `${c.recipient_count}` : '—'}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Draft'}
+                  {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Open →'}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         )}
