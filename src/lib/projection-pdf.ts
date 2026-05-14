@@ -82,19 +82,23 @@ export async function renderProjectionPdf(args: {
     // workaround.
     await page.emulateMediaType('print');
 
-    // Tried displayHeaderFooter:true with a footerTemplate to get clean
-    // per-sheet page numbers, but Puppeteer forces the footer area on
-    // EVERY sheet regardless of per-@page-name margin rules. That left
-    // a paper strip with "1" rendered at the bottom of the navy cover
-    // even with @page cover-page { margin: 0 }. The cover bleed matters
-    // more than per-sheet page numbers on a short contract PDF — drop
-    // the Puppeteer footer entirely and let every sheet bleed full.
+    // Contract: omit the page.pdf margin option entirely so the CSS
+    // @page named rules win. The contract CSS defines three named
+    // pages: cover-page (margin 0, full bleed), body-page (56px/80px
+    // margins that repeat per printed sheet), sig-page (matching
+    // body). Passing an explicit margin here would override these
+    // globally and the cover would lose its bleed OR body sheets
+    // would lose their per-sheet breathing room. Other deliverables
+    // (projection deck, guide) are single-purpose full-bleed designs.
+    const isContract = type === 'contract';
     const pdf = await page.pdf({
       width: geo.pdfWidth,
       height: geo.pdfHeight,
       printBackground: true,
       preferCSSPageSize: true,
-      margin: { top: '0', bottom: '0', left: '0', right: '0' },
+      ...(isContract
+        ? {}
+        : { margin: { top: '0', bottom: '0', left: '0', right: '0' } }),
     });
 
     return Buffer.from(pdf);

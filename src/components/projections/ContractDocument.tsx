@@ -486,14 +486,26 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. Single @page rule with margin:0 so every sheet
-     bleeds full — important for the cover (navy edge-to-edge) and
-     consistent for body/sig (no surprise paper strips). Body content
-     gets its breathing room from .rt-c-section-wrap horizontal
-     padding rules in print mode. Page numbering isn't included in
-     the PDF (Puppeteer's footerTemplate forces a footer area on
-     every sheet including the cover, which broke the cover bleed). */
+  /* Page geometry. Three named @page rules, one per logical
+     section, applied via the `page:` property on the corresponding
+     wrapper element.
+     - cover-page (margin 0): cover bleeds full navy edge-to-edge
+     - body-page (56px 80px): body sheets get top/bottom margin
+       that REPEATS on every printed sheet body content spans (this
+       is the key — block padding only applies at the absolute
+       start/end of the block, not per printed sheet, so when body
+       overflows to a second sheet the middle pages had no margin
+       and content crashed against the page edge)
+     - sig-page (56px 80px): same margins as body, with the sig
+       block's own internal padding giving the signature grid its
+       breathing room
+     Page numbering isn't included in the PDF (Puppeteer's
+     footerTemplate forces a footer area on every sheet including
+     the cover, which broke the cover bleed). */
   @page { size: 8.5in 11in; margin: 0; }
+  @page cover-page { size: 8.5in 11in; margin: 0; }
+  @page body-page { size: 8.5in 11in; margin: 56px 80px; }
+  @page sig-page { size: 8.5in 11in; margin: 56px 80px; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -541,24 +553,25 @@ const contractCss = `
       display: block;
       align-items: initial;
     }
-    /* Body pages dissolve into a continuous flow in print
-       (display:contents removes the wrapper from layout, so its
-       sections become siblings of .rt-doc-body). The wrapper
-       (.rt-doc-body) carries the per-sheet breathing room as
-       padding, applied once and re-applied on every printed sheet
-       the body content spans (this is how block padding works in
-       paged media — padding-top is applied at the start, padding-
-       bottom at the end, with content flowing through). */
+    /* Body pages dissolve into a continuous flow via display:contents
+       (the wrapper is removed from layout, so its sections become
+       siblings of .rt-doc-body). The per-sheet breathing room is
+       provided by @page body-page margin, NOT by .rt-doc-body
+       padding — padding only applies at the absolute top/bottom of
+       the block, but @page margin REPEATS on every printed sheet
+       the block spans. */
     .rt-doc-body {
-      padding: 56px 80px;
+      page: body-page;
     }
     .rt-doc-page {
       box-shadow: none;
       display: contents;
     }
-    /* Cover and sig keep their box layout (they're full-sheet
-       elements, not part of the flat body flow). */
+    /* Cover and sig are full-sheet elements with their own named
+       page rules. Cover uses cover-page (margin 0) so navy bleeds
+       to all four edges. Sig uses sig-page (matching body margins). */
     .rt-cover {
+      page: cover-page;
       display: flex;
       flex-direction: column;
       width: 8.5in;
@@ -569,14 +582,12 @@ const contractCss = `
       break-after: page;
     }
     .rt-c-sig-page {
+      page: sig-page;
       display: flex;
       flex-direction: column;
-      width: 8.5in;
-      min-height: 11in;
-      box-sizing: border-box;
-      padding: 96px 80px 80px;
       page-break-before: always;
       break-before: page;
+      padding: 40px 0 0;
     }
     /* Small visual rhythm between sections in the continuous body
        flow. Keeps sections feeling like distinct blocks instead of
