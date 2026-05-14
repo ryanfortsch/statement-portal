@@ -142,6 +142,7 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
   });
 
   revalidatePath(`/guests/campaigns/${id}`);
+  redirect(`/guests/campaigns/${id}?test_sent=${encodeURIComponent(session.user.email)}`);
 }
 
 /**
