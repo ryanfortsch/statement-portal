@@ -3,11 +3,12 @@
 import { useState, useTransition } from 'react';
 import { Section } from '@/components/Section';
 import { fetchStats } from './stats-action';
-import type { MessagingStats } from '@/lib/stay-concierge';
+import type { MessagingStats, LearningEntry } from '@/lib/stay-concierge';
 
 type Props = {
   initialStats: MessagingStats | null;
   initialError: string | null;
+  initialLearnings: LearningEntry[];
 };
 
 type Window = { label: string; hours: number };
@@ -19,10 +20,16 @@ const WINDOWS: Window[] = [
   { label: 'All', hours: 0 },
 ];
 
-const DEFAULT_WINDOW = WINDOWS[1]; // 7d
+// Default to All-time. The lifetime numbers are where the honest
+// performance signal lives (3 weeks of data). The user can switch to a
+// shorter window to see recent trend.
+const DEFAULT_WINDOW = WINDOWS[3];
 
-export function PerformanceDropdown({ initialStats, initialError }: Props) {
-  const [open, setOpen] = useState(false);
+export function PerformanceDropdown({ initialStats, initialError, initialLearnings }: Props) {
+  // Default open. The user came to /messaging to see this; the dropdown
+  // chip was too easy to miss. Keeping the open/close affordance for
+  // density when she's done.
+  const [open, setOpen] = useState(true);
   const [stats, setStats] = useState<MessagingStats | null>(initialStats);
   const [error, setError] = useState<string | null>(initialError);
   const [currentWindow, setCurrentWindow] = useState<Window>(DEFAULT_WINDOW);
@@ -56,7 +63,7 @@ export function PerformanceDropdown({ initialStats, initialError }: Props) {
   return (
     <Section
       title="Performance"
-      eyebrow={open ? `${currentWindow.label} window` : 'how the AI is doing'}
+      eyebrow={open ? `${currentWindow.label} · how the AI is doing` : 'how the AI is doing'}
       paddingTop={36}
       right={
         <button
@@ -101,6 +108,7 @@ export function PerformanceDropdown({ initialStats, initialError }: Props) {
           windows={WINDOWS}
           onWindowChange={loadWindow}
           loading={isPending}
+          learnings={initialLearnings}
         />
       )}
     </Section>
@@ -143,12 +151,14 @@ function StatsBody({
   windows,
   onWindowChange,
   loading,
+  learnings,
 }: {
   stats: MessagingStats;
   window: Window;
   windows: Window[];
   onWindowChange: (w: Window) => void;
   loading: boolean;
+  learnings: LearningEntry[];
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -279,7 +289,7 @@ function StatsBody({
       </div>
 
       {/* Learning corpus */}
-      <LearningSection stats={stats} />
+      <LearningSection stats={stats} learnings={learnings} />
     </div>
   );
 }
@@ -373,69 +383,184 @@ function KpiTile({
   );
 }
 
-function LearningSection({ stats }: { stats: MessagingStats }) {
-  const learnedLabel =
-    stats.learning.qa_latest_captured_at == null
-      ? 'nothing captured yet'
-      : `last captured ${relativeTime(stats.learning.qa_latest_captured_at)}${
-          stats.learning.qa_latest_property
-            ? ` at ${prettifySlug(stats.learning.qa_latest_property)}`
-            : ''
-        }`;
+function LearningSection({
+  stats,
+  learnings,
+}: {
+  stats: MessagingStats;
+  learnings: LearningEntry[];
+}) {
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div
+        style={{
+          padding: '20px 24px',
+          background: 'var(--paper-2)',
+          border: '1px solid var(--rule)',
+        }}
+      >
+        <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>
+          What the AI has learned
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: 24,
+            fontSize: 14,
+            color: 'var(--ink-2)',
+          }}
+          className="rt-msg-learning-grid"
+        >
+          <div>
+            <div
+              className="font-serif"
+              style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
+            >
+              {stats.learning.qa_pairs_total}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+              ground-truth Q&amp;A pairs in the learning corpus
+            </div>
+          </div>
+          <div>
+            <div
+              className="font-serif"
+              style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
+            >
+              {stats.coaching.coaching_notes_total}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+              coaching directives logged in policy
+            </div>
+          </div>
+        </div>
+        {stats.learning.qa_latest_captured_at && (
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
+            last captured {relativeTime(stats.learning.qa_latest_captured_at)}
+            {stats.learning.qa_latest_property
+              ? ` at ${prettifySlug(stats.learning.qa_latest_property)}`
+              : ''}
+          </div>
+        )}
+      </div>
+
+      {learnings.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div
+            className="eyebrow"
+            style={{ color: 'var(--ink-3)', marginBottom: 12 }}
+          >
+            Recent directives ({learnings.length} most recent)
+          </div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {learnings.map((entry, i) => (
+              <LearningCard key={`${entry.date}-${i}`} entry={entry} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LearningCard({ entry }: { entry: LearningEntry }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Pull the meaningful body out: prefer the > quoted block (which holds
+  // Allie's verbatim coaching), fall back to the first non-quote paragraph.
+  const summary = extractSummary(entry.body);
+  const isLong = entry.body.length > summary.length + 20;
 
   return (
-    <div
+    <li
       style={{
-        marginTop: 28,
-        padding: '20px 24px',
-        background: 'var(--paper-2)',
-        border: '1px solid var(--rule)',
+        borderTop: '1px solid var(--rule)',
+        padding: '14px 4px',
       }}
     >
-      <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>
-        What the AI has learned
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 6,
+          alignItems: 'baseline',
+        }}
+      >
+        <span
+          className="font-serif"
+          style={{
+            fontSize: 15,
+            fontWeight: 500,
+            color: 'var(--ink)',
+            letterSpacing: '-0.005em',
+          }}
+        >
+          {entry.title || entry.heading}
+        </span>
+        <span
+          className="eyebrow"
+          style={{
+            color: 'var(--ink-4)',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            fontSize: 10,
+          }}
+        >
+          {entry.date}
+        </span>
       </div>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: 24,
-          fontSize: 14,
+          fontSize: 13,
+          lineHeight: 1.55,
           color: 'var(--ink-2)',
+          whiteSpace: 'pre-wrap',
         }}
-        className="rt-msg-learning-grid"
       >
-        <div>
-          <div
-            className="font-serif"
-            style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
-          >
-            {stats.learning.qa_pairs_in_window}
-            <span style={{ fontSize: 14, color: 'var(--ink-4)', marginLeft: 8 }}>
-              new
-            </span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-            ground-truth Q&amp;A pairs this window · {stats.learning.qa_pairs_total} all-time
-          </div>
-        </div>
-        <div>
-          <div
-            className="font-serif"
-            style={{ fontSize: 28, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}
-          >
-            {stats.coaching.coaching_notes_total}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-            coaching notes logged · feed the global voice policy
-          </div>
-        </div>
+        {expanded ? entry.body : summary}
       </div>
-      <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
-        {learnedLabel}
-      </div>
-    </div>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            marginTop: 6,
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            fontWeight: 500,
+            color: 'var(--ink-3)',
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? 'Show less ▴' : 'Show more ▾'}
+        </button>
+      )}
+    </li>
   );
+}
+
+function extractSummary(body: string): string {
+  // Strip retrospective-coaching boilerplate: skip "Context:" and "Guest
+  // message:" prefix lines, surface the actual Coaching: directive.
+  const lines = body.split('\n').filter((l) => l.trim());
+  const coachingLine = lines.find((l) => l.toLowerCase().includes('coaching:'));
+  if (coachingLine) {
+    const idx = coachingLine.toLowerCase().indexOf('coaching:');
+    return coachingLine.slice(idx + 'coaching:'.length).trim();
+  }
+  // For non-retrospective entries: take the first quoted paragraph (Allie's
+  // verbatim SMS) or the first 240 chars.
+  const quoteLine = lines.find((l) => l.startsWith('>'));
+  if (quoteLine) {
+    return quoteLine.replace(/^>\s*/, '').slice(0, 240);
+  }
+  return body.slice(0, 240) + (body.length > 240 ? '…' : '');
 }
 
 function relativeTime(iso: string): string {
