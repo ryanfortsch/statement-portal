@@ -132,7 +132,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
       {/* ─── Add zone ─── */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         <form
-          action={createZoneFromForm.bind(null, property.id)}
+          action={async (formData: FormData) => { await createZoneFromForm(property.id, formData); }}
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 200px auto',
@@ -271,7 +271,7 @@ function ZoneCard({
         </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
-          <form action={moveZoneFromForm.bind(null, zone.id, 'up')}>
+          <form action={async () => { await moveZoneFromForm(zone.id, 'up'); }}>
             <button
               type="submit"
               disabled={isFirst}
@@ -281,7 +281,7 @@ function ZoneCard({
               ↑
             </button>
           </form>
-          <form action={moveZoneFromForm.bind(null, zone.id, 'down')}>
+          <form action={async () => { await moveZoneFromForm(zone.id, 'down'); }}>
             <button
               type="submit"
               disabled={isLast}
@@ -310,7 +310,7 @@ function ZoneCard({
           Edit name / floor / notes
         </summary>
         <form
-          action={updateZoneFromForm.bind(null, zone.id)}
+          action={async (formData: FormData) => { await updateZoneFromForm(zone.id, formData); }}
           style={{
             padding: '14px 18px 18px',
             display: 'grid',
@@ -336,7 +336,7 @@ function ZoneCard({
               Save zone
             </button>
             <span style={{ flex: 1 }} />
-            <form action={deleteZoneFromForm.bind(null, zone.id)}>
+            <form action={async () => { await deleteZoneFromForm(zone.id); }}>
               <button type="submit" className="rt-btn-danger">
                 Delete zone
               </button>
@@ -360,7 +360,7 @@ function ZoneCard({
         >
           Manage items ({itemCount})
         </summary>
-        <form action={setZoneItemsFromForm.bind(null, zone.id)} style={{ padding: '6px 18px 18px' }}>
+        <form action={async (formData: FormData) => { await setZoneItemsFromForm(zone.id, formData); }} style={{ padding: '6px 18px 18px' }}>
           {Array.from(itemsByCategory.entries()).map(([category, list]) => (
             <div key={category} style={{ marginTop: 12 }}>
               <div
