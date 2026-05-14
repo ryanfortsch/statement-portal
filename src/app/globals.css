@@ -318,6 +318,87 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-inspections-recent-row > div > :nth-child(4) {
     display: none;
   }
+
+  /* /operations turnover row: the 180px / 1fr / auto / auto grid was a
+     desktop layout that wouldn't survive a phone width. Stack into a
+     proper card on mobile: date as eyebrow, property name as headline,
+     chips wrap horizontally below, action button pinned to the bottom
+     right of the card. */
+  .rt-turnover-row {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 18px 0 !important;
+  }
+  .rt-turnover-row .rt-turnover-date {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .rt-turnover-row .rt-turnover-date > :nth-child(1) {
+    font-size: 11px !important;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-4) !important;
+    font-family: var(--font-inter), system-ui, sans-serif !important;
+    font-weight: 500;
+    line-height: 1.2 !important;
+  }
+  .rt-turnover-row .rt-turnover-date > :nth-child(2) {
+    font-size: 11px !important;
+    letter-spacing: .04em;
+    margin-top: 0 !important;
+  }
+  .rt-turnover-row .rt-turnover-property > div:first-child > span:first-child {
+    font-size: 22px !important;
+  }
+  .rt-turnover-row .rt-turnover-chips {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    gap: 8px 14px !important;
+    white-space: normal !important;
+    padding-top: 4px;
+  }
+  .rt-turnover-row .rt-turnover-action {
+    align-self: flex-end;
+    padding-top: 4px;
+  }
+
+  /* Stepper: + Add note / + Photo / + Work slip currently wraps to two
+     rows because the labels are wide. Three equal-width buttons on a
+     single row reads cleaner; the labels still fit at 11px caps. */
+  .rt-stepper-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+  }
+  .rt-stepper-actions > * {
+    width: 100%;
+    padding: 10px 6px !important;
+    font-size: 10px !important;
+    letter-spacing: .12em !important;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Module nav scroll: add a soft fade on the right edge so the user
+     sees there's more nav off-screen, AND give the nav real bounds so
+     overflow-x: auto actually engages. The masthead's left cluster
+     needs min-width:0 + width:100% so it stops growing to fit the
+     content, and the nav inside takes the remaining row with flex:1. */
+  .rt-masthead-top > div:first-child {
+    width: 100%;
+    min-width: 0;
+  }
+  .rt-helm-modulenav {
+    flex: 1 1 0%;
+    min-width: 0;
+    -webkit-mask-image: linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%);
+            mask-image: linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%);
+    padding-right: 16px;
+  }
 }
 
 /* Tablets (641-1024px): keep 6-col insights but tighten padding */

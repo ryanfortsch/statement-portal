@@ -318,6 +318,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
 
   return (
     <div
+      className="rt-turnover-row"
       style={{
         display: 'grid',
         gridTemplateColumns: '180px 1fr auto auto',
@@ -328,7 +329,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       }}
     >
       {/* Date column */}
-      <div>
+      <div className="rt-turnover-date">
         <div className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
           {checkIn}
         </div>
@@ -339,7 +340,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       </div>
 
       {/* Property + guest column */}
-      <div style={{ minWidth: 0 }}>
+      <div className="rt-turnover-property" style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
             {t.propertyName}
@@ -389,7 +390,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       {/* Status chips: work slips + cleaning + inspection stacked. Work
           slips are persistent property issues you bring on the walk;
           cleaning + inspection are the per-turnover prep gates. */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}
@@ -443,6 +444,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       {inspectionDone && t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}/summary`}
+          className="rt-turnover-action"
           style={{
             fontSize: 12,
             color: 'var(--ink-3)',
@@ -455,6 +457,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       ) : t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}`}
+          className="rt-turnover-action"
           style={{
             fontSize: 12,
             color: 'var(--ink)',
@@ -466,7 +469,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           Resume →
         </Link>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           <PlanButton
             guestyReservationId={t.reservationId}
             propertyId={t.propertyId}
