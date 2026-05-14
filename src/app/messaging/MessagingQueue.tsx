@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
 import { approveDraft, rejectDraft, coachDraft, markHandled } from './actions';
+import { prettifySlug, prettifyTopic, guestFirstFromDraft, ageToneColor } from './format';
 
 type Props = {
   initialPending: Approval[];
@@ -89,9 +90,15 @@ function ApprovalCard({
   const [feedback, setFeedback] = useState('');
   const [coachQueued, setCoachQueued] = useState(false);
 
-  const propertyLabel = approval.listing_name || approval.listing_id || 'unknown property';
-  const guestLabel = approval.guest_first || 'Guest';
-  const topicLabel = approval.topic || 'general';
+  const propertyLabel =
+    approval.listing_name ||
+    prettifySlug(approval.listing_id) ||
+    'unknown property';
+  const guestLabel =
+    approval.guest_first ||
+    guestFirstFromDraft(approval.draft) ||
+    'Guest';
+  const topicLabel = prettifyTopic(approval.topic) || 'General';
 
   const ageLabel =
     approval.age_minutes == null
@@ -186,7 +193,16 @@ function ApprovalCard({
           </span>
         </div>
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          {ageLabel} · id {approval.short_id}
+          <span
+            style={{
+              color: ageToneColor(approval.age_minutes),
+              fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
+            }}
+          >
+            {ageLabel}
+          </span>
+          {' · id '}
+          {approval.short_id}
         </span>
       </header>
 
@@ -351,12 +367,12 @@ function PrimaryButton({
       style={{
         background: disabled ? 'var(--ink-4)' : 'var(--ink)',
         color: 'var(--paper)',
-        border: 'none',
-        padding: '10px 16px',
-        fontSize: 11,
+        border: '2px solid var(--ink)',
+        padding: '13px 22px',
+        fontSize: 12,
         letterSpacing: '0.18em',
         textTransform: 'uppercase',
-        fontWeight: 600,
+        fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.7 : 1,
       }}
@@ -385,13 +401,13 @@ function SecondaryButton({
       title={title}
       style={{
         background: 'var(--paper)',
-        color: 'var(--ink)',
-        border: '1px solid var(--ink)',
+        color: 'var(--ink-2)',
+        border: '1px solid var(--ink-3)',
         padding: '10px 16px',
         fontSize: 11,
         letterSpacing: '0.18em',
         textTransform: 'uppercase',
-        fontWeight: 600,
+        fontWeight: 500,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
       }}

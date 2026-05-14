@@ -10,6 +10,7 @@ import {
   restoreFactAction,
   createFactAction,
 } from './facts-actions';
+import { prettifySlug } from './format';
 import type { MessagingStats, Fact } from '@/lib/stay-concierge';
 
 type Props = {
@@ -279,9 +280,11 @@ function StatsBody({
         style={{
           marginTop: 20,
           display: 'flex',
-          gap: 40,
+          gap: 32,
           fontSize: 13,
           color: 'var(--ink-3)',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
         }}
       >
         <span>
@@ -290,9 +293,24 @@ function StatsBody({
         <span>
           <b style={{ color: 'var(--ink)' }}>{stats.escalated}</b> escalated to SMS
         </span>
-        <span>
-          tiers — {stats.tier_breakdown['1']} / {stats.tier_breakdown['2']} /{' '}
-          {stats.tier_breakdown['3']}
+        <span
+          style={{
+            display: 'inline-flex',
+            gap: 14,
+            alignItems: 'baseline',
+            paddingLeft: 14,
+            borderLeft: '1px solid var(--rule)',
+          }}
+        >
+          <span title="Tier 1: safe to draft and auto-suggest">
+            tier 1 · <b style={{ color: 'var(--ink)' }}>{stats.tier_breakdown['1']}</b>
+          </span>
+          <span title="Tier 2: draft + human approval">
+            tier 2 · <b style={{ color: 'var(--ink)' }}>{stats.tier_breakdown['2']}</b>
+          </span>
+          <span title="Tier 3: escalate, no draft">
+            tier 3 · <b style={{ color: 'var(--ink)' }}>{stats.tier_breakdown['3']}</b>
+          </span>
         </span>
         <span>
           live queue · <b style={{ color: 'var(--ink)' }}>{stats.pending_now}</b>
@@ -1032,10 +1050,3 @@ function relativeTime(iso: string): string {
   }
 }
 
-function prettifySlug(slug: string): string {
-  // 53_rocky_neck -> 53 Rocky Neck
-  return slug
-    .split('_')
-    .map((p) => (/^\d+$/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
-    .join(' ');
-}
