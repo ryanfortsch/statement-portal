@@ -20,7 +20,6 @@ import type { ProjectionRow } from '@/lib/projections-types';
 import {
   computeProjection,
   fmtMoney,
-  fmtMoneyRange,
   fmtMonthYear,
   fmtPercent,
   roundToThousand,
@@ -75,6 +74,32 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   // not yet promoted; 'locked' until both prerequisites land.
   const promoteState = promoted ? 'done' : promoteUnlocked ? 'active' : 'locked';
 
+  // ─── Pipeline progress bar (hero) ──────────────────────────────────────
+  // Mirrors the five vertical Stages below as a compact horizontal status
+  // bar that replaces the old "Cover range" hero KPI. "Done" = filled
+  // signal dot; "active" = the first not-yet-done stage (ring); everything
+  // after that = "locked" (muted). One source of truth: the same booleans
+  // the Stage cards use, just summarised.
+  const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
+    const flags = [
+      { label: 'Projection', done: projectionSent },
+      { label: 'Guide & Contract', done: guideSent && contractSent },
+      { label: 'Signed', done: signed },
+      { label: 'Onboarding', done: onboardingDone },
+      { label: 'Promote', done: promoted },
+    ];
+    let activeAssigned = false;
+    return flags.map((f) => {
+      if (f.done) return { label: f.label, state: 'done' as const };
+      if (!activeAssigned) {
+        activeAssigned = true;
+        return { label: f.label, state: 'active' as const };
+      }
+      return { label: f.label, state: 'locked' as const };
+    });
+  })();
+  const doneCount = pipelineSteps.filter((s) => s.state === 'done').length;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="projections" />
@@ -117,27 +142,21 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             {projection.prospect_name}
           </span>
         </p>
-        {/* Two hero metrics side-by-side: cover range (signal) on the left,
-            close-likelihood (ink) on the right. Both serif, both big — the
-            deal value × the chance of getting it. */}
+        {/* Two hero summaries side-by-side: pipeline progress (left) for
+            "where is this deal?" and close-likelihood (right) for "how
+            likely are we to get it?" Cover-range / Year-1 detail moved
+            down into Stage 01's body where it sits alongside the
+            tiered-rule + AirDNA breakdown. */}
         <div
           style={{
-            marginTop: 22,
+            marginTop: 26,
             display: 'grid',
-            gridTemplateColumns: 'auto auto',
-            gap: 56,
-            alignItems: 'flex-start',
+            gridTemplateColumns: 'minmax(0, 1fr) auto',
+            gap: 48,
+            alignItems: 'flex-end',
           }}
         >
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>Cover range</div>
-            <div className="font-serif tabular-nums" style={{ fontSize: 32, fontWeight: 400, color: 'var(--signal)', lineHeight: 1.05 }}>
-              {fmtMoneyRange(computed.heroLow, computed.heroHigh)}
-            </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>
-              Year 1 estimate (net)
-            </div>
-          </div>
+          <PipelineProgressBar steps={pipelineSteps} doneCount={doneCount} />
           <CloseLikelihoodWidget projectionId={id} value={projection.close_likelihood_pct} size="large" />
         </div>
       </section>
@@ -839,6 +858,123 @@ function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboardi
     </div>
   );
 }
+
+// ─── Pipeline progress bar ─────────────────────────────────────────────────
+/**
+ * Horizontal five-step status bar used in the identity strip. Each step gets
+ * a dot + label; the dot's visual state mirrors the vertical Stage cards
+ * below — filled signal = done, signal ring = active, muted outline =
+ * locked. A 2px connector between dots flips to signal once the preceding
+ * step is done, so the bar fills in left-to-right as the deal progresses.
+ *
+ * The container is set to grid `repeat(N, 1fr)` so every step shares the
+ * same width regardless of label length, which keeps the connector math
+ * (calc with -50%) simple and consistent.
+ */
+function PipelineProgressBar({
+  steps,
+  doneCount,
+}: {
+  steps: { label: string; state: 'done' | 'active' | 'locked' }[];
+  doneCount: number;
+}) {
+  const allDone = doneCount === steps.length;
+  return (
+    <div>
+      <style>{pipelineProgressBarCss}</style>
+      <div className="eyebrow" style={{ marginBottom: 14 }}>
+        Pipeline ·{' '}
+        <span style={{ color: allDone ? 'var(--positive)' : 'var(--ink-3)' }}>
+          {doneCount} of {steps.length} complete
+        </span>
+      </div>
+      <ol className="rt-pbar" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+        {steps.map((s, i) => (
+          <li
+            key={s.label}
+            className="rt-pbar-step"
+            data-state={s.state}
+            data-prev={i > 0 ? steps[i - 1].state : undefined}
+          >
+            <span className="rt-pbar-dot" aria-hidden />
+            <span className="rt-pbar-label">{s.label}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const pipelineProgressBarCss = `
+  .rt-pbar {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0;
+  }
+  .rt-pbar-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  /* Connector: 2px line from the previous step's dot center to this step's
+     dot center, sitting behind the dots. left/right use calc(-50% + dot-r)
+     and calc(50% + dot-r) to land exactly at dot edges since every step is
+     1fr wide. */
+  .rt-pbar-step:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    left: calc(-50% + 8px);
+    right: calc(50% + 8px);
+    top: 5px;
+    height: 2px;
+    background: var(--rule);
+    z-index: 0;
+  }
+  .rt-pbar-step[data-prev="done"]:not(:first-child)::before {
+    background: var(--signal);
+  }
+  .rt-pbar-dot {
+    position: relative;
+    z-index: 1;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--ink-4);
+    flex-shrink: 0;
+  }
+  .rt-pbar-step[data-state="done"] .rt-pbar-dot {
+    background: var(--signal);
+    border-color: var(--signal);
+  }
+  .rt-pbar-step[data-state="active"] .rt-pbar-dot {
+    background: var(--paper);
+    border-color: var(--signal);
+    box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--signal);
+  }
+  .rt-pbar-label {
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    line-height: 1.3;
+    color: var(--ink-4);
+    white-space: nowrap;
+  }
+  .rt-pbar-step[data-state="done"] .rt-pbar-label {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .rt-pbar-step[data-state="active"] .rt-pbar-label {
+    color: var(--signal);
+    font-weight: 600;
+  }
+`;
 
 // ─── Shared styles ─────────────────────────────────────────────────────────
 const ghostButtonStyle: React.CSSProperties = {
