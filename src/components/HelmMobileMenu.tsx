@@ -133,6 +133,10 @@ function ModuleItem({
 }) {
   const reachable = m.status === 'active' || m.status === 'external';
 
+  // Numbers (and the 08a sub-module quirk) were dropped from this menu to
+  // match the desktop More dropdown - the canonical module numbers only
+  // make sense on the home page where the full set reads as a table of
+  // contents. Here every row is just title + status badge.
   const content = (
     <div
       className="rt-mobile-menu-row"
@@ -141,18 +145,6 @@ function ModuleItem({
         opacity: reachable ? 1 : 0.45,
       }}
     >
-      <span
-        className="font-mono"
-        style={{
-          fontSize: 11,
-          color: reachable ? 'var(--signal)' : 'var(--ink-4)',
-          letterSpacing: '.08em',
-          width: 32,
-          flexShrink: 0,
-        }}
-      >
-        {m.number}
-      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           className="font-serif"
