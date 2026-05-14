@@ -64,9 +64,18 @@ export type ProjectionRow = {
   status: 'draft' | 'sent';
   sent_at: string | null;
 
-  // Per-deal contract addenda. Rendered as a "Rider" page after Sale
-  // Protection. Null/empty when there are none.
+  // Per-deal contract addenda. Legacy field: was rendered as a "Rider"
+  // page after Sale Protection. Now superseded by contract_overrides
+  // below — kept for backward compat on projections created before
+  // the overrides infra landed. New redlines write to contract_overrides
+  // instead.
   custom_clauses: CustomClause[] | null;
+
+  // Action-aware contract overrides — replace / modify / rename / delete
+  // / add. The renderer applies these to the base contract data at
+  // render time so each redline edit modifies the contract in place
+  // rather than appending to a Rider. Schema lives in lib/contract-overrides.ts.
+  contract_overrides: unknown[] | null;
 
   // Owner onboarding intake (public form @ /onboarding/<token>)
   onboarding_token: string;

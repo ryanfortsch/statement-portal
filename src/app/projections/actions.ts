@@ -688,14 +688,14 @@ export async function applyContractRedlines(
   if (fetchErr) return { ok: false, error: fetchErr.message };
   if (!data) return { ok: false, error: 'Prospect not found.' };
 
-  const { fieldUpdates, newClauses } = applyEditsToProjection({
+  const { fieldUpdates, newContractOverrides } = applyEditsToProjection({
     projection: data as ProjectionRow,
     edits,
   });
 
   const payload: Record<string, unknown> = {
     ...fieldUpdates,
-    custom_clauses: newClauses,
+    contract_overrides: newContractOverrides,
     // Bump updated_at so the page's ProjectionForm key changes and the
     // form remounts with the redline-applied values. Without this, the
     // form's defaultValue inputs retain the values from initial page
