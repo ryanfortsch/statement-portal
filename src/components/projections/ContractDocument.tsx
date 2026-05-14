@@ -157,26 +157,37 @@ export function ContractDocument({
           </section>
         )}
 
-        {/* Signatures — own page, gives the block room to breathe */}
+        {/* Signatures — own page, gives the block room to breathe.
+            When the owner hasn't yet signed AND a signing form is
+            available (public route), the form renders IN PLACE of
+            the empty signature grid. Showing empty PRINTED-NAME /
+            SIGNATURE / DATE rows alongside a separate "Ready to sign"
+            box below was confusing — it looked like the contract was
+            already prepared for someone else's signature. After
+            submit, the grid renders with the typed signature. */}
         <section className="rt-doc-page rt-c-sig-page">
           <SectionTitle title="Signatures" />
           <p className="rt-c-sig-lede">
             By signing below, the Parties acknowledge that they have read, understood, and agree to be bound by the terms of this Management Contract.
           </p>
-          <div className="rt-c-sig-grid">
-            <SignerBlock
-              eyebrow="Owner"
-              printedName={ownerName}
-              signedName={signedName}
-              dateValue={effectiveDate}
-            />
-            <SignerBlock
-              eyebrow="Property Manager"
-              printedName="Allie O'Brien, Rising Tide STR, LLC"
-              signedName={null}
-              dateValue={effectiveDate}
-            />
-          </div>
+          {signingForm && !signedName ? (
+            <div className="rt-c-sig-action">{signingForm}</div>
+          ) : (
+            <div className="rt-c-sig-grid">
+              <SignerBlock
+                eyebrow="Owner"
+                printedName={ownerName}
+                signedName={signedName}
+                dateValue={effectiveDate}
+              />
+              <SignerBlock
+                eyebrow="Property Manager"
+                printedName="Allie O'Brien, Rising Tide STR, LLC"
+                signedName={null}
+                dateValue={effectiveDate}
+              />
+            </div>
+          )}
           {signedName && signedAt && (
             <div className="rt-c-audit">
               Electronically signed by <strong>{signedName}</strong> on{' '}
@@ -194,9 +205,6 @@ export function ContractDocument({
             }
           />
         </section>
-
-        {/* Public-facing signing form, only when not yet signed. Hidden in print. */}
-        {signingForm && !signedName && <div className="rt-c-signing-slot">{signingForm}</div>}
       </div>
     </>
   );
@@ -469,11 +477,18 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. Single @page rule with margin:0 — every printed
-     sheet is the full 8.5x11 bleed. Body/cover/sig breathing room is
-     baked into each .rt-doc-page's own padding (same on screen and
-     print), so the PDF reads identically to the screen preview. */
-  @page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. Two named @page rules:
+     - cover-page (margin 0): cover bleeds full navy edge-to-edge
+     - default: body and sig sheets get top/side margin for the
+       printable area, plus 0.6in bottom margin where Puppeteer
+       renders the per-sheet footer template (brand + page number)
+     Body content flows continuously across however many sheets it
+     takes. The print engine paginates naturally on content height
+     instead of forcing one sheet per .rt-doc-page wrapper (which
+     produced blank/short overflow sheets when override-expanded
+     sections didn't fit in 1056px). */
+  @page { size: 8.5in 11in; margin: 56px 80px 0.6in 80px; }
+  @page cover-page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -506,17 +521,13 @@ const contractCss = `
     flex-direction: column;
   }
   @media print {
-    /* Force backgrounds to render in the PDF (cover navy, override
-       banners, etc.). Without this Chromium's print engine drops
-       background colors on most elements even with printBackground
-       true on the Puppeteer side. */
+    /* Force backgrounds to render (cover navy, override banners,
+       etc.). Without this Chromium drops bg colors at print time
+       even with Puppeteer's printBackground:true. */
     * {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
-    /* Drop the screen-only chrome: navy gap-background, drop-shadow,
-       flex centering, gap. The .rt-doc-page wrappers keep their own
-       padding + flex layout + footer-at-bottom, exactly as on screen. */
     html, body { background: var(--paper); }
     .rt-doc {
       gap: 0;
@@ -525,22 +536,58 @@ const contractCss = `
       display: block;
       align-items: initial;
     }
+    /* Body pages dissolve into the continuous body flow in print
+       (display:contents removes the wrapper from layout, so its
+       sections become siblings of .rt-doc). Each section's
+       break-inside-avoid keeps its title bound to its first
+       paragraph; long sections split between paragraphs naturally.
+       No more per-wrapper padding boundary, no more forced page
+       breaks, no more overflow short sheets. */
     .rt-doc-page {
       box-shadow: none;
+      display: contents;
+    }
+    /* Cover and sig keep their box layout (they're full-sheet
+       elements, not part of the flat body flow). */
+    .rt-cover {
+      display: flex;
+      flex-direction: column;
+      page: cover-page;
+      width: 8.5in;
+      min-height: 11in;
+      box-sizing: border-box;
+      padding: 96px 80px 80px;
       page-break-after: always;
       break-after: page;
-      /* Match @page width exactly in the same unit (inches) so the
-         block fills the sheet edge-to-edge. With width: 816px on a
-         8.5in sheet, Chromium's px-to-in rounding left a thin paper
-         strip on the right of the cover. */
-      width: 8.5in;
     }
-    .rt-doc-page:last-child {
-      page-break-after: auto;
-      break-after: auto;
+    .rt-c-sig-page {
+      display: flex;
+      flex-direction: column;
+      page-break-before: always;
+      break-before: page;
+      padding: 0;
+    }
+    /* Small visual rhythm between sections in the continuous body
+       flow. Keeps sections feeling like distinct blocks instead of
+       running flush into each other. */
+    .rt-c-section-wrap {
+      margin-top: 28px;
+    }
+    .rt-c-section-wrap:first-child {
+      margin-top: 0;
+    }
+    /* Keep section title with its first paragraph (no orphan
+       titles), but allow long sections to split between paragraphs. */
+    .rt-c-section {
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
+    /* Hide inline DocFooter — page numbers come from Puppeteer's
+       footerTemplate at the bottom @page margin of every printed
+       sheet (clean, not tied to logical-page boundaries). */
+    .rt-c-foot { display: none !important; }
   }
 
   /* Override-failure banner — staff-only, screen-only. Explicit colors
@@ -729,6 +776,25 @@ const contractCss = `
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 64px;
+  }
+  /* Inline signing form, rendered in place of the empty signature
+     grid on the public route when the owner hasn't signed yet. The
+     form's own page-level chrome (its own padding + bg) is stripped
+     because the sig page already provides the framing. */
+  .rt-c-sig-action {
+    margin-top: 16px;
+  }
+  .rt-c-sig-action .rt-sign-form {
+    padding: 0;
+    background: transparent;
+  }
+  .rt-c-sig-action .rt-sign-eyebrow,
+  .rt-c-sig-action .rt-sign-h,
+  .rt-c-sig-action .rt-sign-lead {
+    /* These were the form's own headline; the contract's
+       SIGNATURES section + lede already covers this ground.
+       Hide them so the form starts directly at the checkbox. */
+    display: none;
   }
   .rt-c-signer { display: flex; flex-direction: column; gap: 32px; }
   .rt-c-signer-eyebrow {
