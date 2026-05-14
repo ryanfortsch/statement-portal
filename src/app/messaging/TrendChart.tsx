@@ -59,7 +59,7 @@ export function TrendChart({ series }: Props) {
         }}
       >
         <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          One-shot rate · trailing 7-day rolling · last 30 days
+          AI quality · trailing 7-day · approved + escalated only
         </div>
         <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
           today: <b style={{ color: 'var(--ink)' }}>{currentRate.toFixed(1)}%</b>
