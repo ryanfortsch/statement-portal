@@ -493,14 +493,14 @@ const contractCss = `
 
      Why default = body margin instead of 0: Chromium honors named
      @page rules for the FIRST printed sheet of an element that
-     declares `page: <name>`, but doesn't reliably propagate the
-     named rule to OVERFLOW sheets when content paginates across
-     multiple sheets. So if the default were margin:0 and body-page
-     were 56px 80px, only the first body sheet would get the margin
-     and overflow sheets would render at the page edge. Inverting
-     the default fixes this: body content gets the right margin on
-     EVERY sheet from the default, and cover-page only needs to
-     work on the single cover sheet (which it does). */
+     declares the page property, but does not reliably propagate
+     the named rule to OVERFLOW sheets when content paginates
+     across multiple sheets. So if the default were margin 0 and
+     body-page were 56px 80px, only the first body sheet would get
+     the margin and overflow sheets would render at the page edge.
+     Inverting the default fixes this: body content gets the right
+     margin on EVERY sheet from the default, and cover-page only
+     needs to work on the single cover sheet (which it does). */
   @page { size: 8.5in 11in; margin: 56px 80px; }
   @page cover-page { size: 8.5in 11in; margin: 0; }
 
