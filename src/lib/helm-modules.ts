@@ -85,9 +85,18 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
   },
   {
+    id: 'messaging',
+    href: '/messaging',
+    number: '08',
+    title: 'Messaging',
+    description: 'Guest message drafts awaiting approval. Approve, reject, or coach the AI right from Helm. Backed by the Stay Concierge service.',
+    status: 'active',
+    primary: true,
+  },
+  {
     id: 'guest-intel',
     href: '#',
-    number: '08',
+    number: '08a',
     title: 'Guest Intel',
     description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
     status: 'soon',
@@ -173,7 +182,7 @@ export const HELM_MODULES: HelmModule[] = [
  * the nav shows the four daily-flow tabs in the order Dotti reads them
  * left-to-right.
  */
-const PRIMARY_ORDER: string[] = ['work', 'operations', 'properties', 'projections'];
+const PRIMARY_ORDER: string[] = ['work', 'operations', 'messaging', 'properties', 'projections'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
