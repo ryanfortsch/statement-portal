@@ -469,15 +469,11 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. Body and sig sheets carry their breathing room as
-     @page margin so body sections can flow continuously across sheets
-     without per-wrapper padding compounding into gaps. The cover uses
-     a NAMED page rule (margin: 0) so navy bleeds full to all edges.
-     Earlier attempt with @page :first { margin: 0 } didn't reliably
-     fire in Chromium and left a thin paper strip on the right edge of
-     the cover. */
-  @page { size: 8.5in 11in; margin: 56px 80px; }
-  @page cover-page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. Single @page rule with margin:0 — every printed
+     sheet is the full 8.5x11 bleed. Body/cover/sig breathing room is
+     baked into each .rt-doc-page's own padding (same on screen and
+     print), so the PDF reads identically to the screen preview. */
+  @page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -491,14 +487,12 @@ const contractCss = `
     font-family: var(--font-inter), system-ui, sans-serif;
   }
   /* Logical page in the contract tree (Summary+Term+Mgr Resp; Initial
-     Deposit + Income; etc.). On screen each renders as a framed
-     816x1056 sheet (drop-shadow + gap) so staff preview the doc as
-     paginated. In print, body pages collapse into a single continuous
-     flow so the print engine paginates on natural content height. The
-     prior model (page-break-after:always on every .rt-doc-page) was
-     fighting print pagination: flex+min-height+forced-breaks produced
-     blank/short PDF sheets when an override-expanded section spilled
-     past one sheet, ballooning a ~7pg contract into 10pgs. */
+     Deposit + Income; etc.). One .rt-doc-page renders identically on
+     screen and in print: a fixed 816x1056 sheet with its own padding
+     and footer at the bottom. The print mode adds page-break-after on
+     each wrapper so the PDF mirrors the preview sheet-by-sheet. Tall
+     blocks (override-expanded sections) flow naturally onto a second
+     sheet without being clipped. */
   .rt-doc-page {
     position: relative;
     width: 816px;
@@ -511,18 +505,6 @@ const contractCss = `
     display: flex;
     flex-direction: column;
   }
-  /* Section wrappers — earlier this had break-inside: avoid to keep
-     a section's title with its body, but that forced LONG sections
-     (Protections, Liability) to be pushed wholesale to the next
-     printed sheet whenever they didn't fit, leaving big blanks on
-     the previous sheet. Switched to break-after: avoid on the title
-     element only: titles can't be the last thing on a sheet (no
-     orphans), but sections can split between paragraphs/bullets when
-     they're too long to fit. */
-  .rt-c-section {
-    break-after: avoid;
-    page-break-after: avoid;
-  }
   @media print {
     /* Force backgrounds to render in the PDF (cover navy, override
        banners, etc.). Without this Chromium's print engine drops
@@ -532,54 +514,28 @@ const contractCss = `
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
+    /* Drop the screen-only chrome: navy gap-background, drop-shadow,
+       flex centering, gap. The .rt-doc-page wrappers keep their own
+       padding + flex layout + footer-at-bottom, exactly as on screen. */
     html, body { background: var(--paper); }
-    .rt-doc { gap: 0; padding: 0; background: var(--paper); display: block; }
+    .rt-doc {
+      gap: 0;
+      padding: 0;
+      background: var(--paper);
+      display: block;
+      align-items: initial;
+    }
     .rt-doc-page {
       box-shadow: none;
-      /* @page margin handles the per-sheet breathing room now, so the
-         wrapper has zero padding. With padding on each wrapper, the
-         inter-block gap (bottom padding of one + top padding of the
-         next) was producing visible blanks mid-sheet between sections
-         that landed on a wrapper boundary. */
-      display: block;
-      min-height: 0;
-      padding: 0;
-    }
-    /* Cover bleeds full navy by claiming the named cover-page rule
-       (margin: 0). Explicit width + min-height force the element to
-       fill the full sheet so the navy reaches every edge. */
-    .rt-cover {
-      page: cover-page;
-      width: 8.5in;
-      min-height: 11in;
-      box-sizing: border-box;
-      padding: 96px 80px 80px;
       page-break-after: always;
       break-after: page;
-      display: flex;
-      flex-direction: column;
     }
-    /* Signatures start on a fresh printed sheet. The @page margin
-       provides outer breathing room; keep a touch of extra top space
-       so the signature block doesn't crash against the @page edge. */
-    .rt-c-sig-page {
-      page-break-before: always;
-      break-before: page;
-      padding-top: 40px;
-    }
-    /* Small visual rhythm between sections in the continuous body
-       flow (without this, sections run flush). */
-    .rt-c-section-wrap + .rt-c-section-wrap {
-      margin-top: 24px;
+    .rt-doc-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
     }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
-    /* Inline DocFooter is tied to logical pages, but with continuous
-       body flow the logical-to-printed mapping isn't 1:1 anymore.
-       Hide in print to keep the brand+page-number band from landing
-       mid-sheet. The cover keeps its own .rt-cover-foot (a different
-       element with Date/Owner). */
-    .rt-c-foot { display: none !important; }
   }
 
   /* Override-failure banner — staff-only, screen-only. Explicit colors
