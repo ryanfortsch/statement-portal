@@ -116,12 +116,28 @@ export async function getProspectForecast(forecastYear: number): Promise<Prospec
 
   const rows = (data ?? []) as ProjectionRow[];
 
+  // Today gate: an unlisted prospect (property_id IS NULL — by the query
+  // filter, all rows here qualify) can't actually contribute revenue to
+  // the current month or any prior month, no matter what start_month says
+  // on their projection. By the time they sign + onboard + list, that
+  // month is gone. Only applies to the year that contains today.
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1; // 1..12
+  const earliestContributingMonth =
+    forecastYear === todayYear ? todayMonth + 1 : 1;
+
   const prospects: ProspectMonthly[] = rows
     .filter((p) => p.property_address && p.home_value > 0)
     .map((p) => {
       const monthly = forecastYear === 2026 ? rampedYear1Monthly(p) : fullYearMonthly(p);
       const closeProbability = probabilityFrom(p);
-      const monthlyExpected = monthly.map((v) => v * closeProbability);
+      // Zero out months at or before today's month for the current year —
+      // unlisted prospects can't backfill revenue they didn't earn.
+      const monthlyAfterTodayGate = monthly.map((v, i) =>
+        i + 1 < earliestContributingMonth ? 0 : v
+      );
+      const monthlyExpected = monthlyAfterTodayGate.map((v) => v * closeProbability);
       const payout = ownerPayout(p);
 
       return {
