@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { proposeContractRedlines, applyContractRedlines } from '@/app/projections/actions';
 import {
   FIELD_DESCRIPTORS,
@@ -48,10 +50,21 @@ const EDITABLE_FIELDS: readonly EditableField[] = Object.keys(FIELD_DESCRIPTORS)
  * data-driven so the moment edits land, downloads reflect them.
  */
 export function ContractRedlinesPanel({ projection }: { projection: ProjectionRow }) {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('interpret');
   const [step, setStep] = useState<Step>('input');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Record of the last apply call — what was applied, when, and (snapshot
+  // of the filtered edit set so we can render the "here's what landed"
+  // list in the success state). Persists across resets so the small chip
+  // at the panel head can keep reminding the user that changes are live.
+  const [lastApplied, setLastApplied] = useState<{
+    at: Date;
+    edits: ContractRedlineEdits;
+    selectedCount: number;
+  } | null>(null);
 
   // Interpret-mode input state
   const [text, setText] = useState('');
@@ -159,7 +172,12 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
   const applyEdits = () => {
     if (!edits) return;
     const filtered = filterEditsByAcceptance(edits, acceptance);
-    if (!hasAnyChanges(filtered)) {
+    const filteredCount =
+      filtered.field_changes.length +
+      filtered.clauses_to_add.length +
+      filtered.clauses_to_edit.length +
+      filtered.clauses_to_remove.length;
+    if (filteredCount === 0) {
       setError('Nothing selected to apply.');
       return;
     }
@@ -170,6 +188,12 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         setError(res.error);
         return;
       }
+      // Refresh the server tree so the projection edit form lower on the
+      // page picks up the new field values. Without this, the form's
+      // initial-state would clobber redline-applied values when Save is
+      // hit. Then transition to the applied step.
+      router.refresh();
+      setLastApplied({ at: new Date(), edits: filtered, selectedCount: filteredCount });
       setStep('applied');
     });
   };
@@ -186,6 +210,15 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         <div>
           <div className="eyebrow" style={eyebrowStyle}>Owner Redlines</div>
           <h3 className="font-serif" style={titleStyle}>Apply contract edits from the owner</h3>
+          {lastApplied && step !== 'applied' && (
+            <div style={recentChipStyle}>
+              <span style={recentChipDotStyle} />
+              <span>
+                Last applied {formatTime(lastApplied.at)} · {lastApplied.selectedCount}{' '}
+                {lastApplied.selectedCount === 1 ? 'edit' : 'edits'} live on the contract.
+              </span>
+            </div>
+          )}
         </div>
         {step !== 'input' && (
           <button type="button" onClick={resetAll} style={resetButtonStyle}>
@@ -291,20 +324,132 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         </>
       )}
 
-      {step === 'applied' && (
-        <div style={successStyle}>
-          <strong>Applied.</strong> The contract preview and downloads now reflect these edits.
-          <div style={{ marginTop: 12 }}>
-            <button type="button" onClick={resetAll} style={secondaryButtonStyle}>
-              Run another round
-            </button>
-          </div>
-        </div>
+      {step === 'applied' && lastApplied && (
+        <AppliedConfirmation
+          projectionId={projection.id}
+          applied={lastApplied}
+          onAnotherRound={resetAll}
+        />
       )}
 
       {error && <div style={errorStyle}>{error}</div>}
     </div>
   );
+}
+
+// ─── Applied confirmation ───────────────────────────────────────────────────
+
+/**
+ * The "you did it" view that replaces the preview after Apply succeeds.
+ *
+ * Deliberately loud — Dotti's feedback from the May 2026 36 Granite St run
+ * was that the prior success state was so small she couldn't tell if the
+ * apply had actually happened. Combined with the projection edit form's
+ * Save button lower on the page, it was easy to think "apply" meant
+ * "scroll down and save" — which would have clobbered the redline values
+ * back to the form's stale defaults.
+ *
+ * Fixes:
+ *   - Big success banner with a checkmark + explicit "Contract updated."
+ *   - Per-change list of exactly what was applied (field changes + clauses).
+ *   - Explicit "View updated contract ↗" and "Download updated PDF" CTAs
+ *     that open FRESH tabs / files, bypassing any stale tab the user may
+ *     have left open from before the apply.
+ *   - Run another round / Done CTAs at the bottom.
+ *   - Heads-up: refresh any already-open contract tab to see the new values.
+ *
+ * The router.refresh() in applyEdits also re-fetches the page server-side
+ * so the projection edit form picks up the new values and won't clobber
+ * them on its next Save.
+ */
+function AppliedConfirmation({
+  projectionId,
+  applied,
+  onAnotherRound,
+}: {
+  projectionId: string;
+  applied: { at: Date; edits: ContractRedlineEdits; selectedCount: number };
+  onAnotherRound: () => void;
+}) {
+  const { at, edits, selectedCount } = applied;
+  const tally = [
+    edits.field_changes.length > 0
+      ? `${edits.field_changes.length} field ${edits.field_changes.length === 1 ? 'change' : 'changes'}`
+      : null,
+    edits.clauses_to_add.length > 0
+      ? `${edits.clauses_to_add.length} clause ${edits.clauses_to_add.length === 1 ? 'addition' : 'additions'}`
+      : null,
+    edits.clauses_to_edit.length > 0
+      ? `${edits.clauses_to_edit.length} clause ${edits.clauses_to_edit.length === 1 ? 'edit' : 'edits'}`
+      : null,
+    edits.clauses_to_remove.length > 0
+      ? `${edits.clauses_to_remove.length} clause ${edits.clauses_to_remove.length === 1 ? 'removal' : 'removals'}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <div style={appliedBannerStyle}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+        <span style={appliedCheckStyle}>✓</span>
+        <strong style={{ fontSize: 18, color: 'var(--ink)' }}>Contract updated.</strong>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>at {formatTime(at)}</span>
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
+        Applied <strong>{selectedCount}</strong> {selectedCount === 1 ? 'edit' : 'edits'} ({tally}) to the
+        projection. The Contract preview and downloads below now reflect these changes — the projection edit
+        form on this page has been refreshed too.
+      </p>
+
+      <ul style={appliedListStyle}>
+        {edits.field_changes.map((c, i) => (
+          <li key={`fc-${i}`}>
+            <strong>{FIELD_DESCRIPTORS[c.field as EditableField].label}</strong> →{' '}
+            <span style={{ fontFamily: 'var(--font-mono-dash, ui-monospace), monospace' }}>
+              {formatFieldValueForPreview(c.field as EditableField, c.new_value)}
+            </span>
+            <span style={appliedRowMetaStyle}>{POSITION_LABELS[c.ourPosition]}</span>
+          </li>
+        ))}
+        {edits.clauses_to_add.map((c, i) => (
+          <li key={`ca-${i}`}>
+            <strong>+ Added clause:</strong> {c.title}
+            <span style={appliedRowMetaStyle}>{POSITION_LABELS[c.ourPosition]}</span>
+          </li>
+        ))}
+        {edits.clauses_to_edit.map((c, i) => (
+          <li key={`ce-${i}`}>
+            <strong>~ Edited clause #{c.index}:</strong> {c.title ?? '(body change only)'}
+            <span style={appliedRowMetaStyle}>{POSITION_LABELS[c.ourPosition]}</span>
+          </li>
+        ))}
+        {edits.clauses_to_remove.map((c, i) => (
+          <li key={`cr-${i}`}>
+            <strong>− Removed clause #{c.index}</strong>
+            <span style={appliedRowMetaStyle}>{POSITION_LABELS[c.ourPosition]}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p style={appliedHeadsUpStyle}>
+        If the contract preview is already open in another tab, refresh that tab to see the new values.
+      </p>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, alignItems: 'center' }}>
+        <Link href={`/projections/${projectionId}/contract`} target="_blank" style={primaryButtonStyle}>
+          View updated contract ↗
+        </Link>
+        <button type="button" onClick={onAnotherRound} style={secondaryButtonStyle}>
+          Run another round
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 // ─── Mode toggle ────────────────────────────────────────────────────────────
@@ -1441,14 +1586,6 @@ const diffReasonStyle: React.CSSProperties = {
   fontSize: 11,
   lineHeight: 1.5,
 };
-const successStyle: React.CSSProperties = {
-  marginTop: 14,
-  padding: 12,
-  borderLeft: '3px solid #4a9d6b',
-  background: 'var(--paper)',
-  fontSize: 13,
-  color: 'var(--ink)',
-};
 const errorStyle: React.CSSProperties = {
   marginTop: 12,
   padding: 10,
@@ -1456,4 +1593,63 @@ const errorStyle: React.CSSProperties = {
   background: 'var(--paper)',
   fontSize: 12,
   color: 'var(--ink)',
+};
+const recentChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  marginTop: 6,
+  padding: '4px 10px',
+  background: 'rgba(74, 157, 107, 0.14)',
+  color: '#2a5e3f',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.02em',
+};
+const recentChipDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  background: '#4a9d6b',
+  display: 'inline-block',
+};
+const appliedBannerStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: '18px 20px',
+  background: 'rgba(74, 157, 107, 0.10)',
+  borderLeft: '4px solid #4a9d6b',
+  border: '1px solid rgba(74, 157, 107, 0.30)',
+};
+const appliedCheckStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 26,
+  height: 26,
+  borderRadius: '50%',
+  background: '#4a9d6b',
+  color: 'var(--paper)',
+  fontSize: 16,
+  fontWeight: 600,
+};
+const appliedListStyle: React.CSSProperties = {
+  margin: '6px 0 0',
+  paddingLeft: 18,
+  fontSize: 12,
+  color: 'var(--ink)',
+  lineHeight: 1.7,
+};
+const appliedRowMetaStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 9,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-3)',
+  fontWeight: 600,
+};
+const appliedHeadsUpStyle: React.CSSProperties = {
+  margin: '12px 0 0',
+  fontSize: 11,
+  color: 'var(--ink-3)',
+  fontStyle: 'italic',
 };
