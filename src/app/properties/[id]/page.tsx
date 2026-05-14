@@ -18,6 +18,8 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
+import type { ContactRow, ContactTouchRow } from '@/lib/crm';
+import { PropertyCrmSection } from './PropertyCrmSection';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -115,23 +117,65 @@ type LatestOwnerContact = {
  * Whichever is more recent wins. Returns null if no contact has ever been
  * recorded.
  */
-type CrmContactMini = { id: string; name: string; type: string };
-
-async function getCrmContactsForProperty(propertyId: string): Promise<CrmContactMini[]> {
+/**
+ * Full contact rows for the property's CRM section. Drives the inline
+ * "Contacts" dropdown so the operator sees emails, phone, organization,
+ * and recent touches without bouncing out to /crm. Co-loaded with
+ * getCrmTouchesForProperty so touches can be grouped under their owning
+ * contact in the same render.
+ */
+async function getCrmContactsFullForProperty(propertyId: string): Promise<ContactRow[]> {
   if (!isHelmConfigured) return [];
   try {
-    // contains() works on text[] columns. Returns every contact whose
-    // linked_property_ids array includes this property's id, regardless of
-    // type, so vendors and leads attached to the property surface here too.
     const { data, error } = await supabase
       .from('contacts')
-      .select('id, name, type')
+      .select('*')
       .contains('linked_property_ids', [propertyId])
-      .order('name');
+      .order('type', { ascending: true })
+      .order('name', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as CrmContactMini[];
+    return (data ?? []) as ContactRow[];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Pulls the last ~20 touches across every contact linked to this
+ * property and returns them grouped by contact_id. Per-contact ordering
+ * is most-recent first (the input order is preserved by the reducer).
+ */
+async function getCrmTouchesForProperty(propertyId: string): Promise<Record<string, ContactTouchRow[]>> {
+  if (!isHelmConfigured) return {};
+  try {
+    // Resolve contact ids first, then pull their touches in one query.
+    // Avoids a join via the contacts table and keeps the query simple
+    // (Supabase JS doesn't compose contains() across joined relations
+    // cleanly).
+    const { data: contactIds } = await supabase
+      .from('contacts')
+      .select('id')
+      .contains('linked_property_ids', [propertyId]);
+    const ids = ((contactIds ?? []) as Array<{ id: string }>).map((r) => r.id);
+    if (ids.length === 0) return {};
+
+    const { data, error } = await supabase
+      .from('contact_touches')
+      .select('*')
+      .in('contact_id', ids)
+      .order('touched_at', { ascending: false })
+      .limit(60);
+    if (error) throw error;
+
+    const grouped: Record<string, ContactTouchRow[]> = {};
+    for (const t of ((data ?? []) as ContactTouchRow[])) {
+      const arr = grouped[t.contact_id] ?? [];
+      arr.push(t);
+      grouped[t.contact_id] = arr;
+    }
+    return grouped;
+  } catch {
+    return {};
   }
 }
 
@@ -221,13 +265,14 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContacts, activityEvents, propertyNotices, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id, p),
-    getCrmContactsForProperty(p.id),
+    getCrmContactsFullForProperty(p.id),
+    getCrmTouchesForProperty(p.id),
     loadPropertyActivity(p),
     getPropertyNotices(p.id),
     auth(),
@@ -278,6 +323,22 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     activityEvents.length === 0
       ? 'quiet'
       : `${activityEvents.length} ${activityEvents.length === 1 ? 'event' : 'events'} · last ${formatRelative(activityEvents[0].at)}`;
+
+  // CRM section summary: contact count + most-recent touch across the
+  // whole set, so the closed-state chip reads like "3 contacts · last
+  // touch 4d ago" rather than just a count. Each touches array is
+  // already sorted desc, so the head of each is the candidate.
+  const touchHeads: ContactTouchRow[] = (Object.values(crmTouchesByContact) as ContactTouchRow[][])
+    .map((arr) => arr[0])
+    .filter((t): t is ContactTouchRow => t != null);
+  const mostRecentTouch: ContactTouchRow | null =
+    touchHeads.length === 0
+      ? null
+      : touchHeads.reduce((acc, t) => (t.touched_at > acc.touched_at ? t : acc));
+  const contactsSummary =
+    crmContactsFull.length === 0
+      ? 'no contacts linked'
+      : `${crmContactsFull.length} ${crmContactsFull.length === 1 ? 'contact' : 'contacts'}${mostRecentTouch ? ` · last touch ${formatRelative(mostRecentTouch.touched_at)}` : ''}`;
   const operationalCounts = countOperationalFields(p);
   const operationalSummary =
     operationalCounts.populated === 0
@@ -680,36 +741,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
         </dl>
 
-        {crmContacts.length > 0 && (
-          <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px dotted var(--rule)' }}>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>In CRM</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {crmContacts.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/crm/${c.id}`}
-                  title={`Open ${c.name} in CRM (touches log, etc.)`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '6px 12px',
-                    border: '1px solid var(--tide-deep)',
-                    color: 'var(--tide-deep)',
-                    textDecoration: 'none',
-                    fontSize: 12,
-                  }}
-                >
-                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', opacity: 0.7 }}>
-                    {c.type}
-                  </span>
-                  {c.name}
-                  <span style={{ opacity: 0.7 }}>→</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* The "In CRM" chip block that used to live here was lifted out
+            into a dedicated Contacts section below, which shows the full
+            contact rows + recent touches inline. The chip strip would
+            have been a duplicate cross-link to the same data. */}
 
         {/* Public onboarding-form link. Lazily generated; once minted,
             the same URL backfills this property's operational columns
@@ -718,6 +753,17 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           propertyId={p.id}
           initialToken={p.onboarding_token}
           submittedAt={p.onboarding_submitted_at}
+        />
+      </CollapsibleSection>
+
+      {/* CONTACTS — folds the CRM into the property page. Every contact
+          linked to this property surfaces here with email, phone, and
+          recent touches inline, so the operator doesn't have to bounce
+          to /crm/[id] to see what's been said. */}
+      <CollapsibleSection title="Contacts" summary={contactsSummary}>
+        <PropertyCrmSection
+          contacts={crmContactsFull}
+          touchesByContact={crmTouchesByContact}
         />
       </CollapsibleSection>
 
