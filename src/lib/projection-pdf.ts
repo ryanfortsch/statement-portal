@@ -37,23 +37,6 @@ const SLUGS: Record<DeliverableType, string> = {
   contract: 'contract',
 };
 
-/**
- * Puppeteer footer template for contract PDFs. Renders in the @page bottom
- * margin (0.6in) on every printed sheet that has a margin reserved. The
- * cover sheet uses @page cover-page with margin:0, so the template doesn't
- * render there (no margin space = no footer band). Body and signature
- * sheets get the brand line on the left, page number on the right.
- *
- * Class names with special handling: .pageNumber, .totalPages — Puppeteer
- * substitutes these at render time.
- */
-const CONTRACT_FOOTER_TEMPLATE = `
-<div style="font-size:9px;font-family:'Inter',-apple-system,system-ui,sans-serif;letter-spacing:0.18em;text-transform:uppercase;color:#8a969c;width:100%;padding:0 80px 24px;box-sizing:border-box;display:flex;justify-content:space-between;align-items:flex-end;">
-  <span>Rising Tide &middot; Management Contract &middot; risingtidestr.com</span>
-  <span class="pageNumber"></span>
-</div>
-`;
-
 export async function renderProjectionPdf(args: {
   projectionId: string;
   type: DeliverableType;
@@ -99,32 +82,19 @@ export async function renderProjectionPdf(args: {
     // workaround.
     await page.emulateMediaType('print');
 
-    // Contract PDFs use a per-sheet footer rendered by Puppeteer in the
-    // @page bottom margin — the inline DocFooter element is display:none
-    // in print, since it was tied to logical-page boundaries that don't
-    // map 1:1 to printed sheets once override-expanded sections flow
-    // continuously. The cover bleeds full navy via @page cover-page with
-    // margin:0, so no footer renders on the cover sheet (no margin space).
-    const isContract = type === 'contract';
+    // Tried displayHeaderFooter:true with a footerTemplate to get clean
+    // per-sheet page numbers, but Puppeteer forces the footer area on
+    // EVERY sheet regardless of per-@page-name margin rules. That left
+    // a paper strip with "1" rendered at the bottom of the navy cover
+    // even with @page cover-page { margin: 0 }. The cover bleed matters
+    // more than per-sheet page numbers on a short contract PDF — drop
+    // the Puppeteer footer entirely and let every sheet bleed full.
     const pdf = await page.pdf({
       width: geo.pdfWidth,
       height: geo.pdfHeight,
       printBackground: true,
       preferCSSPageSize: true,
-      // For non-contract deliverables (projection deck, guide), force
-      // margin: 0 — those are full-bleed single-purpose designs.
-      // For the contract, omit margin entirely so the CSS @page named
-      // rules win — cover-page uses margin:0 (full navy bleed), the
-      // default @page reserves 0.6in at the bottom where the footer
-      // template renders. Passing an explicit margin here would
-      // override the CSS @page rules globally and the cover would
-      // lose its bleed.
-      ...(isContract
-        ? {}
-        : { margin: { top: '0', bottom: '0', left: '0', right: '0' } }),
-      displayHeaderFooter: isContract,
-      headerTemplate: isContract ? '<div></div>' : undefined,
-      footerTemplate: isContract ? CONTRACT_FOOTER_TEMPLATE : undefined,
+      margin: { top: '0', bottom: '0', left: '0', right: '0' },
     });
 
     return Buffer.from(pdf);

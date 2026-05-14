@@ -119,43 +119,52 @@ export function ContractDocument({
           </div>
         </section>
 
-        {/* Body pages — driven by the structured tree + overrides */}
-        {pages
-          .filter((p) => p.kind === 'body')
-          .map((page, idx) => (
-            <section key={page.id} className="rt-doc-page">
-              {page.sections.map((section) => (
-                <SectionRenderer key={section.id} section={section} vars={vars} />
-              ))}
-              <DocFooter pageNum={idx + 2} />
-            </section>
-          ))}
-
-        {/* Legacy Rider page — only for projections that haven't moved
-            to the overrides engine. New custom additions go via the
-            'add' override action with explicit anchors. */}
-        {hasLegacyRider && (
-          <section className="rt-doc-page">
-            <SectionTitle title="Rider — Additional Terms" />
-            <p className="rt-c-body">
-              The following additional terms have been agreed between the
-              Parties and form part of this Agreement. They are read
-              alongside the standard terms above; in the event of conflict,
-              these additional terms shall control.
-            </p>
-            {(projection.custom_clauses ?? []).map((clause, idx) => (
-              <div key={idx} className="rt-c-clause">
-                <h3 className="rt-c-clause-title">
-                  {String(idx + 1).padStart(2, '0')}. {clause.title || 'Untitled clause'}
-                </h3>
-                {clause.body.split(/\n+/).map((para, pi) => (
-                  <p key={pi} className="rt-c-body">{para}</p>
+        {/* Body pages wrapper. In print, .rt-doc-page wrappers inside
+            this div use display:contents to dissolve into a flat
+            section flow, and .rt-doc-body carries the 56px/80px
+            padding so body content has a consistent margin on every
+            printed sheet (we can't use @page margin because that
+            forced a paper strip on the cover). On screen, .rt-doc-body
+            is just a passthrough — each .rt-doc-page still renders
+            as a discrete sheet. */}
+        <div className="rt-doc-body">
+          {pages
+            .filter((p) => p.kind === 'body')
+            .map((page, idx) => (
+              <section key={page.id} className="rt-doc-page">
+                {page.sections.map((section) => (
+                  <SectionRenderer key={section.id} section={section} vars={vars} />
                 ))}
-              </div>
+                <DocFooter pageNum={idx + 2} />
+              </section>
             ))}
-            <DocFooter pageNum={pages.filter((p) => p.kind === 'body').length + 2} />
-          </section>
-        )}
+
+          {/* Legacy Rider page — only for projections that haven't moved
+              to the overrides engine. New custom additions go via the
+              'add' override action with explicit anchors. */}
+          {hasLegacyRider && (
+            <section className="rt-doc-page">
+              <SectionTitle title="Rider — Additional Terms" />
+              <p className="rt-c-body">
+                The following additional terms have been agreed between the
+                Parties and form part of this Agreement. They are read
+                alongside the standard terms above; in the event of conflict,
+                these additional terms shall control.
+              </p>
+              {(projection.custom_clauses ?? []).map((clause, idx) => (
+                <div key={idx} className="rt-c-clause">
+                  <h3 className="rt-c-clause-title">
+                    {String(idx + 1).padStart(2, '0')}. {clause.title || 'Untitled clause'}
+                  </h3>
+                  {clause.body.split(/\n+/).map((para, pi) => (
+                    <p key={pi} className="rt-c-body">{para}</p>
+                  ))}
+                </div>
+              ))}
+              <DocFooter pageNum={pages.filter((p) => p.kind === 'body').length + 2} />
+            </section>
+          )}
+        </div>
 
         {/* Signatures — own page, gives the block room to breathe.
             When the owner hasn't yet signed AND a signing form is
@@ -477,18 +486,14 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. Two named @page rules:
-     - cover-page (margin 0): cover bleeds full navy edge-to-edge
-     - default: body and sig sheets get top/side margin for the
-       printable area, plus 0.6in bottom margin where Puppeteer
-       renders the per-sheet footer template (brand + page number)
-     Body content flows continuously across however many sheets it
-     takes. The print engine paginates naturally on content height
-     instead of forcing one sheet per .rt-doc-page wrapper (which
-     produced blank/short overflow sheets when override-expanded
-     sections didn't fit in 1056px). */
-  @page { size: 8.5in 11in; margin: 56px 80px 0.6in 80px; }
-  @page cover-page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. Single @page rule with margin:0 so every sheet
+     bleeds full — important for the cover (navy edge-to-edge) and
+     consistent for body/sig (no surprise paper strips). Body content
+     gets its breathing room from .rt-c-section-wrap horizontal
+     padding rules in print mode. Page numbering isn't included in
+     the PDF (Puppeteer's footerTemplate forces a footer area on
+     every sheet including the cover, which broke the cover bleed). */
+  @page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -536,13 +541,17 @@ const contractCss = `
       display: block;
       align-items: initial;
     }
-    /* Body pages dissolve into the continuous body flow in print
+    /* Body pages dissolve into a continuous flow in print
        (display:contents removes the wrapper from layout, so its
-       sections become siblings of .rt-doc). Each section's
-       break-inside-avoid keeps its title bound to its first
-       paragraph; long sections split between paragraphs naturally.
-       No more per-wrapper padding boundary, no more forced page
-       breaks, no more overflow short sheets. */
+       sections become siblings of .rt-doc-body). The wrapper
+       (.rt-doc-body) carries the per-sheet breathing room as
+       padding, applied once and re-applied on every printed sheet
+       the body content spans (this is how block padding works in
+       paged media — padding-top is applied at the start, padding-
+       bottom at the end, with content flowing through). */
+    .rt-doc-body {
+      padding: 56px 80px;
+    }
     .rt-doc-page {
       box-shadow: none;
       display: contents;
@@ -552,7 +561,6 @@ const contractCss = `
     .rt-cover {
       display: flex;
       flex-direction: column;
-      page: cover-page;
       width: 8.5in;
       min-height: 11in;
       box-sizing: border-box;
@@ -563,9 +571,12 @@ const contractCss = `
     .rt-c-sig-page {
       display: flex;
       flex-direction: column;
+      width: 8.5in;
+      min-height: 11in;
+      box-sizing: border-box;
+      padding: 96px 80px 80px;
       page-break-before: always;
       break-before: page;
-      padding: 0;
     }
     /* Small visual rhythm between sections in the continuous body
        flow. Keeps sections feeling like distinct blocks instead of
@@ -584,9 +595,9 @@ const contractCss = `
     }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
-    /* Hide inline DocFooter — page numbers come from Puppeteer's
-       footerTemplate at the bottom @page margin of every printed
-       sheet (clean, not tied to logical-page boundaries). */
+    /* Hide inline DocFooter — overflow-prone with the continuous
+       body flow, and we couldn't keep Puppeteer's footerTemplate
+       without breaking cover bleed. PDF goes without page numbers. */
     .rt-c-foot { display: none !important; }
   }
 
