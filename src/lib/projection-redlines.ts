@@ -244,8 +244,26 @@ The contract body has stable clause IDs. Owner-requested edits to existing claus
 DEFAULT TO IN-PLACE
 If the owner's request modifies language that already exists somewhere in the contract — even partially — use replace or modify on that clause, not add. Detect overlap: if the new text mentions a topic that the contract already covers (e.g. "Additional Insured," "$5,000 reputation fee," "Lost Gross Rental Income," "185 days notice"), it is a replace/modify on the existing clause, not a new add.
 
+STRONGLY PREFER MODIFY OVER REPLACE
+Use modify (find / replaceWith on a span) whenever the change is local to part of a clause. Replace destroys the surrounding context; modify keeps the sentence stable. The only time to replace is when the entire clause body genuinely changes — e.g. swapping a definition. Specific examples:
+  - "Change 120 days to 90 days in the renewal notice" → modify on term-renewal-notice, find: "120 days", replaceWith: "90 days". DO NOT replace the whole clause; the 60-day calendar-year-2026 variant must stay.
+  - "Make the Additional Insured language reciprocal" → modify on insurance-additional-insured covering the specific span that changes, OR replace if the whole clause is being rewritten.
+
 PRESERVE DUAL-PERIOD STRUCTURES
-Some clauses contain multiple conditional rules. The TERM section's renewal-notice clause has TWO rules: 60 days for calendar year 2026, 120 days for renewal years thereafter. If the owner asks about the renewal-year period only, target the "120 days" span with modify and leave the 60-day variant intact.
+Some clauses contain multiple conditional rules. The TERM section's renewal-notice clause has TWO rules: 60 days for calendar year 2026, 120 days for renewal years thereafter. If the owner asks about the renewal-year period only, target the "120 days" span with modify and leave the 60-day variant intact. NEVER use replace on this clause to change only one of the two rules — that drops the other.
+
+HIERARCHY: NEW CLAUSE LEVEL MATCHES ANCHOR LEVEL
+The clause inventory below lists every clause with [d=N] showing its nesting depth (0 = top-level bullet in a section, 1 = sub-bullet, etc.). When you anchor an 'add' to a clause at depth N, the new clause appears at depth N. To insert a new top-level bullet, anchor to another top-level bullet. To insert a sub-bullet, anchor to a sub-bullet.
+
+Examples of common mistakes:
+  WRONG: To insert a new "Owner Approval Required" bullet as a peer of "rental-income-notice" (depth 0), anchoring with insertAfter: rental-income-extra-emergency (depth 1, under "Examples include:"). Result: new clause appears as a SUB-bullet, not a top-level peer.
+  RIGHT: insertAfter: rental-income-extra-services (depth 0 — the "Examples include:" parent), or insertBefore: rental-income-notice (depth 0).
+
+  WRONG: To add new top-level bullets to protection-against-sale (Carve-Out, Additional Platform Penalties) anchoring with insertAfter: protection-comp-reputation (depth 1, a sub-bullet under "Compensation for Cancellations:"). Result: new clauses get nested under Cancellation Compensation instead of being peers of Notification Requirement / Existing Reservations / Binding Obligation.
+  RIGHT: insertBefore: protection-binding (depth 0) for a new top-level bullet placed just before Binding Obligation. Or insertAfter: protection-compensation (depth 0).
+
+REPLACE PRESERVES CHILDREN — DON'T DELETE COLLATERALLY
+A replace swaps a clause's template/title but keeps its children intact. To swap out a single bullet (e.g. "written notice and an estimate"), use replace on THAT specific bullet's ID. Do NOT delete the parent ("Examples include:") just to remove the child — deleting a parent deletes its sub-bullets too, taking unrelated content with it.
 
 CONTRACT-SECTION TAXONOMY (use the right labels)
 ${SECTION_TAXONOMY}
@@ -260,6 +278,9 @@ Every change carries ownerAsk + ourPosition + positionDetail. Use 'hold' (and em
 
 ANCHOR RULES (for 'add' action only)
 Set exactly ONE of insertAfter, insertBefore, inSection. The unused fields must be null. inSection requires position ('first' or 'last').
+
+BOLD LABEL CONVENTIONS
+Labeled bullets render as "**Label:** body". The renderer adds the trailing colon automatically, so set title to just "Owner Approval Required" — NOT "Owner Approval Required:". Also: do NOT also repeat the label at the start of the body. The renderer dedups, but cleaner output starts with a non-duplicated body.
 
 SUMMARY
 Frame using OUR positions, e.g.:
@@ -404,10 +425,18 @@ function formatClauseInventory(): string {
   const sectionsBlock = inv.sections
     .map((s) => `  [section] ${s.id}  →  "${s.title}"`)
     .join('\n');
+  // [d=N] marker shows nesting depth: 0 = top-level bullet/paragraph in
+  // the section; 1 = sub-bullet (child of a top-level); 2 = grand-child.
+  // Sub-bullets are also indented in the listing so the parent/child
+  // shape is visually obvious — both signals together make it hard for
+  // Claude to anchor a new top-level bullet to a sub-bullet by accident.
   const clausesBlock = inv.clauses
-    .map((c) => `  [clause]  ${c.id}  (in ${c.sectionId})  →  ${c.preview}`)
+    .map((c) => {
+      const indent = '  '.repeat(c.depth + 1);
+      return `${indent}[clause d=${c.depth}]  ${c.id}  (in ${c.sectionId})  →  ${c.preview}`;
+    })
     .join('\n');
-  return `SECTIONS:\n${sectionsBlock}\n\nCLAUSES:\n${clausesBlock}`;
+  return `SECTIONS:\n${sectionsBlock}\n\nCLAUSES (indented by depth; anchor 'add' actions to a clause at the SAME depth as where the new clause should appear):\n${clausesBlock}`;
 }
 
 function formatValueForPrompt(v: unknown, kind: 'date' | 'money' | 'integer' | 'percent'): string {

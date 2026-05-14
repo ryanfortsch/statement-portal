@@ -112,13 +112,11 @@ export const CONTRACT_BASE: ContractPage[] = [
       {
         id: 'term',
         title: 'Term',
+        // Single canonical paragraph. The original contract had a separate
+        // "short dates" sentence followed by an almost-identical "long
+        // dates + renewal notice" paragraph, which read as duplicate prose
+        // back-to-back. Consolidated here.
         content: [
-          {
-            id: 'term-short-dates',
-            type: 'paragraph',
-            template:
-              'This Agreement shall commence on {{termStartShort}} and continue until {{termEndShort}}, unless terminated earlier in accordance with the terms herein.',
-          },
           {
             id: 'term-renewal-notice',
             type: 'paragraph',
@@ -472,23 +470,29 @@ export const CONTRACT_BASE: ContractPage[] = [
   { id: 'signatures', kind: 'signatures', sections: [] },
 ];
 
-/** Flat list of every clause + section ID, for LLM prompt + UI lookups. */
-export function listContractIds(): { sections: { id: string; title: string }[]; clauses: { id: string; sectionId: string; preview: string }[] } {
+/** Flat list of every clause + section ID, for LLM prompt + UI lookups.
+ *  `depth` indicates nesting level: 0 = top-level bullet/paragraph in a
+ *  section; 1 = first-level child (sub-bullet); 2 = grandchild; etc. The
+ *  LLM uses depth to anchor 'add' overrides at the right nesting level. */
+export function listContractIds(): {
+  sections: { id: string; title: string }[];
+  clauses: { id: string; sectionId: string; depth: number; preview: string }[];
+} {
   const sections: { id: string; title: string }[] = [];
-  const clauses: { id: string; sectionId: string; preview: string }[] = [];
-  const collect = (sectionId: string, c: ContractClause | ContractKv) => {
+  const clauses: { id: string; sectionId: string; depth: number; preview: string }[] = [];
+  const collect = (sectionId: string, c: ContractClause | ContractKv, depth: number) => {
     if (c.type === 'kv') {
-      clauses.push({ id: c.id, sectionId, preview: `${c.label}: ${c.valueTemplate}` });
+      clauses.push({ id: c.id, sectionId, depth, preview: `${c.label}: ${c.valueTemplate}` });
       return;
     }
-    clauses.push({ id: c.id, sectionId, preview: previewText(c.template, c.boldPrefix) });
-    for (const child of c.children ?? []) collect(sectionId, child);
+    clauses.push({ id: c.id, sectionId, depth, preview: previewText(c.template, c.boldPrefix) });
+    for (const child of c.children ?? []) collect(sectionId, child, depth + 1);
   };
   for (const page of CONTRACT_BASE) {
     for (const s of page.sections) {
       sections.push({ id: s.id, title: s.title });
-      if (s.intro) collect(s.id, s.intro);
-      for (const c of s.content) collect(s.id, c);
+      if (s.intro) collect(s.id, s.intro, 0);
+      for (const c of s.content) collect(s.id, c, 0);
     }
   }
   return { sections, clauses };
