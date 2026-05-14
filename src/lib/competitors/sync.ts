@@ -38,6 +38,7 @@ type CurrentRow = {
   listing_slug: string;
   listing_name: string;
   url: string;
+  external_id: string | null;
   status: 'active' | 'dropped';
   first_seen_at: string;
   last_seen_at: string;
@@ -53,6 +54,9 @@ export type SyncReport = {
   dropped: number;
   returned: number;
   unchanged: number;
+  /** Listings whose external_id matched an existing row but whose slug or
+   *  url changed since the last sync. Logged as 'renamed' events. */
+  renamed: number;
   /** True when this run seeded competitor_listings_current from static
    *  data rather than diffing against an existing snapshot. */
   seeded: boolean;
@@ -112,7 +116,7 @@ async function seedFromStatic(
 
 /** Normalize a listing URL so the seed-file URL and the scrape URL match
  *  even when one has a trailing slash, querystring, or capitalization
- *  quirk. URL is our diff key — see file-header note. */
+ *  quirk. URL is the fallback diff key when external_id isn't available. */
 function urlKey(url: string): string {
   try {
     const u = new URL(url);
@@ -128,28 +132,60 @@ async function diffAndPersist(
   competitorId: CompetitorId,
   scraped: ScrapedListing[],
   current: CurrentRow[],
-): Promise<{ added: number; dropped: number; returned: number; unchanged: number }> {
+): Promise<{ added: number; dropped: number; returned: number; unchanged: number; renamed: number }> {
   const now = new Date().toISOString();
-  const currentByUrl = new Map(current.map((r) => [urlKey(r.url), r]));
-  const scrapedByUrl = new Map(scraped.map((l) => [urlKey(l.url), l]));
+
+  // Primary diff key: external_id (Hospitable listing id / AVH unit id —
+  // survives slug + title renames). Fallback: normalized URL.
+  const currentByExternalId = new Map<string, CurrentRow>();
+  const currentByUrl = new Map<string, CurrentRow>();
+  for (const r of current) {
+    if (r.external_id) currentByExternalId.set(r.external_id, r);
+    currentByUrl.set(urlKey(r.url), r);
+  }
+  const scrapedByExternalId = new Map<string, ScrapedListing>();
+  const scrapedByUrl = new Map<string, ScrapedListing>();
+  for (const l of scraped) {
+    if (l.externalId) scrapedByExternalId.set(l.externalId, l);
+    scrapedByUrl.set(urlKey(l.url), l);
+  }
+
+  /** Match a scraped listing to a current row. Prefer externalId; fall
+   *  back to URL. Returns undefined when no match. */
+  const findExisting = (l: ScrapedListing): CurrentRow | undefined => {
+    if (l.externalId) {
+      const byId = currentByExternalId.get(l.externalId);
+      if (byId) return byId;
+    }
+    return currentByUrl.get(urlKey(l.url));
+  };
+  /** Match a current row to a scraped listing for the "still on site?"
+   *  question. Symmetric to findExisting. */
+  const stillOnSite = (r: CurrentRow): boolean => {
+    if (r.external_id && scrapedByExternalId.has(r.external_id)) return true;
+    return scrapedByUrl.has(urlKey(r.url));
+  };
 
   let added = 0;
   let dropped = 0;
   let returned = 0;
   let unchanged = 0;
+  let renamed = 0;
 
   type EventRow = {
     competitor_id: string;
     listing_slug: string;
     listing_name: string;
-    event_type: 'added' | 'dropped' | 'returned';
+    external_id: string | null;
+    event_type: 'added' | 'dropped' | 'returned' | 'renamed';
+    changes: Record<string, { from: string; to: string }> | null;
     detected_at: string;
   };
   const events: EventRow[] = [];
 
   // Walk scraped listings
   for (const l of scraped) {
-    const existing = currentByUrl.get(urlKey(l.url));
+    const existing = findExisting(l);
     const displayName = l.name ?? existing?.listing_name ?? l.slug;
     if (!existing) {
       // Brand new
@@ -158,6 +194,7 @@ async function diffAndPersist(
         listing_slug: l.slug,
         listing_name: displayName,
         url: l.url,
+        external_id: l.externalId ?? null,
         status: 'active',
         first_seen_at: now,
         last_seen_at: now,
@@ -168,7 +205,9 @@ async function diffAndPersist(
         competitor_id: competitorId,
         listing_slug: l.slug,
         listing_name: displayName,
+        external_id: l.externalId ?? null,
         event_type: 'added',
+        changes: null,
         detected_at: now,
       });
       added++;
@@ -182,6 +221,8 @@ async function diffAndPersist(
           dropped_at: null,
           listing_name: displayName,
           url: l.url,
+          external_id: l.externalId ?? existing.external_id ?? null,
+          listing_slug: l.slug,
           updated_at: now,
         })
         .eq('id', existing.id);
@@ -190,30 +231,59 @@ async function diffAndPersist(
         competitor_id: competitorId,
         listing_slug: l.slug,
         listing_name: displayName,
+        external_id: l.externalId ?? existing.external_id ?? null,
         event_type: 'returned',
+        changes: null,
         detected_at: now,
       });
       returned++;
     } else {
-      // Active and still here — touch last_seen_at
+      // Active and still here. Check whether the slug or URL changed
+      // (which means the manager renamed the listing — the externalId
+      // matched but the marketing copy moved).
+      const slugChanged = existing.listing_slug !== l.slug;
+      const urlChanged = urlKey(existing.url) !== urlKey(l.url);
+      const isRename = (slugChanged || urlChanged) && existing.external_id != null && existing.external_id === l.externalId;
+
       const { error } = await client
         .from('competitor_listings_current')
         .update({
           last_seen_at: now,
           listing_name: displayName,
+          listing_slug: l.slug,
           url: l.url,
+          // Backfill external_id on rows that didn't have one (e.g.
+          // first sync after this migration).
+          external_id: l.externalId ?? existing.external_id ?? null,
           updated_at: now,
         })
         .eq('id', existing.id);
       if (error) throw error;
-      unchanged++;
+
+      if (isRename) {
+        const changes: Record<string, { from: string; to: string }> = {};
+        if (slugChanged) changes.listing_slug = { from: existing.listing_slug, to: l.slug };
+        if (urlChanged) changes.url = { from: existing.url, to: l.url };
+        events.push({
+          competitor_id: competitorId,
+          listing_slug: l.slug,
+          listing_name: displayName,
+          external_id: l.externalId ?? null,
+          event_type: 'renamed',
+          changes,
+          detected_at: now,
+        });
+        renamed++;
+      } else {
+        unchanged++;
+      }
     }
   }
 
   // Walk current actives that didn't appear in the scrape → dropped
   for (const row of current) {
     if (row.status !== 'active') continue;
-    if (scrapedByUrl.has(urlKey(row.url))) continue;
+    if (stillOnSite(row)) continue;
     const { error } = await client
       .from('competitor_listings_current')
       .update({
@@ -227,7 +297,9 @@ async function diffAndPersist(
       competitor_id: competitorId,
       listing_slug: row.listing_slug,
       listing_name: row.listing_name,
+      external_id: row.external_id,
       event_type: 'dropped',
+      changes: null,
       detected_at: now,
     });
     dropped++;
@@ -238,7 +310,7 @@ async function diffAndPersist(
     if (error) throw error;
   }
 
-  return { added, dropped, returned, unchanged };
+  return { added, dropped, returned, unchanged, renamed };
 }
 
 async function syncOne(
@@ -256,6 +328,7 @@ async function syncOne(
       dropped: 0,
       returned: 0,
       unchanged: 0,
+      renamed: 0,
       seeded: false,
     };
   }
@@ -272,6 +345,7 @@ async function syncOne(
       dropped: 0,
       returned: 0,
       unchanged: 0,
+      renamed: 0,
       seeded: false,
     };
   }
@@ -287,6 +361,7 @@ async function syncOne(
       dropped: 0,
       returned: 0,
       unchanged: seeded,
+      renamed: 0,
       seeded: true,
     };
   }

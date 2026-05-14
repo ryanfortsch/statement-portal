@@ -78,6 +78,7 @@ function EventChip({ type }: { type: CompetitorEvent['eventType'] }) {
     dropped:  { label: 'DROPPED',  color: 'var(--negative)', bg: 'rgba(138, 58, 46, 0.12)' },
     returned: { label: 'RETURNED', color: 'var(--tide-deep)', bg: 'rgba(46, 92, 110, 0.14)' },
     changed:  { label: 'CHANGED',  color: 'var(--ink)',      bg: 'rgba(30, 46, 52, 0.08)' },
+    renamed:  { label: 'RENAMED',  color: 'var(--ink)',      bg: 'rgba(30, 46, 52, 0.08)' },
   }[type];
   return (
     <span
