@@ -176,9 +176,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 @media (max-width: 640px) {
   .max-w-\[1100px\] { padding-left: 16px !important; padding-right: 16px !important; }
 
-  /* Masthead: stack brand + period selector */
-  .rt-masthead-top { flex-direction: column; align-items: flex-start !important; gap: 10px; }
-  .rt-masthead-top > div:last-child { align-self: stretch; justify-content: space-between; }
+  /* Masthead: hide the desktop module-nav strip entirely - HelmMobileMenu
+     takes over as the single tappable entry point to every module. Keep
+     the row single-line: logo + wordmark on the left, menu trigger +
+     avatar on the right. */
+  .rt-helm-modulenav { display: none !important; }
+  .rt-masthead-top { gap: 10px; }
 
   /* Actions strip: wrap + shrink buttons */
   .rt-masthead-actions { flex-wrap: wrap; gap: 6px; }
@@ -275,22 +278,13 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-helm-stat { padding: 14px 12px !important; }
   .rt-helm-stat-value { font-size: 22px !important; }
 
-  /* Module nav: horizontal scroll instead of wrapping or overflowing. The
-     four primary tabs + More always render on one strip; if it doesn't fit,
-     swipe horizontally. Hide the scrollbar in iOS Safari. */
-  .rt-helm-modulenav {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    flex-wrap: nowrap !important;
-    max-width: 100%;
-  }
-  .rt-helm-modulenav::-webkit-scrollbar { display: none; }
+  /* The desktop module-nav strip is hidden entirely on phones (see masthead
+     rule above). HelmMobileMenu's "Menu" button + full-screen overlay is
+     the mobile entry point now. */
 
   /* Drop the Cmd+K trigger from the masthead on phones — there's no
      keyboard, the kbd hint reads as decoration, and it eats real estate
-     on the right cluster. Search is still reachable via the More dropdown
-     entry once we plumb it; for now, tap the avatar or pick a module. */
+     on the right cluster. Search lives in the mobile menu instead. */
   .rt-helm-search-trigger { display: none !important; }
 
   /* Filter bar on /reviews and similar: stack inputs vertically. */
@@ -468,21 +462,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     line-height: 1.4;
   }
 
-  /* Module nav scroll: add a soft fade on the right edge so the user
-     sees there's more nav off-screen, AND give the nav real bounds so
-     overflow-x: auto actually engages. The masthead's left cluster
-     needs min-width:0 + width:100% so it stops growing to fit the
-     content, and the nav inside takes the remaining row with flex:1. */
-  .rt-masthead-top > div:first-child {
-    width: 100%;
-    min-width: 0;
-  }
-  .rt-helm-modulenav {
-    flex: 1 1 0%;
-    min-width: 0;
-    -webkit-mask-image: linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%);
-            mask-image: linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%);
-    padding-right: 16px;
+  /* Mobile menu trigger: button is hidden by default (desktop); flips on
+     here. The hamburger icon is three stacked spans; the label collapses
+     to the icon below ~360px to keep it from pushing the avatar off the
+     row on very narrow phones. */
+  .rt-mobile-menu-trigger {
+    display: inline-flex !important;
   }
 
   /* /messaging Performance section — desktop is dense by design (3-col KPI
@@ -577,3 +562,80 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-turnover-expander > summary::-webkit-details-marker { display: none; }
 .rt-turnover-expander > summary::marker { display: none; }
 .rt-turnover-expander > summary:hover { color: var(--ink); }
+
+/* ─── Mobile menu (trigger + full-screen overlay) ─────────────────────
+   The trigger is hidden by default; the mobile media query above flips
+   it on. The overlay is rendered into the same component, so its styles
+   live here too rather than inside the media query - the overlay only
+   ever mounts when triggered (which only happens on mobile widths). */
+
+.rt-mobile-menu-trigger {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  padding: 7px 12px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.rt-mobile-menu-trigger:hover { color: var(--ink); border-color: var(--ink); }
+
+.rt-mobile-menu-icon {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 16px;
+  height: 12px;
+  gap: 3px;
+}
+.rt-mobile-menu-icon > span {
+  display: block;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 1px;
+  width: 100%;
+}
+
+.rt-mobile-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rt-mobile-menu-header {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--ink);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 1;
+}
+
+.rt-mobile-menu-list {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0 32px;
+}
+
+.rt-mobile-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+.rt-mobile-menu-row:hover { background: var(--paper-2); }

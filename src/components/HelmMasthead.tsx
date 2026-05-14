@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmModuleNav } from './HelmModuleNav';
+import { HelmMobileMenu } from './HelmMobileMenu';
 import { UserMenu } from './UserMenu';
 import { CommandPaletteTrigger } from './CommandPaletteTrigger';
 
@@ -58,6 +59,7 @@ export function HelmMasthead({ current, rightContent }: Props) {
           <div className="flex items-center" style={{ gap: 10, flexShrink: 0 }}>
             <CommandPaletteTrigger />
             {rightContent}
+            <HelmMobileMenu current={current} />
             <UserMenu />
           </div>
         </div>
