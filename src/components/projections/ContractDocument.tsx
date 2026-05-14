@@ -587,7 +587,12 @@ const contractCss = `
       flex-direction: column;
       break-inside: avoid;
       page-break-inside: avoid;
-      padding: 40px 0 0;
+      /* 40px top breathing room above SIGNATURES title; 80px on
+         each side to match body wrapper horizontal padding (without
+         this the sig grid extended all the way to the page edges
+         and looked sloppy); 80px bottom so the thank-you box
+         doesn't sit on the bottom edge. */
+      padding: 40px 80px 80px;
       margin-top: 48px;
       /* The screen .rt-doc-page rule has min-height: 1056px (full
          sheet) to render the screen preview as discrete sheets. In
