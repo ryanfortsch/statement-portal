@@ -6,17 +6,26 @@ import {
   isStayConciergeConfigured,
   listApprovals,
   listRecentApprovals,
+  getStats,
   explainError,
   type Approval,
+  type MessagingStats,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
+import { PerformanceDropdown } from './PerformanceDropdown';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 type LoadResult =
-  | { ok: true; pending: Approval[]; recent: Approval[] }
+  | {
+      ok: true;
+      pending: Approval[];
+      recent: Approval[];
+      stats: MessagingStats | null;
+      statsError: string | null;
+    }
   | { ok: false; error: string };
 
 async function loadData(): Promise<LoadResult> {
@@ -27,12 +36,20 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent] = await Promise.all([listApprovals(), listRecentApprovals(24)]);
+  const [pending, recent, stats] = await Promise.all([
+    listApprovals(),
+    listRecentApprovals(24),
+    // Default to 7d so the Performance dropdown has a useful initial render
+    // when the user expands it. Cheap enough to fetch on every page load.
+    getStats(24 * 7),
+  ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
     ok: true,
     pending: pending.data.approvals,
     recent: recent.ok ? recent.data.approvals : [],
+    stats: stats.ok ? stats.data : null,
+    statsError: stats.ok ? null : explainError(stats.error),
   };
 }
 
@@ -74,6 +91,7 @@ export default async function MessagingPage() {
         <>
           <MessagingQueue initialPending={data.pending} />
           <RecentStrip initialRecent={data.recent} />
+          <PerformanceDropdown initialStats={data.stats} initialError={data.statsError} />
         </>
       )}
 
