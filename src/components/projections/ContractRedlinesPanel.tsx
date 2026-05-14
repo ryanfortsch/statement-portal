@@ -13,6 +13,19 @@ import type { ProjectionRow } from '@/lib/projections-types';
 type Mode = 'interpret' | 'precise';
 type Step = 'input' | 'preview' | 'applied';
 
+/**
+ * Per-edit accept/reject state. Each array's length must match the
+ * corresponding `edits.*` array; the index into each acceptance array
+ * lines up with the index in the matching edits array. true = will be
+ * included in the Apply call; false = will be silently discarded.
+ */
+type Acceptance = {
+  fieldChanges: boolean[];
+  clauseAdds: boolean[];
+  clauseEdits: boolean[];
+  clauseRemoves: boolean[];
+};
+
 const EDITABLE_FIELDS: readonly EditableField[] = Object.keys(FIELD_DESCRIPTORS) as EditableField[];
 
 /**
@@ -49,12 +62,31 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
   // either mode. Holds the actual ContractRedlineEdits being applied.
   const [edits, setEdits] = useState<ContractRedlineEdits | null>(null);
 
+  // Per-edit accept/reject state — checkbox on each edit in the preview.
+  // Initialized to all-true when edits are first set.
+  const [acceptance, setAcceptance] = useState<Acceptance>({
+    fieldChanges: [],
+    clauseAdds: [],
+    clauseEdits: [],
+    clauseRemoves: [],
+  });
+
+  // The text we originally sent to the interpreter. Held so the Iterate
+  // step can re-call the interpreter with the original + refinement notes
+  // (giving Claude continuity rather than starting fresh). Empty when
+  // edits came from Precise mode (no interpretation happened).
+  const [originalText, setOriginalText] = useState('');
+  const [iterationText, setIterationText] = useState('');
+
   const resetAll = () => {
     setStep('input');
     setText('');
     setDraftFieldChanges([]);
     setDraftClausesToAdd([]);
     setEdits(null);
+    setAcceptance({ fieldChanges: [], clauseAdds: [], clauseEdits: [], clauseRemoves: [] });
+    setOriginalText('');
+    setIterationText('');
     setError(null);
   };
 
@@ -73,6 +105,9 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         return;
       }
       setEdits(res.edits);
+      setAcceptance(initAcceptance(res.edits));
+      setOriginalText(text);
+      setIterationText('');
       setStep('preview');
     });
   };
@@ -85,14 +120,50 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
       return;
     }
     setEdits(built);
+    setAcceptance(initAcceptance(built));
+    setOriginalText(''); // precise edits aren't iterable — no LLM context to refine
+    setIterationText('');
     setStep('preview');
+  };
+
+  /**
+   * Re-run the interpreter with the original prompt + the refinement notes.
+   * Replaces the current edit set with a fresh interpretation; acceptance
+   * state resets to all-true on the new edits.
+   */
+  const iterate = () => {
+    const refinement = iterationText.trim();
+    if (!refinement || !originalText) return;
+    setError(null);
+    const combined =
+      `Original owner request:\n${originalText}\n\n` +
+      `On a previous interpretation pass you produced edits, but the staff reviewer wants to refine. ` +
+      `Refinement notes:\n${refinement}\n\n` +
+      `Re-interpret with the original request AND the refinement notes in mind. The refinement notes ` +
+      `take precedence when they conflict with the original.`;
+    startTransition(async () => {
+      const res = await proposeContractRedlines(projection.id, combined);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setEdits(res.edits);
+      setAcceptance(initAcceptance(res.edits));
+      setIterationText('');
+      // Stay on the preview step — just refresh what's shown.
+    });
   };
 
   const applyEdits = () => {
     if (!edits) return;
+    const filtered = filterEditsByAcceptance(edits, acceptance);
+    if (!hasAnyChanges(filtered)) {
+      setError('Nothing selected to apply.');
+      return;
+    }
     setError(null);
     startTransition(async () => {
-      const res = await applyContractRedlines(projection.id, edits);
+      const res = await applyContractRedlines(projection.id, filtered);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -100,6 +171,12 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
       setStep('applied');
     });
   };
+
+  const selectedCount =
+    acceptance.fieldChanges.filter(Boolean).length +
+    acceptance.clauseAdds.filter(Boolean).length +
+    acceptance.clauseEdits.filter(Boolean).length +
+    acceptance.clauseRemoves.filter(Boolean).length;
 
   return (
     <div style={panelStyle}>
@@ -150,18 +227,63 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
 
       {step === 'preview' && edits && (
         <>
-          <Preview edits={edits} projection={projection} />
+          <Preview
+            edits={edits}
+            projection={projection}
+            acceptance={acceptance}
+            setAcceptance={setAcceptance}
+          />
+
+          {/* Refine block — Interpret mode only. Lets the staff reviewer
+              send specific feedback back to Claude for unselected or
+              wrongly-mapped edits without losing context. */}
+          {mode === 'interpret' && originalText && (
+            <div style={refineBlockStyle}>
+              <div className="eyebrow" style={{ ...eyebrowStyle, marginBottom: 4 }}>
+                Need to refine?
+              </div>
+              <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                Tell Claude what to reconsider. The original request + your notes both go back in;
+                the new interpretation replaces what&rsquo;s shown above.
+              </p>
+              <textarea
+                value={iterationText}
+                onChange={(e) => setIterationText(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                placeholder={'e.g. "Min availability should be 130 not 150." Or "Drop the no-weddings clause — owner is fine with weddings, just not parties."'}
+                style={{ ...textareaStyle, fontSize: 12, padding: '8px 10px' }}
+                disabled={pending}
+              />
+              <div style={{ ...actionsRowStyle, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={iterate}
+                  disabled={pending || !iterationText.trim()}
+                  style={secondaryButtonStyle}
+                >
+                  {pending ? 'Iterating…' : 'Iterate'}
+                </button>
+                <span style={hintStyle}>Replaces the preview above with a fresh interpretation.</span>
+              </div>
+            </div>
+          )}
+
           <div style={actionsRowStyle}>
             <button
               type="button"
               onClick={applyEdits}
-              disabled={pending || !hasAnyChanges(edits)}
+              disabled={pending || selectedCount === 0}
               style={primaryButtonStyle}
             >
-              {pending ? 'Applying…' : hasAnyChanges(edits) ? 'Apply edits' : 'No edits to apply'}
+              {pending
+                ? 'Applying…'
+                : selectedCount === 0
+                  ? 'Nothing selected'
+                  : `Apply ${selectedCount} selected ${selectedCount === 1 ? 'edit' : 'edits'}`}
             </button>
             <button type="button" onClick={resetAll} style={secondaryButtonStyle} disabled={pending}>
-              Discard
+              Discard all
             </button>
           </div>
         </>
@@ -560,7 +682,17 @@ function buildPreciseEdits(
 
 // ─── Preview (shared between modes) ─────────────────────────────────────────
 
-function Preview({ edits, projection }: { edits: ContractRedlineEdits; projection: ProjectionRow }) {
+function Preview({
+  edits,
+  projection,
+  acceptance,
+  setAcceptance,
+}: {
+  edits: ContractRedlineEdits;
+  projection: ProjectionRow;
+  acceptance: Acceptance;
+  setAcceptance: (a: Acceptance) => void;
+}) {
   const hasFieldChanges = edits.field_changes.length > 0;
   const hasClauseAdds = edits.clauses_to_add.length > 0;
   const hasClauseEdits = edits.clauses_to_edit.length > 0;
@@ -570,12 +702,36 @@ function Preview({ edits, projection }: { edits: ContractRedlineEdits; projectio
   const projectionAsRecord = projection as unknown as Record<string, string | number | null>;
   const currentClauses = useMemo(() => projection.custom_clauses ?? [], [projection.custom_clauses]);
 
+  const toggleFieldChange = (i: number) =>
+    setAcceptance({
+      ...acceptance,
+      fieldChanges: acceptance.fieldChanges.map((v, j) => (j === i ? !v : v)),
+    });
+  const toggleClauseAdd = (i: number) =>
+    setAcceptance({
+      ...acceptance,
+      clauseAdds: acceptance.clauseAdds.map((v, j) => (j === i ? !v : v)),
+    });
+  const toggleClauseEdit = (i: number) =>
+    setAcceptance({
+      ...acceptance,
+      clauseEdits: acceptance.clauseEdits.map((v, j) => (j === i ? !v : v)),
+    });
+  const toggleClauseRemove = (i: number) =>
+    setAcceptance({
+      ...acceptance,
+      clauseRemoves: acceptance.clauseRemoves.map((v, j) => (j === i ? !v : v)),
+    });
+
   return (
     <div style={previewStyle}>
       <div style={previewSummaryStyle}>
         <div className="eyebrow" style={eyebrowStyle}>Summary</div>
         <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
           {edits.summary}
+        </p>
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>
+          Uncheck any edit you don&rsquo;t want applied. Use Iterate below to send refinements back to Claude.
         </p>
       </div>
 
@@ -586,8 +742,20 @@ function Preview({ edits, projection }: { edits: ContractRedlineEdits; projectio
               {edits.field_changes.map((c, i) => {
                 const f = c.field as EditableField;
                 const current = projectionAsRecord[f];
+                const accepted = acceptance.fieldChanges[i] ?? true;
                 return (
-                  <tr key={i} style={diffRowStyle}>
+                  <tr
+                    key={i}
+                    style={{ ...diffRowStyle, opacity: accepted ? 1 : 0.45 }}
+                  >
+                    <td style={diffCheckStyle}>
+                      <input
+                        type="checkbox"
+                        checked={accepted}
+                        onChange={() => toggleFieldChange(i)}
+                        aria-label={`Accept change to ${FIELD_DESCRIPTORS[f].label}`}
+                      />
+                    </td>
                     <td style={diffLabelStyle}>{FIELD_DESCRIPTORS[f].label}</td>
                     <td style={diffOldStyle}>{formatFieldValueForPreview(f, current ?? null)}</td>
                     <td style={diffArrowStyle}>→</td>
@@ -604,7 +772,15 @@ function Preview({ edits, projection }: { edits: ContractRedlineEdits; projectio
       {hasClauseAdds && (
         <PreviewBlock title="Clauses to add">
           {edits.clauses_to_add.map((c, i) => (
-            <ClauseCard key={i} title={c.title} body={c.body} reason={c.reason} kind="add" />
+            <ClauseCard
+              key={i}
+              title={c.title}
+              body={c.body}
+              reason={c.reason}
+              kind="add"
+              accepted={acceptance.clauseAdds[i] ?? true}
+              onToggle={() => toggleClauseAdd(i)}
+            />
           ))}
         </PreviewBlock>
       )}
@@ -620,6 +796,8 @@ function Preview({ edits, projection }: { edits: ContractRedlineEdits; projectio
                 body={c.body ?? current?.body ?? '(missing)'}
                 reason={c.reason}
                 kind="edit"
+                accepted={acceptance.clauseEdits[i] ?? true}
+                onToggle={() => toggleClauseEdit(i)}
               />
             );
           })}
@@ -637,6 +815,8 @@ function Preview({ edits, projection }: { edits: ContractRedlineEdits; projectio
                 body={current?.body ?? ''}
                 reason={c.reason}
                 kind="remove"
+                accepted={acceptance.clauseRemoves[i] ?? true}
+                onToggle={() => toggleClauseRemove(i)}
               />
             );
           })}
@@ -703,20 +883,45 @@ function ClauseCard({
   body,
   reason,
   kind,
+  accepted,
+  onToggle,
 }: {
   title: string;
   body: string;
   reason: string;
   kind: 'add' | 'edit' | 'remove';
+  accepted: boolean;
+  onToggle: () => void;
 }) {
   const accent = kind === 'remove' ? 'var(--signal)' : kind === 'edit' ? '#B89B6E' : 'var(--positive, #4a9d6b)';
   return (
-    <div style={{ borderLeft: `3px solid ${accent}`, padding: '6px 12px', marginBottom: 10, background: 'var(--paper-2)' }}>
-      <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}>
-        {title}
+    <div
+      style={{
+        borderLeft: `3px solid ${accent}`,
+        padding: '6px 12px',
+        marginBottom: 10,
+        background: 'var(--paper-2)',
+        opacity: accepted ? 1 : 0.45,
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr',
+        gap: 10,
+        alignItems: 'flex-start',
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={accepted}
+        onChange={onToggle}
+        aria-label={`Accept clause: ${title}`}
+        style={{ marginTop: 4 }}
+      />
+      <div>
+        <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', marginBottom: 4 }}>
+          {title}
+        </div>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55 }}>{body}</p>
+        <p style={{ margin: '6px 0 0', fontSize: 11, fontStyle: 'italic', color: 'var(--ink-3)' }}>{reason}</p>
       </div>
-      <p style={{ margin: 0, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55 }}>{body}</p>
-      <p style={{ margin: '6px 0 0', fontSize: 11, fontStyle: 'italic', color: 'var(--ink-3)' }}>{reason}</p>
     </div>
   );
 }
@@ -728,6 +933,31 @@ function hasAnyChanges(edits: ContractRedlineEdits): boolean {
     edits.clauses_to_edit.length > 0 ||
     edits.clauses_to_remove.length > 0
   );
+}
+
+function initAcceptance(edits: ContractRedlineEdits): Acceptance {
+  return {
+    fieldChanges: edits.field_changes.map(() => true),
+    clauseAdds: edits.clauses_to_add.map(() => true),
+    clauseEdits: edits.clauses_to_edit.map(() => true),
+    clauseRemoves: edits.clauses_to_remove.map(() => true),
+  };
+}
+
+/**
+ * Return a new edit set containing only the entries the reviewer accepted.
+ * Pass-through fields (summary, unsupported_requests) are kept as-is so the
+ * audit log on the apply step still has the original interpreter context.
+ */
+function filterEditsByAcceptance(edits: ContractRedlineEdits, accept: Acceptance): ContractRedlineEdits {
+  return {
+    field_changes: edits.field_changes.filter((_, i) => accept.fieldChanges[i] ?? true),
+    clauses_to_add: edits.clauses_to_add.filter((_, i) => accept.clauseAdds[i] ?? true),
+    clauses_to_edit: edits.clauses_to_edit.filter((_, i) => accept.clauseEdits[i] ?? true),
+    clauses_to_remove: edits.clauses_to_remove.filter((_, i) => accept.clauseRemoves[i] ?? true),
+    unsupported_requests: edits.unsupported_requests,
+    summary: edits.summary,
+  };
 }
 
 // ─── styles ─────────────────────────────────────────────────────────────────
@@ -912,6 +1142,17 @@ const diffTableStyle: React.CSSProperties = {
   width: '100%',
   borderCollapse: 'collapse',
   fontSize: 12,
+};
+const diffCheckStyle: React.CSSProperties = {
+  width: 28,
+  padding: 8,
+  verticalAlign: 'middle',
+};
+const refineBlockStyle: React.CSSProperties = {
+  marginTop: 18,
+  padding: '12px 14px',
+  border: '1px dashed var(--rule)',
+  background: 'var(--paper)',
 };
 const diffRowStyle: React.CSSProperties = {
   borderBottom: '1px solid var(--rule)',
