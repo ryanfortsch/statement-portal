@@ -10,6 +10,10 @@ import {
 } from '@/lib/forecast-smart';
 import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
 import { getProspectForecast } from '@/lib/forecast-prospects';
+import {
+  getStatementRevenueByMonth,
+  type StatementRevenueByMonth,
+} from '@/lib/forecast-statement-actuals';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -255,12 +259,14 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
 }
 
 export default async function ForecastPage() {
-  // Pull Guesty bookings + Helm prospects pipeline in parallel.
-  const [smartAll, prospects2026, prospects2027, prospects2028] = await Promise.all([
+  // Pull Guesty bookings + Helm prospects pipeline + reconciled statements
+  // in parallel. Statements feed actual mgmt-fee revenue per closed month.
+  const [smartAll, prospects2026, prospects2027, prospects2028, statementRevenue] = await Promise.all([
     getSmartForecast(2028),
     getProspectForecast(2026),
     getProspectForecast(2027),
     getProspectForecast(2028),
+    getStatementRevenueByMonth([2026, 2027, 2028]),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
@@ -284,6 +290,7 @@ export default async function ForecastPage() {
         prospects2026={prospects2026}
         prospects2027={prospects2027}
         prospects2028={prospects2028}
+        statementRevenue={statementRevenue}
       />
 
       <HelmFooter

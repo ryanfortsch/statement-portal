@@ -410,7 +410,17 @@ export function calcYear(
    * Replaces the old hard-coded PRESIGNED_2026 contribution. 12 numbers,
    * one per month (Jan…Dec) of the forecast year.
    */
-  prospectsMonthly?: readonly number[]
+  prospectsMonthly?: readonly number[],
+  /**
+   * Statement-derived revenue actual for months that have been reconciled
+   * in Helm's Statements module. Keys are month-of-year (1..12), values
+   * are total mgmt fee across all properties for that month. When set
+   * for a month, the row is marked is_actual=true, rev_current is
+   * replaced, rev_presigned + rev_new go to zero, and expenses stay as
+   * the model projects. Bank-derived ACTUALS overrides this when both
+   * are present for the same month.
+   */
+  statementRevenueByMonth?: ReadonlyMap<number, number>
 ): YearResult {
   const config = getYearConfig(year, rolledForward ?? 0);
   const maxNew = config.newOrder.length;
@@ -514,6 +524,18 @@ export function calcYear(
       if (m >= start) rev_new += NEW_PROPERTY_FEE * SEASON[NEW_PROPERTY_TYPE][i];
     }
 
+    // Statement actual override: a fully-reconciled month replaces the
+    // projected revenue lines with the real sum-of-management-fees from
+    // property_statements. Expenses stay projected because statements
+    // don't carry RT's operating costs.
+    const stmtRevenue = statementRevenueByMonth?.get(m);
+    const isStatementActual = stmtRevenue != null && stmtRevenue > 0;
+    if (isStatementActual) {
+      rev_current = stmtRevenue;
+      rev_presigned = 0;
+      rev_new = 0;
+    }
+
     const rev_total = rev_current + rev_presigned + rev_new;
 
     // Count contracts whose start month equals this month → multiply by
@@ -571,7 +593,7 @@ export function calcYear(
       exp_onboard_new,
       exp_total,
       net_business,
-      is_actual: false,
+      is_actual: isStatementActual,
       active_count: activeCount,
     });
   }
