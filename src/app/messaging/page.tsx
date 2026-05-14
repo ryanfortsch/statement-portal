@@ -7,11 +7,11 @@ import {
   listApprovals,
   listRecentApprovals,
   getStats,
-  getLearnings,
+  getFacts,
   explainError,
   type Approval,
   type MessagingStats,
-  type LearningEntry,
+  type Fact,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
@@ -27,7 +27,8 @@ type LoadResult =
       recent: Approval[];
       stats: MessagingStats | null;
       statsError: string | null;
-      learnings: LearningEntry[];
+      facts: Fact[];
+      totalFacts: number;
     }
   | { ok: false; error: string };
 
@@ -39,14 +40,14 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent, stats, learnings] = await Promise.all([
+  const [pending, recent, stats, facts] = await Promise.all([
     listApprovals(),
     listRecentApprovals(24),
     // Default the stats window to All-time (hours=0). The 7d window is
     // thin because /messaging only just went live — All-time is where the
     // real "is the AI getting it right?" signal lives (3 weeks of data).
     getStats(0),
-    getLearnings(12),
+    getFacts(20),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
@@ -55,7 +56,8 @@ async function loadData(): Promise<LoadResult> {
     recent: recent.ok ? recent.data.approvals : [],
     stats: stats.ok ? stats.data : null,
     statsError: stats.ok ? null : explainError(stats.error),
-    learnings: learnings.ok ? learnings.data.learnings : [],
+    facts: facts.ok ? facts.data.facts : [],
+    totalFacts: facts.ok ? facts.data.total_facts : 0,
   };
 }
 
@@ -100,7 +102,8 @@ export default async function MessagingPage() {
           <PerformanceDropdown
             initialStats={data.stats}
             initialError={data.statsError}
-            initialLearnings={data.learnings}
+            initialFacts={data.facts}
+            totalFacts={data.totalFacts}
           />
         </>
       )}
