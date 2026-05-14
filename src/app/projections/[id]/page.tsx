@@ -223,10 +223,22 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         <PromotePanel projection={projection} promote={promote} />
       </section>
 
-      {/* EDIT FORM */}
+      {/* EDIT FORM
+          The `key` is set to projection.updated_at so the form fully
+          remounts whenever the row's updated_at advances (after Save or
+          after applyContractRedlines). Without that, the form inputs use
+          `defaultValue` which only sets on mount — so the user would see
+          stale values after a redline apply and risk clobbering them on
+          their next Save. */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Edit inputs</div>
-        <ProjectionForm action={update} initial={projection} submitLabel="Save changes" />
+        <ProjectionForm
+          key={projection.updated_at ?? 'no-ts'}
+          action={update}
+          initial={projection}
+          submitLabel="Save changes"
+          lastSavedAt={projection.updated_at}
+        />
       </section>
     </div>
   );
