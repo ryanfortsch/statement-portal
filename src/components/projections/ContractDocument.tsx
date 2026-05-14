@@ -469,7 +469,13 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  @page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. Body and sig sheets carry their breathing room as
+     @page margin so body sections can flow continuously across sheets
+     without per-wrapper padding compounding into gaps. The cover bleeds
+     full navy via :first (no margin), so its internal padding lives on
+     .rt-cover instead. */
+  @page { size: 8.5in 11in; margin: 56px 80px; }
+  @page :first { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -524,27 +530,37 @@ const contractCss = `
     .rt-doc { gap: 0; padding: 0; background: var(--paper); display: block; }
     .rt-doc-page {
       box-shadow: none;
-      /* Body pages flow continuously; only the cover and signatures
-         force their own printed sheets (see rules below). Drop the
-         flex layout so the print engine paginates on plain block
-         flow, which it does reliably. */
+      /* @page margin handles the per-sheet breathing room now, so the
+         wrapper has zero padding. With padding on each wrapper, the
+         inter-block gap (bottom padding of one + top padding of the
+         next) was producing visible blanks mid-sheet between sections
+         that landed on a wrapper boundary. */
       display: block;
       min-height: 0;
-      padding: 56px 80px;
+      padding: 0;
     }
-    /* Cover gets its own printed sheet, full navy background. */
+    /* Cover bleeds full navy thanks to @page :first { margin: 0 }, so
+       it carries its own internal padding. */
     .rt-cover {
+      padding: 56px 80px;
       page-break-after: always;
       break-after: page;
       min-height: 1056px;
       display: flex;
       flex-direction: column;
     }
-    /* Signatures start on a fresh printed sheet. */
+    /* Signatures start on a fresh printed sheet. The @page margin
+       provides outer breathing room; keep a touch of extra top space
+       so the signature block doesn't crash against the @page edge. */
     .rt-c-sig-page {
       page-break-before: always;
       break-before: page;
-      min-height: 1056px;
+      padding-top: 40px;
+    }
+    /* Small visual rhythm between sections in the continuous body
+       flow (without this, sections run flush). */
+    .rt-c-section-wrap + .rt-c-section-wrap {
+      margin-top: 24px;
     }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
