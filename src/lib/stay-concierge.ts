@@ -143,6 +143,28 @@ export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
 
+export type TimeseriesPoint = {
+  date: string;
+  first_pass_clean: number;
+  approved: number;
+  manual_sent: number;
+  auto_expired: number;
+  escalated: number;
+  engaged: number;
+  rolling_one_shot_rate: number | null;
+  rolling_engaged: number;
+  rolling_first_pass_clean: number;
+};
+
+export type TimeseriesResponse = {
+  days: number;
+  series: TimeseriesPoint[];
+};
+
+export async function getStatsTimeseries(days = 30) {
+  return request<TimeseriesResponse>(`/api/stats/timeseries?days=${days}`);
+}
+
 export type LearningEntry = {
   heading: string;
   date: string;

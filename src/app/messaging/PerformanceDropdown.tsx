@@ -11,13 +11,15 @@ import {
   createFactAction,
 } from './facts-actions';
 import { prettifySlug } from './format';
-import type { MessagingStats, Fact } from '@/lib/stay-concierge';
+import { TrendChart } from './TrendChart';
+import type { MessagingStats, Fact, TimeseriesPoint } from '@/lib/stay-concierge';
 
 type Props = {
   initialStats: MessagingStats | null;
   initialError: string | null;
   initialFacts: Fact[];
   totalFacts: number;
+  initialTimeseries: TimeseriesPoint[];
 };
 
 type Window = { label: string; hours: number };
@@ -34,7 +36,13 @@ const WINDOWS: Window[] = [
 // shorter window to see recent trend.
 const DEFAULT_WINDOW = WINDOWS[3];
 
-export function PerformanceDropdown({ initialStats, initialError, initialFacts, totalFacts }: Props) {
+export function PerformanceDropdown({
+  initialStats,
+  initialError,
+  initialFacts,
+  totalFacts,
+  initialTimeseries,
+}: Props) {
   // Default open. The user came to /messaging to see this; the dropdown
   // chip was too easy to miss. Keeping the open/close affordance for
   // density when she's done.
@@ -119,6 +127,7 @@ export function PerformanceDropdown({ initialStats, initialError, initialFacts, 
           loading={isPending}
           facts={initialFacts}
           totalFacts={totalFacts}
+          timeseries={initialTimeseries}
         />
       )}
     </Section>
@@ -163,6 +172,7 @@ function StatsBody({
   loading,
   facts,
   totalFacts,
+  timeseries,
 }: {
   stats: MessagingStats;
   window: Window;
@@ -171,6 +181,7 @@ function StatsBody({
   loading: boolean;
   facts: Fact[];
   totalFacts: number;
+  timeseries: TimeseriesPoint[];
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -212,6 +223,13 @@ function StatsBody({
         <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink-2)' }}>
           <OneShotExplainer stats={stats} />
         </div>
+      </div>
+
+      {/* Trend: rolling one-shot rate over the last 30 days. Sits between
+          the hero and the KPI grid so the "is it getting better?" answer
+          is the second thing the operator reads. */}
+      <div style={{ padding: '24px 0', borderBottom: '1px solid var(--rule)', marginBottom: 20 }}>
+        <TrendChart series={timeseries} />
       </div>
 
       {/* KPI grid: shipped, coached, handled, rejected, expired, escalated */}

@@ -7,11 +7,13 @@ import {
   listApprovals,
   listRecentApprovals,
   getStats,
+  getStatsTimeseries,
   getFacts,
   explainError,
   type Approval,
   type MessagingStats,
   type Fact,
+  type TimeseriesPoint,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
@@ -29,6 +31,7 @@ type LoadResult =
       statsError: string | null;
       facts: Fact[];
       totalFacts: number;
+      timeseries: TimeseriesPoint[];
     }
   | { ok: false; error: string };
 
@@ -40,7 +43,7 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent, stats, facts] = await Promise.all([
+  const [pending, recent, stats, facts, ts] = await Promise.all([
     listApprovals(),
     listRecentApprovals(24),
     // Default the stats window to All-time (hours=0). The 7d window is
@@ -48,6 +51,7 @@ async function loadData(): Promise<LoadResult> {
     // real "is the AI getting it right?" signal lives (3 weeks of data).
     getStats(0),
     getFacts(20),
+    getStatsTimeseries(30),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
@@ -58,6 +62,7 @@ async function loadData(): Promise<LoadResult> {
     statsError: stats.ok ? null : explainError(stats.error),
     facts: facts.ok ? facts.data.facts : [],
     totalFacts: facts.ok ? facts.data.total_facts : 0,
+    timeseries: ts.ok ? ts.data.series : [],
   };
 }
 
@@ -104,6 +109,7 @@ export default async function MessagingPage() {
             initialError={data.statsError}
             initialFacts={data.facts}
             totalFacts={data.totalFacts}
+            initialTimeseries={data.timeseries}
           />
         </>
       )}
