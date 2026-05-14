@@ -46,18 +46,27 @@ const KIND_COLOR: Record<ActivityKind, string> = {
   'contact-touch': 'var(--signal)',
 };
 
-type Props = { limit?: number };
+type Props = {
+  /** Max events to fetch. Anything beyond `initialVisible` hides behind a
+   *  <details> expander. Default 20. */
+  limit?: number;
+  /** How many events render unfolded by default. Default 5. */
+  initialVisible?: number;
+};
 
 /**
  * Team-wide activity feed. Same event kinds as PropertyActivity (#156)
  * but rolled up across every property and rendered with the property
- * name shown alongside the actor/action. Capped at `limit` (default 20)
- * so the home page stays scannable.
+ * name shown alongside the actor/action.
+ *
+ * On the home: shows the most recent `initialVisible` (default 5) and
+ * hides the rest behind a "See more" disclosure so the section stays
+ * short. Clicking the disclosure expands the full fetched list.
  *
  * Compounds with #156 — clicking into a property still shows the
  * property-scoped feed; this is just the cross-property entry point.
  */
-export async function TeamActivity({ limit = 20 }: Props) {
+export async function TeamActivity({ limit = 20, initialVisible = 5 }: Props) {
   const events = await loadTeamActivity(limit);
 
   // Hide the whole section on quiet days. When activity is empty, the
@@ -65,19 +74,44 @@ export async function TeamActivity({ limit = 20 }: Props) {
   // on the home; the user knows where to find activity when there is some.
   if (events.length === 0) return null;
 
+  const visible = events.slice(0, initialVisible);
+  const hidden = events.slice(initialVisible);
+
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
         <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
           Recent Activity
         </h2>
-        <span className="eyebrow">last {events.length}</span>
+        <span className="eyebrow">past 7 days</span>
       </div>
 
       <div style={{ borderTop: '1px solid var(--ink)' }}>
-        {events.map((e, i) => (
+        {visible.map((e, i) => (
           <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
         ))}
+        {hidden.length > 0 && (
+          <details style={{ marginTop: 0 }}>
+            <summary
+              style={{
+                cursor: 'pointer',
+                listStyle: 'none',
+                padding: '14px 0',
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                color: 'var(--ink-3)',
+                borderBottom: '1px solid var(--rule)',
+              }}
+            >
+              See {hidden.length} more →
+            </summary>
+            {hidden.map((e, i) => (
+              <ActivityRow key={`${e.kind}-${e.at}-${initialVisible + i}`} event={e} />
+            ))}
+          </details>
+        )}
       </div>
     </section>
   );
