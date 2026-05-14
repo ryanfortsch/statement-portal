@@ -210,23 +210,7 @@ function StatsBody({
           </div>
         </div>
         <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink-2)' }}>
-          Of the <b>{stats.approved_total}</b>{' '}
-          {stats.approved_total === 1 ? 'draft' : 'drafts'} you shipped through Helm,{' '}
-          <b>{stats.first_pass_clean}</b> needed no coaching.
-          {stats.approved_after_coaching > 0 && (
-            <>
-              {' '}
-              Another <b>{stats.approved_after_coaching}</b> shipped after a coaching round.
-            </>
-          )}
-          {stats.approved_total === 0 && (
-            <>
-              {' '}
-              <span style={{ color: 'var(--ink-4)' }}>
-                No drafts shipped through Helm in this window yet — try Approve & send on a low-stakes draft to start the score.
-              </span>
-            </>
-          )}
+          <OneShotExplainer stats={stats} />
         </div>
       </div>
 
@@ -320,6 +304,42 @@ function StatsBody({
       {/* Learning corpus */}
       <LearningSection stats={stats} facts={facts} totalFacts={totalFacts} />
     </div>
+  );
+}
+
+function OneShotExplainer({ stats }: { stats: MessagingStats }) {
+  const engaged = stats.approved_total + stats.manual_sent + stats.auto_rejected_stale;
+  if (engaged === 0) {
+    return (
+      <span style={{ color: 'var(--ink-4)' }}>
+        No drafts have been resolved yet in this window. Approve, mark
+        handled, or reject a few from the queue to start the score.
+      </span>
+    );
+  }
+  return (
+    <>
+      Of the <b>{engaged}</b> drafts the AI made for messages you handled,{' '}
+      <b>{stats.first_pass_clean}</b> shipped via Helm without coaching.
+      {stats.approved_after_coaching > 0 && (
+        <>
+          {' '}Another <b>{stats.approved_after_coaching}</b> shipped via Helm after a coaching round.
+        </>
+      )}
+      {(stats.manual_sent + stats.auto_rejected_stale) > 0 && (
+        <>
+          {' '}
+          You handled <b>{stats.manual_sent + stats.auto_rejected_stale}</b>{' '}
+          {stats.manual_sent + stats.auto_rejected_stale === 1 ? 'message' : 'messages'} directly in Guesty
+          {stats.auto_rejected_stale > 0 && (
+            <>
+              {' '}({stats.manual_sent} captured, {stats.auto_rejected_stale} expired before the poller could catch them)
+            </>
+          )}
+          .
+        </>
+      )}
+    </>
   );
 }
 
