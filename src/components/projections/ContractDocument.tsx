@@ -589,6 +589,14 @@ const contractCss = `
       page-break-inside: avoid;
       padding: 40px 0 0;
       margin-top: 48px;
+      /* The screen .rt-doc-page rule has min-height: 1056px (full
+         sheet) to render the screen preview as discrete sheets. In
+         print, that min-height was forcing the sig section to be at
+         least one full sheet tall, which prevented it from fitting
+         on the body's tail page alongside Governing Law's last
+         paragraph. Override to 0 so sig sizes to its content and
+         can share a sheet with body when there's room. */
+      min-height: 0;
     }
     /* Small visual rhythm between sections in the continuous body
        flow. Keeps sections feeling like distinct blocks instead of
