@@ -4,6 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { DownloadContractDocxButton } from '@/components/projections/DownloadContractDocxButton';
+import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import {
@@ -128,6 +129,11 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}). AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}). Blended gross: {fmtMoney(computed.blendedGrossRevenue)}. Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}.
           </div>
         </div>
+      </section>
+
+      {/* CONTRACT REDLINES — AI-driven edit applier */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 16, width: '100%' }}>
+        <ContractRedlinesPanel projection={projection} />
       </section>
 
       {/* DELIVERABLE LINKS + STATE ACTIONS */}

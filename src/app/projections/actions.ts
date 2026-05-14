@@ -6,9 +6,14 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData, CustomClause, Owner } from '@/lib/projections-types';
+import type { OnboardingData, CustomClause, Owner, ProjectionRow } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
+import {
+  interpretContractRedlines,
+  applyEditsToProjection,
+  type ContractRedlineEdits,
+} from '@/lib/projection-redlines';
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -609,4 +614,88 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     fire_exit_locations: ob.fire_exit_locations || null,
     str_permit_expires: ob.str_permit_expires || null,
   };
+}
+
+// ─── Contract redlines ──────────────────────────────────────────────────────
+
+/**
+ * Step 1 of the redline flow: take the owner's freeform redline text, pull
+ * the projection record, and ask Claude to map it to a structured edit set.
+ * Read-only — does NOT mutate the projection. The client holds the result
+ * in state and shows a preview before calling applyContractRedlines.
+ */
+export async function proposeContractRedlines(
+  projectionId: string,
+  requested: string,
+): Promise<{ ok: true; edits: ContractRedlineEdits } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const trimmed = requested.trim();
+  if (!trimmed) return { ok: false, error: 'Paste the owner’s redlines first.' };
+  if (trimmed.length > 4000) return { ok: false, error: 'Redline text is too long; trim it under 4000 characters.' };
+
+  const { data, error } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: 'Prospect not found.' };
+
+  try {
+    const edits = await interpretContractRedlines({
+      projection: data as ProjectionRow,
+      requested: trimmed,
+    });
+    return { ok: true, edits };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Step 2 of the redline flow: persist a previously-interpreted edit set
+ * to the projection record. Re-validates the page so the contract preview
+ * + downloads pick up the new values immediately.
+ *
+ * Re-fetches the projection inside the action rather than trusting the
+ * client-passed copy, so the apply step always works against the freshest
+ * server-side state (in case someone else edited the record in the
+ * meantime).
+ */
+export async function applyContractRedlines(
+  projectionId: string,
+  edits: ContractRedlineEdits,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { data, error: fetchErr } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (fetchErr) return { ok: false, error: fetchErr.message };
+  if (!data) return { ok: false, error: 'Prospect not found.' };
+
+  const { fieldUpdates, newClauses } = applyEditsToProjection({
+    projection: data as ProjectionRow,
+    edits,
+  });
+
+  const payload: Record<string, unknown> = {
+    ...fieldUpdates,
+    custom_clauses: newClauses,
+  };
+
+  const { error: updateErr } = await supabase
+    .from('projections')
+    .update(payload)
+    .eq('id', projectionId);
+  if (updateErr) return { ok: false, error: updateErr.message };
+
+  revalidatePath(`/projections/${projectionId}`);
+  revalidatePath(`/projections/${projectionId}/contract`);
+  return { ok: true };
 }
