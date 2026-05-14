@@ -74,6 +74,14 @@ export async function renderProjectionPdf(args: {
     // Wait for Google Fonts so Fraunces / Inter render correctly.
     await page.evaluate(() => (document as Document & { fonts: { ready: Promise<void> } }).fonts.ready);
 
+    // Force the print media so @media print rules in the page CSS fire.
+    // Puppeteer docs claim page.pdf() uses print media by default, but with
+    // @sparticuz/chromium that doesn't always happen in practice (you can
+    // tell when DocFooter elements that are display:none in @media print
+    // still render in the PDF). Calling this explicitly is the documented
+    // workaround.
+    await page.emulateMediaType('print');
+
     const pdf = await page.pdf({
       width: geo.pdfWidth,
       height: geo.pdfHeight,
