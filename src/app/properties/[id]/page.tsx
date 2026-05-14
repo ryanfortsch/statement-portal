@@ -324,53 +324,53 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           ← All Properties
         </Link>
-        <Link
-          href={`/channels/${p.id}`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            border: '1px solid var(--rule)',
-            padding: '8px 14px',
-            fontWeight: 500,
-            marginRight: 8,
-          }}
-        >
-          Channels →
-        </Link>
-        <Link
-          href={`/properties/${p.id}/layout`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            border: '1px solid var(--rule)',
-            padding: '8px 14px',
-            fontWeight: 500,
-            marginRight: 8,
-          }}
-        >
-          Inspection layout →
-        </Link>
-        <Link
-          href={`/properties/${p.id}/edit`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            border: '1px solid var(--rule)',
-            padding: '8px 14px',
-            fontWeight: 500,
-          }}
-        >
-          Edit operational data
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link
+            href={`/channels/${p.id}`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontWeight: 500,
+            }}
+          >
+            Channels →
+          </Link>
+          <Link
+            href={`/properties/${p.id}/layout`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontWeight: 500,
+            }}
+          >
+            Inspection layout →
+          </Link>
+          <Link
+            href={`/properties/${p.id}/edit`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontWeight: 500,
+            }}
+          >
+            Edit operational data
+          </Link>
+        </div>
       </div>
 
       {/* BACKFILL — pulls beds/baths/type/lat-lng from Guesty's listing
