@@ -467,6 +467,82 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
             mask-image: linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%);
     padding-right: 16px;
   }
+
+  /* /messaging Performance section — desktop is dense by design (3-col KPI
+     grid + tier breakdown inline + wide one-shot hero), and reads as
+     chart-junk on a phone. Stack the hero, halve the KPI grid, drop the
+     tier breakdown delimiter so the volume strip flows as a single
+     paragraph, and shrink the Learning section so the three big serif
+     numbers stop dominating the screen. */
+  .rt-msg-stats-hero {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 18px 0 !important;
+    margin-bottom: 14px !important;
+  }
+  .rt-msg-stats-hero > div:first-child > .font-serif {
+    font-size: 40px !important;
+  }
+  .rt-msg-stats-hero > div:last-child {
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+  .rt-msg-kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .rt-msg-kpi-grid .rt-msg-kpi-tile {
+    padding: 14px 14px !important;
+  }
+  .rt-msg-kpi-grid .rt-msg-kpi-tile .font-serif {
+    font-size: 24px !important;
+  }
+  /* Volume strip: drop the left border / left padding on the tier-breakdown
+     span so it reads inline with the other counts, and tighten the row to a
+     single flexible paragraph. */
+  .rt-msg-volume-strip {
+    gap: 8px 14px !important;
+    font-size: 12px !important;
+    margin-top: 14px !important;
+  }
+  .rt-msg-volume-strip > span[style*="border-left"] {
+    border-left: none !important;
+    padding-left: 0 !important;
+    gap: 10px !important;
+  }
+  /* Learning grid: 3 huge serif numbers shrink to a tighter 2x2 on phones. */
+  .rt-msg-learning-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px !important;
+  }
+  .rt-msg-learning-grid .font-serif {
+    font-size: 22px !important;
+  }
+
+  /* /messaging Facts list — the metadata row had four chips wrapping on
+     a single line: property + topic + EDITED + verbose timestamp. The
+     topic eyebrow is redundant because the body announces it; the EDITED
+     pill collapses to just the pencil glyph; the timestamp shrinks. */
+  .rt-msg-fact-meta {
+    gap: 6px 10px !important;
+    margin-bottom: 6px !important;
+  }
+  .rt-msg-fact-topic {
+    display: none !important;
+  }
+  .rt-msg-fact-flag .rt-msg-fact-flag-label {
+    display: none !important;
+  }
+  .rt-msg-fact-time {
+    font-size: 9px !important;
+    letter-spacing: .08em !important;
+  }
+  .rt-msg-fact-actions {
+    gap: 16px !important;
+  }
+  .rt-msg-fact-actions button {
+    font-size: 10px !important;
+    letter-spacing: .14em !important;
+  }
 }
 
 /* Tablets (641-1024px): keep 6-col insights but tighten padding */

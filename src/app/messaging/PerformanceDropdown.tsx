@@ -601,6 +601,7 @@ function FactCard({ fact }: { fact: Fact }) {
       }}
     >
       <div
+        className="rt-msg-fact-meta"
         style={{
           display: 'flex',
           gap: 12,
@@ -612,7 +613,7 @@ function FactCard({ fact }: { fact: Fact }) {
         <ScopeChip scope={fact.scope} />
         {fact.topic && (
           <span
-            className="eyebrow"
+            className="eyebrow rt-msg-fact-topic"
             style={{ color: 'var(--ink-4)', fontSize: 10 }}
           >
             {fact.topic.replace(/_/g, ' ')}
@@ -620,32 +621,34 @@ function FactCard({ fact }: { fact: Fact }) {
         )}
         {fact.is_edited && (
           <span
-            className="eyebrow"
+            className="eyebrow rt-msg-fact-flag"
             style={{ color: 'var(--signal)', fontSize: 10, fontWeight: 600 }}
             title="Operator-edited from the original distillation"
           >
-            ✎ edited
+            <span aria-hidden>✎</span>
+            <span className="rt-msg-fact-flag-label"> edited</span>
           </span>
         )}
         {fact.is_custom && (
           <span
-            className="eyebrow"
+            className="eyebrow rt-msg-fact-flag"
             style={{ color: 'var(--signal)', fontSize: 10, fontWeight: 600 }}
             title="Added directly by operator"
           >
-            + added
+            <span aria-hidden>+</span>
+            <span className="rt-msg-fact-flag-label"> added</span>
           </span>
         )}
         {fact.is_deleted && (
           <span
-            className="eyebrow"
+            className="eyebrow rt-msg-fact-flag"
             style={{ color: 'var(--ink-4)', fontSize: 10, fontWeight: 600 }}
           >
             deleted
           </span>
         )}
         <span
-          className="eyebrow"
+          className="eyebrow rt-msg-fact-time"
           style={{
             color: 'var(--ink-4)',
             fontSize: 10,
@@ -722,6 +725,7 @@ function FactCard({ fact }: { fact: Fact }) {
 
       {!editing && (
         <div
+          className="rt-msg-fact-actions"
           style={{
             marginTop: 8,
             display: 'flex',
