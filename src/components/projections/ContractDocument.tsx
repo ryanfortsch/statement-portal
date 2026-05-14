@@ -209,8 +209,12 @@ function SectionRenderer({ section, vars }: { section: ContractSection; vars: Te
   const bullets = section.content.filter((c) => c.type === 'bullet') as ContractClause[];
   const paragraphs = section.content.filter((c) => c.type === 'paragraph') as ContractClause[];
 
+  // Wrap each section in a .rt-c-section-wrap div so the print engine
+  // tries to keep a section's title + body together (break-inside:avoid).
+  // Sections that exceed a printed page still split naturally — this is
+  // a soft preference, not a hard rule.
   return (
-    <>
+    <div className="rt-c-section-wrap">
       <SectionTitle title={section.title} />
       {section.intro && <ParagraphClause clause={section.intro} vars={vars} />}
       {hasKv && (
@@ -235,7 +239,7 @@ function SectionRenderer({ section, vars }: { section: ContractSection; vars: Te
           ))}
         </ul>
       )}
-    </>
+    </div>
   );
 }
 
@@ -478,26 +482,52 @@ const contractCss = `
     background: #0e1a1f;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
+  /* Logical page in the contract tree (Summary+Term+Mgr Resp; Initial
+     Deposit + Income; etc.). Each starts a fresh printed page via
+     page-break-after:always, but is allowed to GROW past 1056px when
+     overrides expand its content. Old behavior — fixed height +
+     overflow:hidden — silently clipped sections when content grew,
+     leaving Liability/Insurance/Force Majeure invisible after a 47-
+     override redline run. Now: the print engine paginates long pages
+     across multiple printed sheets; the screen preview shows variable-
+     height pages (still visually framed by drop-shadow + gap) so all
+     content is visible. */
   .rt-doc-page {
     position: relative;
     width: 816px;
-    height: 1056px;
+    min-height: 1056px;
     background: var(--paper);
     color: var(--ink);
     padding: 72px 80px 56px;
     box-sizing: border-box;
-    overflow: hidden;
     box-shadow: 0 12px 40px rgba(0,0,0,0.18);
     display: flex;
     flex-direction: column;
   }
+  /* Section wrappers — try not to split a section across printed pages
+     unless its own content is taller than a page. Keeps the section's
+     title from orphaning at the bottom of one sheet while its body
+     starts on the next. */
+  .rt-c-section-wrap {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
   @media print {
     html, body { background: var(--paper); }
     .rt-doc { gap: 0; padding: 0; background: var(--paper); display: block; }
-    .rt-doc-page { box-shadow: none; page-break-after: always; break-after: page; }
+    .rt-doc-page {
+      box-shadow: none;
+      page-break-after: always;
+      break-after: page;
+      /* Pagination within a logical page when content overflows. */
+      min-height: 0;
+    }
     .rt-doc-page:last-child { page-break-after: auto; break-after: auto; }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
+    /* Page footer should print on the last printed sheet of each
+       logical page, not be cropped if the page overflows. */
+    .rt-c-foot { break-before: avoid; page-break-before: avoid; }
   }
 
   /* Override-failure banner — staff-only, screen-only. Explicit colors
