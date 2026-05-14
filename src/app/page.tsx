@@ -46,8 +46,16 @@ type DashboardStats = {
   // Reviews (rolling 30-day window from the reviews table). Trailing 30
   // days is more stable than a calendar week and matches how Dotti
   // thinks about review trend.
+  //
+  // belowFive is the actual count of rated < 5 reviews. The total/five
+  // counts include NULL-rated rows (Guesty placeholders for reservations
+  // that haven't been reviewed yet), so the home tile uses belowFive
+  // directly rather than `total - fiveStar`, which would fold those
+  // unrated rows into "below five."
   reviews30dTotal: number;
   reviews30dFiveStar: number;
+  reviews30dBelowFive: number;
+  reviews30dUnrated: number;
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
@@ -65,6 +73,8 @@ async function getDashboardStats(): Promise<DashboardStats> {
     projectedCurrentMonthPayout: projected,
     reviews30dTotal: reviews.total,
     reviews30dFiveStar: reviews.fiveStar,
+    reviews30dBelowFive: reviews.belowFive,
+    reviews30dUnrated: reviews.total - reviews.fiveStar - reviews.belowFive,
   };
 }
 
@@ -356,23 +366,34 @@ export default async function HelmHome() {
           />
           <Stat
             label="Five-Star Reviews"
-            value={
-              stats.reviews30dTotal > 0
-                ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
-                : '—'
-            }
-            sub={
-              stats.reviews30dTotal === 0
-                ? 'no reviews in last 30 days'
-                : stats.reviews30dFiveStar === stats.reviews30dTotal
-                  ? 'clean 5★ run · last 30 days'
-                  : `${stats.reviews30dTotal - stats.reviews30dFiveStar} below five · last 30 days`
-            }
+            value={(() => {
+              // Ratio is over rated reviews only. Guesty often syncs a
+              // placeholder row before the guest leaves a rating (no stars,
+              // no text); folding those into "below five" would lie about
+              // the property's review health.
+              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
+              return rated > 0 ? `${stats.reviews30dFiveStar}/${rated}` : '—';
+            })()}
+            sub={(() => {
+              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
+              const unratedSuffix = stats.reviews30dUnrated > 0
+                ? ` · ${stats.reviews30dUnrated} unrated`
+                : '';
+              if (rated === 0) {
+                return stats.reviews30dUnrated > 0
+                  ? `${stats.reviews30dUnrated} unrated · last 30 days`
+                  : 'no reviews in last 30 days';
+              }
+              if (stats.reviews30dBelowFive === 0) {
+                return `clean 5★ run · last 30 days${unratedSuffix}`;
+              }
+              return `${stats.reviews30dBelowFive} below five · last 30 days${unratedSuffix}`;
+            })()}
             href="/reviews"
             size="hero"
             accent={
-              stats.reviews30dTotal > 0 &&
-              stats.reviews30dFiveStar === stats.reviews30dTotal
+              (stats.reviews30dFiveStar + stats.reviews30dBelowFive) > 0 &&
+              stats.reviews30dBelowFive === 0
             }
           />
           <Stat
