@@ -23,10 +23,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { HelmPropertyRow } from '@/lib/properties';
 
-// Map zoomed to fit the Cape Ann + Beverly cluster (10 active properties).
-// Center is roughly the geographic midpoint of the active set.
-const MAP_CENTER: [number, number] = [42.605, -70.690];
-const DEFAULT_ZOOM = 11;
+// Fallback view for the first paint or for property sets with zero / one
+// valid coord. Once markers are added we call fitBounds to frame the
+// actual pins (which auto-extends to include 20 Enon in Beverly and 3
+// South in Rockport, both of which fall outside a hardcoded center+zoom
+// fit to Gloucester).
+const FALLBACK_CENTER: [number, number] = [42.605, -70.690];
+const FALLBACK_ZOOM = 11;
 
 type Props = {
   properties: HelmPropertyRow[];
@@ -71,6 +74,7 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
     });
 
     const markersById = new Map<string, unknown>();
+    const placedCoords: Array<[number, number]> = [];
 
     properties.forEach((p) => {
       // Skip rows that haven't been geocoded yet. Numeric columns from
@@ -83,6 +87,7 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
 
       const marker = L.marker([lat, lng], { icon: markerIcon });
       markersById.set(p.id, marker);
+      placedCoords.push([lat, lng]);
 
       marker.on('click', () => {
         setActiveProperty(p);
@@ -94,6 +99,20 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
 
       marker.addTo(mapInstance.current);
     });
+
+    // Auto-frame the actual pins. With 10 properties spread from Rockport
+    // (NE) to Beverly (W), a hardcoded center+zoom was always going to
+    // clip some pins; fitBounds picks the tightest viewport that contains
+    // every placed marker, with padding so the pins don't hug the edge.
+    // For 0 or 1 pins, leave the FALLBACK_CENTER + FALLBACK_ZOOM in
+    // place (fitBounds on a single point zooms to maxZoom, which looks
+    // useless on a property page).
+    if (placedCoords.length >= 2) {
+      const bounds = L.latLngBounds(placedCoords);
+      mapInstance.current.fitBounds(bounds, { padding: [32, 32], maxZoom: 13 });
+    } else if (placedCoords.length === 1) {
+      mapInstance.current.setView(placedCoords[0], 13);
+    }
 
     // Click outside any marker to deselect.
     mapInstance.current.on('click', () => {
@@ -124,8 +143,8 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
       if (!L || !mapRef.current) return;
 
       const map = L.map(mapRef.current, {
-        center: MAP_CENTER,
-        zoom: DEFAULT_ZOOM,
+        center: FALLBACK_CENTER,
+        zoom: FALLBACK_ZOOM,
         scrollWheelZoom: false,
         zoomControl: false,
         attributionControl: false,
