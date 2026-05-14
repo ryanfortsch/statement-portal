@@ -12,6 +12,8 @@ import {
   getSegment,
   resolveSegmentRecipients,
 } from '@/lib/guests-campaigns';
+import { draftCampaign } from '@/lib/ai/draft-campaign';
+import type { CampaignTone } from '@/lib/ai/brand-voice';
 
 const FROM_NAME_DEFAULT = 'Stay Cape Ann';
 const FROM_EMAIL_DEFAULT = process.env.RESEND_FROM_EMAIL || 'hello@staycapeann.com';
@@ -58,6 +60,73 @@ async function persistDraftFromFormData(id: string, formData: FormData): Promise
     .eq('status', 'draft'); // never overwrite a sent campaign
 
   if (error) throw new Error('Failed to persist draft: ' + error.message);
+}
+
+/**
+ * AI-assisted draft. Takes a freeform brief + tone + segment, calls the
+ * AI generator, and creates a campaign row pre-filled with the AI's
+ * subject / preheader / body. Lands the operator on the composer with
+ * everything ready to refine and send.
+ */
+export async function createDraftFromBrief(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const brief = String(formData.get('brief') || '').trim();
+  const tone = String(formData.get('tone') || 'editorial') as CampaignTone;
+  const segmentId = String(formData.get('segment_id') || '').trim() || null;
+
+  if (!brief) throw new Error('Tell me what the campaign is about.');
+  if (tone !== 'editorial' && tone !== 'insider' && tone !== 'warm') {
+    throw new Error('Pick a tone.');
+  }
+
+  let draft;
+  try {
+    draft = await draftCampaign({ brief, tone, segmentId });
+  } catch (err) {
+    console.error('[campaigns/createDraftFromBrief] AI generation failed', err);
+    throw new Error(
+      'Draft generation failed. Check AI Gateway credentials (AI_GATEWAY_API_KEY) in Vercel env. ' +
+      (err instanceof Error ? err.message : ''),
+    );
+  }
+
+  // Default segment fallback if none picked.
+  let resolvedSegmentId = segmentId;
+  if (!resolvedSegmentId) {
+    const { data: defaultSegment } = await supabase
+      .from('audience_segments')
+      .select('id')
+      .eq('name', 'Insider List')
+      .maybeSingle();
+    resolvedSegmentId = defaultSegment?.id ?? null;
+  }
+
+  // Derive a working name from the subject so the list view reads well.
+  const name = draft.subject.slice(0, 80) || 'Untitled draft';
+
+  const { data, error } = await supabase
+    .from('audience_campaigns')
+    .insert({
+      name,
+      subject: draft.subject,
+      preheader: draft.preheader,
+      body_text: draft.body,
+      from_name: FROM_NAME_DEFAULT,
+      from_email: FROM_EMAIL_DEFAULT,
+      status: 'draft',
+      segment_id: resolvedSegmentId,
+      created_by_email: session.user.email,
+      template_key: `ai_${tone}`,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) throw new Error(error?.message || 'Failed to create campaign');
+
+  revalidatePath('/guests/campaigns');
+  redirect(`/guests/campaigns/${data.id}?drafted=1`);
 }
 
 /**
