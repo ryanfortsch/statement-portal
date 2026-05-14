@@ -15,14 +15,25 @@ import {
   ACTUALS_2026_THROUGH_MONTH,
 } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
+import type { ProspectForecast } from '@/lib/forecast-prospects';
 
 type Props = {
   smart2026: SmartForecast | null;
   smart2027: SmartForecast | null;
   smart2028: SmartForecast | null;
+  prospects2026: ProspectForecast;
+  prospects2027: ProspectForecast;
+  prospects2028: ProspectForecast;
 };
 
-export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
+export function ForecastClient({
+  smart2026,
+  smart2027,
+  smart2028,
+  prospects2026,
+  prospects2027,
+  prospects2028,
+}: Props) {
   // Independent per-year state. Earlier years' additions roll forward as
   // full-year actives in later years; the slider for each year only
   // controls THAT year's incremental adds.
@@ -116,9 +127,17 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
     return Math.min(3, Math.max(1, factor));
   }, [yearKey, smart2026OverrideForCalibration]);
 
+  const prospectsForYear =
+    yearKey === 2026 ? prospects2026 :
+    yearKey === 2027 ? prospects2027 :
+    prospects2028;
+
   const year = useMemo(
-    () => calcYear(numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward]
+    () => calcYear(
+      numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
+      calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
+    ),
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear]
   );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
@@ -127,9 +146,8 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
   };
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
-  const posMonths = year.monthly.filter((r) => r.net_business > 0);
-  // Total managed = current properties + presigned in this year + N new
-  const totalManaged = yearConfig.current.length + yearConfig.presigned.length + numNew;
+  // Total managed = current properties + prospects in this year + N new
+  const totalManaged = yearConfig.current.length + prospectsForYear.totals.count + numNew;
 
   return (
     <>
@@ -154,11 +172,9 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
           numNew={numNew}
           totalManaged={totalManaged}
           springTrough={springTrough}
-          posMonthsCount={posMonths.length}
-          posMonthsLabel={posMonths.map((r) => MONTH_LABELS[r.month - 1]).join(', ')}
           yearKey={yearKey}
           currentCount={yearConfig.current.length}
-          presignedCount={yearConfig.presigned.length}
+          prospectsCount={prospectsForYear.totals.count}
         />
       </section>
 
@@ -175,7 +191,7 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
             overflowX: 'auto',
           }}
         >
-          <ForecastTable year={year} yearKey={yearKey} currentCount={yearConfig.current.length} presignedCount={yearConfig.presigned.length} />
+          <ForecastTable year={year} yearKey={yearKey} currentCount={yearConfig.current.length} />
         </div>
       </section>
 
@@ -197,13 +213,53 @@ export function ForecastClient({ smart2026, smart2027, smart2028 }: Props) {
         />
       </section>
 
-      {/* Notes & Methodology — single bottom block */}
+      {/* Prospect pipeline panel — what's in flight + each prospect's weighted contribution */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingBottom: 32, width: '100%' }}
+      >
+        <SectionTitle
+          title={`Prospect pipeline · ${yearKey}`}
+          tag={`${prospectsForYear.totals.count} prospect${prospectsForYear.totals.count === 1 ? '' : 's'} · owner payout shown for prospects · RT mgmt fee weighted by close %`}
+        />
+        <ProspectsPanel data={prospectsForYear} yearKey={yearKey} />
+      </section>
+
+      {/* Notes & Methodology — collapsible bottom block */}
       <section
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 64, width: '100%' }}
       >
-        <SectionTitle title="Notes & Methodology" tag={`assumptions for ${yearKey}`} />
-        <Assumptions yearKey={yearKey} />
+        <details
+          style={{
+            border: '1px solid var(--rule)',
+            background: 'var(--paper)',
+          }}
+        >
+          <summary
+            style={{
+              padding: '12px 16px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-inter), system-ui, sans-serif',
+              fontSize: 13,
+              fontWeight: 600,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              borderBottom: '1px solid var(--rule)',
+              userSelect: 'none',
+            }}
+          >
+            Notes & Methodology
+            <span
+              className="eyebrow"
+              style={{ marginLeft: 12, letterSpacing: '.16em', fontWeight: 500 }}
+            >
+              assumptions for {yearKey}
+            </span>
+          </summary>
+          <Assumptions yearKey={yearKey} />
+        </details>
       </section>
 
       <style jsx>{`
@@ -473,6 +529,203 @@ function rcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
 
 type AssumptionItem = { label: string; value: string };
 type AssumptionSection = { heading: string; items: AssumptionItem[] };
+
+/**
+ * Live Prospects pipeline panel — one row per prospect. Owner payout (what
+ * the prospect's deck shows them) sits next to RT mgmt fee (what RT keeps),
+ * and the weighted column folds in close_likelihood_pct to give the
+ * expected-value contribution that flows into the Monthly Detail table.
+ */
+function ProspectsPanel({
+  data,
+  yearKey,
+}: {
+  data: ProspectForecast;
+  yearKey: ForecastYear;
+}) {
+  if (data.prospects.length === 0) {
+    return (
+      <div
+        style={{
+          marginTop: 14,
+          border: '1px solid var(--rule)',
+          background: 'var(--paper)',
+          padding: '24px',
+          color: 'var(--ink-3)',
+          fontSize: 13,
+          fontStyle: 'italic',
+        }}
+      >
+        No active prospects in Helm. Add prospects via /prospects to feed the forecast.
+      </div>
+    );
+  }
+
+  const sorted = [...data.prospects].sort(
+    (a, b) => b.annualExpectedMgmtFee - a.annualExpectedMgmtFee
+  );
+
+  const fmtPct = (n: number) => `${Math.round(n * 100)}%`;
+  const fmtUsd = (n: number) =>
+    `$${Math.round(n).toLocaleString('en-US')}`;
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper)',
+        overflowX: 'auto',
+      }}
+    >
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: 'var(--paper)' }}>
+        <thead>
+          <tr>
+            <th style={pcThStyle('left', 220)}>Prospect</th>
+            <th style={pcThStyle('left', 80)}>Market</th>
+            <th style={pcThStyle('right', 90)}>Fee %</th>
+            <th style={pcThStyle('right', 110)}>Close %</th>
+            <th style={pcThStyle('right', 150)}>Owner payout (Y1)</th>
+            <th style={pcThStyle('right', 140)}>RT mgmt fee · Y1</th>
+            <th style={pcThStyle('right', 150)}>Weighted · {yearKey}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((p) => (
+            <tr key={p.prospectId}>
+              <td style={pcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
+                {p.name}
+                {p.isClosed && (
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: '.1em',
+                      color: 'var(--positive)',
+                    }}
+                  >
+                    SIGNED
+                  </span>
+                )}
+              </td>
+              <td style={pcCellStyle({ color: 'var(--ink-3)', textAlign: 'left', fontSize: 11 })}>
+                {p.market} · {p.bedrooms}BR
+              </td>
+              <td style={pcCellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
+                {fmtPct(p.mgmtFeePct)}
+              </td>
+              <td
+                style={pcCellStyle({
+                  color: p.closeProbability >= 0.66
+                    ? 'var(--positive)'
+                    : p.closeProbability <= 0.33
+                    ? 'var(--ink-4)'
+                    : 'var(--ink-3)',
+                  fontWeight: 600,
+                })}
+              >
+                {fmtPct(p.closeProbability)}
+              </td>
+              <td
+                style={pcCellStyle({
+                  fontFamily: 'var(--font-mono-dash), monospace',
+                  color: 'var(--ink-2)',
+                })}
+              >
+                {fmtUsd(p.ownerPayoutLow)}–{fmtUsd(p.ownerPayoutHigh)}
+              </td>
+              <td
+                style={pcCellStyle({
+                  fontFamily: 'var(--font-mono-dash), monospace',
+                  color: 'var(--ink-3)',
+                })}
+              >
+                {fmtUsd(p.annualMgmtFee)}
+              </td>
+              <td
+                style={pcCellStyle({
+                  fontFamily: 'var(--font-mono-dash), monospace',
+                  color: 'var(--positive)',
+                  fontWeight: 700,
+                  background: 'rgba(58, 107, 74, 0.06)',
+                })}
+              >
+                {fmtUsd(p.annualExpectedMgmtFee)}
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td
+              style={pcCellStyle({
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                fontWeight: 700,
+                textAlign: 'left',
+              })}
+              colSpan={6}
+            >
+              ◆ Pipeline total ({sorted.length} prospect{sorted.length === 1 ? '' : 's'})
+            </td>
+            <td
+              style={pcCellStyle({
+                background: 'var(--ink-2)',
+                color: '#9bd1ad',
+                fontWeight: 700,
+                fontFamily: 'var(--font-mono-dash), monospace',
+              })}
+            >
+              {fmtUsd(data.totals.expectedMgmtFee)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div
+        style={{
+          padding: '10px 16px',
+          fontSize: 11,
+          lineHeight: 1.55,
+          color: 'var(--ink-3)',
+          borderTop: '1px solid var(--rule)',
+          background: 'var(--paper-2)',
+        }}
+      >
+        <strong style={{ color: 'var(--ink-2)' }}>How weighting works:</strong>{' '}
+        Each prospect&apos;s RT mgmt fee comes from their projection deck (home value × tier
+        rate blended with AirDNA 3-yr average, × their mgmt-fee % rate). The weighted column
+        multiplies by <code>close_likelihood_pct</code> (null defaults to 50%). Sum of the
+        weighted column feeds the &ldquo;Prospects (weighted)&rdquo; row in the Monthly
+        Detail table above.
+      </div>
+    </div>
+  );
+}
+
+function pcThStyle(align: 'left' | 'right', width?: number): React.CSSProperties {
+  return {
+    background: 'var(--ink)',
+    color: 'var(--paper)',
+    padding: '9px 12px',
+    textAlign: align,
+    fontWeight: 500,
+    fontSize: 10,
+    letterSpacing: '.08em',
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+    width: width ? `${width}px` : 'auto',
+  };
+}
+
+function pcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return {
+    padding: '8px 12px',
+    borderBottom: '1px solid var(--rule)',
+    fontVariantNumeric: 'tabular-nums',
+    verticalAlign: 'middle',
+    textAlign: 'right',
+    ...extra,
+  };
+}
 
 function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   const sections =
@@ -921,30 +1174,26 @@ function KpiStrip({
   numNew,
   totalManaged,
   springTrough,
-  posMonthsCount,
-  posMonthsLabel,
   yearKey,
   currentCount,
-  presignedCount,
+  prospectsCount,
 }: {
   year: YearResult;
   numNew: number;
   totalManaged: number;
   springTrough: number;
-  posMonthsCount: number;
-  posMonthsLabel: string;
   yearKey: ForecastYear;
   currentCount: number;
-  presignedCount: number;
+  prospectsCount: number;
 }) {
   const { totals } = year;
   const portfolioBreakdown =
     yearKey === 2026
-      ? `${currentCount} current + ${presignedCount} pre-signed + ${numNew} new`
+      ? `${currentCount} current + ${prospectsCount} prospects + ${numNew} new`
       : `${currentCount} active + ${numNew} new`;
   const revBreakdown =
     yearKey === 2026
-      ? `cur ${fmtCompactSimple(totals.rev_current)} · pre ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
+      ? `cur ${fmtCompactSimple(totals.rev_current)} · prospects ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
       : `active ${fmtCompactSimple(totals.rev_current)} · new ${fmtCompactSimple(totals.rev_new)}`;
 
   return (
@@ -989,9 +1238,9 @@ function KpiStrip({
         topBorder
       />
       <KpiCell
-        label="Net-positive months"
-        value={`${posMonthsCount}`}
-        sub={posMonthsCount === 0 ? 'No surplus months' : posMonthsLabel}
+        label="Prospects pipeline"
+        value={fmtDollar(totals.rev_presigned)}
+        sub={`${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'} · weighted mgmt fee from /prospects`}
         topBorder
         last
       />
@@ -1073,22 +1322,20 @@ function ForecastTable({
   year,
   yearKey,
   currentCount,
-  presignedCount,
 }: {
   year: YearResult;
   yearKey: ForecastYear;
   currentCount: number;
-  presignedCount: number;
 }) {
   const { monthly, cumulative, totals } = year;
   const currentLabel = yearKey === 2026 ? `Current 9` : `Active ${currentCount}`;
   const currentInfo =
     yearKey === 2026
       ? 'Past months (Jan-Apr) are bank actuals from Chase ...5130. Forward months use the Smart Forecast: real Guesty bookings × Gloucester pacing multiplier × each property\'s actual mgmt fee %. Falls back to seasonality if Guesty data is unavailable.'
-      : `${currentCount} active properties full year (the original 9 + 5 ex-presigned + any rolled forward from prior years). Each month uses Smart Forecast where Guesty has bookings; otherwise seasonality scaled by the 2026 calibration factor (the smart-vs-heuristic gap learned from 2026) so future years reflect what the listings actually earn, not the conservative contracted fees.`;
-  const presignedLabel = 'Pre-signed 5';
+      : `${currentCount} active properties full year (originals + anything that closed in prior years). Each month uses Smart Forecast where Guesty has bookings; otherwise seasonality scaled by the 2026 calibration factor so future years reflect what the listings actually earn.`;
+  const presignedLabel = 'Prospects (weighted)';
   const presignedInfo =
-    'Five contracts signed but not yet onboarded: Pre-signed #1, #2, #3, 79 Main Street, 16 Waterman. Two go live in May, three in June. Uses seasonality projection because they are not yet listed in Guesty.';
+    'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';
 
   return (
     <table
@@ -1111,9 +1358,7 @@ function ForecastTable({
       <tbody>
         <SectionRow label="Revenue" />
         <DataRow label={currentLabel} info={currentInfo} values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
-        {presignedCount > 0 && (
-          <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
-        )}
+        <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow
           label="New"
           info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption. Each onboarding triggers a $3K cost in its start month."

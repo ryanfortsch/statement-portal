@@ -9,6 +9,7 @@ import {
   type SmartForecast,
 } from '@/lib/forecast-smart';
 import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
+import { getProspectForecast } from '@/lib/forecast-prospects';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -223,9 +224,13 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
 }
 
 export default async function ForecastPage() {
-  // One Supabase query covering through end of 2028; split per year on
-  // the client to avoid duplicated work.
-  const smartAll = await getSmartForecast(2028);
+  // Pull Guesty bookings + Helm prospects pipeline in parallel.
+  const [smartAll, prospects2026, prospects2027, prospects2028] = await Promise.all([
+    getSmartForecast(2028),
+    getProspectForecast(2026),
+    getProspectForecast(2027),
+    getProspectForecast(2028),
+  ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
   const smart2028 = filterToYear(smartAll, 2028);
@@ -241,7 +246,14 @@ export default async function ForecastPage() {
       <StaleDataBanner />
 
 
-      <ForecastClient smart2026={smart2026} smart2027={smart2027} smart2028={smart2028} />
+      <ForecastClient
+        smart2026={smart2026}
+        smart2027={smart2027}
+        smart2028={smart2028}
+        prospects2026={prospects2026}
+        prospects2027={prospects2027}
+        prospects2028={prospects2028}
+      />
 
       <HelmFooter
         module="Forecast"
