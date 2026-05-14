@@ -280,20 +280,38 @@ function normalizeBoldPrefix(prefix?: string): string | undefined {
 
 /**
  * Strip a duplicated bold label from the start of a clause template. Matches
- * the label with or without trailing colon, case-insensitively, so all four
- * variants get cleaned up:
+ * the label with or without trailing colon, with or without markdown bold
+ * wrappers, case-insensitively. Cleans up every variant seen from the LLM:
  *
- *   "Owner Approval Required: body"     →  "body"
- *   "Owner Approval Required body"      →  "body"
- *   "owner approval required: body"     →  "body"
- *   "Owner approval required :body"     →  "body"
+ *   "Owner Approval Required: body"           →  "body"
+ *   "Owner Approval Required body"            →  "body"
+ *   "owner approval required: body"           →  "body"
+ *   "**Owner Approval Required:** body"       →  "body"
+ *   "**Owner Approval Required**: body"       →  "body"
+ *   "__Owner Approval Required:__ body"       →  "body"
+ *   "**owner approval required** body"        →  "body"
+ *
+ * Why this is needed even though the prompt forbids markdown: the LLM emits
+ * it anyway, especially on `add` overrides where it wants the body to look
+ * like a bullet ("**Label:** body"). Renderer can't parse markdown, so the
+ * asterisks render literally — combined with the schema's boldPrefix, the
+ * label appears twice. Bug surfaced from the 36 Granite run on the
+ * "Owner Approval Required" clause + 4 others.
  */
 function stripDuplicatePrefix(template: string, normalizedLabel?: string): string {
   if (!normalizedLabel) return template;
   const noColon = normalizedLabel.replace(/:+$/, '').trim();
   if (!noColon) return template;
+  // Pattern parts:
+  //   ^\s*                 leading whitespace
+  //   (\*\*|__)?           optional opening markdown bold marker
+  //   \s*                  whitespace after marker
+  //   <label>              the label text itself, case-insensitive
+  //   \s*:?\s*             optional colon between label and closing marker
+  //   (\*\*|__)?           optional closing markdown bold marker
+  //   \s*:?\s*             optional colon AFTER closing marker (e.g. **Label**:)
   const pattern = new RegExp(
-    `^\\s*${escapeRegex(noColon)}\\s*:?\\s*`,
+    `^\\s*(?:\\*\\*|__)?\\s*${escapeRegex(noColon)}\\s*:?\\s*(?:\\*\\*|__)?\\s*:?\\s*`,
     'i',
   );
   return template.replace(pattern, '');
