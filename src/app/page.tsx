@@ -198,11 +198,22 @@ async function getHelmStats() {
   };
   if (!isHelmConfigured) return empty;
   try {
-    // Pull the two most recent periods in one round trip so the prior-
-    // period delta is free.
+    // "Latest" here means "the most recent CLOSED-OUT month," i.e., the
+    // baseline the home tile compares this-month tracking against. The
+    // current month often has a partial statement_period row (a few
+    // statements get drafted mid-month while the bank reconciliation is
+    // still pending). Pairing tracking against that partial row produced
+    // nonsense deltas like +4637% on the home page. Excluding the current
+    // YYYY-MM keeps the baseline honest.
+    const now = new Date();
+    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Pull the two most recent non-current periods in one round trip so
+    // the prior-period delta is free.
     const { data: periods } = await supabase
       .from('statement_periods')
       .select('id, month, status')
+      .neq('month', currentYearMonth)
       .order('month', { ascending: false })
       .limit(2);
 
