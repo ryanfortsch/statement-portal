@@ -309,13 +309,17 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
   textLines.push('', `Full report: ${reportUrl}`, `Summary in Helm: ${summaryUrl}`);
   const text = textLines.join('\n');
 
+  // Inspection reports go from a Rising Tide ops sender, not the guest-facing
+  // staycapeann.com sender that the booking-inquiry flow uses. Requires the
+  // risingtidestr.com domain to be verified in Resend; until then this send
+  // will fail (logged + swallowed below, completion still proceeds).
   for (const to of ALWAYS_CC) {
     await sendTransactionalViaResend({
       to,
       subject,
       html,
       text,
-      fromEmail: process.env.RESEND_FROM_EMAIL ?? 'inquiries@risingtidestr.com',
+      fromEmail: 'helm@risingtidestr.com',
       fromName: 'Rising Tide · Helm',
     }).catch((err) => console.warn('[inspection-email] resend failed for', to, err));
   }
