@@ -471,11 +471,13 @@ type _Unused = ContractSectionContent;
 const contractCss = `
   /* Page geometry. Body and sig sheets carry their breathing room as
      @page margin so body sections can flow continuously across sheets
-     without per-wrapper padding compounding into gaps. The cover bleeds
-     full navy via :first (no margin), so its internal padding lives on
-     .rt-cover instead. */
+     without per-wrapper padding compounding into gaps. The cover uses
+     a NAMED page rule (margin: 0) so navy bleeds full to all edges.
+     Earlier attempt with @page :first { margin: 0 } didn't reliably
+     fire in Chromium and left a thin paper strip on the right edge of
+     the cover. */
   @page { size: 8.5in 11in; margin: 56px 80px; }
-  @page :first { size: 8.5in 11in; margin: 0; }
+  @page cover-page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -509,13 +511,17 @@ const contractCss = `
     display: flex;
     flex-direction: column;
   }
-  /* Section wrappers — try not to split a section across printed pages
-     unless its own content is taller than a page. Keeps the section's
-     title from orphaning at the bottom of one sheet while its body
-     starts on the next. */
-  .rt-c-section-wrap {
-    break-inside: avoid;
-    page-break-inside: avoid;
+  /* Section wrappers — earlier this had break-inside: avoid to keep
+     a section's title with its body, but that forced LONG sections
+     (Protections, Liability) to be pushed wholesale to the next
+     printed sheet whenever they didn't fit, leaving big blanks on
+     the previous sheet. Switched to break-after: avoid on the title
+     element only: titles can't be the last thing on a sheet (no
+     orphans), but sections can split between paragraphs/bullets when
+     they're too long to fit. */
+  .rt-c-section {
+    break-after: avoid;
+    page-break-after: avoid;
   }
   @media print {
     /* Force backgrounds to render in the PDF (cover navy, override
@@ -539,13 +545,17 @@ const contractCss = `
       min-height: 0;
       padding: 0;
     }
-    /* Cover bleeds full navy thanks to @page :first { margin: 0 }, so
-       it carries its own internal padding. */
+    /* Cover bleeds full navy by claiming the named cover-page rule
+       (margin: 0). Explicit width + min-height force the element to
+       fill the full sheet so the navy reaches every edge. */
     .rt-cover {
-      padding: 56px 80px;
+      page: cover-page;
+      width: 8.5in;
+      min-height: 11in;
+      box-sizing: border-box;
+      padding: 96px 80px 80px;
       page-break-after: always;
       break-after: page;
-      min-height: 1056px;
       display: flex;
       flex-direction: column;
     }
