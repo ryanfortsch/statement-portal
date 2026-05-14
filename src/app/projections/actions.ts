@@ -189,6 +189,11 @@ export async function updateProjection(id: string, formData: FormData) {
   const payload = {
     ...basePayload,
     drive_time_minutes: await resolveDriveTime(basePayload),
+    // Bump updated_at on every save so the page-level ProjectionForm key
+    // (key={projection.updated_at}) actually changes — forces a remount
+    // and picks up the fresh defaults instead of holding stale ones from
+    // the form's first render.
+    updated_at: new Date().toISOString(),
   };
 
   const { error } = await supabase
@@ -691,6 +696,11 @@ export async function applyContractRedlines(
   const payload: Record<string, unknown> = {
     ...fieldUpdates,
     custom_clauses: newClauses,
+    // Bump updated_at so the page's ProjectionForm key changes and the
+    // form remounts with the redline-applied values. Without this, the
+    // form's defaultValue inputs retain the values from initial page
+    // load — the user's next Save would clobber the redline edits.
+    updated_at: new Date().toISOString(),
   };
 
   const { error: updateErr } = await supabase
