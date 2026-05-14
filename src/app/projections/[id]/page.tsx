@@ -6,6 +6,14 @@ import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
+import {
+  Pipeline,
+  Stage,
+  fmtTouchDate,
+  fmtTouchTs,
+  gmailStatus,
+  lockedReason,
+} from '@/components/projections/Pipeline';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import {
@@ -38,9 +46,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
 
   // For the Danger zone delete confirmation: prefer the structured
   // owner's last name when populated; otherwise fall back to the last
-  // token of the legacy prospect_name string. Prospects with no
-  // surname at all (rare — manual entries) get a minimal "type
-  // DELETE" guard so the typed-confirm panel still works.
+  // token of the legacy prospect_name string.
   const ownerLastName =
     projection.owners?.[0]?.last_name?.trim() ||
     projection.prospect_name?.trim().split(/\s+/).slice(-1)[0] ||
@@ -49,12 +55,31 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
     ((projection.contract_overrides as unknown[] | null)?.length ?? 0) > 0 ||
     (projection.custom_clauses?.length ?? 0) > 0;
 
+  // ─── Stage state derivation ────────────────────────────────────────────
+  const touches = projection.gmail_touches ?? {};
+  const projectionTouch = touches.projection;
+  const guideTouch = touches.guide;
+  const contractTouch = touches.contract;
+  const onboardingTouch = touches.onboarding;
+
+  const projectionSent = !!projectionTouch || projection.status === 'sent';
+  const guideSent = !!guideTouch;
+  const contractSent = !!contractTouch;
+  const signed = !!projection.contract_signed_at;
+  const onboardingDone = !!projection.onboarding_submitted_at;
+  const promoted = !!projection.property_id;
+  const promoteUnlocked = signed && onboardingDone;
+
+  // For Stage 06 (Promote): 'done' once promoted; 'active' once unlocked but
+  // not yet promoted; 'locked' until both prerequisites land.
+  const promoteState = promoted ? 'done' : promoteUnlocked ? 'active' : 'locked';
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="projections" />
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
+      {/* ─── Identity strip ─────────────────────────────────────────────── */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 36, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/projections" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
             ← Prospects
@@ -62,8 +87,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           {' · '}
           <span>{fmtMonthYear(projection.presentation_month)}</span>
           {' · '}
-          <span style={{ color: projection.status === 'sent' ? 'var(--positive)' : 'var(--ink-4)' }}>
-            {projection.status === 'sent' ? 'Sent' : 'Draft'}
+          <span style={{ color: promoted ? 'var(--positive)' : projection.status === 'sent' ? 'var(--positive)' : 'var(--ink-4)' }}>
+            {promoted ? 'Promoted' : projection.status === 'sent' ? 'Active' : 'Draft'}
           </span>
         </div>
         <h1
@@ -85,175 +110,150 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             </span>
           )}
         </h1>
-        <p
-          style={{
-            marginTop: 12,
-            fontSize: 14,
-            color: 'var(--ink-3)',
-            lineHeight: 1.5,
-          }}
-        >
+        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
           Prepared for{' '}
           <span style={{ color: 'var(--tide-deep)', fontStyle: 'italic' }}>
             {projection.prospect_name}
           </span>
         </p>
+        <div className="font-serif tabular-nums" style={{ marginTop: 22, fontSize: 32, fontWeight: 400, color: 'var(--signal)', lineHeight: 1.05 }}>
+          {fmtMoneyRange(computed.heroLow, computed.heroHigh)}
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>
+          Year 1 estimate (net) · cover range
+        </div>
       </section>
 
-      {/* PREVIEW PANEL */}
+      {/* ─── Pipeline ───────────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '28px 0' }}>
-          {(() => {
-            // Hide "Year 1 ramped" when it equals "Year 1 (full)" — happens
-            // whenever the ramp covers all 12 months. Otherwise the two
-            // adjacent cells show identical numbers and read as a bug.
-            const fullMid = roundToThousand(computed.year1.mid.netPayout);
-            const rampMid = roundToThousand(computed.year1Ramped.netPayout);
-            const showRamp = rampMid !== fullMid;
-            return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 28 }}>
-                <Stat
-                  label="Cover range"
-                  value={fmtMoneyRange(computed.heroLow, computed.heroHigh)}
-                  sub="Year 1 estimate (net)"
-                  accent
-                />
-                <Stat
-                  label="Year 1"
-                  value={fmtMoney(fullMid)}
-                  sub={`${fmtMoney(roundToThousand(computed.year1.low.netPayout))} – ${fmtMoney(roundToThousand(computed.year1.high.netPayout))}`}
-                />
-                {showRamp && (
-                  <Stat
-                    label="Year 1 ramped"
-                    value={fmtMoney(rampMid)}
-                    sub={`${computed.year1Ramped.activeMonthCount} active months`}
-                  />
-                )}
-                <Stat
-                  label="Year 2"
-                  value={fmtMoney(roundToThousand(computed.year2.netPayout))}
-                  sub={`+${fmtPercent(projection.year2_growth_pct)} on Year 1`}
-                />
-              </div>
-            );
-          })()}
-          <div style={{ marginTop: 20, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-            Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}). AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}). Blended gross: {fmtMoney(computed.blendedGrossRevenue)}. Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}.
-          </div>
-        </div>
+        <Pipeline>
+
+          {/* 01 — Projection */}
+          <Stage
+            num="01"
+            title="Projection"
+            state={projectionSent ? 'done' : 'active'}
+            status={
+              projectionTouch
+                ? gmailStatus(projectionTouch)
+                : projection.status === 'sent'
+                  ? gmailStatus(undefined, { sentAt: projection.sent_at })
+                  : 'Not yet sent'
+            }
+          >
+            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
+          </Stage>
+
+          {/* 02 — Partnership Guide */}
+          <Stage
+            num="02"
+            title="Partnership Guide"
+            state={guideSent ? 'done' : 'active'}
+            status={guideSent ? gmailStatus(guideTouch) : 'Not yet sent'}
+          >
+            <DeliverableActions projectionId={id} type="guide" openSlug="guide" downloadLabel="Download Guide" />
+          </Stage>
+
+          {/* 03 — Contract */}
+          <Stage
+            num="03"
+            title="Contract"
+            state={contractSent ? 'done' : 'active'}
+            status={contractSent ? gmailStatus(contractTouch) : 'Not yet sent'}
+          >
+            <ContractStageBody projection={projection} projectionId={id} />
+          </Stage>
+
+          {/* 04 — Signed */}
+          <Stage
+            num="04"
+            title="Signed"
+            state={signed ? 'done' : 'active'}
+            status={
+              signed
+                ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''}</>
+                : 'Awaiting signature'
+            }
+          >
+            <SignedStageBody projection={projection} />
+          </Stage>
+
+          {/* 05 — Onboarding */}
+          <Stage
+            num="05"
+            title="Onboarding"
+            state={onboardingDone ? 'done' : 'active'}
+            status={
+              onboardingDone
+                ? <>Submitted {fmtTouchDate(projection.onboarding_submitted_at!)}</>
+                : 'Awaiting submission'
+            }
+          >
+            <OnboardingStageBody projection={projection} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
+          </Stage>
+
+          {/* 06 — Promote to managed property */}
+          <Stage
+            num="06"
+            title="Promote to managed property"
+            state={promoteState}
+            status={
+              promoted
+                ? 'Promoted'
+                : promoteUnlocked
+                  ? 'Ready to promote'
+                  : lockedReason(projection)
+            }
+          >
+            <PromoteStageBody projection={projection} promote={promote} unlocked={promoteUnlocked} promoted={promoted} />
+          </Stage>
+
+        </Pipeline>
       </section>
 
-      {/* DELIVERABLE LINKS + STATE ACTIONS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Open in browser */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-            <Link href={`/projections/${id}/render`} target="_blank" style={primaryActionStyle}>
-              Projection ↗
-            </Link>
-            <Link href={`/projections/${id}/guide`} target="_blank" style={secondaryActionStyle}>
-              Partnership Guide ↗
-            </Link>
-            <Link href={`/projections/${id}/contract`} target="_blank" style={secondaryActionStyle}>
-              Contract ↗
-            </Link>
-          </div>
-          {/* Download PDFs (server-rendered via Puppeteer). PDFs are
-              print-final; for negotiation, the Redlines panel below
-              applies edits to the projection record and re-renders. */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-            <DownloadPdfButton projectionId={id} type="projection" label="Download Projection" />
-            <DownloadPdfButton projectionId={id} type="guide" label="Download Guide" />
-            <DownloadPdfButton projectionId={id} type="contract" label="Download Contract" />
-          </div>
-        </div>
-        {/* Active state actions only — no destructive operations here.
-            Reset / Delete live in the Danger zone block at the bottom
-            of the page so a misclick can't wipe the prospect (Dotti hit
-            an old one-click DELETE on 36 Granite thinking it would
-            reset the contract). */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 18 }}>
-          {projection.status === 'draft' ? (
-            <form action={send}>
-              <button
-                type="submit"
-                style={{
-                  background: 'transparent',
-                  color: 'var(--ink)',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  padding: '14px 20px',
-                  border: '1px solid var(--ink)',
-                  cursor: 'pointer',
-                }}
-              >
-                Mark as sent
-              </button>
-            </form>
-          ) : (
-            <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.08em' }}>
-              Sent {projection.sent_at ? new Date(projection.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-            </span>
-          )}
-        </div>
-      </section>
-
-      {/* CONTRACT REDLINES — AI-driven or precise edit applier. Slots
-          between the deliverable downloads and the contract signing /
-          edit form so it reads as a step in the negotiation flow. */}
+      {/* ─── Activity log ───────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
-        <ContractRedlinesPanel projection={projection} />
+        <ActivityLog projection={projection} />
       </section>
 
-      {/* CONTRACT SIGNING: public link + signed status */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <ContractSigningPanel projection={projection} />
-      </section>
-
-      {/* OWNER ONBOARDING INTAKE: public link + status */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <OnboardingPanel projection={projection} />
-      </section>
-
-      {/* PROMOTE TO MANAGED PROPERTY */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <PromotePanel projection={projection} promote={promote} />
-      </section>
-
-      {/* EDIT FORM
-          The `key` is set to projection.updated_at so the form fully
-          remounts whenever the row's updated_at advances (after Save or
-          after applyContractRedlines). Without that, the form inputs use
-          `defaultValue` which only sets on mount — so the user would see
-          stale values after a redline apply and risk clobbering them on
-          their next Save. */}
+      {/* ─── Edit details (collapsed) ───────────────────────────────────── */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 40, flex: 1, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Edit inputs</div>
-        <ProjectionForm
-          key={projection.updated_at ?? 'no-ts'}
-          action={update}
-          initial={projection}
-          submitLabel="Save changes"
-          lastSavedAt={projection.updated_at}
-        />
+        <details style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+          <summary
+            style={{
+              listStyle: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 10,
+              padding: '8px 0',
+              userSelect: 'none',
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
+            <span className="eyebrow">Edit prospect details</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              owners, property, assumptions, contract terms, overrides
+            </span>
+          </summary>
+          <div style={{ paddingTop: 18 }}>
+            {/* The `key` is set to projection.updated_at so the form fully
+                remounts whenever the row's updated_at advances (after Save or
+                applyContractRedlines). Without that, the form inputs use
+                `defaultValue` which only sets on mount — so the user would see
+                stale values after a redline apply. */}
+            <ProjectionForm
+              key={projection.updated_at ?? 'no-ts'}
+              action={update}
+              initial={projection}
+              submitLabel="Save changes"
+              lastSavedAt={projection.updated_at}
+            />
+          </div>
+        </details>
       </section>
 
-      {/* DANGER ZONE
-          Reset Contract = wipe all redline overrides + legacy Rider
-          clauses, revert the contract to the standard template. The
-          prospect record itself stays intact. This is what Dotti was
-          reaching for when she hit the old one-click DELETE on the
-          36 Granite prospect thinking it meant "restart the contract."
-
-          Delete Prospect = the full destructive action. Now requires
-          typing the owner's last name to confirm; nuclear option for
-          when a prospect was created in error.
-
-          Lives at the very bottom of the page, visually walled off
-          with a red border so a misclick is impossible. */}
+      {/* ─── Danger zone ────────────────────────────────────────────────── */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
         <div
           style={{
@@ -302,239 +302,154 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   );
 }
 
-function ContractSigningPanel({ projection }: { projection: ProjectionRow }) {
+// ─── Stage bodies ──────────────────────────────────────────────────────────
+// Each stage's body slots its specific content under the stage card. The
+// outer Stage component handles the rail / dot / title / status; these
+// helpers only render the meta numbers and actions for that step.
+
+function ProjectionStageBody({
+  projection,
+  computed,
+  markSent,
+  canMarkSent,
+  projectionId,
+}: {
+  projection: ProjectionRow;
+  computed: ReturnType<typeof computeProjection>;
+  markSent: () => Promise<void>;
+  canMarkSent: boolean;
+  projectionId: string;
+}) {
+  const fullMid = roundToThousand(computed.year1.mid.netPayout);
+  const rampMid = roundToThousand(computed.year1Ramped.netPayout);
+  const showRamp = rampMid !== fullMid;
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 22, marginBottom: 14 }}>
+        <StageStat label="Year 1" value={fmtMoney(fullMid)} sub={`${fmtMoney(roundToThousand(computed.year1.low.netPayout))} – ${fmtMoney(roundToThousand(computed.year1.high.netPayout))}`} />
+        {showRamp && (
+          <StageStat label="Year 1 ramped" value={fmtMoney(rampMid)} sub={`${computed.year1Ramped.activeMonthCount} active months`} />
+        )}
+        <StageStat label="Year 2" value={fmtMoney(roundToThousand(computed.year2.netPayout))} sub={`+${fmtPercent(projection.year2_growth_pct)} on Year 1`} />
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.55, marginBottom: 14 }}>
+        Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}) · AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}) · Blended gross: {fmtMoney(computed.blendedGrossRevenue)} · Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}
+      </div>
+      <DeliverableActions
+        projectionId={projectionId}
+        type="projection"
+        openSlug="render"
+        downloadLabel="Download Projection"
+        extraAction={
+          canMarkSent ? (
+            <form action={markSent} style={{ display: 'inline-block' }}>
+              <button type="submit" style={ghostButtonStyle}>
+                Mark as sent
+              </button>
+            </form>
+          ) : null
+        }
+      />
+    </>
+  );
+}
+
+function ContractStageBody({ projection, projectionId }: { projection: ProjectionRow; projectionId: string }) {
+  const termRange = projection.term_start && projection.term_end
+    ? `Term ${fmtTouchDate(projection.term_start)} → ${fmtTouchDate(projection.term_end)}`
+    : 'Term dates pending';
+  const fee = `${fmtPercent(projection.mgmt_fee_pct)} mgmt fee`;
+  return (
+    <>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
+        {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
+      </div>
+      <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
+      <details style={{ marginTop: 18, borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
+        <summary
+          style={{
+            listStyle: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 10,
+            userSelect: 'none',
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
+          <span className="eyebrow">Apply owner redlines</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+            paste their email / call notes, Claude maps to contract edits
+          </span>
+        </summary>
+        <div style={{ paddingTop: 14 }}>
+          <ContractRedlinesPanel projection={projection} />
+        </div>
+      </details>
+    </>
+  );
+}
+
+function SignedStageBody({ projection }: { projection: ProjectionRow }) {
   const signedAt = projection.contract_signed_at;
   const signedName = projection.contract_signed_name;
   const link = `/contract/${projection.onboarding_token}`;
-
   return (
-    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Contract signing
-        </h3>
-        <span className="eyebrow" style={{ color: signedAt ? 'var(--positive)' : 'var(--ink-4)' }}>
-          {signedAt
-            ? `Signed ${new Date(signedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-            : 'Not yet signed'}
-        </span>
-      </div>
-
+    <>
       {!signedAt && (
-        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Send this link to the owner once the contract terms are settled. They&rsquo;ll read the contract on screen, type their full legal name, and submit. Their typed name + timestamp + IP / user-agent are recorded as their electronic signature (ESIGN/UETA-compliant). Once signed, the contract PDF reflects the signature.
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Send this link to the owner once the contract terms are settled. They&rsquo;ll type their full legal name and submit; their name + timestamp + IP / user-agent are recorded as their electronic signature (ESIGN/UETA-compliant).
         </p>
       )}
-
       {signedAt && signedName && (
-        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
           Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
           {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
         </p>
       )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-        <code
-          className="font-mono"
-          style={{
-            flex: '1 1 320px',
-            background: 'var(--paper-2)',
-            border: '1px solid var(--rule)',
-            padding: '10px 12px',
-            fontSize: 12,
-            color: 'var(--ink-3)',
-            overflowX: 'auto',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {link}
-        </code>
-        <Link
-          href={link}
-          target="_blank"
-          style={{
-            background: 'transparent',
-            color: 'var(--ink)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            padding: '11px 18px',
-            border: '1px solid var(--ink)',
-            textDecoration: 'none',
-          }}
-        >
-          Open ↗
-        </Link>
-      </div>
-    </div>
+      <LinkRow link={link} />
+    </>
   );
 }
 
-function OnboardingPanel({ projection }: { projection: ProjectionRow }) {
+function OnboardingStageBody({ projection, onboardingTouch }: { projection: ProjectionRow; onboardingTouch: React.ReactNode | null }) {
   const submitted = projection.onboarding_submitted_at;
   const data = projection.onboarding_data;
   const link = `/onboarding/${projection.onboarding_token}`;
   return (
-    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Owner onboarding intake
-        </h3>
-        <span className="eyebrow" style={{ color: submitted ? 'var(--positive)' : 'var(--ink-4)' }}>
-          {submitted ? `Submitted ${new Date(submitted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Not yet submitted'}
-        </span>
-      </div>
-
+    <>
       {!submitted && (
-        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Send this link to the owner once the contract is signed. They&rsquo;ll fill in property details, utilities, access, and an emergency contact. Their answers land back here.
         </p>
       )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-        <code
-          className="font-mono"
-          style={{
-            flex: '1 1 320px',
-            background: 'var(--paper-2)',
-            border: '1px solid var(--rule)',
-            padding: '10px 12px',
-            fontSize: 12,
-            color: 'var(--ink-3)',
-            overflowX: 'auto',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {link}
-        </code>
-        <Link
-          href={link}
-          target="_blank"
-          style={{
-            background: 'transparent',
-            color: 'var(--ink)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            padding: '11px 18px',
-            border: '1px solid var(--ink)',
-            textDecoration: 'none',
-          }}
-        >
-          Open ↗
-        </Link>
-      </div>
-
+      {onboardingTouch && !submitted && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          {onboardingTouch}
+        </p>
+      )}
+      <LinkRow link={link} />
       {submitted && data && <OnboardingSummary data={data} />}
-    </div>
+    </>
   );
 }
 
-function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboarding_data']> }) {
-  type Item = { label: string; value: string | undefined };
-  const groups: { title: string; items: Item[] }[] = [
-    {
-      title: 'Personal',
-      items: [
-        { label: 'Name', value: data.full_name },
-        { label: 'Phone', value: data.phone },
-        { label: 'Email', value: data.email },
-        { label: 'Mailing', value: data.mailing_address },
-        { label: 'Preferred', value: data.preferred_contact },
-      ],
-    },
-    {
-      title: 'Property',
-      items: [
-        { label: 'Type', value: data.property_type },
-        { label: 'HOA', value: data.hoa },
-        { label: 'BR / BA', value: [data.bedrooms, data.bathrooms].filter(Boolean).join(' / ') || undefined },
-        { label: 'Sq Ft', value: data.square_feet },
-        { label: 'Floors', value: data.livable_floors },
-        { label: 'Basement', value: data.basement },
-        { label: 'Parking', value: data.parking },
-      ],
-    },
-    {
-      title: 'Utilities',
-      items: [
-        { label: 'Electric', value: data.electricity_provider },
-        { label: 'Heating', value: data.heating },
-        { label: 'Cooling', value: data.cooling },
-        { label: 'Internet', value: data.internet_provider },
-        { label: 'Cable', value: data.cable_provider },
-        { label: 'WiFi name', value: data.wifi_name },
-        { label: 'WiFi pass', value: data.wifi_password },
-        { label: 'TVs', value: [data.num_tvs, data.smart_tv].filter(Boolean).join(' · ') || undefined },
-      ],
-    },
-    {
-      title: 'STR',
-      items: [
-        { label: 'Listed?', value: data.currently_listed },
-        { label: 'URLs', value: data.listing_urls },
-        { label: 'Reg #', value: data.str_registration },
-        { label: 'Insurance', value: data.str_insurance },
-        { label: 'Access', value: data.guest_access_method },
-        { label: 'Smart lock', value: [data.smart_lock_brand, data.smart_lock_code].filter(Boolean).join(' · ') || undefined },
-        { label: 'Cameras', value: data.security_cameras },
-      ],
-    },
-    {
-      title: 'Access & notes',
-      items: [
-        { label: 'Key/code', value: data.key_code_location },
-        { label: 'Alarm', value: data.alarm_system },
-        { label: 'Issues', value: data.known_issues },
-        { label: 'Maintenance', value: data.upcoming_maintenance },
-        { label: 'Notes', value: data.notes },
-      ],
-    },
-    {
-      title: 'Emergency contact',
-      items: [
-        { label: 'Name', value: data.emergency_name },
-        { label: 'Relationship', value: data.emergency_relationship },
-        { label: 'Phone', value: data.emergency_phone },
-        { label: 'Email', value: data.emergency_email },
-      ],
-    },
-  ];
-
-  return (
-    <div style={{ marginTop: 28, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 28, borderTop: '1px solid var(--rule)', paddingTop: 22 }}>
-      {groups.map((g) => (
-        <div key={g.title}>
-          <div className="eyebrow" style={{ marginBottom: 8 }}>{g.title}</div>
-          {g.items.filter((it) => !!it.value).map((it) => (
-            <div key={it.label} style={{ padding: '6px 0', borderBottom: '1px solid var(--rule-soft)', fontSize: 12 }}>
-              <span style={{ color: 'var(--ink-4)', display: 'inline-block', width: 92 }}>{it.label}</span>
-              <span style={{ color: 'var(--ink)' }}>{it.value}</span>
-            </div>
-          ))}
-          {g.items.every((it) => !it.value) && (
-            <div style={{ padding: '6px 0', fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>No answers in this section.</div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PromotePanel({ projection, promote }: { projection: ProjectionRow; promote: () => Promise<void> }) {
-  const promoted = !!projection.property_id;
-  const submitted = !!projection.onboarding_submitted_at;
-
+function PromoteStageBody({
+  projection,
+  promote,
+  unlocked,
+  promoted,
+}: {
+  projection: ProjectionRow;
+  promote: () => Promise<void>;
+  unlocked: boolean;
+  promoted: boolean;
+}) {
   if (promoted) {
     return (
-      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Promoted to managed property</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-3)' }}>
-            This prospect was promoted into the Properties module.
-          </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+          This prospect was promoted into the Properties module.
         </div>
         <Link
           href={`/properties/${projection.property_id}`}
@@ -555,82 +470,316 @@ function PromotePanel({ projection, promote }: { projection: ProjectionRow; prom
       </div>
     );
   }
-
   return (
-    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '20px 0' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-        <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Promote to managed property
-        </h3>
-        <span className="eyebrow" style={{ color: submitted ? 'var(--positive)' : 'var(--ink-4)' }}>
-          {submitted ? 'Onboarding submitted' : 'Onboarding pending'}
-        </span>
-      </div>
-      <p style={{ marginTop: 4, marginBottom: 14, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-        Once the contract is signed and the owner has submitted the onboarding form, promote this prospect into a managed property. We&rsquo;ll create a record in <Link href="/properties" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>Properties</Link> with all the operational details copied over (utilities, access, emergency contact). The prospect record stays as the sales artifact.
+    <>
+      <p style={{ marginTop: 0, marginBottom: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+        Once the contract is signed and the owner has submitted the onboarding form, promote this prospect into a managed property. We&rsquo;ll create a record in{' '}
+        <Link href="/properties" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>Properties</Link>{' '}
+        with all the operational details copied over (utilities, access, emergency contact). The prospect record stays as the sales artifact.
       </p>
       <form action={promote}>
         <button
           type="submit"
-          disabled={!submitted}
+          disabled={!unlocked}
           style={{
-            background: submitted ? 'var(--ink)' : 'var(--paper-2)',
-            color: submitted ? 'var(--paper)' : 'var(--ink-4)',
+            background: unlocked ? 'var(--ink)' : 'var(--paper-2)',
+            color: unlocked ? 'var(--paper)' : 'var(--ink-4)',
             fontSize: 12,
             fontWeight: 600,
             letterSpacing: '.18em',
             textTransform: 'uppercase',
             padding: '14px 28px',
             border: 'none',
-            cursor: submitted ? 'pointer' : 'not-allowed',
+            cursor: unlocked ? 'pointer' : 'not-allowed',
           }}
         >
-          {submitted ? 'Promote to managed property →' : 'Awaiting onboarding submission'}
+          {unlocked ? 'Promote to managed property →' : 'Awaiting prerequisites'}
         </button>
       </form>
-    </div>
+    </>
   );
 }
 
-const primaryActionStyle: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  fontSize: 12,
-  fontWeight: 600,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '14px 28px',
-  textDecoration: 'none',
-};
+// ─── Activity log ──────────────────────────────────────────────────────────
+/**
+ * Renders a chronological list of milestone events on the prospect — when
+ * each deliverable was sent (per Gmail), when the contract was signed, when
+ * onboarding was submitted, when promoted. Edits to the record itself are
+ * not surfaced here (too noisy); use the audit fields if needed.
+ */
+function ActivityLog({ projection }: { projection: ProjectionRow }) {
+  const events: { at: string; label: string }[] = [];
+  if (projection.created_at) events.push({ at: projection.created_at, label: 'Prospect created' });
+  const t = projection.gmail_touches ?? {};
+  if (t.projection) events.push({ at: t.projection.sent_at, label: `${t.projection.from_user ?? 'Someone'} sent the projection` });
+  if (t.guide) events.push({ at: t.guide.sent_at, label: `${t.guide.from_user ?? 'Someone'} sent the partnership guide` });
+  if (t.contract) events.push({ at: t.contract.sent_at, label: `${t.contract.from_user ?? 'Someone'} sent the contract` });
+  if (t.onboarding) events.push({ at: t.onboarding.sent_at, label: `${t.onboarding.from_user ?? 'Someone'} sent the onboarding link` });
+  if (projection.contract_signed_at) {
+    const who = projection.contract_signed_name ?? 'Owner';
+    events.push({ at: projection.contract_signed_at, label: `${who} signed the contract` });
+  }
+  if (projection.onboarding_submitted_at) {
+    events.push({ at: projection.onboarding_submitted_at, label: 'Onboarding form submitted' });
+  }
+  if (projection.property_id && projection.updated_at) {
+    events.push({ at: projection.updated_at, label: 'Promoted to managed property' });
+  }
+  events.sort((a, b) => b.at.localeCompare(a.at));
 
-const secondaryActionStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink)',
-  fontSize: 12,
-  fontWeight: 600,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '13px 22px',
-  textDecoration: 'none',
-  border: '1px solid var(--ink)',
-};
+  if (events.length === 0) return null;
 
-function Stat({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <div>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
-      <div
-        className="font-serif tabular-nums"
+    <details>
+      <summary
         style={{
-          fontSize: accent ? 30 : 24,
-          fontWeight: 400,
-          color: accent ? 'var(--signal)' : 'var(--ink)',
-          lineHeight: 1.05,
+          listStyle: 'none',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 10,
+          padding: '8px 0',
+          userSelect: 'none',
         }}
       >
-        {value}
-      </div>
-      {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
+        <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
+        <span className="eyebrow">Activity log</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          {events.length} milestone{events.length === 1 ? '' : 's'}
+        </span>
+      </summary>
+      <ol
+        style={{
+          listStyle: 'none',
+          padding: '14px 0 0',
+          margin: 0,
+          fontSize: 12,
+          color: 'var(--ink)',
+        }}
+      >
+        {events.map((ev, i) => (
+          <li
+            key={i}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '180px 1fr',
+              gap: 16,
+              padding: '8px 0',
+              borderBottom: i === events.length - 1 ? 'none' : '1px solid var(--rule)',
+            }}
+          >
+            <span style={{ color: 'var(--ink-4)', fontSize: 11, letterSpacing: '0.04em' }}>
+              {fmtTouchTs(ev.at)}
+            </span>
+            <span>{ev.label}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+// ─── Inline atoms ──────────────────────────────────────────────────────────
+
+/** Action row for a deliverable: Open + Download (+ optional extras). */
+function DeliverableActions({
+  projectionId,
+  type,
+  openSlug,
+  downloadLabel,
+  extraAction,
+}: {
+  projectionId: string;
+  type: 'projection' | 'guide' | 'contract';
+  openSlug: 'render' | 'guide' | 'contract';
+  downloadLabel: string;
+  extraAction?: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+      <Link
+        href={`/projections/${projectionId}/${openSlug}`}
+        target="_blank"
+        style={{
+          background: 'var(--ink)',
+          color: 'var(--paper)',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          padding: '11px 20px',
+          textDecoration: 'none',
+        }}
+      >
+        Open ↗
+      </Link>
+      <DownloadPdfButton projectionId={projectionId} type={type} label={downloadLabel} />
+      {extraAction}
     </div>
   );
 }
+
+/** Public-link row used by Signed + Onboarding stages — code box + Open ↗. */
+function LinkRow({ link }: { link: string }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+      <code
+        className="font-mono"
+        style={{
+          flex: '1 1 280px',
+          background: 'var(--paper-2)',
+          border: '1px solid var(--rule)',
+          padding: '8px 12px',
+          fontSize: 11,
+          color: 'var(--ink-3)',
+          overflowX: 'auto',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {link}
+      </code>
+      <Link
+        href={link}
+        target="_blank"
+        style={{
+          background: 'transparent',
+          color: 'var(--ink)',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          padding: '9px 16px',
+          border: '1px solid var(--ink)',
+          textDecoration: 'none',
+        }}
+      >
+        Open ↗
+      </Link>
+    </div>
+  );
+}
+
+function StageStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
+      <div className="font-serif tabular-nums" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.05 }}>
+        {value}
+      </div>
+      {sub && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboarding_data']> }) {
+  type Item = { label: string; value: string | undefined };
+  const groups: { title: string; items: Item[] }[] = [
+    {
+      title: 'Personal',
+      items: [
+        { label: 'Name', value: data.full_name },
+        { label: 'Phone', value: data.phone },
+        { label: 'Email', value: data.email },
+        { label: 'Mailing', value: data.mailing_address },
+        { label: 'Preferred', value: data.preferred_contact },
+      ],
+    },
+    {
+      title: 'Property',
+      items: [
+        { label: 'Address', value: data.property_address },
+        { label: 'Type', value: data.property_type },
+        { label: 'HOA', value: data.hoa },
+        { label: 'Beds', value: data.bedrooms },
+        { label: 'Baths', value: data.bathrooms },
+        { label: 'Sq Ft', value: data.square_feet },
+        { label: 'Floors', value: data.livable_floors },
+        { label: 'Basement', value: data.basement },
+        { label: 'Parking', value: data.parking },
+      ],
+    },
+    {
+      title: 'Utilities',
+      items: [
+        { label: 'Electric', value: data.electricity_provider },
+        { label: 'Heating', value: data.heating },
+        { label: 'Cooling', value: data.cooling },
+        { label: 'Internet', value: data.internet_provider },
+        { label: 'Cable', value: data.cable_provider },
+        { label: 'WiFi name', value: data.wifi_name },
+        { label: 'WiFi pass', value: data.wifi_password },
+        { label: 'TVs', value: data.num_tvs },
+        { label: 'Smart TV', value: data.smart_tv },
+      ],
+    },
+    {
+      title: 'STR setup',
+      items: [
+        { label: 'Currently listed', value: data.currently_listed },
+        { label: 'Listing URLs', value: data.listing_urls },
+        { label: 'STR reg #', value: data.str_registration },
+        { label: 'STR insurance', value: data.str_insurance },
+        { label: 'Access', value: data.guest_access_method },
+        { label: 'Smart lock', value: data.smart_lock_brand },
+        { label: 'Lock code', value: data.smart_lock_code },
+        { label: 'Cameras', value: data.security_cameras },
+      ],
+    },
+    {
+      title: 'Access & notes',
+      items: [
+        { label: 'Key/code loc', value: data.key_code_location },
+        { label: 'Alarm', value: data.alarm_system },
+        { label: 'Known issues', value: data.known_issues },
+        { label: 'Maintenance', value: data.upcoming_maintenance },
+        { label: 'Notes', value: data.notes },
+      ],
+    },
+    {
+      title: 'Emergency contact',
+      items: [
+        { label: 'Name', value: data.emergency_name },
+        { label: 'Relation', value: data.emergency_relationship },
+        { label: 'Phone', value: data.emergency_phone },
+        { label: 'Email', value: data.emergency_email },
+      ],
+    },
+  ];
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
+      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--ink-3)' }}>
+        Submitted answers
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 22 }}>
+        {groups.map((g) => (
+          <div key={g.title}>
+            <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--signal)' }}>{g.title}</div>
+            <dl style={{ margin: 0, padding: 0, fontSize: 11.5, lineHeight: 1.55 }}>
+              {g.items.map((it) =>
+                it.value ? (
+                  <div key={it.label} style={{ display: 'flex', gap: 8, padding: '3px 0' }}>
+                    <dt style={{ color: 'var(--ink-4)', flexShrink: 0, minWidth: 90 }}>{it.label}</dt>
+                    <dd style={{ margin: 0, color: 'var(--ink)' }}>{it.value}</dd>
+                  </div>
+                ) : null,
+              )}
+            </dl>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared styles ─────────────────────────────────────────────────────────
+const ghostButtonStyle: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink)',
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  padding: '11px 16px',
+  border: '1px solid var(--ink)',
+  cursor: 'pointer',
+};
