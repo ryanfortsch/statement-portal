@@ -7,9 +7,11 @@ import {
   listApprovals,
   listRecentApprovals,
   getStats,
+  getLearnings,
   explainError,
   type Approval,
   type MessagingStats,
+  type LearningEntry,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
@@ -25,6 +27,7 @@ type LoadResult =
       recent: Approval[];
       stats: MessagingStats | null;
       statsError: string | null;
+      learnings: LearningEntry[];
     }
   | { ok: false; error: string };
 
@@ -36,12 +39,14 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent, stats] = await Promise.all([
+  const [pending, recent, stats, learnings] = await Promise.all([
     listApprovals(),
     listRecentApprovals(24),
-    // Default to 7d so the Performance dropdown has a useful initial render
-    // when the user expands it. Cheap enough to fetch on every page load.
-    getStats(24 * 7),
+    // Default the stats window to All-time (hours=0). The 7d window is
+    // thin because /messaging only just went live — All-time is where the
+    // real "is the AI getting it right?" signal lives (3 weeks of data).
+    getStats(0),
+    getLearnings(12),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
@@ -50,6 +55,7 @@ async function loadData(): Promise<LoadResult> {
     recent: recent.ok ? recent.data.approvals : [],
     stats: stats.ok ? stats.data : null,
     statsError: stats.ok ? null : explainError(stats.error),
+    learnings: learnings.ok ? learnings.data.learnings : [],
   };
 }
 
@@ -91,7 +97,11 @@ export default async function MessagingPage() {
         <>
           <MessagingQueue initialPending={data.pending} />
           <RecentStrip initialRecent={data.recent} />
-          <PerformanceDropdown initialStats={data.stats} initialError={data.statsError} />
+          <PerformanceDropdown
+            initialStats={data.stats}
+            initialError={data.statsError}
+            initialLearnings={data.learnings}
+          />
         </>
       )}
 

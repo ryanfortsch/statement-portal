@@ -143,6 +143,22 @@ export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
 
+export type LearningEntry = {
+  heading: string;
+  date: string;
+  title: string;
+  body: string;
+};
+
+export type LearningsResponse = {
+  learnings: LearningEntry[];
+  count: number;
+};
+
+export async function getLearnings(limit = 12) {
+  return request<LearningsResponse>(`/api/learnings?limit=${limit}`);
+}
+
 export async function coachApproval(id: string, feedback: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/coach`, {
     method: 'POST',
