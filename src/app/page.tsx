@@ -375,19 +375,13 @@ export default async function HelmHome() {
               return rated > 0 ? `${stats.reviews30dFiveStar}/${rated}` : '—';
             })()}
             sub={(() => {
+              // Unrated rows (Guesty placeholders without stars or text) are
+              // intentionally hidden from the sub. They're noise on a home
+              // dashboard, and they don't represent a guest action.
               const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
-              const unratedSuffix = stats.reviews30dUnrated > 0
-                ? ` · ${stats.reviews30dUnrated} unrated`
-                : '';
-              if (rated === 0) {
-                return stats.reviews30dUnrated > 0
-                  ? `${stats.reviews30dUnrated} unrated · last 30 days`
-                  : 'no reviews in last 30 days';
-              }
-              if (stats.reviews30dBelowFive === 0) {
-                return `clean 5★ run · last 30 days${unratedSuffix}`;
-              }
-              return `${stats.reviews30dBelowFive} below five · last 30 days${unratedSuffix}`;
+              if (rated === 0) return 'no reviews in last 30 days';
+              if (stats.reviews30dBelowFive === 0) return 'clean 5★ run · last 30 days';
+              return `${stats.reviews30dBelowFive} below five · last 30 days`;
             })()}
             href="/reviews"
             size="hero"
