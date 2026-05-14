@@ -132,7 +132,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
       {/* ─── Add zone ─── */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         <form
-          action={async (formData: FormData) => { await createZoneFromForm(property.id, formData); }}
+          action={createZoneFromForm}
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 200px auto',
@@ -143,6 +143,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
             background: 'var(--paper-2)',
           }}
         >
+          <input type="hidden" name="property_id" value={property.id} />
           <Field name="name" label="Zone name" placeholder="e.g. Upstairs bath" required />
           <Field name="floor_label" label="Floor" placeholder="e.g. Third floor" />
           <button
@@ -271,7 +272,9 @@ function ZoneCard({
         </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
-          <form action={async () => { await moveZoneFromForm(zone.id, 'up'); }}>
+          <form action={moveZoneFromForm}>
+            <input type="hidden" name="zone_id" value={zone.id} />
+            <input type="hidden" name="direction" value="up" />
             <button
               type="submit"
               disabled={isFirst}
@@ -281,7 +284,9 @@ function ZoneCard({
               ↑
             </button>
           </form>
-          <form action={async () => { await moveZoneFromForm(zone.id, 'down'); }}>
+          <form action={moveZoneFromForm}>
+            <input type="hidden" name="zone_id" value={zone.id} />
+            <input type="hidden" name="direction" value="down" />
             <button
               type="submit"
               disabled={isLast}
@@ -309,40 +314,41 @@ function ZoneCard({
         >
           Edit name / floor / notes
         </summary>
-        <form
-          action={async (formData: FormData) => { await updateZoneFromForm(zone.id, formData); }}
+        <div
           style={{
             padding: '14px 18px 18px',
-            display: 'grid',
-            gridTemplateColumns: '2fr 1fr',
+            display: 'flex',
+            flexDirection: 'column',
             gap: 12,
           }}
         >
-          <Field name="name" label="Zone name" defaultValue={zone.name} required />
-          <Field name="floor_label" label="Floor" defaultValue={zone.floor_label ?? ''} />
-          <div style={{ gridColumn: '1 / -1' }}>
-            <Field name="notes" label="Notes (optional)" defaultValue={zone.notes ?? ''} textarea />
-          </div>
-          <div
+          <form
+            action={updateZoneFromForm}
             style={{
-              gridColumn: '1 / -1',
-              display: 'flex',
-              alignItems: 'center',
+              display: 'grid',
+              gridTemplateColumns: '2fr 1fr',
               gap: 12,
-              marginTop: 4,
             }}
           >
-            <button type="submit" className="rt-btn-primary">
-              Save zone
-            </button>
-            <span style={{ flex: 1 }} />
-            <form action={async () => { await deleteZoneFromForm(zone.id); }}>
-              <button type="submit" className="rt-btn-danger">
-                Delete zone
+            <input type="hidden" name="zone_id" value={zone.id} />
+            <Field name="name" label="Zone name" defaultValue={zone.name} required />
+            <Field name="floor_label" label="Floor" defaultValue={zone.floor_label ?? ''} />
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Field name="notes" label="Notes (optional)" defaultValue={zone.notes ?? ''} textarea />
+            </div>
+            <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+              <button type="submit" className="rt-btn-primary">
+                Save zone
               </button>
-            </form>
-          </div>
-        </form>
+            </div>
+          </form>
+          <form action={deleteZoneFromForm} style={{ alignSelf: 'flex-end' }}>
+            <input type="hidden" name="zone_id" value={zone.id} />
+            <button type="submit" className="rt-btn-danger">
+              Delete zone
+            </button>
+          </form>
+        </div>
       </details>
 
       {/* Items assignment */}
@@ -360,7 +366,8 @@ function ZoneCard({
         >
           Manage items ({itemCount})
         </summary>
-        <form action={async (formData: FormData) => { await setZoneItemsFromForm(zone.id, formData); }} style={{ padding: '6px 18px 18px' }}>
+        <form action={setZoneItemsFromForm} style={{ padding: '6px 18px 18px' }}>
+          <input type="hidden" name="zone_id" value={zone.id} />
           {Array.from(itemsByCategory.entries()).map(([category, list]) => (
             <div key={category} style={{ marginTop: 12 }}>
               <div
