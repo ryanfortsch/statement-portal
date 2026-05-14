@@ -37,6 +37,36 @@ export type ApprovalsResponse = {
   count: number;
 };
 
+export type MessagingStats = {
+  window_hours: number;
+  as_of: string;
+  one_shot_rate: number | null;
+  first_pass_clean: number;
+  approved_after_coaching: number;
+  approved_total: number;
+  rejected: number;
+  manual_sent: number;
+  superseded_total: number;
+  auto_rejected_stale: number;
+  pending_in_window: number;
+  pending_now: number;
+  drafted: number;
+  escalated: number;
+  auto_sent: number;
+  no_reply_needed: number;
+  tier_breakdown: { '1': number; '2': number; '3': number };
+  learning: {
+    qa_pairs_total: number;
+    qa_pairs_in_window: number;
+    qa_latest_captured_at: string | null;
+    qa_latest_property: string | null;
+  };
+  coaching: {
+    coaching_notes_total: number;
+    coaching_notes_in_window: number | null;
+  };
+};
+
 export type StayConciergeError =
   | { kind: 'unconfigured' }
   | { kind: 'http'; status: number; detail: string }
@@ -107,6 +137,10 @@ export async function rejectApproval(id: string) {
 
 export async function markHandledApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+export async function getStats(hours: number) {
+  return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
 
 export async function coachApproval(id: string, feedback: string) {
