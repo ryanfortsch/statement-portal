@@ -482,35 +482,39 @@ const contractCss = `
     .rt-c-skipped { display: none !important; }
   }
 
-  /* Override-failure banner — staff-only, screen-only. */
+  /* Override-failure banner — staff-only, screen-only. Explicit colors
+     (not CSS variables) because the contract preview page has a dark
+     navy body background that flips the meaning of var(--ink) /
+     var(--paper). A failure banner that's dark-on-dark is worse than
+     no banner. */
   .rt-c-skipped {
     width: 816px;
-    background: rgba(200, 90, 58, 0.10);
-    border: 1px solid var(--signal);
-    border-left: 4px solid var(--signal);
-    padding: 14px 18px;
+    background: #fff5f1;
+    border: 1px solid #c85a3a;
+    border-left: 5px solid #c85a3a;
+    padding: 16px 22px;
     box-sizing: border-box;
-    color: var(--ink);
-    font-size: 12px;
+    color: #2a1810;
+    font-size: 13px;
     line-height: 1.55;
   }
   .rt-c-skipped-head {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
-  .rt-c-skipped-head strong { font-size: 13px; color: var(--ink); }
-  .rt-c-skipped-head span { font-size: 11px; color: var(--ink-3); }
+  .rt-c-skipped-head strong { font-size: 14px; color: #c85a3a; font-weight: 700; letter-spacing: 0.01em; }
+  .rt-c-skipped-head span { font-size: 12px; color: #6a4a3a; line-height: 1.55; }
   .rt-c-skipped-list {
     margin: 0;
     padding-left: 20px;
-    font-family: var(--font-mono-dash, ui-monospace), monospace;
-    font-size: 10.5px;
-    color: var(--ink);
-    line-height: 1.5;
+    font-family: var(--font-mono-dash, ui-monospace), Menlo, monospace;
+    font-size: 11px;
+    color: #2a1810;
+    line-height: 1.6;
   }
-  .rt-c-skipped-list li { margin-bottom: 2px; }
+  .rt-c-skipped-list li { margin-bottom: 3px; }
 
   /* Cover */
   .rt-cover {
