@@ -486,26 +486,23 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. Three named @page rules, one per logical
-     section, applied via the `page:` property on the corresponding
-     wrapper element.
-     - cover-page (margin 0): cover bleeds full navy edge-to-edge
-     - body-page (56px 80px): body sheets get top/bottom margin
-       that REPEATS on every printed sheet body content spans (this
-       is the key — block padding only applies at the absolute
-       start/end of the block, not per printed sheet, so when body
-       overflows to a second sheet the middle pages had no margin
-       and content crashed against the page edge)
-     - sig-page (56px 80px): same margins as body, with the sig
-       block's own internal padding giving the signature grid its
-       breathing room
-     Page numbering isn't included in the PDF (Puppeteer's
-     footerTemplate forces a footer area on every sheet including
-     the cover, which broke the cover bleed). */
-  @page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. The default @page rule sets the body margin
+     (56px 80px) since that's what most printed sheets need. The
+     cover uses a named cover-page rule with margin:0 to bleed
+     full navy. Sig-page also uses default margins.
+
+     Why default = body margin instead of 0: Chromium honors named
+     @page rules for the FIRST printed sheet of an element that
+     declares `page: <name>`, but doesn't reliably propagate the
+     named rule to OVERFLOW sheets when content paginates across
+     multiple sheets. So if the default were margin:0 and body-page
+     were 56px 80px, only the first body sheet would get the margin
+     and overflow sheets would render at the page edge. Inverting
+     the default fixes this: body content gets the right margin on
+     EVERY sheet from the default, and cover-page only needs to
+     work on the single cover sheet (which it does). */
+  @page { size: 8.5in 11in; margin: 56px 80px; }
   @page cover-page { size: 8.5in 11in; margin: 0; }
-  @page body-page { size: 8.5in 11in; margin: 56px 80px; }
-  @page sig-page { size: 8.5in 11in; margin: 56px 80px; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -555,21 +552,19 @@ const contractCss = `
     }
     /* Body pages dissolve into a continuous flow via display:contents
        (the wrapper is removed from layout, so its sections become
-       siblings of .rt-doc-body). The per-sheet breathing room is
-       provided by @page body-page margin, NOT by .rt-doc-body
-       padding — padding only applies at the absolute top/bottom of
-       the block, but @page margin REPEATS on every printed sheet
-       the block spans. */
-    .rt-doc-body {
-      page: body-page;
-    }
+       siblings of .rt-doc-body). Per-sheet margins come from the
+       default @page rule (56px 80px). */
     .rt-doc-page {
       box-shadow: none;
       display: contents;
     }
-    /* Cover and sig are full-sheet elements with their own named
-       page rules. Cover uses cover-page (margin 0) so navy bleeds
-       to all four edges. Sig uses sig-page (matching body margins). */
+    /* Cover bleeds via @page cover-page (margin 0). The .rt-cover
+       element itself uses negative margins to extend INTO what
+       would've been the @page margin area on its sheet, since
+       cover-page reduces that area to zero. Without negative
+       margins, the cover element would be sized for the default
+       @page printable area (8.5in - 160px wide) and not fill the
+       full sheet. */
     .rt-cover {
       page: cover-page;
       display: flex;
@@ -578,11 +573,12 @@ const contractCss = `
       min-height: 11in;
       box-sizing: border-box;
       padding: 96px 80px 80px;
+      margin: -56px -80px;
       page-break-after: always;
       break-after: page;
     }
+    /* Sig uses default @page margin (no named rule needed). */
     .rt-c-sig-page {
-      page: sig-page;
       display: flex;
       flex-direction: column;
       page-break-before: always;
