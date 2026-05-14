@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import PropertiesMap from './PropertiesMap';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -80,6 +81,17 @@ export default async function PropertiesPage() {
             : undefined
         }
       />
+
+      {/* MAP — geographic portfolio view above the list. Click a pin to
+          surface a card with property name + slip count + Open link. */}
+      {!error && active.length > 0 && (
+        <section
+          className="max-w-[1100px] mx-auto px-10"
+          style={{ width: '100%', paddingBottom: 28 }}
+        >
+          <PropertiesMap properties={active} workCounts={workCounts} />
+        </section>
+      )}
 
       {/* LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>

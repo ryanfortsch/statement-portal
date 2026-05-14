@@ -1,10 +1,25 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
+
+/**
+ * Default month for a fresh upload. Until 2026-05-14 this was hardcoded
+ * to '2026-04', which silently sent every upload to April even when the
+ * operator was working on May -- the ingest then overwrote real April
+ * data with the misplaced May payload. We now read `?month=YYYY-MM` from
+ * the URL when present (dashboard passes it on the "Upload Month" link)
+ * and otherwise default to the current calendar month.
+ */
+function currentMonthString(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
 
 const PROPERTIES = [
   { id: '3_south_st', name: '3 South', owner: 'Bailey', location: 'Rockport' },
@@ -238,7 +253,7 @@ function StripeSyncCallout({ sync }: { sync: NonNullable<IngestResult['stripe_sy
 }
 
 function FileDropZone({
-  label, description, required, accept, file, onFile, inputRef,
+  label, description, required, accept, file, onFile, inputRef, cached,
 }: {
   label: string;
   description: string;
@@ -247,6 +262,16 @@ function FileDropZone({
   file: File | null;
   onFile: (f: File | null) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  /**
+   * Optional pre-existing cached file for this slot. Used by the
+   * Platform CSV slot to indicate a portfolio-wide CSV was uploaded for
+   * this month on a previous property's ingest. The slot then shows
+   * "Using cached: filename · X ago" instead of asking the operator to
+   * re-attach the same file. If the operator clicks Replace and picks a
+   * different file (sets `file`), the new upload supersedes the cache
+   * server-side on submit.
+   */
+  cached?: { filename: string; uploaded_at: string; size: number | null } | null;
 }) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -257,6 +282,12 @@ function FileDropZone({
     if (dropped) onFile(dropped);
   }, [onFile]);
 
+  // The slot is "satisfied" whenever a file is locally selected OR a
+  // cached server-side file exists for this month.
+  const satisfied = !!file || (!file && !!cached);
+  const usingCache = !file && !!cached;
+  const cachedAgo = cached?.uploaded_at ? relativeTimeShort(cached.uploaded_at) : '';
+
   return (
     <div
       className="rt-dropzone"
@@ -265,8 +296,8 @@ function FileDropZone({
       onDrop={handleDrop}
       style={{
         position: 'relative',
-        border: `1px ${file ? 'solid' : 'dashed'} ${file ? 'var(--ink)' : dragOver ? 'var(--signal)' : 'var(--rule)'}`,
-        background: file ? 'var(--paper-2)' : dragOver ? 'var(--paper-2)' : 'transparent',
+        border: `1px ${satisfied ? 'solid' : 'dashed'} ${satisfied ? 'var(--ink)' : dragOver ? 'var(--signal)' : 'var(--rule)'}`,
+        background: satisfied ? 'var(--paper-2)' : dragOver ? 'var(--paper-2)' : 'transparent',
         transition: 'border-color .15s, background .15s',
       }}
     >
@@ -277,13 +308,13 @@ function FileDropZone({
       }}>
         <span style={{
           width: 38, height: 38,
-          border: `1px solid ${file ? 'var(--ink)' : 'var(--rule)'}`,
-          background: file ? 'var(--ink)' : 'var(--paper)',
-          color: file ? 'var(--paper)' : 'var(--ink-4)',
+          border: `1px solid ${satisfied ? 'var(--ink)' : 'var(--rule)'}`,
+          background: satisfied ? 'var(--ink)' : 'var(--paper)',
+          color: satisfied ? 'var(--paper)' : 'var(--ink-4)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
         }}>
-          {file ? (
+          {satisfied ? (
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
           ) : (
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
@@ -298,23 +329,33 @@ function FileDropZone({
                 color: 'var(--signal)',
               }}>Required</span>
             )}
+            {usingCache && (
+              <span style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                color: 'var(--positive)',
+              }}>Cached</span>
+            )}
           </div>
           <div style={{
             fontSize: 11, color: 'var(--ink-4)', marginTop: 3,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {file ? file.name : description}
+            {file
+              ? file.name
+              : usingCache
+                ? <>Using <span style={{ color: 'var(--ink-2)' }}>{cached!.filename}</span> {cachedAgo && <>· uploaded {cachedAgo}</>}</>
+                : description}
           </div>
         </div>
         <span style={{
           flexShrink: 0,
           fontSize: 10, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
-          color: file ? 'var(--ink)' : 'var(--paper)',
-          background: file ? 'transparent' : 'var(--ink)',
-          border: `1px solid ${file ? 'var(--ink)' : 'var(--ink)'}`,
+          color: satisfied ? 'var(--ink)' : 'var(--paper)',
+          background: satisfied ? 'transparent' : 'var(--ink)',
+          border: `1px solid var(--ink)`,
           padding: '7px 14px',
         }}>
-          {file ? 'Replace' : 'Choose File'}
+          {satisfied ? 'Replace' : 'Choose File'}
         </span>
         <input
           ref={inputRef}
@@ -343,13 +384,62 @@ function FileDropZone({
   );
 }
 
+/**
+ * Compact relative-time formatter for the "uploaded X ago" string in
+ * cached dropzones. "just now" -> "5m ago" -> "3h ago" -> "yesterday"
+ * -> "May 13". Localized to en-US.
+ */
+function relativeTimeShort(iso: string): string {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  const deltaSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (deltaSec < 45) return 'just now';
+  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
+  if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
+  if (deltaSec < 86400 * 2) return 'yesterday';
+  if (deltaSec < 86400 * 7) return `${Math.floor(deltaSec / 86400)}d ago`;
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 /* ─── Main Upload Page ─── */
 export default function UploadPage() {
-  const [month, setMonth] = useState('2026-04');
-  const [propertyId, setPropertyId] = useState('');
+  return (
+    <Suspense fallback={null}>
+      <UploadPageInner />
+    </Suspense>
+  );
+}
+
+function UploadPageInner() {
+  const searchParams = useSearchParams();
+  // Initialise from ?month=YYYY-MM when the dashboard passes one; fall back to
+  // today's calendar month. NEVER hard-code a constant -- that's how data ended
+  // up under April when the operator was working on May.
+  const initialMonth = (() => {
+    const fromQuery = searchParams.get('month');
+    if (fromQuery && /^\d{4}-\d{2}$/.test(fromQuery)) return fromQuery;
+    return currentMonthString();
+  })();
+  // Pre-select the property too when the dashboard passes ?property=<id>.
+  // The PropertyCard's "Re-upload Data" link uses this so the operator
+  // lands on the right property + month combo with one click.
+  const initialPropertyId = (() => {
+    const fromQuery = searchParams.get('property');
+    return fromQuery && PROPERTIES.some(p => p.id === fromQuery) ? fromQuery : '';
+  })();
+  const [month, setMonth] = useState(initialMonth);
+  const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [guestyPDF, setGuestyPDF] = useState<File | null>(null);
   const [platformCSV, setPlatformCSV] = useState<File | null>(null);
   const [bankCSV, setBankCSV] = useState<File | null>(null);
+  // The Platform CSV is a whole-portfolio Guesty export -- one file
+  // covers every property in the month. When a previous property's
+  // ingest uploaded one already, surface it here so the operator can
+  // skip re-attaching. Loaded by an effect when `month` changes.
+  const [cachedPlatformCSV, setCachedPlatformCSV] = useState<
+    { filename: string; uploaded_at: string; size: number | null } | null
+  >(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -361,7 +451,41 @@ export default function UploadPage() {
   const bankRef = useRef<HTMLInputElement>(null);
 
   const selectedProp = PROPERTIES.find(p => p.id === propertyId);
-  const filesReady = [guestyPDF, platformCSV, bankCSV].filter(Boolean).length;
+  // The Platform CSV slot counts as "ready" when EITHER a fresh file
+  // is selected OR there's a cached CSV the server will fall back to.
+  const platformSlotReady = !!platformCSV || !!cachedPlatformCSV;
+  const filesReady = [!!guestyPDF, platformSlotReady, !!bankCSV].filter(Boolean).length;
+
+  useEffect(() => {
+    // Look up cached Platform CSV metadata for the selected month so the
+    // dropzone can show "Using cached: filename" instead of asking the
+    // operator to re-attach the same portfolio-wide export. Re-runs when
+    // month changes. Aborted on unmount via the cancelled flag.
+    let cancelled = false;
+    setCachedPlatformCSV(null);
+    if (!month) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/platform-csv-status?month=${encodeURIComponent(month)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.exists) {
+          setCachedPlatformCSV({
+            filename: data.filename,
+            uploaded_at: data.uploaded_at,
+            size: data.size ?? null,
+          });
+        } else {
+          setCachedPlatformCSV(null);
+        }
+      } catch {
+        // Best-effort: a status fetch failure just means the slot shows
+        // the empty state, not a hard error.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [month]);
 
   async function handleSubmit() {
     if (!propertyId) { setError('Please select a property'); return; }
@@ -717,11 +841,12 @@ export default function UploadPage() {
                 />
                 <FileDropZone
                   label="Platform CSV"
-                  description="Maps confirmation codes to booking channels and guest names"
+                  description="Maps confirmation codes to booking channels and guest names. Same export covers every property in the month, so the first upload caches for the rest."
                   accept=".csv"
                   file={platformCSV}
                   onFile={setPlatformCSV}
                   inputRef={platRef}
+                  cached={cachedPlatformCSV}
                 />
                 <FileDropZone
                   label="Chase Bank CSV"

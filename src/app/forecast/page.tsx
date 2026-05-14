@@ -10,6 +10,10 @@ import {
 } from '@/lib/forecast-smart';
 import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
 import { getProspectForecast } from '@/lib/forecast-prospects';
+import {
+  getStatementRevenueByMonth,
+  type StatementRevenueByMonth,
+} from '@/lib/forecast-statement-actuals';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -71,22 +75,53 @@ function CoverSheet() {
       >
         FY 2026 – 2028 Financial Forecast
       </h1>
-      <div
+      <details
         style={{
-          marginTop: 18,
-          paddingTop: 14,
+          marginTop: 14,
           borderTop: '1px solid var(--ink)',
-          display: 'grid',
-          gridTemplateColumns: '120px 1fr',
-          gap: '6px 24px',
-          fontSize: 12,
-          lineHeight: 1.55,
         }}
       >
-        {rows.map(([k, v]) => (
-          <CoverRow key={k} k={k} v={v} />
-        ))}
-      </div>
+        <summary
+          style={{
+            padding: '10px 0 0',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono-dash), monospace',
+            fontSize: 10,
+            letterSpacing: '.18em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-4)',
+            userSelect: 'none',
+            listStyle: 'none',
+          }}
+        >
+          Assumptions & sources
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 11,
+              letterSpacing: '.04em',
+              textTransform: 'none',
+              color: 'var(--ink-4)',
+            }}
+          >
+            (expand)
+          </span>
+        </summary>
+        <div
+          style={{
+            marginTop: 12,
+            display: 'grid',
+            gridTemplateColumns: '120px 1fr',
+            gap: '6px 24px',
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
+        >
+          {rows.map(([k, v]) => (
+            <CoverRow key={k} k={k} v={v} />
+          ))}
+        </div>
+      </details>
     </section>
   );
 }
@@ -224,12 +259,14 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
 }
 
 export default async function ForecastPage() {
-  // Pull Guesty bookings + Helm prospects pipeline in parallel.
-  const [smartAll, prospects2026, prospects2027, prospects2028] = await Promise.all([
+  // Pull Guesty bookings + Helm prospects pipeline + reconciled statements
+  // in parallel. Statements feed actual mgmt-fee revenue per closed month.
+  const [smartAll, prospects2026, prospects2027, prospects2028, statementRevenue] = await Promise.all([
     getSmartForecast(2028),
     getProspectForecast(2026),
     getProspectForecast(2027),
     getProspectForecast(2028),
+    getStatementRevenueByMonth([2026, 2027, 2028]),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
@@ -253,6 +290,7 @@ export default async function ForecastPage() {
         prospects2026={prospects2026}
         prospects2027={prospects2027}
         prospects2028={prospects2028}
+        statementRevenue={statementRevenue}
       />
 
       <HelmFooter

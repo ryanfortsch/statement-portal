@@ -16,6 +16,7 @@ import {
 } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
+import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
 
 type Props = {
   smart2026: SmartForecast | null;
@@ -24,6 +25,8 @@ type Props = {
   prospects2026: ProspectForecast;
   prospects2027: ProspectForecast;
   prospects2028: ProspectForecast;
+  /** Map keyed by YYYY-MM → total mgmt fee from property_statements. */
+  statementRevenue: StatementRevenueByMonth;
 };
 
 export function ForecastClient({
@@ -33,6 +36,7 @@ export function ForecastClient({
   prospects2026,
   prospects2027,
   prospects2028,
+  statementRevenue,
 }: Props) {
   // Independent per-year state. Earlier years' additions roll forward as
   // full-year actives in later years; the slider for each year only
@@ -132,12 +136,26 @@ export function ForecastClient({
     yearKey === 2027 ? prospects2027 :
     prospects2028;
 
+  // Per-year statement actuals: month-of-year → mgmt fee. Only months
+  // that have at least one reconciled property_statements row are present.
+  const statementByMonthForYear = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const [ym, value] of Object.entries(statementRevenue)) {
+      const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+      if (y === yearKey && value > 0) {
+        map.set(m, value);
+      }
+    }
+    return map;
+  }, [statementRevenue, yearKey]);
+
   const year = useMemo(
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
+      statementByMonthForYear,
     ),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear]
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear]
   );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
@@ -160,6 +178,7 @@ export function ForecastClient({
         setNumNew2027={setNumNew2027}
         numNew2028={numNew2028}
         setNumNew2028={setNumNew2028}
+        prospectsCount2026={prospects2026.totals.count}
       />
 
       {/* Headline metrics */}
@@ -921,6 +940,7 @@ function ScenarioControl({
   setNumNew2027,
   numNew2028,
   setNumNew2028,
+  prospectsCount2026,
 }: {
   yearKey: ForecastYear;
   setYearKey: (y: ForecastYear) => void;
@@ -930,6 +950,7 @@ function ScenarioControl({
   setNumNew2027: (n: number) => void;
   numNew2028: number;
   setNumNew2028: (n: number) => void;
+  prospectsCount2026: number;
 }) {
   // Show prior-year sliders too — earlier additions roll forward as
   // full-year actives, and the user often wants to dial them in alongside
@@ -983,7 +1004,7 @@ function ScenarioControl({
           setN={setNumNew2026}
           newOrder={getYearConfig(2026).newOrder}
           isActiveYear={yearKey === 2026}
-          subLabel="beyond 9 current + 5 pre-signed"
+          subLabel={`beyond 9 current + ${prospectsCount2026} prospect${prospectsCount2026 === 1 ? '' : 's'}`}
         />
         {showRow2027 && (
           <NumNewRow
@@ -1331,8 +1352,8 @@ function ForecastTable({
   const currentLabel = yearKey === 2026 ? `Current 9` : `Active ${currentCount}`;
   const currentInfo =
     yearKey === 2026
-      ? 'Past months (Jan-Apr) are bank actuals from Chase ...5130. Forward months use the Smart Forecast: real Guesty bookings × Gloucester pacing multiplier × each property\'s actual mgmt fee %. Falls back to seasonality if Guesty data is unavailable.'
-      : `${currentCount} active properties full year (originals + anything that closed in prior years). Each month uses Smart Forecast where Guesty has bookings; otherwise seasonality scaled by the 2026 calibration factor so future years reflect what the listings actually earn.`;
+      ? 'Past months (Jan-Apr) use bank actuals from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
+      : `${currentCount} active properties full year. Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else.`;
   const presignedLabel = 'Prospects (weighted)';
   const presignedInfo =
     'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';

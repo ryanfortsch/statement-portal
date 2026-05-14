@@ -1424,7 +1424,7 @@ function PropertyCard({
               <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
             )}
             <Link
-              href="/statements/upload"
+              href={`/statements/upload?month=${month}&property=${prop.property_id}`}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: 'var(--ink-3)',
@@ -2155,7 +2155,7 @@ function DashboardContent() {
           <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', lineHeight: 1.1 }}>
             Upload your first <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>owner statement</em> to get started.
           </h1>
-          <Link href="/statements/upload" style={{
+          <Link href={`/statements/upload?month=${selectedMonth}`} style={{
             display: 'inline-flex', marginTop: 28,
             background: 'var(--ink)', color: 'var(--paper)',
             fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
@@ -2456,7 +2456,7 @@ function DashboardContent() {
                 }
               />
             </div>
-            <Link href="/statements/upload" style={{
+            <Link href={`/statements/upload?month=${selectedMonth}`} style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               background: 'var(--ink)', color: 'var(--paper)',
               fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
@@ -3178,7 +3178,7 @@ function DashboardContent() {
             <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 300, color: 'var(--ink)' }}>
               Nothing uploaded for {monthLabel(selectedMonth)}.
             </h2>
-            <Link href="/statements/upload" style={{
+            <Link href={`/statements/upload?month=${selectedMonth}`} style={{
               display: 'inline-flex', gap: 8, alignItems: 'center',
               marginTop: 18, padding: '10px 18px',
               background: 'var(--ink)', color: 'var(--paper)',

@@ -111,7 +111,6 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         eyebrow="Helm · Turnovers"
         title="The"
         emphasis="turnover pipeline."
-        description="Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections."
       />
 
       {propertyFilter && (
@@ -360,10 +359,10 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       className="rt-turnover-row"
       style={{
         display: 'grid',
-        gridTemplateColumns: '180px 1fr auto auto',
-        gap: 24,
+        gridTemplateColumns: '160px 1fr auto auto',
+        gap: 20,
         alignItems: 'baseline',
-        padding: '20px 0',
+        padding: '14px 0',
         borderBottom: '1px solid var(--rule)',
       }}
     >
@@ -410,27 +409,32 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </>
           )}
         </div>
-        {t.previousCheckout && (
+        {/* Same-day turnover gets a visible banner because it's a real
+            urgency signal. Routine "Prev. checkout May 12" lines were
+            scaffolding that read as noise on both desktop and mobile -
+            the work-slip count + cleaning chip already convey state. */}
+        {t.isSameDayTurnover && (
           <div
-            className={t.isSameDayTurnover ? 'rt-turnover-prev rt-turnover-prev-sameday' : 'rt-turnover-prev'}
+            className="rt-turnover-prev rt-turnover-prev-sameday"
             style={{
               marginTop: 2,
               fontSize: 11,
-              color: t.isSameDayTurnover ? 'var(--signal)' : 'var(--ink-4)',
-              fontStyle: t.isSameDayTurnover ? 'normal' : 'italic',
+              color: 'var(--signal)',
+              fontWeight: 500,
             }}
           >
-            {t.isSameDayTurnover
-              ? 'Tight turnaround · previous guest checks out today'
-              : `Prev. checkout ${formatDateShort(t.previousCheckout)}`}
+            Tight turnaround · previous guest checks out today
           </div>
         )}
       </div>
 
-      {/* Status chips: work slips + cleaning + inspection stacked. Work
-          slips are persistent property issues you bring on the walk;
-          cleaning + inspection are the per-turnover prep gates. */}
-      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+      {/* Status chips: work slips + cleaning + inspection on a single
+          horizontal row. Work slips are persistent property issues you
+          bring on the walk; cleaning + inspection are the per-turnover
+          prep gates. Stacked vertical column read as a 3-line block on
+          desktop, which made every row feel busy - flowing inline keeps
+          each row to ~2 visual lines. */}
+      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'flex-end', gap: '4px 14px', whiteSpace: 'nowrap' }}>
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}

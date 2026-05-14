@@ -470,6 +470,23 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     display: inline-flex !important;
   }
 
+  /* /properties map: 420px tile is desktop-first. Drop to 280px on phones
+     so it doesn't eat the whole viewport before the list shows. The
+     active-property card stretches edge-to-edge with tighter padding so
+     more of the city + slip count line is readable on a narrow screen. */
+  .rt-properties-map-tile {
+    height: 280px !important;
+  }
+  .rt-properties-map-card {
+    bottom: 12px !important;
+    left: 12px !important;
+    right: 12px !important;
+    max-width: none !important;
+  }
+  .rt-properties-map-card > a {
+    padding: 12px 14px !important;
+  }
+
   /* /messaging Performance section — desktop is dense by design (3-col KPI
      grid + tier breakdown inline + wide one-shot hero), and reads as
      chart-junk on a phone. Stack the hero, halve the KPI grid, drop the

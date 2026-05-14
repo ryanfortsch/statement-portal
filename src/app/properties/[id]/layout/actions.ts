@@ -210,44 +210,55 @@ export async function setZoneItems(args: {
 }
 
 // ─── Form-shaped wrappers ──────────────────────────────────────────────
-// The page uses `<form action={...}>` patterns to avoid client JS. These
-// wrappers pull FormData payloads and delegate to the object-arg actions.
-// Each returns void: `<form action>` in Next 16 strict typings only accepts
-// `void | Promise<void>`, but the underlying object-arg actions return
-// ActionResult for callable callers. Discard the ActionResult here; the
-// actions themselves call revalidatePath / redirect for navigation.
+// Each form action takes a single FormData arg and pulls every value it
+// needs (including IDs) from hidden form fields. This is the only shape
+// that survives both the `<form action={...}>` server-action contract and
+// Next 16's strict typings — earlier variants used .bind() or inline
+// arrow wrappers and both broke at runtime / build time.
+//
+// The underlying object-arg actions return ActionResult for direct
+// callers; the wrappers below discard it (revalidatePath / redirect
+// happen inside the underlying actions).
 
-export async function createZoneFromForm(propertyId: string, formData: FormData): Promise<void> {
+export async function createZoneFromForm(formData: FormData): Promise<void> {
   await createZone({
-    propertyId,
+    propertyId: String(formData.get('property_id') || ''),
     name: String(formData.get('name') || ''),
     floor_label: String(formData.get('floor_label') || '') || null,
     notes: String(formData.get('notes') || '') || null,
   });
 }
 
-export async function updateZoneFromForm(zoneId: string, formData: FormData): Promise<void> {
+export async function updateZoneFromForm(formData: FormData): Promise<void> {
   await updateZone({
-    zoneId,
+    zoneId: String(formData.get('zone_id') || ''),
     name: String(formData.get('name') || ''),
     floor_label: String(formData.get('floor_label') || '') || null,
     notes: String(formData.get('notes') || '') || null,
   });
 }
 
-export async function deleteZoneFromForm(zoneId: string): Promise<void> {
-  await deleteZone(zoneId);
+export async function deleteZoneFromForm(formData: FormData): Promise<void> {
+  await deleteZone(String(formData.get('zone_id') || ''));
 }
 
-export async function moveZoneFromForm(zoneId: string, direction: 'up' | 'down'): Promise<void> {
-  await moveZone({ zoneId, direction });
+export async function moveZoneFromForm(formData: FormData): Promise<void> {
+  const direction = String(formData.get('direction') || '');
+  if (direction !== 'up' && direction !== 'down') return;
+  await moveZone({
+    zoneId: String(formData.get('zone_id') || ''),
+    direction: direction as 'up' | 'down',
+  });
 }
 
-export async function setZoneItemsFromForm(zoneId: string, formData: FormData): Promise<void> {
+export async function setZoneItemsFromForm(formData: FormData): Promise<void> {
   // Checkboxes share name 'item_id'; FormData.getAll returns all checked values.
   const ids = formData
     .getAll('item_id')
     .map((v) => String(v))
     .filter(Boolean);
-  await setZoneItems({ zoneId, inspectionItemIds: ids });
+  await setZoneItems({
+    zoneId: String(formData.get('zone_id') || ''),
+    inspectionItemIds: ids,
+  });
 }

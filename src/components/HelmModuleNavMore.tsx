@@ -108,28 +108,19 @@ function ModuleItem({
 }) {
   const reachable = m.status === 'active' || m.status === 'external';
 
+  // Numbers were dropped from the More dropdown - the canonical module
+  // numbers live in helm-modules.ts and read fine on the home page where
+  // every module renders in sequence, but here (filtered to non-primary
+  // modules) they read as a broken list with gaps at 02/04/05/06/08 plus
+  // the 08a sub-module for Guest Intel. Title-only is cleaner.
   const content = (
     <div
       style={{
-        padding: '8px 16px',
-        display: 'grid',
-        gridTemplateColumns: '32px 1fr',
-        gap: 12,
-        alignItems: 'baseline',
+        padding: '10px 18px',
         opacity: reachable ? 1 : 0.5,
         background: active ? 'var(--paper-2)' : 'transparent',
       }}
     >
-      <span
-        className="font-mono"
-        style={{
-          fontSize: 10,
-          color: reachable ? 'var(--signal)' : 'var(--ink-4)',
-          letterSpacing: '.08em',
-        }}
-      >
-        {m.number}
-      </span>
       <div
         className="font-serif"
         style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}
