@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
-import { DownloadPropertyDocxButton } from '@/components/properties/DownloadPropertyDocxButton';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
@@ -920,7 +919,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 Open ↗
               </Link>
               <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
-              <DownloadPropertyDocxButton propertyId={p.id} type="home-guide" />
             </div>
           </div>
           {/* Welcome Card tile — 4 × 6 on-arrival card combining the warm
@@ -941,7 +939,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 Open ↗
               </Link>
               <DownloadPropertyPdfButton propertyId={p.id} type="welcome-card" label="Download PDF" />
-              <DownloadPropertyDocxButton propertyId={p.id} type="welcome-card" />
             </div>
           </div>
           {/* WiFi Placard tile */}
@@ -963,7 +960,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                 Open ↗
               </Link>
               <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
-              <DownloadPropertyDocxButton propertyId={p.id} type="wifi-placard" />
             </div>
           </div>
           {/* Information Note tile — Gloucester-only. The note cites the
@@ -990,7 +986,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
                   Open ↗
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
-                <DownloadPropertyDocxButton propertyId={p.id} type="info-note" />
               </div>
             </div>
           )}
