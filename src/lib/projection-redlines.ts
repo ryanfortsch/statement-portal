@@ -297,6 +297,48 @@ Examples of common mistakes:
 REPLACE PRESERVES CHILDREN — DON'T DELETE COLLATERALLY
 A replace swaps a clause's template/title but keeps its children intact. To swap out a single bullet (e.g. "written notice and an estimate"), use replace on THAT specific bullet's ID. Do NOT delete the parent ("Examples include:") just to remove the child — deleting a parent deletes its sub-bullets too, taking unrelated content with it.
 
+FIND STRINGS TARGET THE TEMPLATE LITERAL, NOT THE RENDERED TEXT
+Clause templates contain {{varName}} placeholders for deal-specific values: {{ownerName}}, {{propertyAddress}}, {{propertyType}}, {{mgmtPct}}, {{deposit}}, {{minBalance}}, {{minDays}}, {{saleDays}}, {{repFee}}, {{termStartShort}}, {{termEndShort}}, {{termStartLong}}, {{termEndLong}}. The variables get substituted at render time; they are NOT in the template literal.
+
+Your modify's \`find\` string must match the TEMPLATE LITERAL, not the rendered output. If you write \`find: "185 days' written notice"\` the renderer can never match because the template has \`{{saleDays}} written notice\` — not the string "185 days'".
+
+Examples:
+
+  Clause protection-notification's template (visible in the inventory):
+    "The Owner shall provide the Property Manager with {{saleDays}} written notice of intent to sell the Property."
+
+  WRONG: \`find: "185 days' written notice"\` → fails ("185 days'" is not in the template)
+  RIGHT: \`find: "{{saleDays}} written notice"\` → matches the placeholder span
+
+  Owner: "Spell out the 185 days in words."
+  →  modify protection-notification:
+       find: "{{saleDays}} written notice",
+       replaceWith: "one hundred eighty-five (185) days' written notice"
+     (This drops the {{saleDays}} substitution in favor of literal text — fine when the deal value is now fixed by the contract language itself.)
+
+  Owner: "Change the sale notification period from 185 to 90 days."
+  →  This is a FIELD CHANGE, not a contract override. Emit:
+       field_changes: [{ field: "sale_notification_days", new_value: 90, ... }]
+     The clause template stays as {{saleDays}} and the renderer substitutes the new value.
+
+Rule of thumb:
+  - Number/date/dollar amount change with no surrounding-text change → \`field_changes\`.
+  - Anything that changes surrounding language, even if it also embeds a number → \`contract_overrides\` modify with the template literal (including any {{varName}} placeholders).
+
+ONE OVERRIDE PER CLAUSE (for the same conceptual change)
+If a clause is being modified by the owner's request, emit ONE override for it, not several. Multiple modifies on the same clauseId are processed in order, and the second one can't find its span if the first one already changed it. Two failure modes follow:
+
+  - You emit replace + modify on the same clauseId. The replace consumes the whole template; the modify's find no longer matches.
+  - You emit two modifies on overlapping spans of the same clauseId. The first one changes the text; the second one's find string can't find what it's looking for.
+
+If a clause needs multiple span-level changes, prefer ONE replace with the full new template (preserving any unrelated existing spans). Use modify only when the change is genuinely a single span swap.
+
+DON'T REPLACE A PARENT AND THEN MODIFY ITS CHILDREN
+Replacing or deleting a parent clause removes its children (or makes their IDs stale). If the owner's request restructures a parent and edits its children, either:
+  (a) replace the parent with new text that includes the children's new wording inline, or
+  (b) modify the children first and the parent last, taking care that the parent's modify doesn't span over the children's edited text.
+Either way: don't emit child-targeted overrides AFTER a parent-replacing override. The renderer can't find children that no longer exist.
+
 CONTRACT-SECTION TAXONOMY (use the right labels)
 ${SECTION_TAXONOMY}
 An auto-renewal-notice change is NON-RENEWAL NOTICE, not Termination. Use the section IDs above when targeting via targetId.
