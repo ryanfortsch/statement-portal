@@ -486,23 +486,17 @@ type _Unused = ContractSectionContent;
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
-  /* Page geometry. The default @page rule sets the body margin
-     (56px 80px) since that's what most printed sheets need. The
-     cover uses a named cover-page rule with margin:0 to bleed
-     full navy. Sig-page also uses default margins.
-
-     Why default = body margin instead of 0: Chromium honors named
-     @page rules for the FIRST printed sheet of an element that
-     declares the page property, but does not reliably propagate
-     the named rule to OVERFLOW sheets when content paginates
-     across multiple sheets. So if the default were margin 0 and
-     body-page were 56px 80px, only the first body sheet would get
-     the margin and overflow sheets would render at the page edge.
-     Inverting the default fixes this: body content gets the right
-     margin on EVERY sheet from the default, and cover-page only
-     needs to work on the single cover sheet (which it does). */
-  @page { size: 8.5in 11in; margin: 56px 80px; }
-  @page cover-page { size: 8.5in 11in; margin: 0; }
+  /* Page geometry. Single @page rule with margin: 0 — every sheet
+     bleeds full. Per-sheet body margins come from the .rt-doc-body
+     wrapper's padding combined with box-decoration-break: clone,
+     which makes the wrapper's padding REPEAT on every printed
+     sheet a paginated block spans (the CSS-standard mechanism for
+     this; spec'd in CSS Backgrounds & Borders, supported in
+     Chromium). Earlier attempts with named @page rules + the page
+     property weren't reliably honored by Chromium for overflow
+     sheets, leaving either the cover with a paper border or body
+     overflow sheets with no margin. */
+  @page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
 
@@ -550,24 +544,25 @@ const contractCss = `
       display: block;
       align-items: initial;
     }
-    /* Body pages dissolve into a continuous flow via display:contents
-       (the wrapper is removed from layout, so its sections become
-       siblings of .rt-doc-body). Per-sheet margins come from the
-       default @page rule (56px 80px). */
+    /* Body pages dissolve into a continuous flow via display:contents.
+       Sections become siblings of .rt-doc-body. The wrapper's
+       padding + box-decoration-break:clone provides per-sheet
+       margins that REPEAT on every printed sheet body content
+       spans — this is the standardized CSS way to repeat box
+       decorations across paginated fragments. */
+    .rt-doc-body {
+      padding: 56px 80px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
     .rt-doc-page {
       box-shadow: none;
       display: contents;
     }
-    /* Cover bleeds via @page cover-page (margin 0). The element
-       fills the full sheet (width 8.5in, min-height 11in) and the
-       named page rule gives it a 0-margin printable area. Earlier
-       attempt used negative margins to bleed past a body-style
-       @page margin, but with the named cover-page rule the cover
-       sheet already has zero margin so the negative shift was
-       moving content OFF the page (top 56px clipped, left 80px
-       clipped, right/bottom paper borders). */
+    /* Cover bleeds full navy. With @page margin: 0 globally there's
+       no @page margin to fight against — the element at width 8.5in
+       and min-height 11in fills the sheet edge-to-edge. */
     .rt-cover {
-      page: cover-page;
       display: flex;
       flex-direction: column;
       width: 8.5in;
