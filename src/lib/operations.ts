@@ -415,14 +415,28 @@ export async function loadOperationsData(
     });
   }
 
+  // Dedupe by the natural turnover key (property + checkIn + checkOut).
+  // Guesty occasionally emits a reservation twice when it's been edited and
+  // re-synced — different guesty_reservation_id, same booking — which made
+  // the same stay render as two adjacent identical cards on the pipeline.
+  // The reservation row sorted later by check_in then guesty_reservation_id
+  // wins, so we keep whichever the API returned last (most recently
+  // edited).
+  const turnoversByKey = new Map<string, Turnover>();
+  for (const t of turnovers) {
+    const key = `${t.propertyId}|${t.checkIn}|${t.checkOut}`;
+    turnoversByKey.set(key, t);
+  }
+  const dedupedTurnovers = [...turnoversByKey.values()];
+
   // Sort: by check-in date, then same-day turnovers first, then property name.
-  turnovers.sort((a, b) => {
+  dedupedTurnovers.sort((a, b) => {
     if (a.checkIn !== b.checkIn) return a.checkIn < b.checkIn ? -1 : 1;
     if (a.isSameDayTurnover !== b.isSameDayTurnover) return a.isSameDayTurnover ? -1 : 1;
     return a.propertyName.localeCompare(b.propertyName);
   });
 
-  const inspectionDoneCount = turnovers.filter((t) => t.inspectionStatus === 'complete').length;
+  const inspectionDoneCount = dedupedTurnovers.filter((t) => t.inspectionStatus === 'complete').length;
 
   // ── Calendar ──────────────────────────────────────────────────────────
   // One row per active property, columns = `calendarDays` consecutive dates
@@ -459,8 +473,8 @@ export async function loadOperationsData(
   return {
     rangeStart,
     rangeEnd,
-    turnovers,
-    totalCount: turnovers.length,
+    turnovers: dedupedTurnovers,
+    totalCount: dedupedTurnovers.length,
     inspectionDoneCount,
     calendar: {
       days: calendarDayList,

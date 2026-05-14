@@ -232,11 +232,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             Pick a wider range to see upcoming check-ins.
           </div>
         ) : (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {data.turnovers.map((t) => (
-              <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
-            ))}
-          </div>
+          <TurnoverList turnovers={data.turnovers} myEmail={myEmail} />
         )}
       </section>
 
@@ -297,6 +293,49 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       </section>
 
       <HelmFooter module="Turnovers" right="Source: Guesty + Helm inspections" />
+    </div>
+  );
+}
+
+/**
+ * Top N turnover cards render up front; the rest collapse under a native
+ * <details> expander so the pipeline doesn't read as an endless scroll
+ * once we onboard more properties. The component is server-rendered so
+ * we use the no-JS <details>/<summary> primitive rather than the client
+ * useState pattern over on /work.
+ */
+const TURNOVER_INITIAL_LIMIT = 5;
+
+function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+  const visible = turnovers.slice(0, TURNOVER_INITIAL_LIMIT);
+  const rest = turnovers.slice(TURNOVER_INITIAL_LIMIT);
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)' }}>
+      {visible.map((t) => (
+        <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+      ))}
+      {rest.length > 0 && (
+        <details className="rt-turnover-expander">
+          <summary
+            style={{
+              listStyle: 'none',
+              cursor: 'pointer',
+              borderBottom: '1px solid var(--rule)',
+              padding: '14px 0',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--ink-3)',
+            }}
+          >
+            ↓ Show {rest.length} more turnover{rest.length === 1 ? '' : 's'}
+          </summary>
+          {rest.map((t) => (
+            <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+          ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -373,6 +412,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         </div>
         {t.previousCheckout && (
           <div
+            className={t.isSameDayTurnover ? 'rt-turnover-prev rt-turnover-prev-sameday' : 'rt-turnover-prev'}
             style={{
               marginTop: 2,
               fontSize: 11,
@@ -381,7 +421,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             }}
           >
             {t.isSameDayTurnover
-              ? 'Tight turnaround — previous guest checks out today'
+              ? 'Tight turnaround · previous guest checks out today'
               : `Prev. checkout ${formatDateShort(t.previousCheckout)}`}
           </div>
         )}

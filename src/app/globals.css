@@ -365,6 +365,23 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     align-self: flex-end;
     padding-top: 4px;
   }
+  /* Prev. checkout line is muted scaffolding on phones - the work-slip
+     count + cleaning chip already tell the operator what state the prep
+     window is in. Keep it visible only for same-day turnarounds, where
+     "previous guest checks out today" is the headline. */
+  .rt-turnover-row .rt-turnover-prev {
+    display: none !important;
+  }
+  .rt-turnover-row .rt-turnover-prev.rt-turnover-prev-sameday {
+    display: block !important;
+  }
+  /* Tighten card vertical padding so the pipeline reads at fewer scroll
+     units. The chips wrap is the noisiest row so reduce the gap there
+     a touch. */
+  .rt-turnover-row {
+    padding: 14px 0 !important;
+    gap: 6px !important;
+  }
 
   /* Stepper: + Add note / + Photo / + Work slip currently wraps to two
      rows because the labels are wide. Three equal-width buttons on a
@@ -551,3 +568,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-insights-6 > div:nth-child(3) { border-right: none; }
   .rt-insights-6 > div:nth-child(n+4) { border-top: 1px solid var(--rule); }
 }
+
+/* /operations turnover-list "Show N more" expander: render the summary as
+   a tappable row rather than a disclosure widget. Cross-browser marker
+   hide so Safari/Firefox don't show their default triangle/arrow next to
+   the all-caps label. */
+.rt-turnover-expander > summary { list-style: none; }
+.rt-turnover-expander > summary::-webkit-details-marker { display: none; }
+.rt-turnover-expander > summary::marker { display: none; }
+.rt-turnover-expander > summary:hover { color: var(--ink); }
