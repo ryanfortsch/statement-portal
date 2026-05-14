@@ -483,15 +483,14 @@ const contractCss = `
     font-family: var(--font-inter), system-ui, sans-serif;
   }
   /* Logical page in the contract tree (Summary+Term+Mgr Resp; Initial
-     Deposit + Income; etc.). Each becomes one printed sheet with its
-     own DocFooter at the bottom. Short blocks pad to 1056px (one full
-     sheet); tall blocks (override-expanded sections) flow naturally
-     across multiple sheets, with page-break-after firing once at the
-     end of the block. Earlier attempt set min-height:0 in print to
-     "let the engine paginate freely", but that left short blocks
-     stranded mid-sheet with page-break-after firing on partial
-     content, producing blank/short PDF sheets (10 pages for a ~7pg
-     contract). */
+     Deposit + Income; etc.). On screen each renders as a framed
+     816x1056 sheet (drop-shadow + gap) so staff preview the doc as
+     paginated. In print, body pages collapse into a single continuous
+     flow so the print engine paginates on natural content height. The
+     prior model (page-break-after:always on every .rt-doc-page) was
+     fighting print pagination: flex+min-height+forced-breaks produced
+     blank/short PDF sheets when an override-expanded section spilled
+     past one sheet, ballooning a ~7pg contract into 10pgs. */
   .rt-doc-page {
     position: relative;
     width: 816px;
@@ -513,22 +512,48 @@ const contractCss = `
     page-break-inside: avoid;
   }
   @media print {
+    /* Force backgrounds to render in the PDF (cover navy, override
+       banners, etc.). Without this Chromium's print engine drops
+       background colors on most elements even with printBackground
+       true on the Puppeteer side. */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     html, body { background: var(--paper); }
     .rt-doc { gap: 0; padding: 0; background: var(--paper); display: block; }
     .rt-doc-page {
       box-shadow: none;
+      /* Body pages flow continuously; only the cover and signatures
+         force their own printed sheets (see rules below). Drop the
+         flex layout so the print engine paginates on plain block
+         flow, which it does reliably. */
+      display: block;
+      min-height: 0;
+      padding: 56px 80px;
+    }
+    /* Cover gets its own printed sheet, full navy background. */
+    .rt-cover {
       page-break-after: always;
       break-after: page;
-      /* Keep min-height: 1056px so short logical pages pad to fill a
-         full printed sheet. Tall pages still flow over multiple
-         sheets because min-height is a floor, not a ceiling. */
+      min-height: 1056px;
+      display: flex;
+      flex-direction: column;
     }
-    .rt-doc-page:last-child { page-break-after: auto; break-after: auto; }
+    /* Signatures start on a fresh printed sheet. */
+    .rt-c-sig-page {
+      page-break-before: always;
+      break-before: page;
+      min-height: 1056px;
+    }
     .rt-c-signing-slot { display: none !important; }
     .rt-c-skipped { display: none !important; }
-    /* Page footer should print on the last printed sheet of each
-       logical page, not be cropped if the page overflows. */
-    .rt-c-foot { break-before: avoid; page-break-before: avoid; }
+    /* Inline DocFooter is tied to logical pages, but with continuous
+       body flow the logical-to-printed mapping isn't 1:1 anymore.
+       Hide in print to keep the brand+page-number band from landing
+       mid-sheet. The cover keeps its own .rt-cover-foot (a different
+       element with Date/Owner). */
+    .rt-c-foot { display: none !important; }
   }
 
   /* Override-failure banner — staff-only, screen-only. Explicit colors
