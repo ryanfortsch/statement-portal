@@ -558,13 +558,14 @@ const contractCss = `
       box-shadow: none;
       display: contents;
     }
-    /* Cover bleeds via @page cover-page (margin 0). The .rt-cover
-       element itself uses negative margins to extend INTO what
-       would've been the @page margin area on its sheet, since
-       cover-page reduces that area to zero. Without negative
-       margins, the cover element would be sized for the default
-       @page printable area (8.5in - 160px wide) and not fill the
-       full sheet. */
+    /* Cover bleeds via @page cover-page (margin 0). The element
+       fills the full sheet (width 8.5in, min-height 11in) and the
+       named page rule gives it a 0-margin printable area. Earlier
+       attempt used negative margins to bleed past a body-style
+       @page margin, but with the named cover-page rule the cover
+       sheet already has zero margin so the negative shift was
+       moving content OFF the page (top 56px clipped, left 80px
+       clipped, right/bottom paper borders). */
     .rt-cover {
       page: cover-page;
       display: flex;
@@ -573,7 +574,6 @@ const contractCss = `
       min-height: 11in;
       box-sizing: border-box;
       padding: 96px 80px 80px;
-      margin: -56px -80px;
       page-break-after: always;
       break-after: page;
     }
