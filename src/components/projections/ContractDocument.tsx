@@ -483,15 +483,15 @@ const contractCss = `
     font-family: var(--font-inter), system-ui, sans-serif;
   }
   /* Logical page in the contract tree (Summary+Term+Mgr Resp; Initial
-     Deposit + Income; etc.). Each starts a fresh printed page via
-     page-break-after:always, but is allowed to GROW past 1056px when
-     overrides expand its content. Old behavior — fixed height +
-     overflow:hidden — silently clipped sections when content grew,
-     leaving Liability/Insurance/Force Majeure invisible after a 47-
-     override redline run. Now: the print engine paginates long pages
-     across multiple printed sheets; the screen preview shows variable-
-     height pages (still visually framed by drop-shadow + gap) so all
-     content is visible. */
+     Deposit + Income; etc.). Each becomes one printed sheet with its
+     own DocFooter at the bottom. Short blocks pad to 1056px (one full
+     sheet); tall blocks (override-expanded sections) flow naturally
+     across multiple sheets, with page-break-after firing once at the
+     end of the block. Earlier attempt set min-height:0 in print to
+     "let the engine paginate freely", but that left short blocks
+     stranded mid-sheet with page-break-after firing on partial
+     content, producing blank/short PDF sheets (10 pages for a ~7pg
+     contract). */
   .rt-doc-page {
     position: relative;
     width: 816px;
@@ -519,8 +519,9 @@ const contractCss = `
       box-shadow: none;
       page-break-after: always;
       break-after: page;
-      /* Pagination within a logical page when content overflows. */
-      min-height: 0;
+      /* Keep min-height: 1056px so short logical pages pad to fill a
+         full printed sheet. Tall pages still flow over multiple
+         sheets because min-height is a floor, not a ceiling. */
     }
     .rt-doc-page:last-child { page-break-after: auto; break-after: auto; }
     .rt-c-signing-slot { display: none !important; }
