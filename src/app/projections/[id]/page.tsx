@@ -6,6 +6,7 @@ import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
+import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
 import {
   Pipeline,
   Stage,
@@ -116,11 +117,28 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             {projection.prospect_name}
           </span>
         </p>
-        <div className="font-serif tabular-nums" style={{ marginTop: 22, fontSize: 32, fontWeight: 400, color: 'var(--signal)', lineHeight: 1.05 }}>
-          {fmtMoneyRange(computed.heroLow, computed.heroHigh)}
-        </div>
-        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>
-          Year 1 estimate (net) · cover range
+        {/* Two hero metrics side-by-side: cover range (signal) on the left,
+            close-likelihood (ink) on the right. Both serif, both big — the
+            deal value × the chance of getting it. */}
+        <div
+          style={{
+            marginTop: 22,
+            display: 'grid',
+            gridTemplateColumns: 'auto auto',
+            gap: 56,
+            alignItems: 'flex-start',
+          }}
+        >
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>Cover range</div>
+            <div className="font-serif tabular-nums" style={{ fontSize: 32, fontWeight: 400, color: 'var(--signal)', lineHeight: 1.05 }}>
+              {fmtMoneyRange(computed.heroLow, computed.heroHigh)}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.06em' }}>
+              Year 1 estimate (net)
+            </div>
+          </div>
+          <CloseLikelihoodWidget projectionId={id} value={projection.close_likelihood_pct} size="large" />
         </div>
       </section>
 

@@ -64,6 +64,10 @@ export type ProjectionRow = {
   status: 'draft' | 'sent';
   sent_at: string | null;
 
+  // Analyst-entered confidence (0–100). Surfaces on the identity strip + the
+  // Prospects list row badge. Null until the analyst sets one.
+  close_likelihood_pct: number | null;
+
   // Per-deal contract addenda. Legacy field: was rendered as a "Rider"
   // page after Sale Protection. Now superseded by contract_overrides
   // below — kept for backward compat on projections created before
