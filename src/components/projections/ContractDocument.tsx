@@ -529,6 +529,11 @@ const contractCss = `
       box-shadow: none;
       page-break-after: always;
       break-after: page;
+      /* Match @page width exactly in the same unit (inches) so the
+         block fills the sheet edge-to-edge. With width: 816px on a
+         8.5in sheet, Chromium's px-to-in rounding left a thin paper
+         strip on the right of the cover. */
+      width: 8.5in;
     }
     .rt-doc-page:last-child {
       page-break-after: auto;
