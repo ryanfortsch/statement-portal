@@ -1,8 +1,15 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { fetchStats } from './stats-action';
+import {
+  editFactAction,
+  deleteFactAction,
+  restoreFactAction,
+  createFactAction,
+} from './facts-actions';
 import type { MessagingStats, Fact } from '@/lib/stay-concierge';
 
 type Props = {
@@ -462,32 +469,85 @@ function LearningSection({
         )}
       </div>
 
-      {facts.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <div
-            className="eyebrow"
-            style={{ color: 'var(--ink-3)', marginBottom: 14 }}
-          >
+      <div style={{ marginTop: 24 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginBottom: 14,
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div className="eyebrow" style={{ color: 'var(--ink-3)' }}>
             Facts the AI knows now ({facts.length} most recent)
           </div>
+          <AddFactButton />
+        </div>
+        {facts.length > 0 && (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {facts.map((f, i) => (
-              <FactCard key={`${f.source_heading}-${i}`} fact={f} />
+            {facts.map((f) => (
+              <FactCard key={f.id} fact={f} />
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 function FactCard({ fact }: { fact: Fact }) {
+  const router = useRouter();
   const [showSource, setShowSource] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(fact.fact);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const handleSaveEdit = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await editFactAction(fact.id, { fact: draftText });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setEditing(false);
+      router.refresh();
+    });
+  };
+
+  const handleDelete = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteFactAction(fact.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
+
+  const handleRestore = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await restoreFactAction(fact.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
+
   return (
     <li
       style={{
         borderTop: '1px solid var(--rule)',
         padding: '16px 4px',
+        opacity: fact.is_deleted ? 0.5 : 1,
       }}
     >
       <div
@@ -500,22 +560,38 @@ function FactCard({ fact }: { fact: Fact }) {
         }}
       >
         <ScopeChip scope={fact.scope} />
-        <span
-          className="eyebrow"
-          style={{ color: 'var(--ink-4)', fontSize: 10 }}
-        >
-          {fact.topic.replace(/_/g, ' ')}
-        </span>
-        {fact.confidence !== 'high' && (
+        {fact.topic && (
           <span
             className="eyebrow"
-            style={{
-              color: 'var(--ink-4)',
-              fontSize: 10,
-              fontStyle: 'italic',
-            }}
+            style={{ color: 'var(--ink-4)', fontSize: 10 }}
           >
-            {fact.confidence} confidence
+            {fact.topic.replace(/_/g, ' ')}
+          </span>
+        )}
+        {fact.is_edited && (
+          <span
+            className="eyebrow"
+            style={{ color: 'var(--signal)', fontSize: 10, fontWeight: 600 }}
+            title="Operator-edited from the original distillation"
+          >
+            ✎ edited
+          </span>
+        )}
+        {fact.is_custom && (
+          <span
+            className="eyebrow"
+            style={{ color: 'var(--signal)', fontSize: 10, fontWeight: 600 }}
+            title="Added directly by operator"
+          >
+            + added
+          </span>
+        )}
+        {fact.is_deleted && (
+          <span
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)', fontSize: 10, fontWeight: 600 }}
+          >
+            deleted
           </span>
         )}
         <span
@@ -529,36 +605,104 @@ function FactCard({ fact }: { fact: Fact }) {
           {fact.source_date}
         </span>
       </div>
-      <p
-        style={{
-          margin: 0,
-          fontSize: 15,
-          lineHeight: 1.5,
-          color: 'var(--ink)',
-          fontWeight: 600,
-        }}
-      >
-        {fact.fact}
-      </p>
-      <button
-        type="button"
-        onClick={() => setShowSource((v) => !v)}
-        style={{
-          marginTop: 8,
-          background: 'transparent',
-          border: 'none',
-          padding: 0,
-          fontSize: 11,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          fontWeight: 500,
-          color: 'var(--ink-3)',
-          cursor: 'pointer',
-        }}
-      >
-        {showSource ? 'Hide source ▴' : 'Show source ▾'}
-      </button>
-      {showSource && (
+
+      {editing ? (
+        <div>
+          <textarea
+            value={draftText}
+            onChange={(e) => setDraftText(e.target.value)}
+            rows={3}
+            style={{
+              width: '100%',
+              padding: 10,
+              border: '1px solid var(--ink)',
+              background: 'var(--paper)',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              color: 'var(--ink)',
+              resize: 'vertical',
+              fontWeight: 600,
+              lineHeight: 1.5,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <SmallPrimaryButton onClick={handleSaveEdit} disabled={isPending || !draftText.trim()}>
+              Save edit
+            </SmallPrimaryButton>
+            <SmallSecondaryButton
+              onClick={() => {
+                setEditing(false);
+                setDraftText(fact.fact);
+                setError(null);
+              }}
+              disabled={isPending}
+            >
+              Cancel
+            </SmallSecondaryButton>
+          </div>
+        </div>
+      ) : (
+        <p
+          style={{
+            margin: 0,
+            fontSize: 15,
+            lineHeight: 1.5,
+            color: 'var(--ink)',
+            fontWeight: 600,
+            textDecoration: fact.is_deleted ? 'line-through' : 'none',
+          }}
+        >
+          {fact.fact}
+        </p>
+      )}
+
+      {error && (
+        <p
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            color: 'var(--signal)',
+            fontWeight: 500,
+          }}
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+
+      {!editing && (
+        <div
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            gap: 14,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
+          {!fact.is_deleted && (
+            <SmallTextButton onClick={() => setEditing(true)} disabled={isPending}>
+              Edit
+            </SmallTextButton>
+          )}
+          {!fact.is_deleted ? (
+            <SmallTextButton onClick={handleDelete} disabled={isPending} tone="danger">
+              Delete
+            </SmallTextButton>
+          ) : (
+            <SmallTextButton onClick={handleRestore} disabled={isPending}>
+              Restore
+            </SmallTextButton>
+          )}
+          {fact.source_body_short && (
+            <SmallTextButton onClick={() => setShowSource((v) => !v)} disabled={isPending}>
+              {showSource ? 'Hide source' : 'Show source'}
+            </SmallTextButton>
+          )}
+        </div>
+      )}
+
+      {showSource && fact.source_body_short && (
         <div
           style={{
             marginTop: 10,
@@ -572,10 +716,279 @@ function FactCard({ fact }: { fact: Fact }) {
             fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
           }}
         >
+          {fact.is_edited && fact.original_fact && (
+            <div style={{ marginBottom: 10, color: 'var(--ink-4)' }}>
+              <strong style={{ color: 'var(--ink-3)' }}>Original distillation:</strong>{' '}
+              {fact.original_fact}
+            </div>
+          )}
+          <div style={{ color: 'var(--ink-4)', marginBottom: 4, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Original coaching
+          </div>
           {fact.source_body_short}
         </div>
       )}
     </li>
+  );
+}
+
+function AddFactButton() {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [fact, setFact] = useState('');
+  const [scope, setScope] = useState('');
+  const [topic, setTopic] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const handleCreate = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await createFactAction({ fact, scope, topic });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setOpen(false);
+      setFact('');
+      setScope('');
+      setTopic('');
+      router.refresh();
+    });
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{
+          fontSize: 11,
+          letterSpacing: '0.16em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          color: 'var(--ink)',
+          background: 'var(--paper)',
+          border: '1px solid var(--ink)',
+          padding: '8px 14px',
+          cursor: 'pointer',
+        }}
+      >
+        + Add a fact
+      </button>
+    );
+  }
+  return (
+    <div
+      style={{
+        width: '100%',
+        marginTop: 12,
+        padding: 16,
+        background: 'var(--paper-2)',
+        border: '1px solid var(--ink)',
+      }}
+    >
+      <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
+        New fact
+      </div>
+      <textarea
+        value={fact}
+        onChange={(e) => setFact(e.target.value)}
+        placeholder="What should the AI know? (e.g. 'For 53 Rocky Neck minimum stay, see lead-time table.')"
+        rows={3}
+        style={{
+          width: '100%',
+          padding: 10,
+          border: '1px solid var(--rule)',
+          background: 'var(--paper)',
+          fontFamily: 'inherit',
+          fontSize: 14,
+          color: 'var(--ink)',
+          fontWeight: 600,
+          lineHeight: 1.5,
+          marginBottom: 10,
+        }}
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div>
+          <label
+            htmlFor="new-fact-scope"
+            className="eyebrow"
+            style={{ display: 'block', marginBottom: 4, color: 'var(--ink-4)', fontSize: 10 }}
+          >
+            Scope
+          </label>
+          <input
+            id="new-fact-scope"
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            placeholder="53_rocky_neck, all properties, voice, process"
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper)',
+              fontFamily: 'inherit',
+              fontSize: 13,
+              color: 'var(--ink)',
+            }}
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="new-fact-topic"
+            className="eyebrow"
+            style={{ display: 'block', marginBottom: 4, color: 'var(--ink-4)', fontSize: 10 }}
+          >
+            Topic (optional)
+          </label>
+          <input
+            id="new-fact-topic"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="minimum_stay, pet_policy, etc."
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper)',
+              fontFamily: 'inherit',
+              fontSize: 13,
+              color: 'var(--ink)',
+            }}
+          />
+        </div>
+      </div>
+      {error && (
+        <p
+          style={{
+            margin: '0 0 10px 0',
+            fontSize: 12,
+            color: 'var(--signal)',
+            fontWeight: 500,
+          }}
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <SmallPrimaryButton onClick={handleCreate} disabled={isPending || !fact.trim() || !scope.trim()}>
+          Add fact
+        </SmallPrimaryButton>
+        <SmallSecondaryButton
+          onClick={() => {
+            setOpen(false);
+            setFact('');
+            setScope('');
+            setTopic('');
+            setError(null);
+          }}
+          disabled={isPending}
+        >
+          Cancel
+        </SmallSecondaryButton>
+      </div>
+    </div>
+  );
+}
+
+function SmallPrimaryButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: disabled ? 'var(--ink-4)' : 'var(--ink)',
+        color: 'var(--paper)',
+        border: 'none',
+        padding: '7px 14px',
+        fontSize: 10,
+        letterSpacing: '0.16em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.7 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SmallSecondaryButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+        border: '1px solid var(--ink)',
+        padding: '7px 14px',
+        fontSize: 10,
+        letterSpacing: '0.16em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SmallTextButton({
+  children,
+  onClick,
+  disabled,
+  tone = 'neutral',
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: 'neutral' | 'danger';
+}) {
+  const color = tone === 'danger' ? 'var(--signal)' : 'var(--ink-3)';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        padding: 0,
+        fontSize: 11,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
+        color,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

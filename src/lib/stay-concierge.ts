@@ -85,7 +85,7 @@ export function isStayConciergeConfigured(): boolean {
 
 async function request<T>(
   path: string,
-  init: { method: 'GET' | 'POST'; body?: unknown } = { method: 'GET' },
+  init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown } = { method: 'GET' },
 ): Promise<{ ok: true; data: T } | { ok: false; error: StayConciergeError }> {
   const env = readEnv();
   if (!env) return { ok: false, error: { kind: 'unconfigured' } };
@@ -160,6 +160,7 @@ export async function getLearnings(limit = 12) {
 }
 
 export type Fact = {
+  id: string;
   fact: string;
   scope: string;
   topic: string;
@@ -168,6 +169,14 @@ export type Fact = {
   source_date: string;
   source_title: string;
   source_body_short: string;
+  is_edited: boolean;
+  is_custom: boolean;
+  is_deleted: boolean;
+  edited_at: string | null;
+  edited_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  original_fact: string;
 };
 
 export type FactsResponse = {
@@ -179,6 +188,30 @@ export type FactsResponse = {
 export async function getFacts(limit = 20, scope?: string) {
   const q = scope ? `?limit=${limit}&scope=${encodeURIComponent(scope)}` : `?limit=${limit}`;
   return request<FactsResponse>(`/api/facts${q}`);
+}
+
+export async function editFact(
+  id: string,
+  patch: { fact?: string; scope?: string; topic?: string },
+) {
+  return request<{ ok: true; fact: Fact }>(`/api/facts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: patch,
+  });
+}
+
+export async function softDeleteFact(id: string) {
+  return request<{ ok: true }>(`/api/facts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function restoreFact(id: string) {
+  return request<{ ok: true }>(`/api/facts/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+}
+
+export async function createFact(
+  body: { fact: string; scope: string; topic: string },
+) {
+  return request<{ ok: true; id: string }>(`/api/facts`, { method: 'POST', body });
 }
 
 export async function coachApproval(id: string, feedback: string) {
