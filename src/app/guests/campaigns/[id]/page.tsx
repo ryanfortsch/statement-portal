@@ -18,10 +18,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function CampaignDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ test_sent?: string }>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const testSentTo = sp.test_sent || null;
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
 
@@ -108,6 +112,15 @@ export default async function CampaignDetailPage({
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
           <div style={{ borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13 }}>
             {campaign.failed_reason}
+          </div>
+        </section>
+      )}
+
+      {/* TEST SENT FLASH */}
+      {testSentTo && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
+          <div style={{ borderLeft: '3px solid var(--positive, #2d6b50)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink)' }}>
+            Test sent to <strong>{testSentTo}</strong>. Check the inbox (and spam) for the [TEST] copy.
           </div>
         </section>
       )}
@@ -258,6 +271,11 @@ export default async function CampaignDetailPage({
               <iframe
                 title="Campaign preview"
                 srcDoc={preview.html}
+                /* sandbox without allow-top-navigation so clicks inside the
+                   preview (e.g. the staycapeann.com link in the footer)
+                   can't replace this iframe or the parent page. The
+                   preview stays put as you click around. */
+                sandbox=""
                 style={{ width: '100%', height: 720, border: 'none', display: 'block' }}
               />
             </div>
