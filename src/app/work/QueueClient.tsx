@@ -56,6 +56,14 @@ function parseTab(value: string | null): TabId {
   return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
 }
 
+// Property Work and Team Tasks both dump every item by default, which
+// turned the board into a wall of property names + task cards once the
+// roster grew past a few. Show the most urgent N up front and tuck the
+// rest behind a single expander — sorting already puts HIGH-priority
+// items first, so the limit doubles as a "what needs me now" view.
+const INITIAL_PROPERTY_LIMIT = 5;
+const INITIAL_TASK_LIMIT = 5;
+
 export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -226,6 +234,15 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       });
     }
     return [...groups.entries()].sort((a, b) => {
+      // Surface urgency first so the page reads as "what needs me today"
+      // rather than "biggest backlog wins": HIGH slips beat owner-action
+      // beats raw count, then alpha-by-name as the tiebreaker.
+      const highA = a[1].filter((s) => s.priority === 'high').length;
+      const highB = b[1].filter((s) => s.priority === 'high').length;
+      if (highA !== highB) return highB - highA;
+      const ownerA = a[1].filter((s) => s.owner_action_required).length;
+      const ownerB = b[1].filter((s) => s.owner_action_required).length;
+      if (ownerA !== ownerB) return ownerB - ownerA;
       if (a[1].length !== b[1].length) return b[1].length - a[1].length;
       const an = propertyMap.get(a[0])?.name ?? a[0];
       const bn = propertyMap.get(b[0])?.name ?? b[0];
@@ -317,8 +334,11 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           {slipsByProperty.length === 0 ? (
             <EmptyBlock message="No work slips match this filter." />
           ) : (
-            <div style={{ borderTop: '1px solid var(--ink)' }}>
-              {slipsByProperty.map(([propId, list]) => (
+            <CollapsibleList
+              items={slipsByProperty}
+              initial={INITIAL_PROPERTY_LIMIT}
+              moreLabel={(n) => `Show ${n} more propert${n === 1 ? 'y' : 'ies'}`}
+              renderItem={([propId, list]) => (
                 <PropertyGroup
                   key={propId}
                   property={propertyMap.get(propId) ?? null}
@@ -332,8 +352,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                     setShowSlipModal(true);
                   }}
                 />
-              ))}
-            </div>
+              )}
+              keyFor={([propId]) => propId}
+            />
           )}
         </section>
       )}
@@ -350,8 +371,11 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           {filteredTasks.length === 0 ? (
             <EmptyBlock message="No tasks match this filter." />
           ) : (
-            <div style={{ borderTop: '1px solid var(--ink)' }}>
-              {filteredTasks.map((t) => (
+            <CollapsibleList
+              items={filteredTasks}
+              initial={INITIAL_TASK_LIMIT}
+              moreLabel={(n) => `Show ${n} more task${n === 1 ? '' : 's'}`}
+              renderItem={(t) => (
                 <TaskRowItem
                   key={t.id}
                   task={t}
@@ -359,8 +383,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   onToggleSelect={toggleTask}
                   commentCount={taskCommentCounts[t.id] ?? 0}
                 />
-              ))}
-            </div>
+              )}
+              keyFor={(t) => t.id}
+            />
           )}
         </section>
       )}
@@ -399,6 +424,59 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         />
       )}
     </>
+  );
+}
+
+/**
+ * Render the first `initial` items, then a single "Show N more" expander
+ * (or "Show less" when expanded). Keeps the board scannable while still
+ * giving access to the long tail. Used for both Property Work and Team
+ * Tasks - the data shape is generic so callers pass renderItem / keyFor.
+ */
+function CollapsibleList<T>({
+  items,
+  initial,
+  moreLabel,
+  renderItem,
+  keyFor,
+}: {
+  items: T[];
+  initial: number;
+  moreLabel: (n: number) => string;
+  renderItem: (item: T) => React.ReactNode;
+  keyFor: (item: T) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, initial);
+  const hiddenCount = Math.max(0, items.length - initial);
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)' }}>
+      {visible.map((item) => (
+        <div key={keyFor(item)}>{renderItem(item)}</div>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          style={{
+            width: '100%',
+            background: 'none',
+            border: 'none',
+            borderBottom: '1px solid var(--rule)',
+            padding: '14px 0',
+            fontSize: 11,
+            letterSpacing: '.16em',
+            textTransform: 'uppercase',
+            fontWeight: 500,
+            color: 'var(--ink-3)',
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          {expanded ? '↑ Show less' : `↓ ${moreLabel(hiddenCount)}`}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -474,7 +552,11 @@ function PropertyGroup({
   commentCounts: Record<string, number>;
   onAddSlip: () => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  // Default collapsed: with 8+ properties × ~8 slips each, the queue
+  // is a long scroll if every group renders expanded. Triaging starts
+  // with "which property has the most work" — that's all in the
+  // header (count, high-priority badge). Click a group to drill in.
+  const [expanded, setExpanded] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
   const highCount = slips.filter((s) => s.priority === 'high').length;
@@ -804,7 +886,21 @@ function TaskRowItem({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{task.title}</div>
           {task.description && (
-            <div style={{ marginTop: 3, fontSize: 12, color: 'var(--ink-3)' }}>{task.description}</div>
+            <div
+              style={{
+                marginTop: 3,
+                fontSize: 12,
+                color: 'var(--ink-3)',
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={task.description}
+            >
+              {task.description}
+            </div>
           )}
           <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}

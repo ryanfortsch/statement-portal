@@ -19,6 +19,12 @@ export type ScrapedListing = {
   /** Display name from the listing card; undefined when not extractable. */
   name?: string;
   url: string;
+  /** Stable per-listing id from the competitor's underlying PMS. Survives
+   *  slug + title renames, which is what we actually want to diff on.
+   *  AVH      — numeric id in /vrp/unit/<Title>-<id>-15
+   *  Shoreway — Hospitable listing id, extracted from the property card's
+   *             image URL (property_images/<id>/...). */
+  externalId?: string;
 };
 
 export type ScrapeResult = {
@@ -58,15 +64,20 @@ function parseAvh(html: string): ScrapedListing[] {
   const seen = new Map<string, ScrapedListing>();
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(html))) {
-    const path = `${m[1]}-${m[2]}-15`;
+    const externalId = m[2];
+    const path = `${m[1]}-${externalId}-15`;
     const slug = avhPathToSlug(m[1]);
-    if (seen.has(slug)) continue;
+    // Prefer the externalId-keyed dedupe so a future title rename still
+    // matches the same listing. Fall back to slug-based dedupe.
+    const key = `id:${externalId}`;
+    if (seen.has(key)) continue;
     const name = avhPathToName(m[1]);
-    seen.set(slug, {
+    seen.set(key, {
       competitorId: 'atlantic-vacation-homes',
       slug,
       name,
       url: `https://www.atlanticvacationhomes.com/vrp/unit/${path}`,
+      externalId,
     });
   }
   return [...seen.values()];
@@ -104,20 +115,53 @@ export async function scrapeShoreway(): Promise<ScrapeResult> {
 }
 
 function parseShoreway(html: string): ScrapedListing[] {
-  // /property/<slug> — slugs are kebab-case.
-  const linkRe = /\/property\/([a-z0-9-]+)\b/gi;
+  // Each listing card on Hospitable's index page is shaped roughly as:
+  //   <a href="/property/<slug>" class="...">
+  //     <div><img src="https://assets.hospitable.com/property_images/<id>/...">
+  //
+  // The Hospitable listing id in the image URL is stable across slug
+  // renames. We pull (slug, externalId) pairs by walking property anchors
+  // in source order and grabbing the NEXT property_images/<id> reference.
+  // If a card has no image (rare), the externalId stays undefined and the
+  // sync will fall back to URL-based matching for that one.
+
+  const cardRe = /\/property\/([a-z0-9-]+)\b[\s\S]{0,4000}?property_images\/(\d+)/gi;
+  const orphanLinkRe = /\/property\/([a-z0-9-]+)\b/gi;
+
   const seen = new Map<string, ScrapedListing>();
+  const claimedSlugs = new Set<string>();
+
   let m: RegExpExecArray | null;
-  while ((m = linkRe.exec(html))) {
+  while ((m = cardRe.exec(html))) {
     const slug = m[1];
-    if (seen.has(slug)) continue;
-    seen.set(slug, {
+    const externalId = m[2];
+    const key = `id:${externalId}`;
+    if (seen.has(key)) continue;
+    claimedSlugs.add(slug);
+    seen.set(key, {
+      competitorId: 'shoreway-management',
+      slug,
+      name: shorewaySlugToName(slug),
+      url: `https://shorewaymanagement.hospitable.rentals/property/${slug}`,
+      externalId,
+    });
+  }
+
+  // Any /property/ links not already paired with an image — fall back to
+  // slug-keyed entries (no externalId, URL-only diff).
+  while ((m = orphanLinkRe.exec(html))) {
+    const slug = m[1];
+    if (claimedSlugs.has(slug)) continue;
+    const key = `slug:${slug}`;
+    if (seen.has(key)) continue;
+    seen.set(key, {
       competitorId: 'shoreway-management',
       slug,
       name: shorewaySlugToName(slug),
       url: `https://shorewaymanagement.hospitable.rentals/property/${slug}`,
     });
   }
+
   return [...seen.values()];
 }
 

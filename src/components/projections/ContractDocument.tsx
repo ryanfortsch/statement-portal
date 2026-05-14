@@ -1,16 +1,37 @@
 import type { ProjectionRow } from '@/lib/projections-types';
+import {
+  CONTRACT_BASE,
+  type ContractClause,
+  type ContractKv,
+  type ContractPage,
+  type ContractSection,
+  type ContractSectionContent,
+} from '@/lib/contract-base';
+import {
+  applyContractOverrides,
+  describeOverrideFailure,
+  type ContractOverride,
+} from '@/lib/contract-overrides';
 
 /**
- * The 6-page Rising Tide management contract. Shared between the internal
- * preview at /projections/<id>/contract and the public signing flow at
- * /contract/<token>.
+ * Rising Tide management contract — data-driven renderer.
  *
- * - When `projection.contract_signed_at` is set, the Owner signature block
- *   renders the typed name + signed date in place of empty lines, so the
- *   downloadable PDF reflects the signature.
- * - When `signingForm` is passed (only on the public route, only if not yet
- *   signed), it renders below the contract pages. Hidden in print so the
- *   PDF is just the contract.
+ * The contract source lives in src/lib/contract-base.ts as a structured
+ * tree of pages → sections → clauses, each with a stable ID and a
+ * {{varName}} template for deal-specific values. The redlines tool
+ * persists ContractOverride[] (see src/lib/contract-overrides.ts) on
+ * the projection record; this component applies those overrides to the
+ * base tree at render time so edits modify the contract in place.
+ *
+ * Why this shape: the prior hard-coded JSX gave the redlines engine no
+ * way to address individual clauses, so every owner-requested edit
+ * collapsed to a "Rider — Additional Terms" appendix. The 36 Granite St
+ * retro called this out as the core architectural defect. With stable
+ * IDs + action-aware overrides, each redline (replace / modify / rename
+ * / delete / add) now lands in the right place in the body.
+ *
+ * Signing flow + cover layout are unchanged — when projection.contract_signed_at
+ * is set, the owner signature block renders the typed name + date.
  */
 export function ContractDocument({
   projection,
@@ -19,36 +40,66 @@ export function ContractDocument({
   projection: ProjectionRow;
   signingForm?: React.ReactNode;
 }) {
-  const ownerName = projection.prospect_full_legal || projection.prospect_name;
-  const today = new Date();
-  const issuedDate = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const propertyAddress = `${projection.property_address}${projection.property_city ? `, ${projection.property_city}` : ''}`;
-  const propertyType = projection.property_type || 'House';
-  const mgmtPct = fmtPct(projection.mgmt_fee_pct);
-  const deposit = fmtMoney(projection.initial_deposit);
-  const minBalance = fmtMoney(projection.min_account_balance);
-  const minDays = projection.min_availability_days;
-  const saleDays = projection.sale_notification_days;
-  const repFee = fmtMoney(projection.reputation_fee);
-  // Term-date renderings. Empty term_start / term_end render as a fillable
-  // underline, not "—", so the contract reads "...shall commence on ____".
-  const termStartShort = projection.term_start ? fmtDateShort(projection.term_start) : null;
-  const termEndShort = projection.term_end ? fmtDateShort(projection.term_end) : null;
-  const termStartLong = projection.term_start ? fmtDateNarrative(projection.term_start) : null;
-  const termEndLong = projection.term_end ? fmtDateNarrative(projection.term_end) : null;
+  const overrides = (projection.contract_overrides ?? []) as ContractOverride[];
+  // Fail-soft apply: failures are collected per-override; the successful
+  // ones still land. console.error captures the failures in Vercel logs
+  // so staff can diagnose; the visible banner below alerts them inline.
+  const { pages, failures } = applyContractOverrides(overrides, CONTRACT_BASE);
+  if (failures.length > 0) {
+    console.error(
+      `[ContractDocument] ${failures.length} of ${overrides.length} override(s) failed to apply on projection ${projection.id}:`,
+      failures.map((f) => describeOverrideFailure(f)),
+    );
+  }
+
+  const vars = buildTemplateVars(projection);
+  const ownerName = vars.ownerName;
+  const issuedDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
   // Signature state. The "Date" field in the signature block is the contract's
   // effective date (term_start), not the moment the owner clicked submit.
-  // Leave it blank if term_start hasn't been filled in. The actual signing
-  // timestamp still appears in the audit footer below the signature block.
   const signedName = projection.contract_signed_name || null;
   const signedAt = projection.contract_signed_at;
-  const effectiveDate = projection.term_start ? fmtDateNarrative(projection.term_start) : null;
+  const effectiveDate = projection.term_start ? formatDateNarrative(projection.term_start) : null;
+
+  // Legacy custom_clauses fallback: ONLY when the new overrides path is
+  // unused AND there's pre-overrides clause data on the row. New work
+  // never adds to the Rider page.
+  const hasLegacyRider =
+    (overrides.length === 0) &&
+    (projection.custom_clauses?.length ?? 0) > 0;
 
   return (
     <>
       <style>{contractCss}</style>
       <div className="rt-doc">
+        {/* Failure banner — screen-only (.rt-c-skipped is display:none
+            inside @media print so the printed contract stays clean).
+            Surfaces silently-failing overrides to staff so they can
+            diagnose; without this, a misaligned modify find string
+            silently fails and the rendered text matches the base
+            contract, looking exactly like nothing was applied. */}
+        {failures.length > 0 && (
+          <div className="rt-c-skipped">
+            <div className="rt-c-skipped-head">
+              <strong>
+                {failures.length} of {overrides.length} redline edit{overrides.length === 1 ? '' : 's'} couldn&rsquo;t apply
+              </strong>
+              <span>The remaining {overrides.length - failures.length} edit{overrides.length - failures.length === 1 ? '' : 's'} did land. Common cause: the modify&rsquo;s find span doesn&rsquo;t match the current clause text (e.g. punctuation drift, or an earlier edit already changed that span). Re-run the interpreter for the affected edits.</span>
+            </div>
+            <ul className="rt-c-skipped-list">
+              {failures.map((f, i) => (
+                <li key={i}>{describeOverrideFailure(f)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Page 1 — cover */}
         <section className="rt-doc-page rt-cover">
           <div className="rt-cover-inner">
@@ -68,222 +119,84 @@ export function ContractDocument({
           </div>
         </section>
 
-        {/* Page 2 — summary, property, term, manager responsibilities */}
-        <section className="rt-doc-page">
-          <SectionTitle title="Summary" />
-          <p className="rt-c-body">
-            This Agreement is made and entered into on <DateOrBlank value={termStartLong} /> by and between Rising Tide STR, LLC (&ldquo;Property Manager&rdquo;), a Massachusetts Limited Liability Company, located at 3 Locust Lane, Gloucester, MA, and <Term>{ownerName}</Term> (&ldquo;Owner&rdquo;), collectively referred to as the &ldquo;Parties&rdquo;.
-          </p>
-
-          <SectionTitle title="Property Details" />
-          <div className="rt-c-kv">
-            <div><span>Address</span><span><Term>{propertyAddress}</Term></span></div>
-            <div><span>Type</span><span><Term>{propertyType}</Term></span></div>
-          </div>
-
-          <SectionTitle title="Term" />
-          <p className="rt-c-body">
-            This Agreement shall commence on <DateOrBlank value={termStartShort} /> and continue until <DateOrBlank value={termEndShort} />, unless terminated earlier in accordance with the terms herein.
-          </p>
-          <p className="rt-c-body">
-            This Agreement shall commence on <DateOrBlank value={termStartLong} /> and continue through <DateOrBlank value={termEndLong} />, unless terminated earlier in accordance with the terms herein. Upon expiration of the initial term, this Agreement shall automatically renew for successive one-year terms unless either party provides written notice of non-renewal. For calendar year 2026, such notice must be provided at least 60 days prior to the end of the then-current term; thereafter, notice must be provided at least 120 days prior to the end of the then-current term. This advance notice requirement ensures adequate lead time to close the calendar and prevent unfillable bookings.
-          </p>
-
-          <SectionTitle title="Property Manager's Responsibilities" />
-          <ul className="rt-c-bullets">
-            <li>Market and advertise the Property for short-term rentals.</li>
-            <li>Handle booking and reservations and offer customer support to guests.</li>
-            <li>Collect rental payments and deposit them into a bank account.</li>
-            <li>Disburse rental income to the Owner monthly.</li>
-            <li>Conduct check-in and check-out procedures.</li>
-            <li>Provide cleaning and maintenance services.</li>
-            <li>Supply and replenish consumables, including toiletries, paper towels, toilet paper, etc.</li>
-            <li>Ensure the property is ready for rental by installing necessary items for launching the property.</li>
-            <li>The Property Manager will use commercially reasonable efforts to market and rent the Property; however, the Property Manager makes no representations or warranties regarding occupancy levels or the amount of rental income that will be generated.</li>
-          </ul>
-          <DocFooter pageNum={2} />
-        </section>
-
-        {/* Page 3 — deposit + revenue + owner responsibilities */}
-        <section className="rt-doc-page">
-          <SectionTitle title="Initial Deposit" />
-          <ul className="rt-c-bullets">
-            <li><b>Deposit Amount:</b> The Owner agrees to deposit <Term>{deposit}</Term> into the bank account to cover initial setup costs and maintain this minimum balance for ongoing expenses.</li>
-            <li>
-              <b>Use of Deposit:</b> The deposit will be used for the purchase of necessary items to launch the property. Additional setup items may include:
-              <ul>
-                <li>Interior decor and furnishings to enhance the guest experience</li>
-                <li>Basic kitchen supplies</li>
-                <li>Operational necessities (i.e., smart lock)</li>
-              </ul>
-            </li>
-            <li><b>Ownership of Purchased Items:</b> All items purchased with initial deposit will become the Owner&rsquo;s property.</li>
-            <li><b>Minimum Account Balance:</b> The account must maintain a minimum balance of <Term>{minBalance}</Term> at all times. If the balance falls below <Term>{minBalance}</Term>, the Property Manager is authorized to deduct the necessary amount from the Gross Rental Income to restore the balance.</li>
-          </ul>
-
-          <SectionTitle title="Rental Income and Fees" />
-          <ul className="rt-c-bullets">
-            <li><b>Gross Rental Income Definition:</b> &ldquo;Gross Rental Income&rdquo; shall be defined as the total amount paid out by short-term rental platforms (e.g., Airbnb, VRBO) to Rising Tide STR, LLC, after the deduction of their service fees, taxes, or any other charges imposed by the platform. This includes all revenue streams from the rental, such as rental fees, cleaning fees, and any additional service charges paid by guests.</li>
-            <li><b>Commission on Gross Rental Income:</b> The Property Manager shall deduct a fee of <Term>{mgmtPct}</Term> of the Gross Rental Income as compensation for its management services. This fee will be calculated based on the net amount received post-platform fees and taxes.</li>
-            <li>
-              Additional fees will only apply to extraordinary services that fall outside the scope of routine management. Examples include:
-              <ul>
-                <li>Coordinating large-scale repairs or renovations at the Owner&rsquo;s request.</li>
-                <li>Emergency interventions requiring significant time, such as addressing severe property damage due to natural disasters.</li>
-              </ul>
-            </li>
-            <li>The Property Manager will provide written notice and an estimate of these fees before incurring the cost, ensuring full transparency.</li>
-            <li>A detailed statement of rental income and fees will be provided monthly.</li>
-          </ul>
-          <DocFooter pageNum={3} />
-        </section>
-
-        {/* Page 4 — owner responsibilities, min availability, payments, expenses */}
-        <section className="rt-doc-page">
-          <SectionTitle title="Owner's Responsibilities" />
-          <ul className="rt-c-bullets">
-            <li>Provide the Property Manager with access to the Property for management purposes.</li>
-            <li>
-              Cover costs related to the maintenance and repair of the Property unless due to guest negligence.
-              <ul>
-                <li>&ldquo;Guest negligence&rdquo; is defined as damages resulting from a guest&rsquo;s intentional acts, gross negligence, or failure to follow property guidelines.</li>
-              </ul>
-            </li>
-            <li>Cover costs related to the utilities and upkeep of the Property.</li>
-            <li>The Owner shall ensure the Property complies with all applicable federal, state, and local laws, regulations, ordinances, and licensing requirements for short-term rentals. The Owner acknowledges that the Property Manager shall not be liable for any fines, penalties, or legal actions resulting from the Owner&rsquo;s failure to comply with such requirements.</li>
-            <li>The Owner is responsible for providing and maintaining the Property in a safe, habitable condition, including adherence to building codes, fire safety requirements, and any other relevant health and safety regulations.</li>
-          </ul>
-
-          <SectionTitle title="Minimum Availability for Rental" />
-          <p className="rt-c-body">
-            The Owner agrees to make the Property available for short-term rental for a minimum of <Term>{minDays} days</Term> during the term of this Agreement. Availability is calculated as any day the Property is listed and unblocked for booking on short-term rental platforms.
-          </p>
-
-          <SectionTitle title="Payments and Accounting" />
-          <ul className="rt-c-bullets">
-            <li>Rental income, after deduction of Property Manager&rsquo;s fees, will be disbursed to the Owner monthly.</li>
-            <li>The Property Manager shall maintain accurate records of all transactions and provide the Owner with monthly financial statements.</li>
-            <li>The Property Manager is responsible for collecting and remitting occupancy and lodging taxes for each booking platform used.</li>
-          </ul>
-
-          <SectionTitle title="Expenses" />
-          <ul className="rt-c-bullets">
-            <li><b>Owner&rsquo;s Responsibilities:</b> The Owner shall cover costs related to the maintenance and repair of the Property unless the damage is due to guest negligence.</li>
-            <li><b>Property Manager&rsquo;s Responsibilities:</b> The Property Manager shall make efforts to recover costs for damages caused by guests via the short-term rental platforms, credit card holds or insurance (if applicable).</li>
-            <li><b>Consumables and Utilities:</b> The Owner shall cover costs related to the utilities and upkeep of the Property, while the Property Manager will cover the costs of replenishment of consumables (e.g., toiletries, paper towels, toilet paper).</li>
-          </ul>
-          <DocFooter pageNum={4} />
-        </section>
-
-        {/* Page 5 — termination, sale protection */}
-        <section className="rt-doc-page">
-          <SectionTitle title="Termination" />
-          <p className="rt-c-body">
-            Either Party may terminate this Agreement upon a material breach by the other Party, provided the breaching Party fails to cure such breach within thirty (30) days of receiving written notice. In the event of a severe breach that materially threatens the Property Manager&rsquo;s ability to operate (such as refusal to honor existing bookings or failure to comply with critical legal or safety requirements), the non-breaching Party may terminate this Agreement immediately without further notice.
-          </p>
-
-          <SectionTitle title="Protection Against Sale of Property" />
-          <p className="rt-c-body">
-            Cancellations of confirmed reservations can inflict serious harm on a short-term rental business. Apart from the immediate loss of rental income, platforms like Airbnb or VRBO may impose penalties, require refunds to guests, or, in severe cases, remove the Property Manager from their platforms. Such outcomes can damage the Property Manager&rsquo;s reputation and future hosting ability, necessitating the following protections:
-          </p>
-          <ul className="rt-c-bullets">
-            <li><b>Notification Requirement:</b> The Owner shall provide the Property Manager with <Term>{saleDays} days&rsquo;</Term> written notice of intent to sell the Property.</li>
-            <li>
-              <b>Existing Reservations:</b> The Owner agrees to either: (a) Ensure the buyer honors all existing reservations; or (b) Compensate the Property Manager for all direct costs incurred due to the cancellation of these reservations.
-            </li>
-            <li>
-              <b>Compensation for Cancellations:</b> If existing reservations cannot be honored, the Owner shall compensate the Property Manager as follows:
-              <ul>
-                <li><b>Lost Gross Rental Income.</b> The total Gross Rental Income projected from all affected reservations based on average nightly rates for similar periods.</li>
-                <li><b>Platform Penalties.</b> Any fees, penalties, or fines imposed by booking platforms (e.g., Airbnb, VRBO) due to cancellations resulting from the sale.</li>
-                <li><b>Reputation Damages.</b> A fixed fee of <Term>{repFee}</Term> to cover long-term reputational harm. This amount reflects the typical loss incurred from platform penalties, reduced listing visibility, and adverse guest reviews.</li>
-              </ul>
-            </li>
-            <li><b>Binding Obligation:</b> This clause shall remain binding on the Owner and any potential buyer. The Owner agrees to disclose this obligation to the buyer as part of the sale agreement. Failure to do so may result in the Owner being liable for all outlined damages.</li>
-          </ul>
-          <DocFooter pageNum={5} />
-        </section>
-
-        {/* Rider — per-deal addenda, only rendered if custom_clauses is non-empty */}
-        {projection.custom_clauses && projection.custom_clauses.length > 0 && (
-          <section className="rt-doc-page">
-            <SectionTitle title="Rider — Additional Terms" />
-            <p className="rt-c-body">
-              The following additional terms have been agreed between the
-              Parties and form part of this Agreement. They are read
-              alongside the standard terms above; in the event of conflict,
-              these additional terms shall control.
-            </p>
-            {projection.custom_clauses.map((clause, idx) => (
-              <div key={idx} className="rt-c-clause">
-                <h3 className="rt-c-clause-title">
-                  {String(idx + 1).padStart(2, '0')}. {clause.title || 'Untitled clause'}
-                </h3>
-                {clause.body.split(/\n+/).map((para, pi) => (
-                  <p key={pi} className="rt-c-body">{para}</p>
+        {/* Body pages wrapper. In print, .rt-doc-page wrappers inside
+            this div use display:contents to dissolve into a flat
+            section flow, and .rt-doc-body carries the 56px/80px
+            padding so body content has a consistent margin on every
+            printed sheet (we can't use @page margin because that
+            forced a paper strip on the cover). On screen, .rt-doc-body
+            is just a passthrough — each .rt-doc-page still renders
+            as a discrete sheet. */}
+        <div className="rt-doc-body">
+          {pages
+            .filter((p) => p.kind === 'body')
+            .map((page, idx) => (
+              <section key={page.id} className="rt-doc-page">
+                {page.sections.map((section) => (
+                  <SectionRenderer key={section.id} section={section} vars={vars} />
                 ))}
-              </div>
+                <DocFooter pageNum={idx + 2} />
+              </section>
             ))}
-            <DocFooter pageNum={6} />
-          </section>
-        )}
 
-        {/* Legal text page — liability, insurance, force majeure, dispute resolution, severability, governing law */}
-        <section className="rt-doc-page">
-          <SectionTitle title="Liability and Indemnification" />
-          <p className="rt-c-body">
-            The Property Manager shall not be liable for any damage or loss unless due to willful misconduct or gross negligence. The Owner shall indemnify the Property Manager against any claims arising from the ownership, use, or condition of the Property.
-          </p>
+          {/* Legacy Rider page — only for projections that haven't moved
+              to the overrides engine. New custom additions go via the
+              'add' override action with explicit anchors. */}
+          {hasLegacyRider && (
+            <section className="rt-doc-page">
+              <SectionTitle title="Rider — Additional Terms" />
+              <p className="rt-c-body">
+                The following additional terms have been agreed between the
+                Parties and form part of this Agreement. They are read
+                alongside the standard terms above; in the event of conflict,
+                these additional terms shall control.
+              </p>
+              {(projection.custom_clauses ?? []).map((clause, idx) => (
+                <div key={idx} className="rt-c-clause">
+                  <h3 className="rt-c-clause-title">
+                    {String(idx + 1).padStart(2, '0')}. {clause.title || 'Untitled clause'}
+                  </h3>
+                  {clause.body.split(/\n+/).map((para, pi) => (
+                    <p key={pi} className="rt-c-body">{para}</p>
+                  ))}
+                </div>
+              ))}
+              <DocFooter pageNum={pages.filter((p) => p.kind === 'body').length + 2} />
+            </section>
+          )}
+        </div>
 
-          <SectionTitle title="Insurance & Liability Coverage" />
-          <ul className="rt-c-bullets">
-            <li><b>Owner&rsquo;s Insurance Obligations:</b> The Owner shall maintain at all times, at the Owner&rsquo;s own expense, a comprehensive homeowner&rsquo;s insurance policy that covers short-term rental activities, including liability coverage for personal injury or property damage incurred by guests.</li>
-            <li><b>Property Manager as Additional Insured:</b> The Owner shall name the Property Manager as an additional insured (or additional interest if full additional insured status is not available) on the insurance policy if such coverage is obtainable.</li>
-            <li><b>Evidence of Coverage:</b> The Owner agrees to provide proof of such insurance upon execution of this Agreement and annually thereafter.</li>
-          </ul>
-
-          <SectionTitle title="Force Majeure" />
-          <p className="rt-c-body">
-            Neither Party shall be held liable for failure or delay in fulfilling its obligations under this Agreement if such failure or delay is caused by or results from events beyond that Party&rsquo;s reasonable control, including but not limited to natural disasters, acts of government, pandemics, or other unforeseen circumstances. The affected Party shall notify the other Party within 10 business days of the occurrence of the force majeure event. Both Parties will work in good faith to mitigate the impact of the force majeure event.
-          </p>
-
-          <SectionTitle title="Dispute Resolution & Attorneys' Fees" />
-          <p className="rt-c-body">
-            In the event of any dispute arising under or relating to this Agreement, the Parties agree first to attempt to resolve the dispute through good-faith negotiation. Should such negotiation fail, either Party may resort to litigation or arbitration. The prevailing Party in any litigation or arbitration arising from this Agreement shall be entitled to recover its reasonable attorneys&rsquo; fees, court costs, and other expenses incurred.
-          </p>
-
-          <SectionTitle title="Severability" />
-          <p className="rt-c-body">
-            If any provision of this Agreement is deemed unlawful or unenforceable, the remainder of the Agreement shall remain in full force and effect. The Parties agree to negotiate a replacement provision within 30 days of invalidation, ensuring the replacement aligns as closely as possible with the original intent of the Agreement.
-          </p>
-
-          <SectionTitle title="Governing Law & Entire Agreement" />
-          <p className="rt-c-body">
-            This Agreement shall be governed by and construed in accordance with the laws of the State of Massachusetts. This document represents the entire agreement between the Parties and supersedes all prior communications, agreements, or understandings, written or oral, concerning the subject matter hereof.
-          </p>
-          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 7 : 6} />
-        </section>
-
-        {/* Signatures — own page, gives the block room to breathe */}
+        {/* Signatures — own page, gives the block room to breathe.
+            When the owner hasn't yet signed AND a signing form is
+            available (public route), the form renders IN PLACE of
+            the empty signature grid. Showing empty PRINTED-NAME /
+            SIGNATURE / DATE rows alongside a separate "Ready to sign"
+            box below was confusing — it looked like the contract was
+            already prepared for someone else's signature. After
+            submit, the grid renders with the typed signature. */}
         <section className="rt-doc-page rt-c-sig-page">
           <SectionTitle title="Signatures" />
           <p className="rt-c-sig-lede">
             By signing below, the Parties acknowledge that they have read, understood, and agree to be bound by the terms of this Management Contract.
           </p>
-          <div className="rt-c-sig-grid">
-            <SignerBlock
-              eyebrow="Owner"
-              printedName={ownerName}
-              signedName={signedName}
-              dateValue={effectiveDate}
-            />
-            <SignerBlock
-              eyebrow="Property Manager"
-              printedName="Allie O'Brien, Rising Tide STR, LLC"
-              signedName={null}
-              dateValue={effectiveDate}
-            />
-          </div>
+          {signingForm && !signedName ? (
+            <div className="rt-c-sig-action">{signingForm}</div>
+          ) : (
+            <div className="rt-c-sig-grid">
+              <SignerBlock
+                eyebrow="Owner"
+                printedName={ownerName}
+                signedName={signedName}
+                dateValue={effectiveDate}
+              />
+              <SignerBlock
+                eyebrow="Property Manager"
+                printedName="Allie O'Brien, Rising Tide STR, LLC"
+                signedName={null}
+                dateValue={effectiveDate}
+              />
+            </div>
+          )}
           {signedName && signedAt && (
             <div className="rt-c-audit">
               Electronically signed by <strong>{signedName}</strong> on{' '}
@@ -295,33 +208,207 @@ export function ContractDocument({
             <b>Thank you for choosing Rising Tide.</b><br />
             Questions? Reach Allie directly at allie@risingtidestr.com or (978) 865-2387.
           </p>
-          <DocFooter pageNum={projection.custom_clauses && projection.custom_clauses.length > 0 ? 8 : 7} />
+          <DocFooter
+            pageNum={
+              pages.filter((p) => p.kind === 'body').length + 2 + (hasLegacyRider ? 1 : 0)
+            }
+          />
         </section>
-
-        {/* Public-facing signing form, only when not yet signed. Hidden in print. */}
-        {signingForm && !signedName && <div className="rt-c-signing-slot">{signingForm}</div>}
       </div>
     </>
   );
 }
 
-// ─── Helpers (formatting + small components) ────────────────────────────────
-function fmtDateShort(iso: string | null): string {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${m}/${d}/${y}`;
+// ─── Renderers ──────────────────────────────────────────────────────────────
+
+function SectionRenderer({ section, vars }: { section: ContractSection; vars: TemplateVars }) {
+  const hasKv = section.content.some((c) => c.type === 'kv');
+  const bullets = section.content.filter((c) => c.type === 'bullet') as ContractClause[];
+  const paragraphs = section.content.filter((c) => c.type === 'paragraph') as ContractClause[];
+
+  // Wrap each section in a .rt-c-section-wrap div so the print engine
+  // tries to keep a section's title + body together (break-inside:avoid).
+  // Sections that exceed a printed page still split naturally — this is
+  // a soft preference, not a hard rule.
+  return (
+    <div className="rt-c-section-wrap">
+      <SectionTitle title={section.title} />
+      {section.intro && <ParagraphClause clause={section.intro} vars={vars} />}
+      {hasKv && (
+        <div className="rt-c-kv">
+          {section.content
+            .filter((c): c is ContractKv => c.type === 'kv')
+            .map((kv) => (
+              <div key={kv.id}>
+                <span>{kv.label}</span>
+                <span><Term>{interpolate(kv.valueTemplate, vars)}</Term></span>
+              </div>
+            ))}
+        </div>
+      )}
+      {paragraphs.map((p) => (
+        <ParagraphClause key={p.id} clause={p} vars={vars} />
+      ))}
+      {bullets.length > 0 && (
+        <ul className="rt-c-bullets">
+          {bullets.map((b) => (
+            <BulletClause key={b.id} clause={b} vars={vars} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
-function fmtDateNarrative(iso: string | null): string {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+function ParagraphClause({ clause, vars }: { clause: ContractClause; vars: TemplateVars }) {
+  return <p className="rt-c-body">{renderTemplate(clause.template, vars)}</p>;
 }
-function fmtMoney(n: number): string {
-  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+function BulletClause({ clause, vars }: { clause: ContractClause; vars: TemplateVars }) {
+  // Normalize the bold label: every labeled bullet in this contract ends with
+  // a colon ("Notification Requirement:"). New clauses produced by the
+  // redlines tool sometimes arrive without one — bake it in at render time
+  // so the contract reads consistently.
+  const label = normalizeBoldPrefix(clause.boldPrefix);
+  // Strip a duplicate of the label from the start of the template. The
+  // redline tool occasionally emits both `boldPrefix: "Owner Approval
+  // Required"` AND a template that starts with "Owner Approval Required:".
+  // Without this strip the rendered bullet reads "Owner Approval Required
+  // Owner Approval Required: ..." — clearly wrong.
+  const template = stripDuplicatePrefix(clause.template, label);
+  return (
+    <li>
+      {label ? <b>{label} </b> : null}
+      {renderTemplate(template, vars)}
+      {clause.children && clause.children.length > 0 && (
+        <ul>
+          {clause.children.map((child) => (
+            <BulletClause key={child.id} clause={child} vars={vars} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
 }
-function fmtPct(p: number): string {
-  return `${Math.round(p * 100)}%`;
+
+/** Bold-label normalizer. Ensures every labeled bullet ends with ":". */
+function normalizeBoldPrefix(prefix?: string): string | undefined {
+  if (!prefix) return undefined;
+  const trimmed = prefix.trim().replace(/:+$/, '');
+  if (!trimmed) return undefined;
+  return `${trimmed}:`;
 }
+
+/**
+ * Strip a duplicated bold label from the start of a clause template. Matches
+ * the label with or without trailing colon, with or without markdown bold
+ * wrappers, case-insensitively. Cleans up every variant seen from the LLM:
+ *
+ *   "Owner Approval Required: body"           →  "body"
+ *   "Owner Approval Required body"            →  "body"
+ *   "owner approval required: body"           →  "body"
+ *   "**Owner Approval Required:** body"       →  "body"
+ *   "**Owner Approval Required**: body"       →  "body"
+ *   "__Owner Approval Required:__ body"       →  "body"
+ *   "**owner approval required** body"        →  "body"
+ *
+ * Why this is needed even though the prompt forbids markdown: the LLM emits
+ * it anyway, especially on `add` overrides where it wants the body to look
+ * like a bullet ("**Label:** body"). Renderer can't parse markdown, so the
+ * asterisks render literally — combined with the schema's boldPrefix, the
+ * label appears twice. Bug surfaced from the 36 Granite run on the
+ * "Owner Approval Required" clause + 4 others.
+ */
+function stripDuplicatePrefix(template: string, normalizedLabel?: string): string {
+  if (!normalizedLabel) return template;
+  const noColon = normalizedLabel.replace(/:+$/, '').trim();
+  if (!noColon) return template;
+  // Pattern parts:
+  //   ^\s*                 leading whitespace
+  //   (\*\*|__)?           optional opening markdown bold marker
+  //   \s*                  whitespace after marker
+  //   <label>              the label text itself, case-insensitive
+  //   \s*:?\s*             optional colon between label and closing marker
+  //   (\*\*|__)?           optional closing markdown bold marker
+  //   \s*:?\s*             optional colon AFTER closing marker (e.g. **Label**:)
+  const pattern = new RegExp(
+    `^\\s*(?:\\*\\*|__)?\\s*${escapeRegex(noColon)}\\s*:?\\s*(?:\\*\\*|__)?\\s*:?\\s*`,
+    'i',
+  );
+  return template.replace(pattern, '');
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ─── Template engine ────────────────────────────────────────────────────────
+
+type TemplateVars = ReturnType<typeof buildTemplateVars>;
+
+function buildTemplateVars(p: ProjectionRow) {
+  const ownerName = p.prospect_full_legal || p.prospect_name || '';
+  const propertyAddress = `${p.property_address}${p.property_city ? `, ${p.property_city}` : ''}`;
+  return {
+    ownerName,
+    propertyAddress,
+    propertyType: p.property_type || 'House',
+    mgmtPct: fmtPct(p.mgmt_fee_pct),
+    deposit: fmtMoney(p.initial_deposit),
+    minBalance: fmtMoney(p.min_account_balance),
+    minDays: `${p.min_availability_days} days`,
+    saleDays: `${p.sale_notification_days} days`,
+    repFee: fmtMoney(p.reputation_fee),
+    termStartShort: p.term_start ? formatDateShort(p.term_start) : null,
+    termEndShort: p.term_end ? formatDateShort(p.term_end) : null,
+    termStartLong: p.term_start ? formatDateNarrative(p.term_start) : null,
+    termEndLong: p.term_end ? formatDateNarrative(p.term_end) : null,
+  };
+}
+
+/** Interpolate a template into a plain string (for KV values + previews). */
+function interpolate(template: string, vars: TemplateVars): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const v = (vars as unknown as Record<string, string | null | undefined>)[key];
+    if (v == null || v === '') return '—';
+    return v;
+  });
+}
+
+/** Render a template as React, swapping {{var}} placeholders for JSX nodes. */
+function renderTemplate(template: string, vars: TemplateVars): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /\{\{(\w+)\}\}/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let keyCounter = 0;
+  while ((match = regex.exec(template)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(template.slice(lastIndex, match.index));
+    }
+    const varName = match[1];
+    const value = (vars as unknown as Record<string, string | null | undefined>)[varName];
+    parts.push(<TemplateVar key={`v-${keyCounter++}`} name={varName} value={value ?? null} />);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < template.length) parts.push(template.slice(lastIndex));
+  return parts;
+}
+
+/** Render a single template variable. Date variables that are null render
+ *  as a fillable underline; everything else gets the dotted-underline Term
+ *  treatment. Keeps the rt-c-blank / rt-c-term semantics from the original
+ *  ContractDocument. */
+function TemplateVar({ name, value }: { name: string; value: string | null }) {
+  const isDate = name.startsWith('term');
+  if (value == null) {
+    if (isDate) return <span className="rt-c-blank" aria-label="date blank" />;
+    return <Term>—</Term>;
+  }
+  return <Term>{value}</Term>;
+}
+
+// ─── Small shared subcomponents ─────────────────────────────────────────────
 
 function SectionTitle({ title }: { title: string }) {
   return (
@@ -336,15 +423,6 @@ function Term({ children }: { children: React.ReactNode }) {
   return <span className="rt-c-term">{children}</span>;
 }
 
-/** Renders a Term-style date when present, or a fillable underline blank. */
-function DateOrBlank({ value }: { value: string | null }) {
-  if (value) return <Term>{value}</Term>;
-  return <span className="rt-c-blank" aria-label="date blank" />;
-}
-
-/** A stacked signature block: printed name, signature, date — each on its own
- *  full-width line with a caption beneath. Used for both the Owner column and
- *  the Property Manager column on the signatures page. */
 function SignerBlock({
   eyebrow,
   printedName,
@@ -386,8 +464,38 @@ function DocFooter({ pageNum }: { pageNum: number }) {
   );
 }
 
+// ─── Formatters ─────────────────────────────────────────────────────────────
+
+function formatDateShort(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${m}/${d}/${y}`;
+}
+function formatDateNarrative(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+function fmtMoney(n: number): string {
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+function fmtPct(p: number): string {
+  return `${Math.round(p * 100)}%`;
+}
+
+// Suppress an unused-import warning for ContractSectionContent (carried for typing only).
+type _Unused = ContractSectionContent;
+
 // ─── CSS ────────────────────────────────────────────────────────────────────
 const contractCss = `
+  /* Page geometry. Single @page rule with margin: 0 — every sheet
+     bleeds full. Per-sheet body margins come from the .rt-doc-body
+     wrapper's padding combined with box-decoration-break: clone,
+     which makes the wrapper's padding REPEAT on every printed
+     sheet a paginated block spans (the CSS-standard mechanism for
+     this; spec'd in CSS Backgrounds & Borders, supported in
+     Chromium). Earlier attempts with named @page rules + the page
+     property weren't reliably honored by Chromium for overflow
+     sheets, leaving either the cover with a paper border or body
+     overflow sheets with no margin. */
   @page { size: 8.5in 11in; margin: 0; }
 
   html, body { background: var(--ink); margin: 0; padding: 0; }
@@ -401,26 +509,156 @@ const contractCss = `
     background: #0e1a1f;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
+  /* Logical page in the contract tree (Summary+Term+Mgr Resp; Initial
+     Deposit + Income; etc.). One .rt-doc-page renders identically on
+     screen and in print: a fixed 816x1056 sheet with its own padding
+     and footer at the bottom. The print mode adds page-break-after on
+     each wrapper so the PDF mirrors the preview sheet-by-sheet. Tall
+     blocks (override-expanded sections) flow naturally onto a second
+     sheet without being clipped. */
   .rt-doc-page {
     position: relative;
     width: 816px;
-    height: 1056px;
+    min-height: 1056px;
     background: var(--paper);
     color: var(--ink);
     padding: 72px 80px 56px;
     box-sizing: border-box;
-    overflow: hidden;
     box-shadow: 0 12px 40px rgba(0,0,0,0.18);
     display: flex;
     flex-direction: column;
   }
   @media print {
+    /* Force backgrounds to render (cover navy, override banners,
+       etc.). Without this Chromium drops bg colors at print time
+       even with Puppeteer's printBackground:true. */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     html, body { background: var(--paper); }
-    .rt-doc { gap: 0; padding: 0; background: var(--paper); display: block; }
-    .rt-doc-page { box-shadow: none; page-break-after: always; break-after: page; }
-    .rt-doc-page:last-child { page-break-after: auto; break-after: auto; }
+    .rt-doc {
+      gap: 0;
+      padding: 0;
+      background: var(--paper);
+      display: block;
+      align-items: initial;
+    }
+    /* Body pages dissolve into a continuous flow via display:contents.
+       Sections become siblings of .rt-doc-body. The wrapper's
+       padding + box-decoration-break:clone provides per-sheet
+       margins that REPEAT on every printed sheet body content
+       spans — this is the standardized CSS way to repeat box
+       decorations across paginated fragments. */
+    .rt-doc-body {
+      padding: 56px 80px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .rt-doc-page {
+      box-shadow: none;
+      display: contents;
+    }
+    /* Cover bleeds full navy. With @page margin: 0 globally there's
+       no @page margin to fight against — the element at width 8.5in
+       and min-height 11in fills the sheet edge-to-edge. */
+    .rt-cover {
+      display: flex;
+      flex-direction: column;
+      width: 8.5in;
+      min-height: 11in;
+      box-sizing: border-box;
+      padding: 96px 80px 80px;
+      page-break-after: always;
+      break-after: page;
+    }
+    /* Sig section flows naturally after body content, with
+       break-inside:avoid keeping the signature block together as
+       one unit. The forced page-break-before:always was producing
+       a near-empty page 7 (just the tail sentence of Governing Law)
+       before the sig sheet, because the body content's natural end
+       sometimes overflows by a paragraph or two — forcing the
+       break left that overflow stranded on its own sheet. Letting
+       the sig section flow lets it share a sheet with body tail
+       content when there's room, and naturally page-break when
+       there isn't (via break-inside:avoid keeping it whole). */
+    .rt-c-sig-page {
+      display: flex;
+      flex-direction: column;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      /* 40px top breathing room above SIGNATURES title; 80px on
+         each side to match body wrapper horizontal padding (without
+         this the sig grid extended all the way to the page edges
+         and looked sloppy); 80px bottom so the thank-you box
+         doesn't sit on the bottom edge. */
+      padding: 40px 80px 80px;
+      margin-top: 48px;
+      /* The screen .rt-doc-page rule has min-height: 1056px (full
+         sheet) to render the screen preview as discrete sheets. In
+         print, that min-height was forcing the sig section to be at
+         least one full sheet tall, which prevented it from fitting
+         on the body's tail page alongside Governing Law's last
+         paragraph. Override to 0 so sig sizes to its content and
+         can share a sheet with body when there's room. */
+      min-height: 0;
+    }
+    /* Small visual rhythm between sections in the continuous body
+       flow. Keeps sections feeling like distinct blocks instead of
+       running flush into each other. */
+    .rt-c-section-wrap {
+      margin-top: 28px;
+    }
+    .rt-c-section-wrap:first-child {
+      margin-top: 0;
+    }
+    /* Keep section title with its first paragraph (no orphan
+       titles), but allow long sections to split between paragraphs. */
+    .rt-c-section {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
     .rt-c-signing-slot { display: none !important; }
+    .rt-c-skipped { display: none !important; }
+    /* Hide inline DocFooter — overflow-prone with the continuous
+       body flow, and we couldn't keep Puppeteer's footerTemplate
+       without breaking cover bleed. PDF goes without page numbers. */
+    .rt-c-foot { display: none !important; }
   }
+
+  /* Override-failure banner — staff-only, screen-only. Explicit colors
+     (not CSS variables) because the contract preview page has a dark
+     navy body background that flips the meaning of var(--ink) /
+     var(--paper). A failure banner that's dark-on-dark is worse than
+     no banner. */
+  .rt-c-skipped {
+    width: 816px;
+    background: #fff5f1;
+    border: 1px solid #c85a3a;
+    border-left: 5px solid #c85a3a;
+    padding: 16px 22px;
+    box-sizing: border-box;
+    color: #2a1810;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .rt-c-skipped-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .rt-c-skipped-head strong { font-size: 14px; color: #c85a3a; font-weight: 700; letter-spacing: 0.01em; }
+  .rt-c-skipped-head span { font-size: 12px; color: #6a4a3a; line-height: 1.55; }
+  .rt-c-skipped-list {
+    margin: 0;
+    padding-left: 20px;
+    font-family: var(--font-mono-dash, ui-monospace), Menlo, monospace;
+    font-size: 11px;
+    color: #2a1810;
+    line-height: 1.6;
+  }
+  .rt-c-skipped-list li { margin-bottom: 3px; }
 
   /* Cover */
   .rt-cover {
@@ -494,15 +732,13 @@ const contractCss = `
 
   .rt-c-body {
     margin: 0 0 12px;
-    padding-left: 24px;      /* whole block indented; wrapped lines stay aligned */
+    padding-left: 24px;
     font-size: 11px;
     line-height: 1.6;
     color: var(--ink);
-    max-width: 684px;        /* 660 + 24 padding so the right edge matches bullets */
+    max-width: 684px;
   }
 
-  /* Fillable underline blank — used inline in body paragraphs when a date or
-     other deal-specific term is not yet filled in. */
   .rt-c-blank {
     display: inline-block;
     width: 130px;
@@ -512,10 +748,6 @@ const contractCss = `
     margin: 0 2px;
   }
 
-  /* Bullets — Tailwind's preflight zeros list-style on ul/ol, so we restore
-     it here and color the markers signal so they read as Rising-Tide bullets.
-     padding-left is 42px = 24px body indent + ~18px bullet column,
-     so the text edge aligns with .rt-c-body. */
   .rt-c-bullets {
     margin: 0 0 12px;
     padding-left: 42px;
@@ -534,7 +766,7 @@ const contractCss = `
   }
   .rt-c-bullets ul li { padding: 2px 0; }
 
-  /* Rider clauses (per-deal addenda) */
+  /* Legacy Rider clauses (for projections that pre-date the overrides infra). */
   .rt-c-clause {
     margin: 0 0 18px;
     padding: 12px 16px 6px;
@@ -564,8 +796,6 @@ const contractCss = `
     white-space: nowrap;
   }
 
-  /* Dedicated signatures page — gives the block real breathing room rather
-     than fighting the legal text for the bottom of page 6. */
   .rt-c-sig-page { padding-top: 96px; }
   .rt-c-sig-lede {
     margin: 14px 0 56px;
@@ -577,13 +807,30 @@ const contractCss = `
     text-indent: 0;
   }
 
-  /* Signature block — two stacked signers with full-width lines + captions.
-     Replaces the old side-by-side label/value rows that read as cramped. */
   .rt-c-sig-grid {
     margin-top: 8px;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 64px;
+  }
+  /* Inline signing form, rendered in place of the empty signature
+     grid on the public route when the owner hasn't signed yet. The
+     form's own page-level chrome (its own padding + bg) is stripped
+     because the sig page already provides the framing. */
+  .rt-c-sig-action {
+    margin-top: 16px;
+  }
+  .rt-c-sig-action .rt-sign-form {
+    padding: 0;
+    background: transparent;
+  }
+  .rt-c-sig-action .rt-sign-eyebrow,
+  .rt-c-sig-action .rt-sign-h,
+  .rt-c-sig-action .rt-sign-lead {
+    /* These were the form's own headline; the contract's
+       SIGNATURES section + lede already covers this ground.
+       Hide them so the form starts directly at the checkbox. */
+    display: none;
   }
   .rt-c-signer { display: flex; flex-direction: column; gap: 32px; }
   .rt-c-signer-eyebrow {
@@ -665,8 +912,6 @@ const contractCss = `
     border-top: 1px solid var(--rule);
   }
 
-  /* Public signing slot — wraps the signing form below the contract. Screen
-     only; print rule above hides it so the PDF is just the contract. */
   .rt-c-signing-slot {
     width: 816px;
     background: var(--paper);

@@ -12,6 +12,7 @@ import {
   type WorkSlipPriority,
 } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
+import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 
 export async function startInspection(formData: FormData) {
   const session = await auth();
@@ -172,6 +173,12 @@ export async function completeInspection(inspectionId: string) {
     .eq('id', inspectionId);
 
   if (updateError) throw new Error(updateError.message);
+
+  // Fan the finalized report out to Allie + Ryan. Errors are swallowed inside
+  // the helper so a Resend hiccup never blocks the inspector from finishing.
+  await sendInspectionReportEmail(inspectionId).catch((err) =>
+    console.warn('[completeInspection] report email failed', err),
+  );
 
   revalidatePath('/inspections');
   revalidatePath(`/inspections/${inspectionId}`);

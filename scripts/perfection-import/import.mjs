@@ -65,12 +65,34 @@ const HELM_PROPERTY_SLUGS = new Set([
   '3_locust',
 ]);
 
+/** Perfection's `properties.code` field uses Lovable-era shortcodes
+ *  (ENON, 20HAM, BRIER, etc.) instead of the Helm slug. Map them
+ *  explicitly. Anything not in this table falls through to the
+ *  normalized-code + address-fallback heuristics. */
+const LOVABLE_CODE_ALIASES = {
+  ENON: '20_enon',
+  '20HAM': '20_hammond',
+  BRIER: '4_brier_neck',
+  WOOD: '30_woodward',
+  LOCUST: '3_locust',
+  '3SS': '3_south_st',
+  RNCLAUD: '21_horton',
+  '73RN': '73_rocky_neck',
+  '53RN': '53_rocky_neck',
+  // CALDER (65 Calderwood), 3246 NE 27th, 11 Rockholm, 61 Seabright are
+  // intentionally not aliased — they're outside the 10-property managed
+  // set Helm tracks today. Their work slips / tasks get skipped with a
+  // warning.
+};
+
 // ─── Build perfection-uuid → helm-slug map ───────────────────────────
 const perfUuidToSlug = new Map();
 const unmappedProps = [];
 for (const p of perfProperties) {
   let slug = null;
-  if (p.code && HELM_PROPERTY_SLUGS.has(p.code)) {
+  if (p.code && LOVABLE_CODE_ALIASES[p.code]) {
+    slug = LOVABLE_CODE_ALIASES[p.code];
+  } else if (p.code && HELM_PROPERTY_SLUGS.has(p.code)) {
     slug = p.code;
   } else if (p.code) {
     // Heuristic: lowercase + spaces→underscore, strip punctuation.
@@ -79,6 +101,12 @@ for (const p of perfProperties) {
   }
   if (!slug && p.address) {
     const addrSlug = guessSlugFromAddress(p.address);
+    if (addrSlug && HELM_PROPERTY_SLUGS.has(addrSlug)) slug = addrSlug;
+  }
+  // Address inversion fallback: "Locust Lane 3, Gloucester" — number
+  // comes AFTER the street name. Detect and re-order.
+  if (!slug && p.address) {
+    const addrSlug = guessSlugFromInvertedAddress(p.address);
     if (addrSlug && HELM_PROPERTY_SLUGS.has(addrSlug)) slug = addrSlug;
   }
   if (slug) {
@@ -307,13 +335,28 @@ function guessSlugFromAddress(addr) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .trim()
     .split(/\s+/)
-    .slice(0, 2)
+    .filter(Boolean)
     .join('_');
-  // Common explicit overrides.
+  // Common explicit overrides for Helm-managed properties whose slug
+  // doesn't match the literal address tokens.
   const overrides = {
     '17_beach': '17_beach_rd',
     '3_south': '3_south_st',
-    '4_brier': '4_brier_neck',
+    '4_brier_neck': '4_brier_neck',
+    '53_rocky_neck': '53_rocky_neck',
+    '73_rocky_neck': '73_rocky_neck',
   };
   return overrides[cleaned] ?? cleaned;
+}
+
+/** Some Perfection addresses are stored European-style: "Locust Lane 3,
+ *  Gloucester" instead of "3 Locust Lane, Gloucester". Detect and
+ *  re-shape before re-running the slug guesser. */
+function guessSlugFromInvertedAddress(addr) {
+  const head = addr.split(',')[0]?.trim() ?? '';
+  // "Word Word Number" → "Number Word Word"
+  const m = head.match(/^([A-Za-z][A-Za-z\s]+)\s+(\d+)\s*$/);
+  if (!m) return null;
+  const inverted = `${m[2]} ${m[1].trim()}`;
+  return guessSlugFromAddress(inverted);
 }

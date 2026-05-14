@@ -6,9 +6,15 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData, CustomClause, Owner } from '@/lib/projections-types';
+import type { OnboardingData, CustomClause, Owner, ProjectionRow } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
+import {
+  interpretContractRedlines,
+  applyEditsToProjection,
+  type ContractRedlineEdits,
+} from '@/lib/projection-redlines';
+import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -184,6 +190,11 @@ export async function updateProjection(id: string, formData: FormData) {
   const payload = {
     ...basePayload,
     drive_time_minutes: await resolveDriveTime(basePayload),
+    // Bump updated_at on every save so the page-level ProjectionForm key
+    // (key={projection.updated_at}) actually changes — forces a remount
+    // and picks up the fresh defaults instead of holding stale ones from
+    // the form's first render.
+    updated_at: new Date().toISOString(),
   };
 
   const { error } = await supabase
@@ -209,6 +220,38 @@ export async function deleteProjection(id: string) {
   redirect('/projections');
 }
 
+/**
+ * Clear all contract edits applied via the Redlines tool (action-aware
+ * overrides) plus the legacy custom_clauses Rider. Reverts the contract
+ * to the standard template without touching the prospect record itself
+ * — projection inputs (term dates, fees, owner info, etc.) stay intact.
+ *
+ * Use this when a negotiation needs to restart from a clean slate. The
+ * prospect, the projection model, the signing token, and any onboarding
+ * intake all survive; only the Rider/override state is wiped.
+ */
+export async function resetContractOverrides(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      contract_overrides: null,
+      custom_clauses: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/projections/${id}/contract`);
+  return { ok: true };
+}
+
 export async function markSent(id: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
@@ -216,6 +259,37 @@ export async function markSent(id: string) {
   const { error } = await supabase
     .from('projections')
     .update({ status: 'sent', sent_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
+ * Set the analyst's confidence that this prospect will close, 0–100.
+ *
+ * Called from the inline widget on the identity strip and from the prospect
+ * list row's quick-set dropdown. Pass null to clear ("haven't decided yet").
+ */
+export async function setCloseLikelihood(id: string, pct: number | null): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  // Validate: integer 0–100, or null.
+  let value: number | null = null;
+  if (pct !== null && pct !== undefined) {
+    const n = Math.round(Number(pct));
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      throw new Error(`Invalid likelihood: ${pct} (must be 0–100)`);
+    }
+    value = n;
+  }
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ close_likelihood_pct: value })
     .eq('id', id);
 
   if (error) throw new Error(error.message);
@@ -608,5 +682,169 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     smoke_detector_locations: ob.smoke_detector_locations || null,
     fire_exit_locations: ob.fire_exit_locations || null,
     str_permit_expires: ob.str_permit_expires || null,
+  };
+}
+
+// ─── Contract redlines ──────────────────────────────────────────────────────
+
+/**
+ * Step 1 of the redline flow: take the owner's freeform redline text, pull
+ * the projection record, and ask Claude to map it to a structured edit set.
+ * Read-only — does NOT mutate the projection. The client holds the result
+ * in state and shows a preview before calling applyContractRedlines.
+ */
+export async function proposeContractRedlines(
+  projectionId: string,
+  requested: string,
+): Promise<{ ok: true; edits: ContractRedlineEdits } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const trimmed = requested.trim();
+  if (!trimmed) return { ok: false, error: 'Paste the owner’s redlines first.' };
+  // Soft ceiling — Claude Sonnet 4.5 handles ~200K tokens (≈600K+ chars)
+  // natively, but capping at 20K keeps the API spend bounded if someone
+  // accidentally pastes an entire PDF. Should fit any realistic owner
+  // email + forwarded thread + lawyer's negotiation list.
+  if (trimmed.length > 20000) return { ok: false, error: 'Redline text is too long; trim it under 20,000 characters.' };
+
+  const { data, error } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: 'Prospect not found.' };
+
+  try {
+    const edits = await interpretContractRedlines({
+      projection: data as ProjectionRow,
+      requested: trimmed,
+    });
+    // Log the structured interpreter output so Vercel runtime logs
+    // capture it. Crucial for diagnosing prompt regressions — the May
+    // 2026 36 Granite incident had no recoverable JSON because we
+    // hadn't logged the apply-step payload anywhere.
+    console.log(
+      JSON.stringify({
+        event: 'contract_redlines_proposed',
+        projection_id: projectionId,
+        requested_chars: trimmed.length,
+        field_change_count: edits.field_changes.length,
+        override_count: edits.contract_overrides.length,
+        overrides_by_action: edits.contract_overrides.reduce<Record<string, number>>(
+          (acc, o) => ({ ...acc, [o.action]: (acc[o.action] ?? 0) + 1 }),
+          {},
+        ),
+        // Full structured edit set — useful for reproducing or rolling
+        // back. Bounded by the 20K input cap so this stays log-safe.
+        edits,
+      }),
+    );
+    return { ok: true, edits };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Step 2 of the redline flow: persist a previously-interpreted edit set
+ * to the projection record. Re-validates the page so the contract preview
+ * + downloads pick up the new values immediately.
+ *
+ * Re-fetches the projection inside the action rather than trusting the
+ * client-passed copy, so the apply step always works against the freshest
+ * server-side state (in case someone else edited the record in the
+ * meantime).
+ */
+/**
+ * Outcome of an apply call. `failures` is non-empty when one or more
+ * overrides couldn't be applied at render time (e.g. a modify whose
+ * find span no longer matches the current clause text). The panel
+ * surfaces these inline on the applied-confirmation banner so staff
+ * sees the mismatch immediately, not only when they open the contract.
+ */
+export type ApplyContractRedlinesResult =
+  | {
+      ok: true;
+      failures: { summary: string }[];
+      appliedCount: number;
+    }
+  | { ok: false; error: string };
+
+export async function applyContractRedlines(
+  projectionId: string,
+  edits: ContractRedlineEdits,
+): Promise<ApplyContractRedlinesResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { data, error: fetchErr } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (fetchErr) return { ok: false, error: fetchErr.message };
+  if (!data) return { ok: false, error: 'Prospect not found.' };
+
+  const { fieldUpdates, newContractOverrides } = applyEditsToProjection({
+    projection: data as ProjectionRow,
+    edits,
+  });
+
+  const payload: Record<string, unknown> = {
+    ...fieldUpdates,
+    contract_overrides: newContractOverrides,
+    // Bump updated_at so the page's ProjectionForm key changes and the
+    // form remounts with the redline-applied values. Without this, the
+    // form's defaultValue inputs retain the values from initial page
+    // load — the user's next Save would clobber the redline edits.
+    updated_at: new Date().toISOString(),
+  };
+
+  // Log what's actually being persisted — the user-accepted subset of
+  // the interpreter's proposal, plus the resulting overrides array.
+  // Recoverable from Vercel logs if the row is later deleted or
+  // overwritten.
+  console.log(
+    JSON.stringify({
+      event: 'contract_redlines_applied',
+      projection_id: projectionId,
+      applied_by: session.user.email,
+      field_change_count: edits.field_changes.length,
+      override_count_in: edits.contract_overrides.length,
+      override_count_persisted: newContractOverrides.length,
+      field_updates: fieldUpdates,
+      overrides: newContractOverrides,
+    }),
+  );
+
+  const { error: updateErr } = await supabase
+    .from('projections')
+    .update(payload)
+    .eq('id', projectionId);
+  if (updateErr) return { ok: false, error: updateErr.message };
+
+  revalidatePath(`/projections/${projectionId}`);
+  revalidatePath(`/projections/${projectionId}/contract`);
+
+  // Dry-run the persisted overrides through the renderer's apply engine
+  // to detect any that won't actually land (typically: a modify whose
+  // find span has already been changed by an earlier override, or a
+  // targetId that doesn't exist in the base contract). Surface the
+  // failures back to the panel so the user sees the mismatch on the
+  // applied-confirmation banner, not only when they open the contract
+  // preview.
+  const { failures } = applyContractOverrides(newContractOverrides);
+  if (failures.length > 0) {
+    console.warn(
+      `[applyContractRedlines] ${failures.length} of ${newContractOverrides.length} override(s) failed dry-run on projection ${projectionId}:`,
+      failures.map((f) => describeOverrideFailure(f)),
+    );
+  }
+  return {
+    ok: true,
+    appliedCount: newContractOverrides.length - failures.length,
+    failures: failures.map((f) => ({ summary: describeOverrideFailure(f) })),
   };
 }

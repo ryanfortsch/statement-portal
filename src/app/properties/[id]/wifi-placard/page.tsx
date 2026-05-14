@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
-import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { renderQrForPlacard } from '@/lib/qr-sizing';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,15 +34,20 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
 
   // QR rendered onto cream so it prints with no transparency artifacts.
   // ECC level Q balances density against resilience to scuffs in a printed
-  // glass-case context.
-  const qrSvg = ssid && pass
-    ? await QRCode.toString(wifiUri, {
-        type: 'svg',
+  // glass-case context. Size scales with module count via renderQrForPlacard
+  // so a longer SSID (which forces a denser QR symbol) doesn't push the
+  // module size below the ~1.0mm consumer-printer reproduction floor —
+  // see lib/qr-sizing.ts for the full geometry argument.
+  const qr = ssid && pass
+    ? await renderQrForPlacard({
+        uri: wifiUri,
         errorCorrectionLevel: 'Q',
-        margin: 0,
         color: { dark: '#0F2A44', light: '#F4ECD8' },
+        floorPx: 140,
       })
-    : '';
+    : null;
+  const qrSvg = qr?.svg ?? '';
+  const qrSize = qr?.sizePx ?? 140;
 
   return (
     <>
@@ -55,7 +60,7 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
 
             <div className="rt-eyebrow">Wi-Fi</div>
 
-            <div className="rt-qr">
+            <div className="rt-qr" style={{ width: qrSize, height: qrSize }}>
               {qrSvg ? (
                 <span dangerouslySetInnerHTML={{ __html: qrSvg }} />
               ) : (
@@ -131,12 +136,15 @@ const placardCss = `
     padding: 24px;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
-  /* 4in × 6in @ 96dpi = 384 × 576 px */
+  /* 4in × 6in @ 96dpi = 384 × 576 px. Outer navy padding is intentionally
+     generous (36px ≈ 0.375") so consumer printers that crop ~0.125" of
+     bleed still leave a visibly substantial navy frame on the printed
+     card. At 20px the frame survived bleed as a hairline. */
   .rt-card {
     width: 384px;
     height: 576px;
     background: var(--sca-navy);
-    padding: 20px 20px 0;
+    padding: 36px 36px 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -172,13 +180,12 @@ const placardCss = `
     letter-spacing: -0.01em;
   }
 
-  /* QR — square, no chrome, sits naturally on the cream. Sized so it
-     scans cleanly from arm's length while leaving the cream panel
-     enough breathing room for the editorial network/password rows. */
+  /* QR — square, no chrome, sits naturally on the cream. Width and
+     height come from inline style (set by renderQrForPlacard so the
+     module size stays ≥ ~1.06mm at 4×6 print regardless of how dense
+     the WIFI: URI's QR symbol turns out to be — see lib/qr-sizing.ts). */
   .rt-qr {
-    margin-top: 30px;
-    width: 140px;
-    height: 140px;
+    margin-top: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -236,7 +243,9 @@ const placardCss = `
     line-height: 1.2;
   }
 
-  /* Navy footer band — staycapeann.com */
+  /* Navy footer band — staycapeann.com. Bottom padding deliberately
+     generous (22px) so the wordmark sits well inside the bleed-safe
+     zone on a printed card. */
   .rt-footer {
     color: var(--sca-cream);
     text-align: center;
@@ -244,6 +253,6 @@ const placardCss = `
     font-style: italic;
     font-size: 13px;
     letter-spacing: 0.04em;
-    padding: 14px 0 12px;
+    padding: 18px 0 22px;
   }
 `;

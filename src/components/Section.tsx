@@ -45,12 +45,12 @@ export function Section({
   return (
     <section
       id={id}
-      className="max-w-[1100px] mx-auto px-10"
+      className="max-w-[1100px] mx-auto px-10 rt-helm-section"
       style={{ paddingTop, paddingBottom, width: '100%', scrollMarginTop: 100 }}
     >
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+      <div className="flex items-baseline justify-between rt-helm-section-head" style={{ marginBottom: 14 }}>
         <h2
-          className="font-serif"
+          className="font-serif rt-helm-section-h2"
           style={{
             fontSize: 22,
             fontWeight: 400,

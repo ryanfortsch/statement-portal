@@ -203,6 +203,7 @@ function PortfolioStrip({
 
   return (
     <div
+      className="rt-helm-stat-strip"
       style={{
         borderTop: '1px solid var(--ink)',
         borderBottom: '1px solid var(--ink)',

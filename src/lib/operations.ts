@@ -11,6 +11,7 @@
  * assignees, skip workflow.
  */
 import { supabase } from './supabase';
+import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -158,6 +159,10 @@ export type Turnover = {
   inspectionStatus: InspectionStatus;
   plan: InspectionPlanMini | null;
   cleaning: CleaningCompletion | null;
+  /** Count of active, non-snoozed work slips on this property. Used to
+   *  surface a "N work slips · Print" affordance on the turnover row so
+   *  the operator can grab the checklist on their way out the door. */
+  openWorkSlipsCount: number;
 };
 
 export type CalendarCell = {
@@ -309,11 +314,27 @@ export async function loadOperationsData(
   // Pull cleaning completions across the lookback window. Each turnover
   // looks up its (property_id, previousCheckout) match below. Latest
   // wins per pair, so a re-clean shows the most recent timestamp.
-  const { data: cleaningData } = await supabase
-    .from('cleaning_completions')
-    .select('property_id, checkout_date, completed_at, source, source_phone')
-    .gte('checkout_date', fetchStart)
-    .order('completed_at', { ascending: false });
+  // Pull active work-slip counts in parallel so each turnover row can
+  // show "N work slips · Print" without an N+1 fan-out.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [{ data: cleaningData }, { data: openSlipsData }] = await Promise.all([
+    supabase
+      .from('cleaning_completions')
+      .select('property_id, checkout_date, completed_at, source, source_phone')
+      .gte('checkout_date', fetchStart)
+      .order('completed_at', { ascending: false }),
+    supabase
+      .from('work_slips')
+      .select('property_id, snoozed_until')
+      .in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .in('property_id', properties.map((p) => p.id)),
+  ]);
+
+  const openWorkSlipsByProperty = new Map<string, number>();
+  for (const row of (openSlipsData ?? []) as Array<{ property_id: string; snoozed_until: string | null }>) {
+    if (row.snoozed_until && row.snoozed_until > todayIso) continue;
+    openWorkSlipsByProperty.set(row.property_id, (openWorkSlipsByProperty.get(row.property_id) ?? 0) + 1);
+  }
 
   const cleaningByKey = new Map<string, CleaningCompletion>();
   for (const row of (cleaningData ?? []) as Array<{
@@ -390,17 +411,32 @@ export async function loadOperationsData(
       inspectionStatus,
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
+      openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
     });
   }
 
+  // Dedupe by the natural turnover key (property + checkIn + checkOut).
+  // Guesty occasionally emits a reservation twice when it's been edited and
+  // re-synced — different guesty_reservation_id, same booking — which made
+  // the same stay render as two adjacent identical cards on the pipeline.
+  // The reservation row sorted later by check_in then guesty_reservation_id
+  // wins, so we keep whichever the API returned last (most recently
+  // edited).
+  const turnoversByKey = new Map<string, Turnover>();
+  for (const t of turnovers) {
+    const key = `${t.propertyId}|${t.checkIn}|${t.checkOut}`;
+    turnoversByKey.set(key, t);
+  }
+  const dedupedTurnovers = [...turnoversByKey.values()];
+
   // Sort: by check-in date, then same-day turnovers first, then property name.
-  turnovers.sort((a, b) => {
+  dedupedTurnovers.sort((a, b) => {
     if (a.checkIn !== b.checkIn) return a.checkIn < b.checkIn ? -1 : 1;
     if (a.isSameDayTurnover !== b.isSameDayTurnover) return a.isSameDayTurnover ? -1 : 1;
     return a.propertyName.localeCompare(b.propertyName);
   });
 
-  const inspectionDoneCount = turnovers.filter((t) => t.inspectionStatus === 'complete').length;
+  const inspectionDoneCount = dedupedTurnovers.filter((t) => t.inspectionStatus === 'complete').length;
 
   // ── Calendar ──────────────────────────────────────────────────────────
   // One row per active property, columns = `calendarDays` consecutive dates
@@ -437,8 +473,8 @@ export async function loadOperationsData(
   return {
     rangeStart,
     rangeEnd,
-    turnovers,
-    totalCount: turnovers.length,
+    turnovers: dedupedTurnovers,
+    totalCount: dedupedTurnovers.length,
     inspectionDoneCount,
     calendar: {
       days: calendarDayList,

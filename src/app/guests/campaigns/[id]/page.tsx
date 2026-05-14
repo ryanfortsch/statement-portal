@@ -210,13 +210,12 @@ export default async function CampaignDetailPage({
               )}
             </Field>
 
-            {/* SEND BUTTONS — pulled up here so they sit right under the
-                segment picker, visible without scrolling past the body
-                textarea. These submit the SAME parent form but route to
-                different server actions via formAction. (Inline <form>s
-                here would be nested inside the outer Save form, which
-                browsers silently flatten — so the buttons looked like
-                they did nothing.) */}
+            {/* SEND BUTTONS. These submit the SAME parent form but route
+                to different server actions via formAction. Nested <form>s
+                here would be silently flattened by browsers and the
+                buttons would secretly trigger the outer Save Draft action
+                instead. The send actions auto-persist form values before
+                sending so no separate Save click is needed. */}
             {isDraft && (
               <div style={{ display: 'grid', gap: 10, padding: '14px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)' }}>
                 <div className="eyebrow">Send</div>
@@ -238,7 +237,7 @@ export default async function CampaignDetailPage({
                   </button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
-                  Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign. Both buttons use the latest values in this form — no need to Save first.
+                  Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign. Both buttons use the latest values in this form. No separate Save click needed.
                 </p>
               </div>
             )}

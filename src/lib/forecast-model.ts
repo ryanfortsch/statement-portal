@@ -50,26 +50,23 @@ export const CURRENT_2026: ManagedProperty[] = [
 ];
 
 /**
- * 5 contracts signed but not yet fully onboarded.
- *   - 3 originally pre-signed (Apr/Jun/Jul). Now rescheduled to May/Jun.
- *   - 79 Main Street: signed; live end of May.
- *   - 16 Waterman: signing this week; live in June.
+ * Pre-signed list — DEPRECATED in favor of live Helm Prospects pipeline.
+ *
+ * Previously this hard-coded the 5 contracts in flight. The model now
+ * pulls from Helm's `projections` table (see `forecast-prospects.ts`)
+ * weighted by each record's `close_likelihood_pct`. The constant is kept
+ * empty here for code paths that still reference the symbol.
  */
-export const PRESIGNED_2026: ManagedProperty[] = [
-  { name: 'Pre-signed #1', fee: 25000, type: 'CA', start: 5 },
-  { name: 'Pre-signed #2', fee: 25000, type: 'CA', start: 6 },
-  { name: 'Pre-signed #3', fee: 25000, type: 'CA', start: 6 },
-  { name: '79 Main Street', fee: 25000, type: 'CA', start: 5 },
-  { name: '16 Waterman', fee: 25000, type: 'CA', start: 6 },
-];
+export const PRESIGNED_2026: ManagedProperty[] = [];
 
 /**
- * In 2027 the 9 current + 5 pre-signed all roll forward as fully active
- * full-year contracts (start month 1).
+ * In 2027 the 9 current properties roll forward as full-year actives.
+ * Prospects that closed in 2026 will appear in Helm's `properties`
+ * table by then and get queried as currents — until then the forecast
+ * layer carries them forward via the prospects feed.
  */
 export const ACTIVE_2027: ManagedProperty[] = [
   ...CURRENT_2026.map((p) => ({ ...p, start: 1 })),
-  ...PRESIGNED_2026.map((p) => ({ ...p, start: 1 })),
 ];
 
 /**
@@ -406,7 +403,14 @@ export function calcYear(
    * full-year actives. For 2027 = numNew added in 2026. For 2028 =
    * numNew added in 2026 + numNew added in 2027.
    */
-  rolledForward?: number
+  rolledForward?: number,
+  /**
+   * Per-month expected mgmt fee from the live Prospects pipeline (Helm's
+   * projections table, weighted by each prospect's close_likelihood_pct).
+   * Replaces the old hard-coded PRESIGNED_2026 contribution. 12 numbers,
+   * one per month (Jan…Dec) of the forecast year.
+   */
+  prospectsMonthly?: readonly number[]
 ): YearResult {
   const config = getYearConfig(year, rolledForward ?? 0);
   const maxNew = config.newOrder.length;
@@ -494,9 +498,16 @@ export function calcYear(
         rev_current *= calibrationFactor;
       }
     }
-    // Pre-signed contracts: always seasonality (none in Guesty yet).
-    for (const p of config.presigned) {
-      if (m >= p.start) rev_presigned += p.fee * dist[p.type];
+    // Prospects pipeline: per-month expected mgmt fee, weighted by each
+    // prospect's close_likelihood_pct. When the live feed isn't available
+    // (no Supabase config, table empty), falls back to the (now empty)
+    // config.presigned seasonality calc.
+    if (prospectsMonthly && prospectsMonthly[i] != null) {
+      rev_presigned = prospectsMonthly[i];
+    } else {
+      for (const p of config.presigned) {
+        if (m >= p.start) rev_presigned += p.fee * dist[p.type];
+      }
     }
     // N new (slider) properties: always seasonality (hypothetical).
     for (const start of newStartMonths) {

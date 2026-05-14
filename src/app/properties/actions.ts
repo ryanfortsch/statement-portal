@@ -115,6 +115,7 @@ export async function updateProperty(id: string, formData: FormData) {
   revalidatePath(`/properties/${id}/info-note`);
   revalidatePath(`/properties/${id}/home-guide`);
   revalidatePath(`/properties/${id}/wifi-placard`);
+  revalidatePath(`/properties/${id}/welcome-card`);
   redirect(`/properties/${id}`);
 }
 

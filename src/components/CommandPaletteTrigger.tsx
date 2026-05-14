@@ -84,6 +84,7 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
       onClick={open}
       aria-label="Open search palette"
       title="Search Helm (⌘K)"
+      className="rt-helm-search-trigger"
       style={{
         display: 'inline-flex',
         alignItems: 'center',

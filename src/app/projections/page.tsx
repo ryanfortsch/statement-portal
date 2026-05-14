@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmFooter } from '@/components/HelmFooter';
 import { SyncGmailButton } from '@/components/projections/SyncGmailButton';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
@@ -28,10 +29,10 @@ export default async function ProjectionsPage() {
       <HelmMasthead current="projections" />
 
       {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10 rt-helm-hero" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Prospects</div>
         <h1
-          className="font-serif"
+          className="font-serif rt-helm-hero-h1"
           style={{
             fontSize: 44,
             lineHeight: 1.05,
@@ -50,9 +51,10 @@ export default async function ProjectionsPage() {
 
       {/* CTA */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+        <div className="rt-projections-cta" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
           <Link
             href="/projections/new"
+            className="rt-projections-cta-primary"
             style={{
               display: 'inline-block',
               background: 'var(--ink)',
@@ -68,8 +70,8 @@ export default async function ProjectionsPage() {
             New Prospect →
           </Link>
           <SyncGmailButton />
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          <span className="rt-projections-cta-spacer" style={{ flex: 1 }} />
+          <span className="rt-projections-cta-note" style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
             Sync scans Allie&rsquo;s sent folder for prospect emails and tags each row with the last deliverable seen.
           </span>
         </div>
@@ -101,23 +103,7 @@ export default async function ProjectionsPage() {
       </section>
 
       {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Prospects</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Helm
-          </span>
-        </div>
-      </footer>
+      <HelmFooter module="Prospects" right="Source: Helm" />
     </div>
   );
 }
@@ -136,6 +122,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   return (
     <Link href={`/projections/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
       <div
+        className="rt-projections-row"
         style={{
           display: 'grid',
           gridTemplateColumns: '64px 1fr auto auto',
@@ -145,13 +132,16 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           borderBottom: '1px solid var(--rule)',
         }}
       >
-        <span className="font-mono" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
+        <span className="font-mono rt-projections-row-num" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
           {number}
         </span>
-        <div>
-          <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
-            {p.property_address}
-          </h3>
+        <div className="rt-projections-row-body" style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <h3 className="font-serif rt-projections-row-title" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
+              {p.property_address}
+            </h3>
+            <LikelihoodChip pct={p.close_likelihood_pct} />
+          </div>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {p.prospect_name}
             {p.market ? ` · ${p.market}` : ''}
@@ -165,10 +155,11 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             </div>
           )}
         </div>
-        <span className="tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+        <span className="tabular-nums rt-projections-row-range" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           {range}
         </span>
         <span
+          className="rt-projections-row-status"
           style={{
             fontSize: 10,
             letterSpacing: '.22em',
@@ -228,4 +219,52 @@ function shortDate(iso: string): string {
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+/**
+ * Read-only close-likelihood chip for the list row. Inside a row-wide
+ * `<Link>` so it can't be a button — clicking the row navigates to the
+ * detail page where the inline edit widget lives. Three bands of color
+ * (cold/warm/hot) match the detail-page widget's visual code.
+ */
+function LikelihoodChip({ pct }: { pct: number | null }) {
+  if (pct == null) {
+    return (
+      <span
+        style={{
+          background: 'transparent',
+          border: '1px dashed var(--rule)',
+          color: 'var(--ink-4)',
+          fontSize: 10,
+          fontWeight: 500,
+          letterSpacing: '0.04em',
+          padding: '2px 8px',
+          borderRadius: 999,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Set close %
+      </span>
+    );
+  }
+  const hot = pct >= 67;
+  const cold = pct < 33;
+  return (
+    <span
+      title={`${pct}% likely to close`}
+      style={{
+        background: 'var(--paper-2)',
+        border: `1px solid ${hot ? 'var(--positive)' : cold ? 'var(--rule)' : 'var(--ink-3)'}`,
+        color: hot ? 'var(--positive)' : cold ? 'var(--ink-4)' : 'var(--ink)',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.04em',
+        padding: '3px 10px',
+        borderRadius: 999,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {pct}% likely
+    </span>
+  );
 }

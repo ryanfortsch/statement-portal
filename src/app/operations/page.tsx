@@ -81,7 +81,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead current="operations" />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <div className="eyebrow">Operations</div>
+          <div className="eyebrow">Turnovers</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
             Configure Supabase env vars to load turnovers.
           </p>
@@ -108,7 +108,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       <HelmMasthead current="operations" />
 
       <HelmHero
-        eyebrow="Helm · Operations"
+        eyebrow="Helm · Turnovers"
         title="The"
         emphasis="turnover pipeline."
         description="Upcoming check-ins, prep status, and same-day turnovers. Live from Guesty, joined with Helm inspections."
@@ -232,11 +232,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             Pick a wider range to see upcoming check-ins.
           </div>
         ) : (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {data.turnovers.map((t) => (
-              <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
-            ))}
-          </div>
+          <TurnoverList turnovers={data.turnovers} myEmail={myEmail} />
         )}
       </section>
 
@@ -296,7 +292,50 @@ export default async function OperationsPage({ searchParams }: PageProps) {
         <CalendarGrid calendar={data.calendar} />
       </section>
 
-      <HelmFooter module="Operations" right="Source: Guesty + Helm inspections" />
+      <HelmFooter module="Turnovers" right="Source: Guesty + Helm inspections" />
+    </div>
+  );
+}
+
+/**
+ * Top N turnover cards render up front; the rest collapse under a native
+ * <details> expander so the pipeline doesn't read as an endless scroll
+ * once we onboard more properties. The component is server-rendered so
+ * we use the no-JS <details>/<summary> primitive rather than the client
+ * useState pattern over on /work.
+ */
+const TURNOVER_INITIAL_LIMIT = 5;
+
+function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+  const visible = turnovers.slice(0, TURNOVER_INITIAL_LIMIT);
+  const rest = turnovers.slice(TURNOVER_INITIAL_LIMIT);
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)' }}>
+      {visible.map((t) => (
+        <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+      ))}
+      {rest.length > 0 && (
+        <details className="rt-turnover-expander">
+          <summary
+            style={{
+              listStyle: 'none',
+              cursor: 'pointer',
+              borderBottom: '1px solid var(--rule)',
+              padding: '14px 0',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--ink-3)',
+            }}
+          >
+            ↓ Show {rest.length} more turnover{rest.length === 1 ? '' : 's'}
+          </summary>
+          {rest.map((t) => (
+            <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+          ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -318,6 +357,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
 
   return (
     <div
+      className="rt-turnover-row"
       style={{
         display: 'grid',
         gridTemplateColumns: '180px 1fr auto auto',
@@ -328,7 +368,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       }}
     >
       {/* Date column */}
-      <div>
+      <div className="rt-turnover-date">
         <div className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
           {checkIn}
         </div>
@@ -339,7 +379,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       </div>
 
       {/* Property + guest column */}
-      <div style={{ minWidth: 0 }}>
+      <div className="rt-turnover-property" style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
             {t.propertyName}
@@ -372,6 +412,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         </div>
         {t.previousCheckout && (
           <div
+            className={t.isSameDayTurnover ? 'rt-turnover-prev rt-turnover-prev-sameday' : 'rt-turnover-prev'}
             style={{
               marginTop: 2,
               fontSize: 11,
@@ -380,16 +421,32 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             }}
           >
             {t.isSameDayTurnover
-              ? 'Tight turnaround — previous guest checks out today'
+              ? 'Tight turnaround · previous guest checks out today'
               : `Prev. checkout ${formatDateShort(t.previousCheckout)}`}
           </div>
         )}
       </div>
 
-      {/* Status chips: cleaning + inspection stacked. Cleaning is the
-          earlier signal in the prep window, inspection is the final
-          gate, so they read top-to-bottom in order of when each fires. */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+      {/* Status chips: work slips + cleaning + inspection stacked. Work
+          slips are persistent property issues you bring on the walk;
+          cleaning + inspection are the per-turnover prep gates. */}
+      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, whiteSpace: 'nowrap' }}>
+        {t.openWorkSlipsCount > 0 && (
+          <Link
+            href={`/properties/${t.propertyId}/work-slips/print`}
+            title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: 'var(--tide-deep)',
+              textDecoration: 'none',
+            }}
+          >
+            {t.openWorkSlipsCount} work {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · Print →
+          </Link>
+        )}
         {cleaningExpected && (
           <span
             style={{
@@ -427,6 +484,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       {inspectionDone && t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}/summary`}
+          className="rt-turnover-action"
           style={{
             fontSize: 12,
             color: 'var(--ink-3)',
@@ -439,6 +497,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
       ) : t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}`}
+          className="rt-turnover-action"
           style={{
             fontSize: 12,
             color: 'var(--ink)',
@@ -450,7 +509,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           Resume →
         </Link>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           <PlanButton
             guestyReservationId={t.reservationId}
             propertyId={t.propertyId}

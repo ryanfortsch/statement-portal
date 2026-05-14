@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmFooter } from '@/components/HelmFooter';
+import { Section } from '@/components/Section';
+import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -198,13 +201,19 @@ export default async function InspectionSummaryPage({
 
       {/* STAT GRID */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat label="Total" value={String(inspection.total_items)} />
-            <Stat label="Pass" value={String(inspection.pass_count)} accent="var(--positive)" />
-            <Stat label="Issue" value={String(inspection.issue_count)} accent="var(--signal)" />
-            <Stat label="N/A" value={String(inspection.na_count)} accent="var(--ink-4)" last />
-          </div>
+        <div
+          className="rt-helm-stat-strip"
+          style={{
+            borderTop: '1px solid var(--ink)',
+            borderBottom: '1px solid var(--ink)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+          }}
+        >
+          <Stat label="Total" value={String(inspection.total_items)} size="hero" />
+          <Stat label="Pass" value={String(inspection.pass_count)} size="hero" valueColor="var(--positive)" />
+          <Stat label="Issue" value={String(inspection.issue_count)} size="hero" valueColor="var(--signal)" />
+          <Stat label="N/A" value={String(inspection.na_count)} size="hero" valueColor="var(--ink-4)" last />
         </div>
       </section>
 
@@ -254,7 +263,7 @@ export default async function InspectionSummaryPage({
                       color: 'var(--signal)',
                     }}
                   >
-                    {ws.category.replace('_', ' ')}
+                    {ws.category.replaceAll('_', ' ')}
                   </span>
                   <div>
                     <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{ws.title}</div>
@@ -390,72 +399,7 @@ export default async function InspectionSummaryPage({
         </Section>
       )}
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Inspection</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Helm
-          </span>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  eyebrow,
-  empty,
-  emptyMessage,
-  children,
-}: {
-  title: string;
-  eyebrow: string;
-  empty: boolean;
-  emptyMessage: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          {title}
-        </h2>
-        <span className="eyebrow">{eyebrow}</span>
-      </div>
-      {empty ? (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>
-          {emptyMessage}
-        </div>
-      ) : (
-        children
-      )}
-    </section>
-  );
-}
-
-function Stat({ label, value, accent, last = false }: { label: string; value: string; accent?: string; last?: boolean }) {
-  return (
-    <div
-      style={{
-        padding: '20px 20px',
-        borderRight: last ? 'none' : '1px solid var(--rule)',
-      }}
-    >
-      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{ fontSize: 28, fontWeight: 400, color: accent ?? 'var(--ink)' }}>
-        {value}
-      </div>
+      <HelmFooter module="Inspection" right="Source: Helm" />
     </div>
   );
 }

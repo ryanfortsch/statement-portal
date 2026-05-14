@@ -16,6 +16,11 @@ type Props = {
   action: (formData: FormData) => Promise<void>;
   initial?: Partial<ProjectionRow>;
   submitLabel?: string;
+  /** When present, the row's last-updated timestamp surfaces as a chip
+   *  next to the Save button so the user gets visible feedback that the
+   *  most recent save (or redline apply) actually landed. Pass
+   *  `projection.updated_at` from the page. */
+  lastSavedAt?: string | null;
 };
 
 const DEFAULT_PRESENTATION_MONTH = (() => {
@@ -23,7 +28,7 @@ const DEFAULT_PRESENTATION_MONTH = (() => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 })();
 
-export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props) {
+export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSavedAt }: Props) {
   const v = initial ?? {};
   const pct = (n: number | null | undefined, fallback: number) =>
     n != null ? Math.round(n * 100) : fallback;
@@ -398,7 +403,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
 
       
 
-      <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 12 }}>
+      <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="submit"
           style={{
@@ -415,9 +420,53 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save' }: Props)
         >
           {submitLabel} →
         </button>
+        {lastSavedAt ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 10px',
+              background: 'rgba(74, 157, 107, 0.14)',
+              color: '#2a5e3f',
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: '.02em',
+            }}
+            title={`Server timestamp: ${lastSavedAt}`}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#4a9d6b',
+                display: 'inline-block',
+              }}
+            />
+            Saved at {formatSavedAt(lastSavedAt)}
+          </span>
+        ) : null}
+        <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          If the contract preview is open in another tab, refresh that tab to see the new values.
+        </span>
       </div>
     </form>
   );
+}
+
+function formatSavedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
 }
 
 // ─── Layout primitives ───────────────────────────────────────────────────────
