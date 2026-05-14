@@ -218,10 +218,21 @@ function ParagraphClause({ clause, vars }: { clause: ContractClause; vars: Templ
 }
 
 function BulletClause({ clause, vars }: { clause: ContractClause; vars: TemplateVars }) {
+  // Normalize the bold label: every labeled bullet in this contract ends with
+  // a colon ("Notification Requirement:"). New clauses produced by the
+  // redlines tool sometimes arrive without one — bake it in at render time
+  // so the contract reads consistently.
+  const label = normalizeBoldPrefix(clause.boldPrefix);
+  // Strip a duplicate of the label from the start of the template. The
+  // redline tool occasionally emits both `boldPrefix: "Owner Approval
+  // Required"` AND a template that starts with "Owner Approval Required:".
+  // Without this strip the rendered bullet reads "Owner Approval Required
+  // Owner Approval Required: ..." — clearly wrong.
+  const template = stripDuplicatePrefix(clause.template, label);
   return (
     <li>
-      {clause.boldPrefix ? <b>{clause.boldPrefix} </b> : null}
-      {renderTemplate(clause.template, vars)}
+      {label ? <b>{label} </b> : null}
+      {renderTemplate(template, vars)}
       {clause.children && clause.children.length > 0 && (
         <ul>
           {clause.children.map((child) => (
@@ -231,6 +242,39 @@ function BulletClause({ clause, vars }: { clause: ContractClause; vars: Template
       )}
     </li>
   );
+}
+
+/** Bold-label normalizer. Ensures every labeled bullet ends with ":". */
+function normalizeBoldPrefix(prefix?: string): string | undefined {
+  if (!prefix) return undefined;
+  const trimmed = prefix.trim().replace(/:+$/, '');
+  if (!trimmed) return undefined;
+  return `${trimmed}:`;
+}
+
+/**
+ * Strip a duplicated bold label from the start of a clause template. Matches
+ * the label with or without trailing colon, case-insensitively, so all four
+ * variants get cleaned up:
+ *
+ *   "Owner Approval Required: body"     →  "body"
+ *   "Owner Approval Required body"      →  "body"
+ *   "owner approval required: body"     →  "body"
+ *   "Owner approval required :body"     →  "body"
+ */
+function stripDuplicatePrefix(template: string, normalizedLabel?: string): string {
+  if (!normalizedLabel) return template;
+  const noColon = normalizedLabel.replace(/:+$/, '').trim();
+  if (!noColon) return template;
+  const pattern = new RegExp(
+    `^\\s*${escapeRegex(noColon)}\\s*:?\\s*`,
+    'i',
+  );
+  return template.replace(pattern, '');
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ─── Template engine ────────────────────────────────────────────────────────
