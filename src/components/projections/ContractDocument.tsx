@@ -572,13 +572,23 @@ const contractCss = `
       page-break-after: always;
       break-after: page;
     }
-    /* Sig uses default @page margin (no named rule needed). */
+    /* Sig section flows naturally after body content, with
+       break-inside:avoid keeping the signature block together as
+       one unit. The forced page-break-before:always was producing
+       a near-empty page 7 (just the tail sentence of Governing Law)
+       before the sig sheet, because the body content's natural end
+       sometimes overflows by a paragraph or two — forcing the
+       break left that overflow stranded on its own sheet. Letting
+       the sig section flow lets it share a sheet with body tail
+       content when there's room, and naturally page-break when
+       there isn't (via break-inside:avoid keeping it whole). */
     .rt-c-sig-page {
       display: flex;
       flex-direction: column;
-      page-break-before: always;
-      break-before: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       padding: 40px 0 0;
+      margin-top: 48px;
     }
     /* Small visual rhythm between sections in the continuous body
        flow. Keeps sections feeling like distinct blocks instead of
