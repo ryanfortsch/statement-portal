@@ -2,17 +2,18 @@
 
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
+import { prettifySlug, guestFirstFromDraft, statusToneColor } from './format';
 
 type Props = {
   initialRecent: Approval[];
 };
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  approved: { label: 'Sent', color: 'var(--ink-2)' },
-  rejected: { label: 'Rejected', color: 'var(--ink-4)' },
-  manual_sent: { label: 'Sent via Guesty', color: 'var(--ink-3)' },
-  superseded: { label: 'Coached & regenerated', color: 'var(--ink-3)' },
-  auto_rejected_stale: { label: 'Auto-pruned (stale)', color: 'var(--ink-4)' },
+const STATUS_LABELS: Record<string, string> = {
+  approved: 'Sent',
+  rejected: 'Rejected',
+  manual_sent: 'Sent via Guesty',
+  superseded: 'Coached & regenerated',
+  auto_rejected_stale: 'Auto-pruned (stale)',
 };
 
 export function RecentStrip({ initialRecent }: Props) {
@@ -35,12 +36,16 @@ export function RecentStrip({ initialRecent }: Props) {
         }}
       >
         {initialRecent.map((row) => {
-          const status = STATUS_LABELS[row.status] || {
-            label: row.status,
-            color: 'var(--ink-3)',
-          };
-          const propertyLabel = row.listing_name || row.listing_id || 'unknown property';
-          const guestLabel = row.guest_first || 'Guest';
+          const statusLabel = STATUS_LABELS[row.status] || row.status;
+          const statusColor = statusToneColor(row.status);
+          const propertyLabel =
+            row.listing_name ||
+            prettifySlug(row.listing_id) ||
+            'unknown property';
+          const guestLabel =
+            row.guest_first ||
+            guestFirstFromDraft(row.draft) ||
+            'Guest';
           return (
             <li
               key={row.id}
@@ -48,7 +53,7 @@ export function RecentStrip({ initialRecent }: Props) {
                 borderBottom: '1px solid var(--rule)',
                 padding: '12px 0',
                 display: 'grid',
-                gridTemplateColumns: '160px 1fr 150px',
+                gridTemplateColumns: '180px 1fr 170px',
                 gap: 12,
                 alignItems: 'baseline',
                 fontSize: 13,
@@ -71,9 +76,13 @@ export function RecentStrip({ initialRecent }: Props) {
               </span>
               <span
                 className="eyebrow"
-                style={{ color: status.color, textAlign: 'right' }}
+                style={{
+                  color: statusColor,
+                  textAlign: 'right',
+                  fontWeight: 600,
+                }}
               >
-                {status.label}
+                {statusLabel}
               </span>
             </li>
           );
