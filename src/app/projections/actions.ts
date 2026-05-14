@@ -268,6 +268,37 @@ export async function markSent(id: string) {
 }
 
 /**
+ * Set the analyst's confidence that this prospect will close, 0–100.
+ *
+ * Called from the inline widget on the identity strip and from the prospect
+ * list row's quick-set dropdown. Pass null to clear ("haven't decided yet").
+ */
+export async function setCloseLikelihood(id: string, pct: number | null): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  // Validate: integer 0–100, or null.
+  let value: number | null = null;
+  if (pct !== null && pct !== undefined) {
+    const n = Math.round(Number(pct));
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      throw new Error(`Invalid likelihood: ${pct} (must be 0–100)`);
+    }
+    value = n;
+  }
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ close_likelihood_pct: value })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
  * Promote a prospect into a managed property record. Copies prospect inputs
  * and onboarding answers onto a new public.properties row, links the two
  * records, and sends Dotti to the new property's detail page.
