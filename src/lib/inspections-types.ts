@@ -95,3 +95,26 @@ export type WorkSlipRow = {
   created_at: string;
   updated_at: string;
 };
+
+// ─── Property-specific zones (Increment 1) ──────────────────────────────
+// Models each property as a sequence of physical zones (rooms / areas) in
+// walking order. `property_zone_items` is the many-to-many that maps
+// template inspection items to specific zones so the deck can expand
+// (e.g. one "Bathroom Reset" item → three cards for three bathrooms).
+export type PropertyZoneRow = {
+  id: string;
+  property_id: string;
+  name: string;
+  floor_label: string | null;
+  walk_order: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PropertyZoneItemRow = {
+  id: string;
+  property_zone_id: string;
+  inspection_item_id: string;
+  created_at: string;
+};
