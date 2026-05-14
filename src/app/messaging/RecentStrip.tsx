@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<string, string> = {
   manual_sent: 'Sent via Guesty',
   superseded: 'Coached & regenerated',
   auto_rejected_stale: 'Auto-pruned (stale)',
+  courtesy_ack: 'No reply needed',
 };
 
 export function RecentStrip({ initialRecent }: Props) {

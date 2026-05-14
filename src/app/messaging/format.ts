@@ -72,6 +72,8 @@ export function statusToneColor(status: string): string {
       return 'var(--signal)';
     case 'rejected':
       return 'var(--ink-4)';
+    case 'courtesy_ack':
+      return 'var(--ink-4)';
     default:
       return 'var(--ink-3)';
   }
