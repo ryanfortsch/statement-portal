@@ -354,7 +354,29 @@ ANCHOR RULES (for 'add' action only)
 Set exactly ONE of insertAfter, insertBefore, inSection. The unused fields must be null. inSection requires position ('first' or 'last').
 
 BOLD LABEL CONVENTIONS
-Labeled bullets render as "**Label:** body". The renderer adds the trailing colon automatically, so set title to just "Owner Approval Required" — NOT "Owner Approval Required:". Also: do NOT also repeat the label at the start of the body. The renderer dedups, but cleaner output starts with a non-duplicated body.
+Labeled bullets render with the schema's title in bold + a colon, followed by the body. Two hard rules:
+
+  1. Pass title as the bare label name only — no colon, no markdown.
+     RIGHT: title: "Owner Approval Required"
+     WRONG: title: "Owner Approval Required:"      (renderer adds the colon)
+     WRONG: title: "**Owner Approval Required**"   (no markdown in titles)
+
+  2. NEVER use markdown in body. The renderer outputs body text literally — it does NOT parse \`**bold**\` or \`__bold__\` or \`*italic*\`. Markdown asterisks render as literal asterisks. And specifically: do NOT repeat the label at the start of the body, with or without markdown.
+
+     RIGHT:
+       title: "Owner Approval Required"
+       body:  "Before incurring any extraordinary fee or coordinating any
+               large-scale repair, the Property Manager shall provide..."
+
+     WRONG (label repeated as markdown):
+       title: "Owner Approval Required"
+       body:  "**Owner Approval Required:** Before incurring any extraordinary..."
+
+     WRONG (label repeated in plain text):
+       title: "Owner Approval Required"
+       body:  "Owner Approval Required: Before incurring..."
+
+     The renderer dedups defensively so the contract still renders OK, but the canonical output is body-without-prefix.
 
 SUMMARY
 Frame using OUR positions, e.g.:
