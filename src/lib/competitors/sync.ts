@@ -20,6 +20,13 @@ import { scrapeAvh, scrapeShoreway, type ScrapedListing, type ScrapeResult } fro
  *   - listing in scrape AND not in current      → insert active, write 'added'
  *   - listing in current(active) AND not in scrape → flip to dropped, write 'dropped'
  *
+ * IMPORTANT — match on URL, not slug.
+ * The seed file's curated slug (e.g. "gloucester-the-mariner") and the
+ * scrape's URL-path slug (e.g. "the-mariner3br25-bthwalk-to-beachbackyard")
+ * deliberately disagree on Shoreway — the curated slug is the app-facing
+ * key while the URL path is whatever Hospitable serves. URL is the only
+ * identifier both sides agree on, so we diff on that.
+ *
  * Field-level changes (bedroom count etc) aren't tracked in v1 — the
  * scrape only captures slug + name + url. Once the scrape fetches detail
  * pages we'll start logging 'changed' events with a JSON diff.
@@ -103,6 +110,19 @@ async function seedFromStatic(
   return rows.length;
 }
 
+/** Normalize a listing URL so the seed-file URL and the scrape URL match
+ *  even when one has a trailing slash, querystring, or capitalization
+ *  quirk. URL is our diff key — see file-header note. */
+function urlKey(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/+$/, '').toLowerCase();
+    return `${u.host.toLowerCase()}${path}`;
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
 async function diffAndPersist(
   client: SupabaseClient,
   competitorId: CompetitorId,
@@ -110,8 +130,8 @@ async function diffAndPersist(
   current: CurrentRow[],
 ): Promise<{ added: number; dropped: number; returned: number; unchanged: number }> {
   const now = new Date().toISOString();
-  const currentBySlug = new Map(current.map((r) => [r.listing_slug, r]));
-  const scrapedBySlug = new Map(scraped.map((l) => [l.slug, l]));
+  const currentByUrl = new Map(current.map((r) => [urlKey(r.url), r]));
+  const scrapedByUrl = new Map(scraped.map((l) => [urlKey(l.url), l]));
 
   let added = 0;
   let dropped = 0;
@@ -129,7 +149,7 @@ async function diffAndPersist(
 
   // Walk scraped listings
   for (const l of scraped) {
-    const existing = currentBySlug.get(l.slug);
+    const existing = currentByUrl.get(urlKey(l.url));
     const displayName = l.name ?? existing?.listing_name ?? l.slug;
     if (!existing) {
       // Brand new
@@ -193,7 +213,7 @@ async function diffAndPersist(
   // Walk current actives that didn't appear in the scrape → dropped
   for (const row of current) {
     if (row.status !== 'active') continue;
-    if (scrapedBySlug.has(row.listing_slug)) continue;
+    if (scrapedByUrl.has(urlKey(row.url))) continue;
     const { error } = await client
       .from('competitor_listings_current')
       .update({
@@ -285,4 +305,28 @@ export async function syncAllCompetitors(): Promise<SyncReport[]> {
   const client = adminClient();
   const [avh, sw] = await Promise.all([scrapeAvh(), scrapeShoreway()]);
   return Promise.all([syncOne(client, avh), syncOne(client, sw)]);
+}
+
+/**
+ * Wipe a single competitor's current+events tables. Used when the diff
+ * key changed (e.g. early Shoreway syncs keyed on slug instead of URL,
+ * which created a 45-added / 38-dropped phantom churn). After a reset
+ * the next sync re-seeds from static data and diffs cleanly.
+ */
+export async function resetCompetitor(competitorId: CompetitorId): Promise<{
+  deletedCurrent: number;
+  deletedEvents: number;
+}> {
+  const client = adminClient();
+  const { count: cur, error: e1 } = await client
+    .from('competitor_listings_current')
+    .delete({ count: 'exact' })
+    .eq('competitor_id', competitorId);
+  if (e1) throw e1;
+  const { count: ev, error: e2 } = await client
+    .from('competitor_listing_events')
+    .delete({ count: 'exact' })
+    .eq('competitor_id', competitorId);
+  if (e2) throw e2;
+  return { deletedCurrent: cur ?? 0, deletedEvents: ev ?? 0 };
 }

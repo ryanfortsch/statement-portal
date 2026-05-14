@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
-import { syncAllCompetitors } from '@/lib/competitors/sync';
+import { syncAllCompetitors, resetCompetitor } from '@/lib/competitors/sync';
+import type { CompetitorId } from '@/lib/competitors';
+
+const KNOWN_COMPETITORS: CompetitorId[] = ['atlantic-vacation-homes', 'shoreway-management'];
 
 /**
  * Manual trigger + work handler for competitor inventory sync.
@@ -29,13 +32,35 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // `?reset=<competitor-id>` wipes that competitor's current+events
+  // before syncing. Used when an early sync ran with a buggy diff key
+  // and left phantom dropped/added rows that need to flush out. Only
+  // honoured for known competitor ids and only with an authed session.
+  const resetParam = request.nextUrl.searchParams.get('reset');
+  let resetReport: { competitorId: CompetitorId; deletedCurrent: number; deletedEvents: number } | null = null;
+  if (resetParam && !isCron) {
+    if (!KNOWN_COMPETITORS.includes(resetParam as CompetitorId)) {
+      return NextResponse.json({ error: `unknown competitor: ${resetParam}` }, { status: 400 });
+    }
+    try {
+      const r = await resetCompetitor(resetParam as CompetitorId);
+      resetReport = { competitorId: resetParam as CompetitorId, ...r };
+    } catch (err) {
+      console.error('[sync-competitors] reset failed', err);
+      return NextResponse.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500 },
+      );
+    }
+  }
+
   try {
     const reports = await syncAllCompetitors();
     revalidatePath('/competitors');
     for (const r of reports) {
       revalidatePath(`/competitors/${r.competitorId}`);
     }
-    return NextResponse.json({ ok: true, reports });
+    return NextResponse.json({ ok: true, reset: resetReport, reports });
   } catch (err) {
     console.error('[sync-competitors]', err);
     return NextResponse.json(
