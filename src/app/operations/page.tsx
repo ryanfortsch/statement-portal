@@ -480,58 +480,53 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Status chips: work slips + cleaning + inspection on a single
-          horizontal row. Work slips are persistent property issues you
-          bring on the walk; cleaning + inspection are the per-turnover
-          prep gates. Stacked vertical column read as a 3-line block on
-          desktop, which made every row feel busy - flowing inline keeps
-          each row to ~2 visual lines. */}
-      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'flex-end', gap: '4px 14px', whiteSpace: 'nowrap' }}>
+      {/* Status: cleaning + inspection collapse to a single dim line of
+          sentence-case text with color-coded labels per step. Work-slip
+          count rides as a quiet link on a second line when present. The
+          previous version stacked 3 uppercase letter-spaced 600-weight
+          pills per row, which read as a wall of shouting status. */}
+      <div
+        className="rt-turnover-chips"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          justifyContent: 'center',
+          gap: 4,
+          whiteSpace: 'nowrap',
+          fontSize: 12,
+          color: 'var(--ink-4)',
+        }}
+      >
+        <div>
+          {cleaningExpected && (
+            <>
+              <span
+                style={{ color: cleaningDone ? 'var(--positive)' : 'var(--signal)' }}
+                title={
+                  t.cleaning
+                    ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
+                    : 'No cleaner-completion text received via Quo for this turnover'
+                }
+              >
+                {cleaningDone ? `Cleaned ${cleaningRelative}` : 'Awaiting cleaner'}
+              </span>
+              <span style={{ color: 'var(--ink-4)' }}>{' · '}</span>
+            </>
+          )}
+          <span style={{ color: inspectionDone ? 'var(--positive)' : 'var(--signal)' }}>
+            {inspectionDone ? 'Inspected' : 'Not inspected'}
+          </span>
+        </div>
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}
             title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              color: 'var(--tide-deep)',
-              textDecoration: 'none',
-            }}
+            style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none' }}
           >
-            {t.openWorkSlipsCount} work {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · Print →
+            {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
           </Link>
         )}
-        {cleaningExpected && (
-          <span
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              color: cleaningDone ? 'var(--positive)' : 'var(--signal)',
-            }}
-            title={
-              t.cleaning
-                ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
-                : 'No cleaner-completion text received via Quo for this turnover'
-            }
-          >
-            {cleaningDone ? `Cleaned · ${cleaningRelative}` : 'Awaiting cleaner'}
-          </span>
-        )}
-        <span
-          style={{
-            fontSize: 10,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            color: inspectionDone ? 'var(--positive)' : 'var(--signal)',
-          }}
-        >
-          {inspectionDone ? 'Inspection done' : 'Not inspected'}
-        </span>
       </div>
 
       {/* Action — done shows Summary; in-progress shows Resume; otherwise
