@@ -176,12 +176,13 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
     }
 
     const baselines = new Map<string, PropertyBaseline>();
-    for (const [propId, { monthlyHistory, total, earliest, latest }] of byProp) {
-      const daysSpan = Math.max(
-        30,
-        Math.round((new Date(latest).getTime() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24)),
-      );
-      const annualGross = (total * 365) / daysSpan;
+    for (const [propId, { monthlyHistory, total }] of byProp) {
+      // Trailing 12 months of observed revenue, no extrapolation. For
+      // properties active the whole year, this is their actual annual.
+      // For properties activated mid-window (new onboards), this is the
+      // partial-year actual — under-projects them slightly until they have
+      // a full year of history, which is fine and self-correcting.
+      const annualGross = total;
       baselines.set(propId, { annualGross, monthlyHistory });
     }
     return baselines;
