@@ -6,7 +6,13 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData, CustomClause, Owner, ProjectionRow } from '@/lib/projections-types';
+import type {
+  OnboardingData,
+  CustomClause,
+  Owner,
+  ProjectionRow,
+  ReadinessState,
+} from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
 import {
@@ -309,6 +315,81 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
 
   revalidatePath('/projections');
   revalidatePath(`/projections/${id}`);
+}
+
+// ─── Readiness checklist mutations ─────────────────────────────────────────
+// Two write paths feed into the same jsonb column: tap-to-check (toggles a
+// label in the `checked` array) and notes (writes a string into the `notes`
+// dict). Each call does a read-merge-write because the column is a single
+// blob and we don't want concurrent walkthrough taps to step on each other.
+// The path is revalidated so the next server render sees the update; the
+// client already updated optimistically.
+
+async function readReadinessState(projectionId: string): Promise<ReadinessState> {
+  const { data, error } = await supabase
+    .from('projections')
+    .select('readiness_state')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const raw = (data?.readiness_state ?? null) as ReadinessState | null;
+  return {
+    checked: Array.isArray(raw?.checked) ? raw.checked : [],
+    notes: raw?.notes && typeof raw.notes === 'object' ? raw.notes : {},
+    updated_at: raw?.updated_at,
+  };
+}
+
+async function writeReadinessState(projectionId: string, next: ReadinessState): Promise<void> {
+  const stamped: ReadinessState = { ...next, updated_at: new Date().toISOString() };
+  const { error } = await supabase
+    .from('projections')
+    .update({ readiness_state: stamped })
+    .eq('id', projectionId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projections/${projectionId}/readiness`);
+  revalidatePath(`/projections/${projectionId}`);
+}
+
+/**
+ * Toggle the check state of a single item in the readiness checklist.
+ * `itemLabel` is the label as defined in READINESS_GROUPS (e.g. "Coffee mugs").
+ * Idempotent: same label + same state is a no-op write.
+ */
+export async function setReadinessChecked(
+  projectionId: string,
+  itemLabel: string,
+  checked: boolean,
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const state = await readReadinessState(projectionId);
+  const set = new Set(state.checked);
+  if (checked) set.add(itemLabel);
+  else set.delete(itemLabel);
+  await writeReadinessState(projectionId, { ...state, checked: Array.from(set) });
+}
+
+/**
+ * Write/overwrite a single walkthrough note. Pass empty string to clear.
+ * `noteKey` is a stable identifier (supply_closet, smart_lock, etc.) —
+ * see the NOTE_FIELDS array in lib/projections-readiness.ts.
+ */
+export async function setReadinessNote(
+  projectionId: string,
+  noteKey: string,
+  value: string,
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const state = await readReadinessState(projectionId);
+  const notes = { ...state.notes };
+  const trimmed = value.trim();
+  if (trimmed === '') delete notes[noteKey];
+  else notes[noteKey] = value;
+  await writeReadinessState(projectionId, { ...state, notes });
 }
 
 /**

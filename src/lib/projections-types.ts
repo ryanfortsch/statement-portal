@@ -68,6 +68,12 @@ export type ProjectionRow = {
   // Prospects list row badge. Null until the analyst sets one.
   close_likelihood_pct: number | null;
 
+  // Interactive Property Readiness Checklist state. Mutated during a
+  // property walkthrough — tap to check items off, type into the
+  // walkthrough-notes fields. Null until the analyst first interacts.
+  // Shape defined by ReadinessState below.
+  readiness_state: ReadinessState | null;
+
   // Per-deal contract addenda. Legacy field: was rendered as a "Rider"
   // page after Sale Protection. Now superseded by contract_overrides
   // below — kept for backward compat on projections created before
@@ -110,6 +116,25 @@ export type ProjectionRow = {
 
   created_at: string | null;
   updated_at: string | null;
+};
+
+/**
+ * Persisted state for the interactive Property Readiness Checklist. The
+ * shape is a flat dict of checked-item labels + a notes dict, so it's
+ * trivial to inspect / migrate / clear. Item labels come straight from
+ * READINESS_GROUPS in lib/projections-readiness.ts — they're stable
+ * enough to use as keys, and any rename of an item there just drops the
+ * old check (an acceptable trade for a single jsonb column).
+ */
+export type ReadinessState = {
+  /** Item labels that have been checked off. Order is meaningless. */
+  checked: string[];
+  /** Walkthrough notes keyed by field name (supply_closet, smart_lock,
+   *  cleaner_access, trash_recycling, wifi, owner_notes, ...). */
+  notes: Record<string, string>;
+  /** ISO timestamp of the most recent write — surfaces as
+   *  "last edited 12:42 PM" on the page. */
+  updated_at?: string;
 };
 
 /** Gmail send detection — one entry per deliverable type, latest send wins. */

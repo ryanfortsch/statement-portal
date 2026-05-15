@@ -149,6 +149,56 @@ export const READINESS_GROUPS: ReadinessGroup[] = [
   },
 ];
 
+// ─── Walkthrough notes ────────────────────────────────────────────────────
+// Free-text fields the analyst fills in during the property visit. Keys are
+// stable identifiers used both as React keys and as map keys in the
+// persisted ReadinessState.notes dict.
+export type ReadinessNoteField = {
+  key: string;
+  label: string;
+  hint: string;
+  rows?: number;
+};
+
+export const READINESS_NOTE_FIELDS: ReadinessNoteField[] = [
+  {
+    key: 'supply_closet',
+    label: 'Supply closet',
+    hint: 'Which closet stores linens, paper goods, batteries, etc.',
+    rows: 2,
+  },
+  {
+    key: 'smart_lock',
+    label: 'Smart lock brand & code',
+    hint: 'Brand, model, master + cleaner codes',
+    rows: 2,
+  },
+  {
+    key: 'cleaner_access',
+    label: 'Cleaner access',
+    hint: 'Lockbox location + code, side door, etc.',
+    rows: 2,
+  },
+  {
+    key: 'trash_recycling',
+    label: 'Trash & recycling day',
+    hint: 'Pickup days + bin location',
+    rows: 2,
+  },
+  {
+    key: 'wifi',
+    label: 'Wi-Fi name & password',
+    hint: 'Will be printed on the welcome card',
+    rows: 2,
+  },
+  {
+    key: 'owner_notes',
+    label: 'Owner-side notes',
+    hint: 'Anything they want guests to know',
+    rows: 3,
+  },
+];
+
 // ─── Context derivation ────────────────────────────────────────────────────
 
 export type ReadinessContext = {
