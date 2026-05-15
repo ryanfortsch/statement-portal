@@ -17,6 +17,14 @@ export type ReviewRow = {
   id: string;
   property_id: string | null;
   reservation_id: string | null;
+  /**
+   * Link to the unified guest record on public.audience_contacts. Set
+   * by the Guesty sync when a review's guest_name matches a known
+   * contact (case-insensitive first+last). null when no match — the
+   * review still renders on /reviews, it just doesn't deep-link to a
+   * guest detail page.
+   */
+  contact_id: string | null;
   guest_name: string | null;
   channel: string | null;
   overall_rating: number | null;
@@ -106,7 +114,7 @@ export async function listReviews(filters: ReviewListFilters = {}): Promise<Revi
     let q = supabase
       .from('reviews')
       .select(
-        'id, property_id, reservation_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
+        'id, property_id, reservation_id, contact_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
       )
       .order('review_created_at', { ascending: false })
       .limit(filters.limit ?? 50);
@@ -144,6 +152,33 @@ export async function listReviewChannels(): Promise<string[]> {
       if (r.channel) set.add(r.channel);
     }
     return [...set].sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reviews authored by a specific guest (matched to audience_contacts via
+ * the contact_id link). Used on /guests/[id] to show "what this person
+ * said about their stays" alongside their email history.
+ *
+ * Returns most-recent first. Limit defaults to 25 because a single
+ * guest's review count is bounded by their stay count; the cap is
+ * defensive only.
+ */
+export async function listReviewsForContact(contactId: string, limit = 25): Promise<ReviewRow[]> {
+  if (!isConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('reviews')
+      .select(
+        'id, property_id, reservation_id, contact_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
+      )
+      .eq('contact_id', contactId)
+      .order('review_created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []) as ReviewRow[];
   } catch {
     return [];
   }

@@ -307,7 +307,17 @@ function ReviewRow({
           className="font-serif"
           style={{ fontSize: 16, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}
         >
-          {r.guest_name || 'Anonymous guest'}
+          {r.contact_id ? (
+            <Link
+              href={`/guests/${r.contact_id}`}
+              style={{ color: 'var(--ink)', textDecoration: 'none', borderBottom: '1px dotted var(--rule)' }}
+              title="Open guest record"
+            >
+              {r.guest_name || 'Anonymous guest'}
+            </Link>
+          ) : (
+            r.guest_name || 'Anonymous guest'
+          )}
           {propertyName && (
             <span style={{ color: 'var(--ink-3)', fontWeight: 400 }}> · {propertyName}</span>
           )}
