@@ -60,22 +60,29 @@ export async function getStatementRevenueByMonth(
 }
 
 /**
- * Per-property expected annual rental revenue (gross, owner-facing).
- * Used by Smart Forecast as a fallback projection floor for any forward
- * month where a property has zero current bookings — the model can't
- * project \$0 just because nobody has booked October yet in May.
+ * Per-property baseline for the smart-forecast fallback. Two layers:
  *
- * Source: trailing-365-days Guesty reservations summed per property,
- * then annualized. Guesty has all bookings whether or not the monthly
- * statement has been closed in Helm — more comprehensive than
- * property_statements, especially for properties that haven't been
- * reconciled recently.
+ *   monthlyHistory[m] — actual Guesty revenue per month-of-year from
+ *     the trailing 365 days, pro-rated by nights for stays that cross
+ *     month boundaries. Self-corrects to each property's real
+ *     seasonality (ADR + occupancy already baked in).
  *
- * Annualization: sum(host_payout) × (365 / daysOfHistory). For a
- * property with 90 days of Guesty stays totaling \$25K, baseline =
- * 25K × 365 / 90 = \$101K annual gross.
+ *   annualGross — sum of all trailing revenue, annualized by the days
+ *     of history actually covered. Used as a secondary fallback for
+ *     months where the property had no bookings last year (e.g. new
+ *     onboards). Distributed by Gloucester occupancy share at the
+ *     consumer site.
+ *
+ * The smart forecast takes max(monthlyHistory[m], annualGross × Gloucester
+ * share[m]) as the floor, then max'es that against (bookedRevenue ×
+ * portfolio pacing multiplier) for the final projection.
  */
-export async function getPropertyAnnualBaselines(): Promise<Map<string, number>> {
+export type PropertyBaseline = {
+  annualGross: number;
+  monthlyHistory: number[]; // 12 entries, Jan..Dec
+};
+
+export async function getPropertyAnnualBaselines(): Promise<Map<string, PropertyBaseline>> {
   if (!isConfigured) return new Map();
   try {
     const today = new Date();
@@ -94,8 +101,19 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, number>>
       return new Map();
     }
 
-    type Bucket = { total: number; earliest: string; latest: string };
+    type Bucket = {
+      monthlyHistory: number[];
+      total: number;
+      earliest: string;
+      latest: string;
+    };
     const byProp = new Map<string, Bucket>();
+
+    const nightsBetween = (start: string, end: string): number => {
+      const ms = new Date(end).getTime() - new Date(start).getTime();
+      return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+    };
+
     for (const r of (data ?? []) as Array<{
       property_id: string | null;
       check_in: string | null;
@@ -106,8 +124,6 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, number>>
       total_paid: number | null;
     }>) {
       if (!r.property_id || !r.check_in || !r.check_out) continue;
-      // Filter to bookings that actually generated revenue (skip owner blocks,
-      // cancelled holds, inquiries).
       const status = (r.status || '').toLowerCase().replace(/_/g, '-');
       if (
         status.includes('cancel') ||
@@ -122,26 +138,51 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, number>>
         Number(r.owner_net_revenue_guesty ?? 0) ||
         Number(r.total_paid ?? 0);
       if (gross <= 0) continue;
+      const totalNights = nightsBetween(r.check_in, r.check_out);
+      if (totalNights <= 0) continue;
+      const perNight = gross / totalNights;
 
       const bucket = byProp.get(r.property_id) ?? {
+        monthlyHistory: Array(12).fill(0),
         total: 0,
         earliest: r.check_in,
         latest: r.check_out,
       };
-      bucket.total += gross;
+
+      // Walk this stay across months and bucket nights × perNight.
+      let cursor = new Date(r.check_in);
+      const checkOut = new Date(r.check_out);
+      while (cursor < checkOut) {
+        const cy = cursor.getFullYear();
+        const cm = cursor.getMonth();
+        const monthStart = new Date(cy, cm, 1);
+        const monthEnd = new Date(cy, cm + 1, 1);
+        const overlapStart = cursor > monthStart ? cursor : monthStart;
+        const overlapEnd = checkOut < monthEnd ? checkOut : monthEnd;
+        const nights = nightsBetween(
+          overlapStart.toISOString().split('T')[0],
+          overlapEnd.toISOString().split('T')[0],
+        );
+        if (nights > 0) {
+          bucket.monthlyHistory[cm] += perNight * nights;
+          bucket.total += perNight * nights;
+        }
+        cursor = monthEnd;
+      }
+
       if (r.check_in < bucket.earliest) bucket.earliest = r.check_in;
       if (r.check_out > bucket.latest) bucket.latest = r.check_out;
       byProp.set(r.property_id, bucket);
     }
 
-    const baselines = new Map<string, number>();
-    for (const [propId, { total, earliest, latest }] of byProp) {
+    const baselines = new Map<string, PropertyBaseline>();
+    for (const [propId, { monthlyHistory, total, earliest, latest }] of byProp) {
       const daysSpan = Math.max(
         30,
         Math.round((new Date(latest).getTime() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24)),
       );
-      const annualized = (total * 365) / daysSpan;
-      baselines.set(propId, annualized);
+      const annualGross = (total * 365) / daysSpan;
+      baselines.set(propId, { annualGross, monthlyHistory });
     }
     return baselines;
   } catch (err) {
