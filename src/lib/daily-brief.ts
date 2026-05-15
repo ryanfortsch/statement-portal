@@ -21,6 +21,7 @@ import {
   ACTIVE_TASK_STATUSES,
   ACTIVE_WORK_SLIP_STATUSES,
 } from '@/lib/work-types';
+import { triageEmails } from '@/lib/ai/triage-emails';
 
 export type BriefStay = {
   propertyId: string;
@@ -67,6 +68,8 @@ export type BriefEmail = {
   snippet: string;
   receivedAt: string;
   ageHours: number;
+  triage: 'needs_reply' | 'fyi' | 'notification';
+  triageSummary: string;
 };
 
 export type BriefProspect = {
@@ -101,6 +104,9 @@ export type DailyBrief = {
     activeTasks: number;
     waitingReplies: number;
     unread: number;
+    needsReply: number;
+    fyi: number;
+    notifications: number;
     dataGaps: number;
     approvals: number;
     inspectionsToday: number;
@@ -202,12 +208,31 @@ async function loadUnreadEmails(): Promise<BriefEmail[]> {
         snippet: (data.snippet ?? '').slice(0, 200),
         receivedAt,
         ageHours,
+        triage: 'fyi' as const,
+        triageSummary: '',
       } as BriefEmail;
     }),
   );
   const emails: BriefEmail[] = detailed.filter((e): e is BriefEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
-  return emails;
+
+  // Single batched LLM call. Cheap with Haiku; ~1-3s for 20 emails.
+  // On failure the helper returns fyi for everything so the brief
+  // still renders.
+  const triaged = await triageEmails(
+    emails.map(e => ({
+      id: e.id,
+      fromName: e.fromName,
+      fromEmail: e.fromEmail,
+      subject: e.subject,
+      snippet: e.snippet,
+    })),
+  );
+  const triageById = new Map(triaged.map(t => [t.id, t]));
+  return emails.map(e => {
+    const t = triageById.get(e.id);
+    return t ? { ...e, triage: t.category, triageSummary: t.summary } : e;
+  });
 }
 
 export async function loadDailyBrief(): Promise<DailyBrief> {
@@ -488,6 +513,9 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       activeTasks: allTasks.length,
       waitingReplies: inboundWaiting.length,
       unread: unreadEmails.length,
+      needsReply: unreadEmails.filter(e => e.triage === 'needs_reply').length,
+      fyi: unreadEmails.filter(e => e.triage === 'fyi').length,
+      notifications: unreadEmails.filter(e => e.triage === 'notification').length,
       dataGaps: unresolvedDataGaps.length,
       approvals: pendingApprovals.length,
       inspectionsToday: inspectionsCompletedToday.length,
@@ -499,8 +527,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
 export function briefHeadline(brief: DailyBrief): string {
   const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
   const bits: string[] = [];
+  if (brief.totals.needsReply) bits.push(`${brief.totals.needsReply} email${brief.totals.needsReply === 1 ? '' : 's'} need${brief.totals.needsReply === 1 ? 's' : ''} a reply`);
   if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
-  if (brief.totals.unread) bits.push(`${brief.totals.unread} unread email${brief.totals.unread === 1 ? '' : 's'}`);
   if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);
   if (brief.checkoutsToday.length) bits.push(`${brief.checkoutsToday.length} checkout${brief.checkoutsToday.length === 1 ? '' : 's'}`);
   if (draftProspects) bits.push(`${draftProspects} prospect draft${draftProspects === 1 ? '' : 's'}`);
