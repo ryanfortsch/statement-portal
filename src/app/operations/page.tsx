@@ -404,10 +404,23 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Property + guest column */}
-      <div className="rt-turnover-property" style={{ minWidth: 0 }}>
+      {/* Property + guest column. Reserve a real minimum width so the
+          property name + guest line never wrap onto five lines when the
+          right side stacks Plan + Start Inspection buttons. Excess
+          pressure pushes the chip cluster to wrap (it already flex-wraps)
+          rather than the typography. */}
+      <div className="rt-turnover-property" style={{ minWidth: 220 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+          <span
+            className="font-serif"
+            style={{
+              fontSize: 18,
+              fontWeight: 400,
+              color: 'var(--ink)',
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {t.propertyName}
           </span>
           {t.isSameDayTurnover && (
@@ -429,7 +442,18 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         </div>
         {/* Guest + channel. Gap context lives in the fixed-width date
             column on the left so it never wraps under narrow conditions. */}
-        <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 13,
+            color: 'var(--ink-3)',
+            lineHeight: 1.4,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={`${t.guestName || 'Unnamed guest'}${t.channel ? ` · ${t.channel}` : ''}`}
+        >
           {t.guestName || 'Unnamed guest'}
           {t.channel && (
             <>
