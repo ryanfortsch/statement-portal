@@ -169,12 +169,12 @@ function formatAge(ageHours: number): string {
   return `${Math.round(ageHours / 24)}d ago`;
 }
 
-function EmailRow({ e }: { e: BriefEmail }) {
+function NeedsReplyRow({ e }: { e: BriefEmail }) {
   const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
   const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
   return (
     <li
-      className="py-2.5 border-b last:border-b-0"
+      className="py-3 border-b last:border-b-0"
       style={{ borderColor: 'var(--rule-soft)' }}
     >
       <div className="flex justify-between items-baseline gap-4">
@@ -191,14 +191,44 @@ function EmailRow({ e }: { e: BriefEmail }) {
           {formatAge(e.ageHours)}
         </span>
       </div>
-      <div className="text-xs mt-0.5" style={{ color: 'var(--ink)' }}>
-        {e.subject}
-      </div>
-      {e.snippet ? (
-        <div className="text-xs mt-0.5" style={{ color: 'var(--ink-3)' }}>
-          {e.snippet.length > 150 ? `${e.snippet.slice(0, 150)}…` : e.snippet}
+      {e.triageSummary ? (
+        <div className="text-sm mt-1" style={{ color: 'var(--ink)' }}>
+          {e.triageSummary}
         </div>
       ) : null}
+      <div className="text-[11px] mt-1 italic" style={{ color: 'var(--ink-3)' }}>
+        {e.subject}
+      </div>
+    </li>
+  );
+}
+
+function FyiRow({ e }: { e: BriefEmail }) {
+  const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
+  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
+  const summary = e.triageSummary || e.subject;
+  return (
+    <li
+      className="py-1.5 border-b last:border-b-0 text-sm flex justify-between items-baseline gap-4"
+      style={{ borderColor: 'var(--rule-soft)' }}
+    >
+      <span>
+        <a
+          href={gmailUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="hover:underline underline-offset-2"
+          style={{ color: 'var(--ink)' }}
+        >
+          {fromLabel}
+        </a>
+        <span className="ml-2" style={{ color: 'var(--ink-3)' }}>
+          · {summary.length > 90 ? `${summary.slice(0, 90)}…` : summary}
+        </span>
+      </span>
+      <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
+        {formatAge(e.ageHours)}
+      </span>
     </li>
   );
 }
@@ -354,18 +384,39 @@ export default async function TodayPage() {
     );
   }
 
-  if (brief.unreadEmails.length) {
+  const needsReplyEmails = brief.unreadEmails.filter(e => e.triage === 'needs_reply');
+  const fyiEmails = brief.unreadEmails.filter(e => e.triage === 'fyi');
+
+  if (needsReplyEmails.length) {
     sections.push(
-      <section key="emails" className="mb-12">
+      <section key="needs-reply" className="mb-12">
         <SectionHead
           number={num()}
-          title="Email"
-          count={brief.unreadEmails.length}
+          title="Needs your reply"
+          count={needsReplyEmails.length}
           href="https://mail.google.com/mail/u/0/#inbox"
         />
         <ul>
-          {brief.unreadEmails.slice(0, 12).map(e => (
-            <EmailRow key={e.id} e={e} />
+          {needsReplyEmails.slice(0, 12).map(e => (
+            <NeedsReplyRow key={e.id} e={e} />
+          ))}
+        </ul>
+      </section>,
+    );
+  }
+
+  if (fyiEmails.length) {
+    sections.push(
+      <section key="fyi" className="mb-12">
+        <SectionHead
+          number={num()}
+          title="FYI"
+          count={fyiEmails.length}
+          href="https://mail.google.com/mail/u/0/#inbox"
+        />
+        <ul>
+          {fyiEmails.slice(0, 12).map(e => (
+            <FyiRow key={e.id} e={e} />
           ))}
         </ul>
       </section>,
@@ -478,7 +529,7 @@ export default async function TodayPage() {
         >
           <span>
             {brief.gmailConfigured
-              ? `Gmail · live ${relativeTime(brief.lastGmailSyncAt)}`
+              ? `Gmail · ${brief.totals.notifications} notification${brief.totals.notifications === 1 ? '' : 's'} hidden`
               : 'Gmail not connected'}
           </span>
           <span>{brief.totals.activeProspects} prospects in funnel</span>
