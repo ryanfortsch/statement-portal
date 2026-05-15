@@ -314,10 +314,20 @@ async function handle(request: NextRequest) {
 
   try {
     const result = await syncReplies({ hoursBack });
+    // Refresh the /today email_triage cache too. Each /today page load
+    // reads from this cache instead of hitting Gmail + Anthropic, which
+    // is what kept rate-limiting Dotti when she refreshed the brief.
+    let triageSummary: import('@/lib/daily-brief').SyncEmailsSummary | { skipped: string } = { skipped: 'not_attempted' };
+    try {
+      const { syncUnreadEmails } = await import('@/lib/daily-brief');
+      triageSummary = await syncUnreadEmails();
+    } catch (err) {
+      console.error('[cron/sync-gmail-replies] triage sync failed', err);
+    }
     await getSupabase()
       .from('sync_status')
       .upsert({ source: 'gmail-replies', last_synced_at: new Date().toISOString() }, { onConflict: 'source' });
-    return NextResponse.json({ ok: true, hoursBack, ...result });
+    return NextResponse.json({ ok: true, hoursBack, ...result, triage: triageSummary });
   } catch (err) {
     console.error('[cron/sync-gmail-replies]', err);
     return NextResponse.json(
