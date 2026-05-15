@@ -60,49 +60,88 @@ export async function getStatementRevenueByMonth(
 }
 
 /**
- * Per-property expected annual rental_revenue (gross, owner-facing), derived
- * from the trailing months of property_statements. Used by the Smart
- * Forecast as a fallback projection for any forward month where a
- * property has zero current bookings — the model can't return \$0 just
- * because nobody has booked October yet on May 15. The baseline assumes
- * the property will fill to its historical pace.
+ * Per-property expected annual rental revenue (gross, owner-facing).
+ * Used by Smart Forecast as a fallback projection floor for any forward
+ * month where a property has zero current bookings — the model can't
+ * project \$0 just because nobody has booked October yet in May.
  *
- * Annualized: sum(rental_revenue) × (12 / months_with_data). For a
- * property with 4 months of statement history each at \$15K, baseline =
- * 4 × 15K × 12 / 4 = \$180K annual.
+ * Source: trailing-365-days Guesty reservations summed per property,
+ * then annualized. Guesty has all bookings whether or not the monthly
+ * statement has been closed in Helm — more comprehensive than
+ * property_statements, especially for properties that haven't been
+ * reconciled recently.
+ *
+ * Annualization: sum(host_payout) × (365 / daysOfHistory). For a
+ * property with 90 days of Guesty stays totaling \$25K, baseline =
+ * 25K × 365 / 90 = \$101K annual gross.
  */
 export async function getPropertyAnnualBaselines(): Promise<Map<string, number>> {
   if (!isConfigured) return new Map();
   try {
+    const today = new Date();
+    const yearAgo = new Date(today);
+    yearAgo.setDate(yearAgo.getDate() - 365);
+    const todayStr = today.toISOString().split('T')[0];
+    const yearAgoStr = yearAgo.toISOString().split('T')[0];
+
     const { data, error } = await supabase
-      .from('property_statements')
-      .select('property_id, month, rental_revenue');
+      .from('guesty_reservations')
+      .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
+      .gte('check_out', yearAgoStr)
+      .lt('check_in', todayStr);
     if (error) {
-      console.error('[property-baselines] query failed:', error.message);
+      console.error('[property-baselines] guesty query failed:', error.message);
       return new Map();
     }
 
-    type Bucket = { total: number; months: Set<string> };
+    type Bucket = { total: number; earliest: string; latest: string };
     const byProp = new Map<string, Bucket>();
-    for (const row of (data ?? []) as Array<{
+    for (const r of (data ?? []) as Array<{
       property_id: string | null;
-      month: string | null;
-      rental_revenue: number | null;
+      check_in: string | null;
+      check_out: string | null;
+      status: string | null;
+      host_payout: number | null;
+      owner_net_revenue_guesty: number | null;
+      total_paid: number | null;
     }>) {
-      if (!row.property_id || !row.month) continue;
-      const rev = Number(row.rental_revenue ?? 0);
-      if (rev <= 0) continue;
-      const bucket = byProp.get(row.property_id) ?? { total: 0, months: new Set() };
-      bucket.total += rev;
-      bucket.months.add(row.month);
-      byProp.set(row.property_id, bucket);
+      if (!r.property_id || !r.check_in || !r.check_out) continue;
+      // Filter to bookings that actually generated revenue (skip owner blocks,
+      // cancelled holds, inquiries).
+      const status = (r.status || '').toLowerCase().replace(/_/g, '-');
+      if (
+        status.includes('cancel') ||
+        status.includes('declin') ||
+        status === 'inquiry' ||
+        status === 'expired'
+      ) {
+        continue;
+      }
+      const gross =
+        Number(r.host_payout ?? 0) ||
+        Number(r.owner_net_revenue_guesty ?? 0) ||
+        Number(r.total_paid ?? 0);
+      if (gross <= 0) continue;
+
+      const bucket = byProp.get(r.property_id) ?? {
+        total: 0,
+        earliest: r.check_in,
+        latest: r.check_out,
+      };
+      bucket.total += gross;
+      if (r.check_in < bucket.earliest) bucket.earliest = r.check_in;
+      if (r.check_out > bucket.latest) bucket.latest = r.check_out;
+      byProp.set(r.property_id, bucket);
     }
 
     const baselines = new Map<string, number>();
-    for (const [propId, { total, months }] of byProp) {
-      const monthCount = months.size;
-      if (monthCount === 0) continue;
-      baselines.set(propId, (total * 12) / monthCount);
+    for (const [propId, { total, earliest, latest }] of byProp) {
+      const daysSpan = Math.max(
+        30,
+        Math.round((new Date(latest).getTime() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24)),
+      );
+      const annualized = (total * 365) / daysSpan;
+      baselines.set(propId, annualized);
     }
     return baselines;
   } catch (err) {
