@@ -37,7 +37,9 @@ const SLUGS: Record<DeliverableType, string> = {
   projection: 'render',
   guide: 'guide',
   contract: 'contract',
-  readiness: 'readiness',
+  // /readiness is the interactive walkthrough view; /readiness/print is
+  // the static printable mirror that puppeteer renders into the PDF.
+  readiness: 'readiness/print',
 };
 
 export async function renderProjectionPdf(args: {
