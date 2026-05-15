@@ -1,18 +1,22 @@
 /**
- * Animated ship-wheel hero for the sign-in page. Two halves slide in
- * from each side and meet at the centerline — the wheel "rejoins" as
- * you arrive at Helm. SVG + CSS-only; no client JS, no Lottie, no
- * runtime deps.
+ * Animated ship-wheel for the sign-in page. Two halves drift in from
+ * each side, slow as they approach, slam together at the centerline,
+ * and recoil briefly before settling — the "vault lock" moment. The
+ * keyframes do all the dramatic timing; the SVG geometry just needs
+ * to be substantial enough that the impact reads.
  *
- * Implementation: one canonical wheel shape lives in <defs> and gets
- * referenced twice via <use> — once clipped to the left half, once to
- * the right. Each half is wrapped in a <g> that animates translateX
- * inward from ±32px. The clipPath is applied INSIDE the animated
- * group so the half-shape is computed first and then transformed as a
- * unit (otherwise the clip rectangle would stay still in viewport
- * coordinates and the moving wheel would slide through it).
+ * Iteration over the first pass (which Dotti said looked like a
+ * spider web): thicker filled donut rim instead of a thin stroked
+ * ring, chunkier handle knobs, fewer-but-bolder spokes. The whole
+ * shape carries weight now so the slam looks like two heavy halves
+ * meeting, not two skeleton fragments.
  *
- * Respects prefers-reduced-motion via the rule in globals.css.
+ * Implementation: one canonical wheel in <defs>, referenced twice via
+ * <use>, each clipped to one half. The clipPath sits INSIDE the
+ * animated <g> so the half-shape is computed first and then
+ * transformed as a unit — otherwise the clip stays still in viewport
+ * coordinates and the moving wheel slides through it. Respects
+ * prefers-reduced-motion via globals.css.
  */
 
 const HANDLE_POSITIONS: Array<[number, number]> = [
@@ -26,7 +30,7 @@ const HANDLE_POSITIONS: Array<[number, number]> = [
   [37.8, 37.8],   // top-left
 ];
 
-export function ShipWheel({ size = 140 }: { size?: number }) {
+export function ShipWheel({ size = 96 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -38,20 +42,9 @@ export function ShipWheel({ size = 140 }: { size?: number }) {
     >
       <defs>
         <g id="rt-wheel-shape">
-          {/* Outer ring */}
-          <circle
-            cx="100"
-            cy="100"
-            r="68"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          {/* Eight grip knobs around the perimeter */}
-          {HANDLE_POSITIONS.map(([cx, cy], i) => (
-            <circle key={`h${i}`} cx={cx} cy={cy} r="9" fill="currentColor" />
-          ))}
-          {/* Eight spokes from hub to handle */}
+          {/* Spokes go from the center out to the handle knobs, drawn
+              FIRST so the filled rim sits on top and "covers" the
+              middle of each spoke — same way a real wheel reads. */}
           {HANDLE_POSITIONS.map(([x, y], i) => (
             <line
               key={`s${i}`}
@@ -60,17 +53,46 @@ export function ShipWheel({ size = 140 }: { size?: number }) {
               x2={x}
               y2={y}
               stroke="currentColor"
-              strokeWidth="3"
+              strokeWidth="7"
               strokeLinecap="round"
             />
           ))}
-          {/* Central hub: ink disc with a paper pinhole */}
-          <circle cx="100" cy="100" r="14" fill="currentColor" />
+
+          {/* Filled donut rim. Outer disc in ink, inner disc in paper —
+              the difference is the wood-thick rim. Gives the wheel
+              real visual weight at small sizes. */}
+          <circle cx="100" cy="100" r="72" fill="currentColor" />
+          <circle cx="100" cy="100" r="58" fill="var(--paper)" />
+
+          {/* Re-draw the spokes ON TOP of the paper inner disc so they
+              read continuously from hub to handle, not chopped off at
+              the inner rim edge. */}
+          {HANDLE_POSITIONS.map(([x, y], i) => (
+            <line
+              key={`si${i}`}
+              x1="100"
+              y1="100"
+              x2={x}
+              y2={y}
+              stroke="currentColor"
+              strokeWidth="7"
+              strokeLinecap="round"
+            />
+          ))}
+
+          {/* Chunky handle knobs outside the rim. */}
+          {HANDLE_POSITIONS.map(([cx, cy], i) => (
+            <circle key={`h${i}`} cx={cx} cy={cy} r="11" fill="currentColor" />
+          ))}
+
+          {/* Hub: ink disc with a paper pinhole. */}
+          <circle cx="100" cy="100" r="17" fill="currentColor" />
           <circle cx="100" cy="100" r="5" fill="var(--paper)" />
         </g>
-        {/* Half-viewport clip rectangles. The +/- 1px overlap on the
-            centerline hides the sub-pixel hairline that otherwise shows
-            up where the two halves meet on some browsers. */}
+
+        {/* Half-viewport clip rectangles. The 1px overlap on either
+            side of the centerline hides the sub-pixel hairline that
+            otherwise shows up where the two halves meet. */}
         <clipPath id="rt-wheel-clip-left">
           <rect x="-2" y="0" width="103" height="200" />
         </clipPath>
@@ -89,6 +111,19 @@ export function ShipWheel({ size = 140 }: { size?: number }) {
           <use href="#rt-wheel-shape" />
         </g>
       </g>
+
+      {/* Brief flash at the seam at the moment of impact. Scales up
+          and fades out — reads as a "thud" rather than a sparkle. */}
+      <line
+        x1="100"
+        y1="38"
+        x2="100"
+        y2="162"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        className="rt-helm-wheel-impact"
+      />
     </svg>
   );
 }

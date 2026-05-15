@@ -17,9 +17,13 @@ export default async function SignInPage({
     >
       <div style={{ width: "100%", maxWidth: 380, padding: "0 24px" }}>
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ marginBottom: 24 }}>
-            <ShipWheel size={140} />
-          </div>
+          {/* Pennant logo back in its original spot - the brand mark. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/rising-tide-logo.png"
+            alt="Rising Tide"
+            style={{ width: 56, height: 56, margin: "0 auto 20px" }}
+          />
           <h1
             className="font-serif"
             style={{
@@ -34,6 +38,12 @@ export default async function SignInPage({
           </h1>
           <div className="eyebrow" style={{ marginTop: 10 }}>
             Rising Tide &middot; Internal Operations
+          </div>
+          {/* Ship-wheel as a secondary animated seal beneath the
+              wordmark - sized smaller than the pennant so the brand
+              mark stays primary. */}
+          <div style={{ marginTop: 28 }}>
+            <ShipWheel size={96} />
           </div>
         </div>
 
