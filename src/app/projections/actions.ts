@@ -106,7 +106,14 @@ function buildPayload(formData: FormData) {
     owners: owners.length > 0 ? owners : null,
     ...derived,
     property_address: str(formData, 'property_address'),
-    property_city: strOrNull(formData, 'property_city'),
+    // City defaults to "<Market>, MA" when the form doesn't explicitly
+    // submit one — Dotti dropped the duplicative "City, State, ZIP" field
+    // from the form (Market already encodes the location for everything
+    // operational + the AirDNA projection data). Existing rows that have
+    // a manually-set city pass it through unchanged via the hidden field.
+    property_city:
+      strOrNull(formData, 'property_city') ||
+      `${str(formData, 'market') || 'Rockport'}, MA`,
     property_type: str(formData, 'property_type') || 'House',
     market: str(formData, 'market') as 'Rockport' | 'Gloucester',
     bedrooms: num(formData, 'bedrooms'),
