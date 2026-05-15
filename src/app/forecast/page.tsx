@@ -12,6 +12,7 @@ import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
 import { getProspectForecast } from '@/lib/forecast-prospects';
 import {
   getStatementRevenueByMonth,
+  getPropertyAnnualBaselines,
   type StatementRevenueByMonth,
 } from '@/lib/forecast-statement-actuals';
 
@@ -204,8 +205,11 @@ async function getSmartForecast(endYear: number): Promise<SmartForecast | null> 
     const today = new Date();
     const months = forwardMonths(today, endYear);
     if (months.length === 0) return null;
-    const { bookedByPropMonth, properties } = await getBookedByPropertyByMonth(months);
-    return computeSmartForecast(months, bookedByPropMonth, properties);
+    const [{ bookedByPropMonth, properties }, baselines] = await Promise.all([
+      getBookedByPropertyByMonth(months),
+      getPropertyAnnualBaselines(),
+    ]);
+    return computeSmartForecast(months, bookedByPropMonth, properties, undefined, baselines);
   } catch (err) {
     console.error('[forecast] smart forecast failed:', err);
     return null;

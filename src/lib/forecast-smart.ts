@@ -274,10 +274,27 @@ export function computeSmartForecast(
   forwardMonthList: string[],
   bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>,
   properties: SmartProperty[],
-  historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT
+  historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
+  /**
+   * Per-property expected annual rental revenue (gross, owner-facing).
+   * Used as a fallback projection floor for forward months where the
+   * property has zero current bookings — a property with no October
+   * bookings yet on May 15 shouldn't project to \$0; it should project
+   * to its historical pace × Gloucester seasonality.
+   * Derived from property_statements; see getPropertyAnnualBaselines().
+   */
+  propertyAnnualBaselines: Map<string, number> = new Map(),
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
   const mgmtProps = properties.filter((p) => !p.isRtOwned);
+
+  // Normalized Gloucester seasonality: HISTORICAL_AVG_RECENT divided by
+  // sum gives each month's share of annual revenue (the same shape
+  // applies to all properties as a first-cut proxy).
+  const seasonalitySum = historicalAvgByMonthOfYear.reduce((s, v) => s + v, 0);
+  const seasonalityShare = historicalAvgByMonthOfYear.map((v) =>
+    seasonalitySum > 0 ? v / seasonalitySum : 1 / 12
+  );
 
   // Per-month inputs: portfolio-level pacing computation.
   const monthInputs: SmartMonthInputs[] = forwardMonthList.map((ym) => {
@@ -320,10 +337,23 @@ export function computeSmartForecast(
   // Per-property projection.
   const propsForecast: SmartPropertyForecast[] = mgmtProps.map((p) => {
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
+    const annualBaseline = propertyAnnualBaselines.get(p.id) ?? 0;
     const monthly: SmartPropertyMonth[] = forwardMonthList.map((ym) => {
       const cell = propBooked.get(ym) ?? { nights: 0, revenue: 0 };
       const mi = inputsByMonth.get(ym)!;
-      const projectedGross = cell.revenue * mi.multiplier;
+      // Existing pacing-up logic for the booked-revenue side.
+      const scaledFromBookings = cell.revenue * mi.multiplier;
+      // Historical-fill fallback: a property's expected gross for this
+      // month if it fills to its annual baseline along Gloucester
+      // seasonality. Independent of current bookings — so properties
+      // with \$0 booked still project something for far-out months.
+      const monthIdx = parseInt(ym.split('-')[1], 10) - 1;
+      const expectedFromHistory = annualBaseline * seasonalityShare[monthIdx];
+      // Take the larger of the two — bookings can already exceed
+      // historical (hot summer property), in which case we trust the
+      // bookings × multiplier. Otherwise the historical fill floor
+      // kicks in.
+      const projectedGross = Math.max(scaledFromBookings, expectedFromHistory);
       const feeFraction = (p.mgmtFeePct ?? 0) / 100;
       return {
         month: ym,

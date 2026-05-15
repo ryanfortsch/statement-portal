@@ -58,3 +58,55 @@ export async function getStatementRevenueByMonth(
     return {};
   }
 }
+
+/**
+ * Per-property expected annual rental_revenue (gross, owner-facing), derived
+ * from the trailing months of property_statements. Used by the Smart
+ * Forecast as a fallback projection for any forward month where a
+ * property has zero current bookings — the model can't return \$0 just
+ * because nobody has booked October yet on May 15. The baseline assumes
+ * the property will fill to its historical pace.
+ *
+ * Annualized: sum(rental_revenue) × (12 / months_with_data). For a
+ * property with 4 months of statement history each at \$15K, baseline =
+ * 4 × 15K × 12 / 4 = \$180K annual.
+ */
+export async function getPropertyAnnualBaselines(): Promise<Map<string, number>> {
+  if (!isConfigured) return new Map();
+  try {
+    const { data, error } = await supabase
+      .from('property_statements')
+      .select('property_id, month, rental_revenue');
+    if (error) {
+      console.error('[property-baselines] query failed:', error.message);
+      return new Map();
+    }
+
+    type Bucket = { total: number; months: Set<string> };
+    const byProp = new Map<string, Bucket>();
+    for (const row of (data ?? []) as Array<{
+      property_id: string | null;
+      month: string | null;
+      rental_revenue: number | null;
+    }>) {
+      if (!row.property_id || !row.month) continue;
+      const rev = Number(row.rental_revenue ?? 0);
+      if (rev <= 0) continue;
+      const bucket = byProp.get(row.property_id) ?? { total: 0, months: new Set() };
+      bucket.total += rev;
+      bucket.months.add(row.month);
+      byProp.set(row.property_id, bucket);
+    }
+
+    const baselines = new Map<string, number>();
+    for (const [propId, { total, months }] of byProp) {
+      const monthCount = months.size;
+      if (monthCount === 0) continue;
+      baselines.set(propId, (total * 12) / monthCount);
+    }
+    return baselines;
+  } catch (err) {
+    console.error('[property-baselines] threw:', err);
+    return new Map();
+  }
+}

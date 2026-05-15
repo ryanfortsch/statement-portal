@@ -509,12 +509,14 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
         }}
       >
         <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong>{' '}
-        Every active reservation in <code>guesty_reservations</code> with check-in in a
-        forward month contributes its pro-rated revenue. Portfolio pacing = booked
-        nights ÷ (days × active properties). Projection multiplier = Gloucester
-        historical avg occupancy ÷ portfolio pacing (4-yr post-pandemic baseline,
-        floored at 1×). Each property&apos;s gross is then multiplied by its own
-        management fee percentage.
+        Two signals get blended per property per month, and the larger wins:
+        (a) <em>Pacing scale-up</em> — booked Guesty revenue × (Gloucester historical
+        occupancy ÷ portfolio pacing for that month, floored at 1×).
+        (b) <em>Historical fallback</em> — the property&apos;s annual rental revenue
+        from <code>property_statements</code> distributed by Gloucester seasonality.
+        Without the fallback, a property with no October bookings yet would project
+        \$0 for October just because nobody books that far out — even though it&apos;ll
+        fill closer to date. The mgmt fee column is gross × that property&apos;s fee %.
       </div>
     </div>
   );
