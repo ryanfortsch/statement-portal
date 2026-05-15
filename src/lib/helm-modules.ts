@@ -203,3 +203,45 @@ export const PRIMARY_MODULES = HELM_MODULES
     if (bi === -1) return -1;
     return ai - bi;
   });
+
+/**
+ * Display order for the mobile menu specifically. Phones have a single
+ * vertical scrolling list with every module on it, so what's actually
+ * tapped on a phone (messaging, the turnover pipeline, the inspection
+ * walks, work slips, properties, prospects) ranks above the ops-room
+ * surfaces that get used at a desk (forecast, marketing, revenue, etc.).
+ *
+ * Independent of PRIMARY_ORDER because the desktop top-nav and the
+ * mobile menu serve different jobs: top nav is "five tabs I always have
+ * visible," mobile menu is "every module ranked by tap frequency."
+ *
+ * "soon" modules slide to the very bottom regardless of canonical
+ * number so the visible-and-inert ones don't push down the
+ * visible-and-usable ones.
+ */
+const MOBILE_ORDER: string[] = [
+  'messaging',
+  'operations',
+  'inspections',
+  'work',
+  'properties',
+  'projections',
+];
+
+export const MOBILE_MODULES = [...HELM_MODULES].sort((a, b) => {
+  const ai = MOBILE_ORDER.indexOf(a.id);
+  const bi = MOBILE_ORDER.indexOf(b.id);
+
+  // Both in the priority list: priority order wins.
+  if (ai !== -1 && bi !== -1) return ai - bi;
+  // Only one in the priority list: it goes first.
+  if (ai !== -1) return -1;
+  if (bi !== -1) return 1;
+
+  // Neither ranked. Push 'soon' to the bottom; otherwise keep canonical
+  // module-number order from HELM_MODULES.
+  const aSoon = a.status === 'soon';
+  const bSoon = b.status === 'soon';
+  if (aSoon !== bSoon) return aSoon ? 1 : -1;
+  return HELM_MODULES.indexOf(a) - HELM_MODULES.indexOf(b);
+});

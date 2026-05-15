@@ -19,7 +19,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { MOBILE_MODULES, type HelmModule } from '@/lib/helm-modules';
 
 type Props = {
   current?: string;
@@ -107,7 +107,7 @@ export function HelmMobileMenu({ current }: Props) {
           </div>
 
           <nav className="rt-mobile-menu-list" aria-label="Modules">
-            {HELM_MODULES.map((m) => (
+            {MOBILE_MODULES.map((m) => (
               <ModuleItem
                 key={m.id}
                 module={m}
