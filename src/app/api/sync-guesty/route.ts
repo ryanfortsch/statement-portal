@@ -291,7 +291,68 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
     const { error } = await getSupabase().from('reviews').upsert(rows, { onConflict: 'guesty_review_id' });
     if (error) throw new Error(`reviews upsert failed: ${error.message}`);
   }
+
+  // Link any unmatched reviews to audience_contacts by guest_name.
+  // Guesty doesn't give us the guest's email on the review payload, so
+  // the join has to go through normalized first+last names. Idempotent
+  // and bounded — runs only against rows where contact_id is null, so
+  // already-linked reviews stay put even if the contact changes name.
+  await linkReviewsToContacts();
+
   return { fetched: reviews.length, upserted: rows.length, skipped };
+}
+
+/**
+ * Sets reviews.contact_id for any rows that don't have one yet, by
+ * case-insensitive "first_name last_name" against audience_contacts.
+ * Mirrors the backfill UPDATE in the contact_id migration so every
+ * sync run picks up new contacts that joined since the last sync.
+ */
+async function linkReviewsToContacts(): Promise<void> {
+  // The match SQL would be cleaner as a stored function, but we don't
+  // have one set up. Two round trips: pull the small contact set,
+  // then issue per-name UPDATEs against reviews. Cardinality is low
+  // (~hundreds of contacts, ~thousands of reviews) so this is fine.
+  const sb = getSupabase();
+  const { data: contacts } = await sb
+    .from('audience_contacts')
+    .select('id, first_name, last_name')
+    .not('first_name', 'is', null)
+    .not('last_name', 'is', null);
+  if (!contacts || contacts.length === 0) return;
+
+  // Build a name -> contact_id map (most-recent wins on collision; we
+  // can't enforce uniqueness on names, so just pick one).
+  const byName = new Map<string, string>();
+  for (const c of contacts as Array<{ id: string; first_name: string | null; last_name: string | null }>) {
+    const full = `${(c.first_name || '').trim()} ${(c.last_name || '').trim()}`.toLowerCase().trim();
+    if (!full) continue;
+    if (!byName.has(full)) byName.set(full, c.id);
+  }
+  if (byName.size === 0) return;
+
+  // Pull the still-unlinked reviews and their guest_names.
+  const { data: unlinked } = await sb
+    .from('reviews')
+    .select('id, guest_name')
+    .is('contact_id', null)
+    .not('guest_name', 'is', null);
+  if (!unlinked || unlinked.length === 0) return;
+
+  // Group review ids by the contact they should link to. One UPDATE
+  // per contact (vs one per review) keeps the round-trip count down.
+  const idsByContact = new Map<string, string[]>();
+  for (const r of unlinked as Array<{ id: string; guest_name: string | null }>) {
+    const name = (r.guest_name || '').toLowerCase().trim();
+    const contactId = name ? byName.get(name) : undefined;
+    if (!contactId) continue;
+    if (!idsByContact.has(contactId)) idsByContact.set(contactId, []);
+    idsByContact.get(contactId)!.push(r.id);
+  }
+
+  for (const [contactId, ids] of idsByContact) {
+    await sb.from('reviews').update({ contact_id: contactId }).in('id', ids);
+  }
 }
 
 // ---- Reservations ----

@@ -3,15 +3,17 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { getContact, listContactEvents } from '@/lib/guests';
 import { displayName, formatTagLabel } from '@/lib/guests-types';
+import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [contact, events] = await Promise.all([
+  const [contact, events, reviews] = await Promise.all([
     getContact(id),
     listContactEvents(id, 50),
+    listReviewsForContact(id),
   ]);
 
   if (!contact) notFound();
@@ -104,6 +106,28 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         </div>
       </section>
 
+      {/* REVIEWS — what this guest said about their stays (when matched
+          via contact_id by the Guesty sync). */}
+      {reviews.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <div className="eyebrow">Reviews</div>
+            <Link
+              href={`/reviews?q=${encodeURIComponent(displayName(contact))}`}
+              className="eyebrow"
+              style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
+            >
+              See on /reviews →
+            </Link>
+          </div>
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {reviews.map((r) => (
+              <ReviewSummary key={r.id} review={r} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* TIMELINE */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Timeline</div>
@@ -162,6 +186,37 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           </span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function ReviewSummary({ review: r }: { review: ReviewRow }) {
+  const rating = r.overall_rating ?? 0;
+  const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(Math.max(0, 5 - Math.round(rating)));
+  const ratingColor = rating >= 5 ? 'var(--positive)' : rating >= 4 ? 'var(--ink-3)' : 'var(--signal)';
+  const date = r.review_created_at ? formatDate(r.review_created_at) : '—';
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '120px 1fr auto',
+        gap: 20,
+        alignItems: 'baseline',
+        padding: '14px 0',
+        borderBottom: '1px solid var(--rule)',
+      }}
+    >
+      <span className="font-mono tabular-nums" style={{ fontSize: 13, color: ratingColor, letterSpacing: '.05em' }}>
+        {stars}
+      </span>
+      <span style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
+        {r.public_review ? `“${r.public_review}”` : <span style={{ color: 'var(--ink-4)' }}>No public text.</span>}
+        {r.channel && (
+          <span style={{ color: 'var(--ink-4)', marginLeft: 8, fontSize: 11 }}>· {r.channel}</span>
+        )}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{date}</span>
     </div>
   );
 }

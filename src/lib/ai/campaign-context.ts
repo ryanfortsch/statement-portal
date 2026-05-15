@@ -105,7 +105,7 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 export function formatContextBlock(ctx: CampaignDraftContext): string {
   const lines: string[] = [];
 
-  lines.push('Homes in the collection. Refer to each home ONLY by its guest-facing title');
+  lines.push('Homes we manage. Refer to each home ONLY by its guest-facing title');
   lines.push('and neighborhood. NEVER use a street address or internal name. When a home');
   lines.push('has no title (null), use the neighborhood phrase ("the home on the Neck").');
   lines.push('');
