@@ -21,7 +21,7 @@ import {
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
-import { sendOwnerSignedEmail, sendExecutedEmail } from '@/lib/contract-email';
+import { sendOwnerSignedEmail, sendExecutedEmail, sendCountersignNotification } from '@/lib/contract-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
 
 /**
@@ -632,17 +632,32 @@ export async function submitContractSignature(formData: FormData) {
   if (fullProjection) {
     const origin = await getRequestOrigin();
     if (origin) {
-      const result = await sendOwnerSignedEmail({
-        projection: fullProjection as ProjectionRow,
-        origin,
-      });
-      if (result.ok) {
+      // Two parallel sends: the owner gets their signed copy, and
+      // staff (allie@ + dotti@) get a separate "you have a
+      // countersign to do" alert. The staff alert is what closes
+      // the loop on the workflow - the owner-confirmation CC'd
+      // Allie on a message addressed to the client, which doesn't
+      // read as "you have work to do" and let countersigns sit.
+      const [ownerResult, staffResult] = await Promise.all([
+        sendOwnerSignedEmail({
+          projection: fullProjection as ProjectionRow,
+          origin,
+        }),
+        sendCountersignNotification({
+          projection: fullProjection as ProjectionRow,
+          origin,
+        }),
+      ]);
+      if (ownerResult.ok) {
         await supabase
           .from('projections')
           .update({ contract_owner_email_sent_at: new Date().toISOString() })
           .eq('onboarding_token', token);
       } else {
-        console.warn('[submitContractSignature] owner-signed email skipped:', result.reason);
+        console.warn('[submitContractSignature] owner-signed email skipped:', ownerResult.reason);
+      }
+      if (!staffResult.ok) {
+        console.warn('[submitContractSignature] staff countersign alert skipped:', staffResult.reason);
       }
     }
   }

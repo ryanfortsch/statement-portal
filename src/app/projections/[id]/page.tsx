@@ -82,10 +82,13 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   // after that = "locked" (muted). One source of truth: the same booleans
   // the Stage cards use, just summarised.
   const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
+    // Guide + Contract + Signing collapsed into one pipeline step
+    // since they were always one logical phase (the contract
+    // workflow). "Done" means sent + signed + countersigned.
+    const contractStageDone = guideSent && contractSent && !!projection.contract_countersigned_at;
     const flags = [
       { label: 'Projection', done: projectionSent },
-      { label: 'Guide & Contract', done: guideSent && contractSent },
-      { label: 'Signed', done: signed },
+      { label: 'Guide & Contract', done: contractStageDone },
       { label: 'Onboarding', done: onboardingDone },
       { label: 'Promote', done: promoted },
     ];
@@ -182,49 +185,40 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
           </Stage>
 
-          {/* 02 — Partnership Guide & Contract (sent together) */}
+          {/* 02 — Partnership Guide, Contract, AND Signing. The
+              previous 02 (Guide + Contract sent) and 03 (Signing)
+              were always one logical phase: the contract workflow.
+              Folding them into one stage shows the whole arc in one
+              card, with each piece as a sub-deliverable. */}
           <Stage
             num="02"
             title="Partnership Guide & Contract"
-            state={guideSent && contractSent ? 'done' : 'active'}
+            state={guideSent && contractSent && !!projection.contract_countersigned_at ? 'done' : 'active'}
             status={
-              guideSent && contractSent
-                // Both sent — show the most recent of the two so the status
-                // line tracks the latest touch.
-                ? gmailStatus(
-                    [guideTouch, contractTouch]
-                      .filter((t): t is NonNullable<typeof t> => !!t)
-                      .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
-                  )
-                : guideSent
-                  ? 'Guide sent · contract pending'
-                  : contractSent
-                    ? 'Contract sent · guide pending'
-                    : 'Not yet sent'
+              // Status priority: fully executed > signed/awaiting > both sent > one sent > nothing sent.
+              projection.contract_countersigned_at
+                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at)}</>
+                : signed
+                  ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
+                  : guideSent && contractSent
+                    ? gmailStatus(
+                        [guideTouch, contractTouch]
+                          .filter((t): t is NonNullable<typeof t> => !!t)
+                          .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
+                      )
+                    : guideSent
+                      ? 'Guide sent · contract pending'
+                      : contractSent
+                        ? 'Contract sent · guide pending'
+                        : 'Not yet sent'
             }
           >
             <GuideAndContractStageBody projection={projection} projectionId={id} />
           </Stage>
 
-          {/* 03 — Signed */}
+          {/* 03 — Onboarding (was 04 before contract workflow merge) */}
           <Stage
             num="03"
-            title="Signed"
-            state={signed ? 'done' : 'active'}
-            status={
-              projection.contract_countersigned_at
-                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at)}</>
-                : signed
-                  ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
-                  : 'Awaiting signature'
-            }
-          >
-            <SignedStageBody projection={projection} />
-          </Stage>
-
-          {/* 04 — Onboarding */}
-          <Stage
-            num="04"
             title="Onboarding"
             state={onboardingDone ? 'done' : 'active'}
             status={
@@ -236,9 +230,9 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <OnboardingStageBody projection={projection} projectionId={id} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
           </Stage>
 
-          {/* 05 — Promote to managed property */}
+          {/* 04 — Promote to managed property (was 05) */}
           <Stage
-            num="05"
+            num="04"
             title="Promote to managed property"
             state={promoteState}
             status={
@@ -419,7 +413,7 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
       </SubDeliverable>
 
       {/* Contract sub-deliverable */}
-      <SubDeliverable label="Contract" isLast>
+      <SubDeliverable label="Contract">
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
           {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
         </div>
@@ -445,6 +439,15 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
             <ContractRedlinesPanel projection={projection} />
           </div>
         </details>
+      </SubDeliverable>
+
+      {/* Signing sub-deliverable - folded in from what used to be a
+          separate Stage 03. The signing link, audit stamps, and
+          countersign workflow all live here so the whole contract
+          arc (guide → contract → signature → countersign) reads as
+          one phase on the page. */}
+      <SubDeliverable label="Signing" isLast>
+        <SignedStageBody projection={projection} />
       </SubDeliverable>
     </>
   );

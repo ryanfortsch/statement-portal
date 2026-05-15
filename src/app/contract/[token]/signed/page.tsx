@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { DownloadCopyButton } from './DownloadCopyButton';
+import { CompleteOnboardingButton } from './CompleteOnboardingButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,11 +93,9 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
             <div className="rt-th-next">
               <div className="rt-th-next-label">Next step</div>
               <p className="rt-th-next-body">
-                We still need a few details about your home — utilities, access, an emergency contact. It takes about five minutes.
+                We still need a few details about your home: utilities, access, an emergency contact. It takes about five minutes.
               </p>
-              <Link href={`/onboarding/${token}`} className="rt-th-next-btn">
-                Complete the onboarding form &rarr;
-              </Link>
+              <CompleteOnboardingButton href={`/onboarding/${token}`} />
             </div>
           )}
 
@@ -224,7 +222,8 @@ const thanksCss = `
     line-height: 1.55 !important;
   }
   .rt-th-next-btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     background: var(--ink);
     color: var(--paper);
     font-size: 11px;
@@ -233,6 +232,13 @@ const thanksCss = `
     text-transform: uppercase;
     padding: 12px 22px;
     text-decoration: none;
+  }
+  /* Preparing state - same treatment as the download button so the
+     two CTAs on this page share a coherent busy treatment. */
+  .rt-th-next-btn.is-preparing {
+    opacity: 0.78;
+    cursor: progress;
+    pointer-events: none;
   }
 
   .rt-th-contact {
