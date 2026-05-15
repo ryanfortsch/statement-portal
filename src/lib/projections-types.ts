@@ -119,16 +119,27 @@ export type ProjectionRow = {
 };
 
 /**
- * Persisted state for the interactive Property Readiness Checklist. The
- * shape is a flat dict of checked-item labels + a notes dict, so it's
- * trivial to inspect / migrate / clear. Item labels come straight from
- * READINESS_GROUPS in lib/projections-readiness.ts — they're stable
- * enough to use as keys, and any rename of an item there just drops the
- * old check (an acceptable trade for a single jsonb column).
+ * Persisted state for the interactive Property Readiness Checklist. Items
+ * support partial counts ("they have 12 of the 18 coffee mugs we recommend")
+ * via the `have` dict, which is the canonical source of truth — the legacy
+ * `checked` array exists only for backward compat with data written before
+ * partial counts were a feature, and is treated as "have = need-count" on
+ * read.
+ *
+ * Item labels come straight from READINESS_GROUPS in
+ * lib/projections-readiness.ts — stable enough to use as keys; any rename
+ * there just drops the old entry (acceptable trade for a single jsonb
+ * column).
  */
 export type ReadinessState = {
-  /** Item labels that have been checked off. Order is meaningless. */
-  checked: string[];
+  /** How many units the owner already has, keyed by item label. Anything
+   *  not in the dict is undefined (untouched). 0 means "explicitly zero —
+   *  they have none". Equals the item's need-count means "complete". */
+  have?: Record<string, number>;
+  /** LEGACY: item labels that were checked off before partial counts
+   *  shipped. Treated as "have = need-count" when present and the label
+   *  has no entry in `have`. New writes only touch `have`. */
+  checked?: string[];
   /** Walkthrough notes keyed by field name (supply_closet, smart_lock,
    *  cleaner_access, trash_recycling, wifi, owner_notes, ...). */
   notes: Record<string, string>;
