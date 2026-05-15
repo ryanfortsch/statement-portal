@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
@@ -107,14 +106,16 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="operations" />
 
-      <HelmHero
-        eyebrow="Helm · Turnovers"
-        title="The"
-        emphasis="turnover pipeline."
-      />
-
-      {propertyFilter && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 18 }}>
+      {/* Compact ops header — replaces the editorial hero + separate
+          range-tabs + summary stack. Single bordered row carries the
+          page summary on the left and the range tabs on the right;
+          sync indicator drops underneath as small dim text. ~120px of
+          chrome saved before any turnover row renders. */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ width: '100%', paddingTop: 28, paddingBottom: 24 }}
+      >
+        {propertyFilter && (
           <div
             style={{
               display: 'flex',
@@ -124,6 +125,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               border: '1px solid var(--signal)',
               background: 'rgba(200, 90, 58, 0.06)',
               fontSize: 12,
+              marginBottom: 18,
             }}
           >
             <span style={{ color: 'var(--signal)', fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', fontSize: 10 }}>
@@ -146,29 +148,49 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               Clear
             </Link>
           </div>
-        </section>
-      )}
+        )}
 
-      {/* RANGE TABS + SYNC STATUS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
-            padding: '14px 0',
+            padding: '16px 0',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'baseline',
             justifyContent: 'space-between',
-            gap: 16,
+            gap: 24,
             flexWrap: 'wrap',
           }}
         >
-          <nav className="flex items-baseline gap-5" style={{
-            fontSize: 11,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-          }}>
+          <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+            {data.totalCount === 0 ? (
+              <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
+            ) : (
+              <>
+                <strong style={{ color: 'var(--ink)' }}>{data.totalCount}</strong>{' '}
+                check-in{data.totalCount === 1 ? '' : 's'}
+                {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                {inspectionsLeft > 0 ? (
+                  <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
+                    · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--positive)', fontSize: 14, marginLeft: 12 }}>
+                    · all prepped
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          <nav
+            className="flex items-baseline gap-4"
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >
             {VALID_RANGES.map((r) => {
               const active = r === range;
               return (
@@ -176,7 +198,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                   key={r}
                   href={`/operations?range=${r}&cal=${calRange}`}
                   style={{
-                    color: active ? 'var(--ink)' : 'var(--ink-3)',
+                    color: active ? 'var(--ink)' : 'var(--ink-4)',
                     textDecoration: 'none',
                     borderBottom: active ? '2px solid var(--signal)' : '2px solid transparent',
                     paddingBottom: 4,
@@ -187,40 +209,18 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               );
             })}
           </nav>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
-          </span>
         </div>
-      </section>
-
-      {/* SUMMARY LINE */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
         <div
-          className="font-serif"
-          style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}
+          style={{
+            marginTop: 6,
+            fontSize: 10,
+            color: 'var(--ink-4)',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            textAlign: 'right',
+          }}
         >
-          {data.totalCount === 0 ? (
-            <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
-          ) : (
-            <>
-              <strong style={{ color: 'var(--ink)' }}>{data.totalCount}</strong> check-in
-              {data.totalCount === 1 ? '' : 's'}
-              {range === 'today' ? ' today' : ` in the next ${RANGE_LABEL[range].toLowerCase()}`}
-              {inspectionsLeft > 0 ? (
-                <>
-                  {' · '}
-                  <span style={{ color: 'var(--signal)' }}>
-                    {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
-                  </span>
-                </>
-              ) : (
-                <>
-                  {' · '}
-                  <span style={{ color: 'var(--positive)' }}>all prepped</span>
-                </>
-              )}
-            </>
-          )}
+          <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>
 
