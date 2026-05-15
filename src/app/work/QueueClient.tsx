@@ -310,15 +310,33 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         </div>
       </section>
 
+      {/* Filter pills: only render the ones with > 0 matches, plus the
+          currently-selected filter (so a pill doesn't disappear out from
+          under your finger when its count drops to zero), plus the All
+          reset. On a typical day 5 of 7 filters are empty - rendering
+          them as full pill buttons was visual weight that didn't earn
+          its keep. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 28, width: '100%' }}>
         <div className="flex items-center gap-2 flex-wrap">
           <Pill active={filter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-          <Pill active={filter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
-          <Pill active={filter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
-          <Pill active={filter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
-          <Pill active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
-          <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
-          <Pill active={filter === 'snoozed'} onClick={() => setFilter('snoozed')} label="Snoozed" count={counts.snoozed} accent="var(--tide-deep)" />
+          {(counts.mine > 0 || filter === 'mine') && (
+            <Pill active={filter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
+          )}
+          {(counts.high > 0 || filter === 'high') && (
+            <Pill active={filter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
+          )}
+          {(counts.dueToday > 0 || filter === 'due-today') && (
+            <Pill active={filter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
+          )}
+          {(counts.unclaimed > 0 || filter === 'unclaimed') && (
+            <Pill active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
+          )}
+          {(counts.ownerAction > 0 || filter === 'owner-action') && (
+            <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
+          )}
+          {(counts.snoozed > 0 || filter === 'snoozed') && (
+            <Pill active={filter === 'snoozed'} onClick={() => setFilter('snoozed')} label="Snoozed" count={counts.snoozed} accent="var(--tide-deep)" />
+          )}
         </div>
       </section>
 
