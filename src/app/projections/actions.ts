@@ -15,6 +15,19 @@ import {
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
+import { sendOwnerSignedEmail, sendExecutedEmail } from '@/lib/contract-email';
+
+/**
+ * Build an absolute origin URL for use by server-side Puppeteer renders.
+ * Reads the request's forwarded host so the spawned PDF render hits the
+ * same deployment that's serving the action (preview / prod / local).
+ */
+async function getRequestOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get('x-forwarded-host') || h.get('host') || '';
+  const proto = h.get('x-forwarded-proto') || 'https';
+  return host ? `${proto}://${host}` : '';
+}
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -480,9 +493,105 @@ export async function submitContractSignature(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
+  // Send the "thanks, here's your signed copy" email with the
+  // owner-signed PDF attached. Failures are logged but non-fatal —
+  // the signature is already persisted; a transient Resend outage
+  // shouldn't prevent the redirect to the confirmation page or lose
+  // the audit record. Stamp contract_owner_email_sent_at on success
+  // for idempotency (and so Allie can see the email did go out).
+  const { data: fullProjection } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (fullProjection) {
+    const origin = await getRequestOrigin();
+    if (origin) {
+      const result = await sendOwnerSignedEmail({
+        projection: fullProjection as ProjectionRow,
+        origin,
+      });
+      if (result.ok) {
+        await supabase
+          .from('projections')
+          .update({ contract_owner_email_sent_at: new Date().toISOString() })
+          .eq('onboarding_token', token);
+      } else {
+        console.warn('[submitContractSignature] owner-signed email skipped:', result.reason);
+      }
+    }
+  }
+
   revalidatePath(`/contract/${token}`);
   revalidatePath(`/projections/${existing.id}`);
   redirect(`/contract/${token}/signed`);
+}
+
+/**
+ * Staff-only: Allie countersigns a contract that the owner has already
+ * signed. Fully executes the contract and sends the doubly-signed PDF
+ * to the owner with a welcome note. CC's allie@ for record-keeping.
+ *
+ * Idempotent: re-invocations after countersign return without
+ * overwriting. The owner-signed prerequisite is enforced — you can't
+ * countersign a contract whose owner hasn't signed yet.
+ */
+export async function countersignContract(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing projection id');
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from('projections')
+    .select('id, contract_signed_at, contract_countersigned_at, onboarding_token')
+    .eq('id', id)
+    .maybeSingle();
+  if (lookupErr || !existing) throw new Error(lookupErr?.message || 'Projection not found');
+  if (!existing.contract_signed_at) throw new Error('Owner has not signed yet');
+  if (existing.contract_countersigned_at) {
+    // Already countersigned — nothing to do, just revalidate the page.
+    revalidatePath(`/projections/${id}`);
+    return;
+  }
+
+  const { error: updateErr } = await supabase
+    .from('projections')
+    .update({ contract_countersigned_at: new Date().toISOString() })
+    .eq('id', id);
+  if (updateErr) throw new Error(updateErr.message);
+
+  // Send the "fully executed" email with the doubly-signed PDF attached.
+  // Failures are logged but non-fatal — the countersign timestamp is
+  // already persisted. Allie can re-trigger the email manually if needed.
+  const { data: fullProjection } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (fullProjection) {
+    const origin = await getRequestOrigin();
+    if (origin) {
+      const result = await sendExecutedEmail({
+        projection: fullProjection as ProjectionRow,
+        origin,
+      });
+      if (result.ok) {
+        await supabase
+          .from('projections')
+          .update({ contract_executed_email_sent_at: new Date().toISOString() })
+          .eq('id', id);
+      } else {
+        console.warn('[countersignContract] executed email skipped:', result.reason);
+      }
+    }
+  }
+
+  if (existing.onboarding_token) {
+    revalidatePath(`/contract/${existing.onboarding_token}`);
+  }
+  revalidatePath(`/projections/${id}`);
 }
 
 /**

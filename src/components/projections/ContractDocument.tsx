@@ -70,6 +70,16 @@ export function ContractDocument({
   const signedName = projection.contract_signed_name || null;
   const signedAt = projection.contract_signed_at;
   const effectiveDate = projection.term_start ? formatDateNarrative(projection.term_start) : null;
+  // Countersignature (Allie). The PM signature row renders her name
+  // only after she has explicitly countersigned from the projection
+  // detail page. The PM signature DATE field is the countersignature
+  // timestamp formatted as the document date (so the PDF reflects the
+  // moment of full execution).
+  const countersignedAt = projection.contract_countersigned_at;
+  const pmSignedName = countersignedAt ? "Allie O'Brien" : null;
+  const pmSignedDate = countersignedAt
+    ? new Date(countersignedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : effectiveDate;
 
   // Legacy custom_clauses fallback: ONLY when the new overrides path is
   // unused AND there's pre-overrides clause data on the row. New work
@@ -196,8 +206,8 @@ export function ContractDocument({
               <SignerBlock
                 eyebrow="Property Manager"
                 printedName="Allie O'Brien, Rising Tide STR, LLC"
-                signedName={null}
-                dateValue={effectiveDate}
+                signedName={pmSignedName}
+                dateValue={pmSignedDate}
               />
             </div>
           )}
@@ -206,6 +216,12 @@ export function ContractDocument({
               Electronically signed by <strong>{signedName}</strong> on{' '}
               {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
               {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+              {countersignedAt && (
+                <>
+                  {' '}Countersigned by <strong>Allie O&rsquo;Brien</strong> on{' '}
+                  {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}.
+                </>
+              )}
             </div>
           )}
           <p className="rt-c-thanks">

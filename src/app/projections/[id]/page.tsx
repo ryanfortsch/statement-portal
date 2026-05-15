@@ -24,7 +24,7 @@ import {
   fmtPercent,
   roundToThousand,
 } from '@/lib/projections-model';
-import { updateProjection, markSent, promoteToProperty } from '../actions';
+import { updateProjection, markSent, promoteToProperty, countersignContract } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,9 +211,11 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             title="Signed"
             state={signed ? 'done' : 'active'}
             status={
-              signed
-                ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''}</>
-                : 'Awaiting signature'
+              projection.contract_countersigned_at
+                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at)}</>
+                : signed
+                  ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
+                  : 'Awaiting signature'
             }
           >
             <SignedStageBody projection={projection} />
@@ -481,6 +483,9 @@ function SubDeliverable({
 function SignedStageBody({ projection }: { projection: ProjectionRow }) {
   const signedAt = projection.contract_signed_at;
   const signedName = projection.contract_signed_name;
+  const countersignedAt = projection.contract_countersigned_at;
+  const ownerEmailSentAt = projection.contract_owner_email_sent_at;
+  const executedEmailSentAt = projection.contract_executed_email_sent_at;
   const link = `/contract/${projection.onboarding_token}`;
   return (
     <>
@@ -493,10 +498,77 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
           Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
           {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+          {ownerEmailSentAt && (
+            <>
+              {' '}<span style={{ color: 'var(--ink-3)' }}>(signed copy emailed to owner {fmtTouchDate(ownerEmailSentAt)})</span>
+            </>
+          )}
+        </p>
+      )}
+      {/* Countersign workflow: appears only once the owner has signed
+          and Allie hasn't countersigned yet. After countersign, shows
+          the executed-state summary including the "fully executed
+          email sent" timestamp. */}
+      {signedAt && !countersignedAt && (
+        <CountersignRow projectionId={projection.id} />
+      )}
+      {countersignedAt && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
+          Countersigned by <strong>Allie O&rsquo;Brien</strong> on {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}. Fully executed.
+          {executedEmailSentAt && (
+            <>
+              {' '}<span style={{ color: 'var(--ink-3)' }}>(executed copy emailed to owner {fmtTouchDate(executedEmailSentAt)})</span>
+            </>
+          )}
         </p>
       )}
       <LinkRow link={link} />
     </>
+  );
+}
+
+/**
+ * Countersign action UI. A single form-button that POSTs to
+ * countersignContract. Server action does the auth check, stamps
+ * contract_countersigned_at, renders the fully-executed PDF, and
+ * emails the owner with Allie CC'd.
+ */
+function CountersignRow({ projectionId }: { projectionId: string }) {
+  return (
+    <form action={countersignContract} style={{ marginTop: 0, marginBottom: 12, maxWidth: 720 }}>
+      <input type="hidden" name="id" value={projectionId} />
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+        padding: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper-2)',
+      }}>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 460 }}>
+          The owner has signed. Click to add Allie&rsquo;s countersignature and email the owner the fully executed contract (you&rsquo;ll be CC&rsquo;d).
+        </div>
+        <button
+          type="submit"
+          style={{
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            padding: '12px 18px',
+            border: 'none',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Countersign &amp; send
+        </button>
+      </div>
+    </form>
   );
 }
 

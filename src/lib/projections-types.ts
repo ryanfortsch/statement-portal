@@ -95,6 +95,14 @@ export type ProjectionRow = {
   contract_signed_name: string | null;
   contract_signed_ip: string | null;
   contract_signed_user_agent: string | null;
+  // Countersignature (Allie, from the projection detail page).
+  // The contract is fully executed once both contract_signed_at AND
+  // contract_countersigned_at are set.
+  contract_countersigned_at: string | null;
+  // Email-send tracking. Stamped once after each transactional email
+  // goes out so the action is idempotent (no double-send on refresh).
+  contract_owner_email_sent_at: string | null;
+  contract_executed_email_sent_at: string | null;
 
   // Gmail-derived deliverable status (latest send per type)
   gmail_touches: GmailTouches | null;

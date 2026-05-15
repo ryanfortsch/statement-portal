@@ -150,7 +150,12 @@ export async function sendBroadcastViaResend(args: {
 }
 
 /**
- * Send a single transactional email (welcome, confirmation, etc.).
+ * Send a single transactional email (welcome, confirmation, signed
+ * contract delivery, etc.). Supports CC and PDF attachments — the
+ * contract signing flow uses both (CC Allie, attach the signed PDF).
+ *
+ * Attachments are base64 strings per Resend's /emails contract. Pass
+ * a Buffer's base64 (`buf.toString('base64')`) for `content`.
  */
 export async function sendTransactionalViaResend(args: {
   to: string;
@@ -159,6 +164,8 @@ export async function sendTransactionalViaResend(args: {
   fromEmail?: string;
   html: string;
   text?: string;
+  cc?: string | string[];
+  attachments?: Array<{ filename: string; content: string }>;
 }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
 
@@ -166,16 +173,20 @@ export async function sendTransactionalViaResend(args: {
   const fromEmail = args.fromEmail || process.env.RESEND_FROM_EMAIL || '';
   if (!fromEmail) return false;
 
+  const body: Record<string, unknown> = {
+    from: `${fromName} <${fromEmail}>`,
+    to: [args.to],
+    subject: args.subject,
+    html: args.html,
+    text: args.text,
+  };
+  if (args.cc) body.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
+  if (args.attachments && args.attachments.length > 0) body.attachments = args.attachments;
+
   const res = await fetch(`${RESEND_API}/emails`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({
-      from: `${fromName} <${fromEmail}>`,
-      to: [args.to],
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
