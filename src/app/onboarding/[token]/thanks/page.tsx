@@ -1,8 +1,19 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 
 export const dynamic = 'force-dynamic';
+
+// Token-gated thank-you page: confirms onboarding submission. Never
+// index in search.
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;

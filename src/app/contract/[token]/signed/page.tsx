@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -5,6 +6,21 @@ import type { ProjectionRow } from '@/lib/projections-types';
 import { DownloadCopyButton } from './DownloadCopyButton';
 
 export const dynamic = 'force-dynamic';
+
+// The signed page reveals the owner's name and links to a downloadable
+// copy of the signed contract. Belt-and-suspenders: tell crawlers never
+// to index this URL even though the token-gated path makes it
+// effectively private. (Search engines should never have crawled a
+// token-protected URL in the first place, but if a URL ever leaks into
+// a public context — a status page, a forum post, a shared screenshot
+// the OCR-able URL of — this header keeps it out of search results.)
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
@@ -31,12 +47,15 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
     : null;
   const signedName = prospect.contract_signed_name;
   const onboardingDone = !!prospect.onboarding_submitted_at;
-  // Download link to the signed contract PDF. Uses the same public
-  // API route Helm staff use internally (/api/projection-pdf), which
-  // renders on demand reflecting whatever signature state is in the DB
-  // right now (owner-signed state at this moment; will become fully
-  // executed once Allie countersigns).
-  const downloadHref = `/api/projection-pdf?id=${encodeURIComponent(prospect.id)}&type=contract`;
+  // Download link to the signed contract PDF. The PDF endpoint
+  // requires either Helm staff auth OR a token matching this
+  // projection's onboarding_token — without the token, anyone with
+  // the projection UUID could re-pull the signed contract on
+  // demand. Pass the token through so the owner's session-less
+  // browser can download the PDF, but a leaked UUID alone can't.
+  const downloadHref =
+    `/api/projection-pdf?id=${encodeURIComponent(prospect.id)}` +
+    `&type=contract&token=${encodeURIComponent(token)}`;
 
   return (
     <>

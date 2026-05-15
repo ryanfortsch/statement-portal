@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
@@ -5,6 +6,16 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import { submitOnboarding } from '@/app/projections/actions';
 
 export const dynamic = 'force-dynamic';
+
+// Token-gated onboarding form: collects utilities / access / emergency
+// contact for a specific prospect. Never index in search.
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 type OnboardingTarget =
   | { kind: 'projection'; row: ProjectionRow }

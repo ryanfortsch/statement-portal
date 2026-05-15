@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -6,6 +7,16 @@ import { submitContractSignature } from '@/app/projections/actions';
 import { SignSubmitButton, ScrollToSignButton } from '@/components/projections/SigningButtons';
 
 export const dynamic = 'force-dynamic';
+
+// Public signing page — token-gated but should never be indexed by
+// search engines even if a URL leaks into a public context.
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
