@@ -194,10 +194,20 @@ function monthKey(year: number, monthZeroIndexed: number): string {
  * portions with Statement values and apply per-month pacing multipliers.
  */
 type PropertyMonthBuckets = {
+  /** Revenue from stays whose checkout is in the given YYYY-MM. */
   revenueByMonth: Map<string, number>;
+  /** Full stay-nights from stays whose checkout is in the given YYYY-MM. */
   nightsByMonth: Map<string, number>;
+  /** Count of stays checking out in the given YYYY-MM. */
   staysByMonth: Map<string, number>;
+  /** Cleaning charges for stays checking out in the given YYYY-MM. */
   cleaningByMonth: Map<string, number>;
+  /**
+   * Physical nights this property was occupied in the given YYYY-MM
+   * (calendar attribution). Used as the pacing %'s numerator; NOT used
+   * for revenue or any display metric.
+   */
+  calendarNightsByMonth: Map<string, number>;
 };
 
 /**
@@ -365,13 +375,23 @@ export async function computeRevenueSnapshot(
     // properties.management_fee_pct stored as percent (e.g. 25 = 25%).
     const mgmtFeeFraction = prop.is_rising_tide_owned ? 0 : Number(prop.management_fee_pct) / 100;
 
-    // Per-month accounting (used by applyStatementsAndPacing to layer
-    // Statement overrides + per-month pacing multipliers on top of the
-    // base pro-rated math).
+    // Per-month accounting, keyed by checkout month (Statement methodology).
+    // A stay is recognized in its checkout month — entire revenue, all stay
+    // nights, the 1 staysCount, the cleaning. Matches how the Statements
+    // module accrues monthly totals and how owners read their statements.
+    //
+    // Example: an Apr 15 -> May 1 stay attributes ALL its revenue/nights to
+    // May, not pro-rated across April and May.
     const revenueByMonth = new Map<string, number>();
     const nightsByMonth = new Map<string, number>();
     const staysByMonth = new Map<string, number>();
     const cleaningByMonth = new Map<string, number>();
+
+    // Calendar-attributed nights, kept separately for the pacing multiplier
+    // only. Pacing % is a physical-occupancy question ("what fraction of
+    // nights in this month are booked"), so it stays calendar-based even
+    // though the display metrics use checkout attribution.
+    const calendarNightsByMonth = new Map<string, number>();
 
     for (const r of propReservations) {
       const checkIn = r.check_in!;
@@ -379,57 +399,62 @@ export async function computeRevenueSnapshot(
       const totalNights = nightsBetween(checkIn, checkOut);
       if (totalNights <= 0) continue;
 
-      const overlapStart = checkIn > propStart ? checkIn : propStart;
-      const overlapEnd = checkOut < periodEndExclusive ? checkOut : periodEndExclusive;
-      const nightsInPeriod = nightsBetween(overlapStart, overlapEnd);
-      if (nightsInPeriod <= 0) continue;
-
       const fullPayout = resolveGrossPayout(r, mgmtFeeFraction);
 
-      // Skip rows with no money — these are owner blocks, holds, or
-      // cancelled-but-not-deleted stays. They shouldn't count toward
-      // stays/nights/occupancy either.
+      // Skip rows with no money — owner blocks, holds, or cancelled rows
+      // that linger in guesty_reservations. They shouldn't count toward
+      // any of stays/nights/occupancy/revenue.
       if (fullPayout <= 0) continue;
 
-      const perNight = fullPayout / totalNights;
-      nightsSold += nightsInPeriod;
-      totalRevenue += perNight * nightsInPeriod;
-
-      // Walk the months this overlap touches and bucket per-month for the
-      // multi-month Statement + pacing layer.
-      let cursor = overlapStart;
-      while (cursor < overlapEnd) {
-        const cy = parseInt(cursor.slice(0, 4), 10);
-        const cm = parseInt(cursor.slice(5, 7), 10) - 1; // 0-indexed
-        const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
-        const segEnd = monthEndExclusive < overlapEnd ? monthEndExclusive : overlapEnd;
-        const nightsInSegment = nightsBetween(cursor, segEnd);
-        if (nightsInSegment > 0) {
-          const key = monthKey(cy, cm);
-          revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) + perNight * nightsInSegment);
-          nightsByMonth.set(key, (nightsByMonth.get(key) ?? 0) + nightsInSegment);
+      // Pacing-only bookkeeping: walk the calendar months this stay
+      // physically occupies, regardless of where the checkout falls.
+      {
+        const physicalStart = checkIn > propStart ? checkIn : propStart;
+        const physicalEnd = checkOut;
+        let cursor = physicalStart;
+        while (cursor < physicalEnd) {
+          const cy = parseInt(cursor.slice(0, 4), 10);
+          const cm = parseInt(cursor.slice(5, 7), 10) - 1;
+          const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
+          const segEnd = monthEndExclusive < physicalEnd ? monthEndExclusive : physicalEnd;
+          const segNights = nightsBetween(cursor, segEnd);
+          if (segNights > 0) {
+            const k = monthKey(cy, cm);
+            calendarNightsByMonth.set(k, (calendarNightsByMonth.get(k) ?? 0) + segNights);
+          }
+          cursor = monthEndExclusive;
         }
-        cursor = monthEndExclusive;
       }
 
-      // Cleaning attributed at checkout (so it doesn't double-count for stays
-      // that overlap multiple periods).
-      if (checkOut > rangeStart && checkOut <= periodEndExclusive) {
-        staysCount += 1;
-        cleaningCost += cleaningPerStay;
-        const coKey = checkOut.slice(0, 7); // YYYY-MM
-        staysByMonth.set(coKey, (staysByMonth.get(coKey) ?? 0) + 1);
-        cleaningByMonth.set(coKey, (cleaningByMonth.get(coKey) ?? 0) + cleaningPerStay);
-      }
+      // Statement methodology: revenue is recognized at checkout. If the
+      // checkout falls in the requested range, the full stay's value
+      // counts; otherwise the stay belongs to a different month's revenue
+      // and shows up on that month's Statement.
+      if (checkOut <= rangeStart || checkOut > periodEndExclusive) continue;
+      // Don't recognize stays that pre-date this property's activation.
+      if (prop.activated_at && prop.activated_at.slice(0, 10) > checkOut) continue;
+
+      totalRevenue += fullPayout;
+      nightsSold += totalNights;
+      staysCount += 1;
+      cleaningCost += cleaningPerStay;
+
+      const coKey = checkOut.slice(0, 7); // YYYY-MM
+      revenueByMonth.set(coKey, (revenueByMonth.get(coKey) ?? 0) + fullPayout);
+      nightsByMonth.set(coKey, (nightsByMonth.get(coKey) ?? 0) + totalNights);
+      staysByMonth.set(coKey, (staysByMonth.get(coKey) ?? 0) + 1);
+      cleaningByMonth.set(coKey, (cleaningByMonth.get(coKey) ?? 0) + cleaningPerStay);
     }
 
-    // Stash the per-month buckets on the snapshot so the post-pass layer can
-    // do per-month Statement and pacing adjustments.
+    // Stash the per-month buckets on the snapshot so the post-pass layer
+    // can do per-month Statement + pacing adjustments. calendarNightsByMonth
+    // stays separate because pacing % requires calendar (physical) nights.
     monthBucketsByProperty.set(prop.id, {
       revenueByMonth,
       nightsByMonth,
       staysByMonth,
       cleaningByMonth,
+      calendarNightsByMonth,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
@@ -587,7 +612,9 @@ async function applyStatementsAndPacing(
     const mgmtIds = new Set(mgmtProps.map((p) => p.id));
     for (const [propId, buckets] of monthBucketsByProperty.entries()) {
       if (!mgmtIds.has(propId)) continue;
-      portfolioNightsBooked += buckets.nightsByMonth.get(seg.monthKey) ?? 0;
+      // Pacing % needs calendar (physical-occupancy) nights, not the
+      // checkout-attributed nights the dashboard displays.
+      portfolioNightsBooked += buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0;
     }
     const daysThisMonth = daysInMonth(seg.year, seg.month + 1);
     const portfolioNightsPossible = daysThisMonth * mgmtProps.length;
