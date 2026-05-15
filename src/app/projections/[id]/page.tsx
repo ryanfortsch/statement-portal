@@ -84,8 +84,15 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
     // Guide + Contract + Signing collapsed into one pipeline step
     // since they were always one logical phase (the contract
-    // workflow). "Done" means sent + signed + countersigned.
-    const contractStageDone = guideSent && contractSent && !!projection.contract_countersigned_at;
+    // workflow). "Done" = fully countersigned, regardless of whether
+    // the email-send touch was logged. The Gmail-touch flags
+    // (guideSent / contractSent) only fire when the deliverables go
+    // out via an email Gmail can log — but Helm staff might paste the
+    // signing URL into a text / DM / shared link, and the contract
+    // still gets signed + countersigned through legitimate channels.
+    // The countersign timestamp is the authoritative completion
+    // signal; "did we send the email" is a separate concern.
+    const contractStageDone = !!projection.contract_countersigned_at;
     const flags = [
       { label: 'Projection', done: projectionSent },
       { label: 'Guide & Contract', done: contractStageDone },
@@ -193,7 +200,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           <Stage
             num="02"
             title="Partnership Guide & Contract"
-            state={guideSent && contractSent && !!projection.contract_countersigned_at ? 'done' : 'active'}
+            state={projection.contract_countersigned_at ? 'done' : 'active'}
             status={
               // Status priority: fully executed > signed/awaiting > both sent > one sent > nothing sent.
               projection.contract_countersigned_at
