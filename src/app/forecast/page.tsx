@@ -270,7 +270,7 @@ export default async function ForecastPage() {
     getProspectForecast(2026),
     getProspectForecast(2027),
     getProspectForecast(2028),
-    getStatementRevenueByMonth([2026, 2027, 2028]),
+    getStatementRevenueByMonth(),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);

@@ -17,40 +17,53 @@ import { supabase, isConfigured } from './supabase';
 export type StatementRevenueByMonth = Record<string, number>;
 
 /**
- * Sum `management_fee` per month from property_statements. Returns
+ * Build a period_id → month ("YYYY-MM") map from statement_periods.
+ * property_statements carries `period_id`, NOT a denormalized `month`,
+ * so every statement query has to resolve the month through here.
+ */
+async function getPeriodMonthMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const { data, error } = await supabase
+    .from('statement_periods')
+    .select('id, month');
+  if (error) {
+    console.error('[statement-periods] query failed:', error.message);
+    return map;
+  }
+  for (const p of (data ?? []) as Array<{ id: string | null; month: string | null }>) {
+    if (p.id && p.month) map.set(p.id, p.month);
+  }
+  return map;
+}
+
+/**
+ * Sum `management_fee` per month across all property_statements. Returns
  * { 'YYYY-MM': totalMgmtFee, … } for every month that has at least one
- * reconciled statement.
+ * reconciled statement. Month is resolved via statement_periods.
  *
  * Empty map when Supabase isn't configured or the query fails — the
  * forecast falls back to model projection automatically.
  */
-export async function getStatementRevenueByMonth(
-  yearsToInclude: number[] = [2026, 2027, 2028]
-): Promise<StatementRevenueByMonth> {
+export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMonth> {
   if (!isConfigured) return {};
-
-  // property_statements.month is text "YYYY-MM"; cheap filter via range
-  // on the string ordering since YYYY-MM sorts lexically.
-  const minMonth = `${Math.min(...yearsToInclude)}-01`;
-  const maxMonth = `${Math.max(...yearsToInclude) + 1}-01`;
-
   try {
+    const monthByPeriod = await getPeriodMonthMap();
+
     const { data, error } = await supabase
       .from('property_statements')
-      .select('month, management_fee')
-      .gte('month', minMonth)
-      .lt('month', maxMonth);
-
+      .select('period_id, management_fee');
     if (error) {
       console.error('[forecast-statement-actuals] query failed:', error.message);
       return {};
     }
 
     const byMonth: StatementRevenueByMonth = {};
-    for (const row of (data ?? []) as Array<{ month: string; management_fee: number | null }>) {
+    for (const row of (data ?? []) as Array<{ period_id: string | null; management_fee: number | null }>) {
+      const month = row.period_id ? monthByPeriod.get(row.period_id) : undefined;
+      if (!month) continue;
       const fee = Number(row.management_fee ?? 0);
-      if (!fee || !row.month) continue;
-      byMonth[row.month] = (byMonth[row.month] ?? 0) + fee;
+      if (!fee) continue;
+      byMonth[month] = (byMonth[month] ?? 0) + fee;
     }
     return byMonth;
   } catch (err) {
@@ -96,13 +109,13 @@ const GLOUCESTER_SUM = GLOUCESTER_SEASONALITY.reduce((s, v) => s + v, 0);
 export async function getPropertyAnnualBaselines(): Promise<Map<string, PropertyBaseline>> {
   if (!isConfigured) return new Map();
   try {
-    // Pull all available rental_revenue rows. property_statements is
-    // RT's authoritative reconciled monthly record — preferable to
-    // guesty_reservations for historicals because Guesty syncs forward
-    // bookings reliably but past stays can be sparse.
+    // property_statements is RT's authoritative reconciled monthly record.
+    // Month comes from statement_periods via period_id.
+    const monthByPeriod = await getPeriodMonthMap();
+
     const { data, error } = await supabase
       .from('property_statements')
-      .select('property_id, month, rental_revenue');
+      .select('property_id, period_id, rental_revenue');
     if (error) {
       console.error('[property-baselines] statements query failed:', error.message);
       return new Map();
@@ -117,13 +130,15 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
 
     for (const row of (data ?? []) as Array<{
       property_id: string | null;
-      month: string | null;
+      period_id: string | null;
       rental_revenue: number | null;
     }>) {
-      if (!row.property_id || !row.month) continue;
+      if (!row.property_id || !row.period_id) continue;
+      const month = monthByPeriod.get(row.period_id);
+      if (!month) continue;
       const rev = Number(row.rental_revenue ?? 0);
       if (rev <= 0) continue;
-      const monthOfYear = parseInt(row.month.slice(5, 7), 10) - 1; // 0..11
+      const monthOfYear = parseInt(month.slice(5, 7), 10) - 1; // 0..11
       if (Number.isNaN(monthOfYear) || monthOfYear < 0 || monthOfYear > 11) continue;
 
       const bucket = byProp.get(row.property_id) ?? {
@@ -133,7 +148,7 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
       };
       bucket.monthlyHistory[monthOfYear] += rev;
       bucket.monthlyHistoryCount[monthOfYear] += 1;
-      bucket.observedMonths.add(row.month);
+      bucket.observedMonths.add(month);
       byProp.set(row.property_id, bucket);
     }
 
