@@ -657,32 +657,72 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 }
 .rt-mobile-menu-row:hover { background: var(--paper-2); }
 
-/* ─── Auth page ship-wheel hero ───────────────────────────────────── */
-/* Two halves of a ship's wheel slide in from each side and meet at the
-   centerline. The animation runs once on page load and stays in the
-   joined position. Reduced-motion users get the joined state without
-   the transition. */
+/* ─── Auth page ship-wheel: vault-lock animation ─────────────────────
+   Two halves drift in slowly from each side, snap together at the
+   centerline at ~75% of the timeline, recoil a hair, settle. The
+   impact flash at the seam scales up and fades during the slam frame.
+   ~2.4s total - long enough to see, short enough to not annoy.
+
+   Timing curve: linear-ish for the drift, then a sharp snap at the
+   collision frame, then damped oscillation back to rest. Hand-tuned
+   keyframes rather than a single cubic-bezier because the impact +
+   recoil needs explicit control over the bounce-back. */
 .rt-helm-wheel-left,
 .rt-helm-wheel-right {
-  animation-duration: 1100ms;
-  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-duration: 2400ms;
+  animation-timing-function: linear;
   animation-fill-mode: both;
 }
 .rt-helm-wheel-left { animation-name: rt-helm-wheel-left; }
 .rt-helm-wheel-right { animation-name: rt-helm-wheel-right; }
+
 @keyframes rt-helm-wheel-left {
-  from { transform: translateX(-36px); opacity: 0; }
-  35% { opacity: 1; }
-  to { transform: translateX(0); opacity: 1; }
+  0%   { transform: translateX(-80px); opacity: 0; }
+  10%  { transform: translateX(-74px); opacity: 0.6; }
+  25%  { transform: translateX(-58px); opacity: 1; }
+  60%  { transform: translateX(-22px); opacity: 1; }
+  72%  { transform: translateX(-8px);  opacity: 1; }   /* slowing as they approach */
+  78%  { transform: translateX(0);     opacity: 1; }   /* IMPACT */
+  82%  { transform: translateX(3px);   opacity: 1; }   /* recoil pushes past center */
+  87%  { transform: translateX(-1.5px); opacity: 1; }  /* damped wobble back */
+  92%  { transform: translateX(0.5px);  opacity: 1; }
+  100% { transform: translateX(0);      opacity: 1; }
 }
 @keyframes rt-helm-wheel-right {
-  from { transform: translateX(36px); opacity: 0; }
-  35% { opacity: 1; }
-  to { transform: translateX(0); opacity: 1; }
+  0%   { transform: translateX(80px);  opacity: 0; }
+  10%  { transform: translateX(74px);  opacity: 0.6; }
+  25%  { transform: translateX(58px);  opacity: 1; }
+  60%  { transform: translateX(22px);  opacity: 1; }
+  72%  { transform: translateX(8px);   opacity: 1; }
+  78%  { transform: translateX(0);     opacity: 1; }
+  82%  { transform: translateX(-3px);  opacity: 1; }
+  87%  { transform: translateX(1.5px); opacity: 1; }
+  92%  { transform: translateX(-0.5px); opacity: 1; }
+  100% { transform: translateX(0);      opacity: 1; }
 }
+
+/* The seam flash: a thin line at x=100 that scales up briefly at the
+   impact frame, then fades. Reads as a percussion hit, not a sparkle.
+   transform-origin pinned to the seam so the scale grows symmetric
+   from center. */
+.rt-helm-wheel-impact {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  animation: rt-helm-wheel-impact 2400ms linear both;
+}
+@keyframes rt-helm-wheel-impact {
+  0%, 76% { opacity: 0; transform: scaleX(0.6) scaleY(0.8); }
+  79%     { opacity: 0.65; transform: scaleX(2.2) scaleY(1.05); }
+  85%     { opacity: 0.25; transform: scaleX(1.2) scaleY(1); }
+  100%    { opacity: 0;   transform: scaleX(1) scaleY(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rt-helm-wheel-left,
-  .rt-helm-wheel-right {
+  .rt-helm-wheel-right,
+  .rt-helm-wheel-impact {
     animation: none;
   }
+  .rt-helm-wheel-impact { opacity: 0; }
 }
