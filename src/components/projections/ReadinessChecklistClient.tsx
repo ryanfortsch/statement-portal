@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { setReadinessChecked, setReadinessNote } from '@/app/projections/actions';
+import { setReadinessHave, setReadinessNote } from '@/app/projections/actions';
 import {
   READINESS_NOTE_FIELDS,
   type ReadinessNoteField,
   type RenderedGroup,
+  type RenderedItem,
   type ReadinessContext,
 } from '@/lib/projections-readiness';
 import type { ReadinessState } from '@/lib/projections-types';
@@ -15,20 +16,24 @@ import type { ReadinessState } from '@/lib/projections-types';
  * Interactive Property Readiness Checklist — the in-the-field walkthrough
  * tool. Optimized for one-handed mobile use:
  *
- *   - Tap-anywhere-on-the-row toggles a check.
- *   - Big finger-friendly targets (44pt min) per Apple HIG.
+ *   - Tap a row to toggle "all there" vs "none there" — fast path.
+ *   - Tap the qty number to open the numeric keypad and enter a partial
+ *     count ("they have 12 of the 18 coffee mugs"). Partial items get a
+ *     half-filled checkbox and the gap renders as "12 / 18".
  *   - Notes textareas debounce-save 800ms after the last keystroke and
  *     flush on blur, so a brief pause persists without an explicit Save.
  *   - All writes are optimistic (UI updates immediately) and rolled back
- *     if the server action throws.
+ *     if the server action throws. No revalidatePath — keeps the page
+ *     from flashing the parent /projections/loading.tsx mid-tap.
+ *
+ * Outstanding-items summary at the bottom of the page lists everything
+ * with have < need, so the walkthrough produces a natural "shopping
+ * list" of what the owner still needs to buy or source.
  *
  * Server state is read once on initial render via the `initial` prop;
- * subsequent server-side renders (after revalidatePath) re-hydrate the
- * initial state from props on next mount. While the page is mounted,
- * local state is the source of truth.
- *
- * The static printable version lives at /projections/<id>/readiness/print
- * and is used by puppeteer to render the owner-facing PDF.
+ * subsequent server-side renders (after navigation) re-hydrate from
+ * props on next mount. While the page is mounted, local state is the
+ * source of truth.
  */
 export function ReadinessChecklistClient({
   projectionId,
@@ -49,48 +54,90 @@ export function ReadinessChecklistClient({
   initial: ReadinessState;
   printHref: string;
 }) {
-  const [checked, setChecked] = useState<Set<string>>(() => new Set(initial.checked ?? []));
+  // Build the initial have-counts dict, falling back to the legacy
+  // `checked` array (treated as "have = need").
+  const buildInitialHave = (): Record<string, number> => {
+    const out: Record<string, number> = { ...(initial.have ?? {}) };
+    if (Array.isArray(initial.checked)) {
+      for (const g of groups) {
+        for (const it of g.items) {
+          if (out[it.label] === undefined && initial.checked.includes(it.label)) {
+            out[it.label] = it.count;
+          }
+        }
+      }
+    }
+    return out;
+  };
+
+  const [have, setHave] = useState<Record<string, number>>(buildInitialHave);
   const [notes, setNotes] = useState<Record<string, string>>(() => ({ ...(initial.notes ?? {}) }));
   const [lastSaved, setLastSaved] = useState<string | null>(initial.updated_at ?? null);
   const [, startTransition] = useTransition();
   const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
 
-  // Aggregate progress across all groups for the sticky header.
-  const totalItems = useMemo(() => groups.reduce((n, g) => n + g.items.length, 0), [groups]);
-  const checkedCount = checked.size;
-  const pct = totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 0;
+  // Aggregate progress: an item counts as "done" when have >= need.
+  const totals = useMemo(() => {
+    let totalNeeded = 0;
+    let totalHave = 0;
+    let itemsTotal = 0;
+    let itemsDone = 0;
+    for (const g of groups) {
+      for (const it of g.items) {
+        itemsTotal += 1;
+        totalNeeded += it.count;
+        const h = Math.min(have[it.label] ?? 0, it.count);
+        totalHave += h;
+        if (h >= it.count) itemsDone += 1;
+      }
+    }
+    return { totalNeeded, totalHave, itemsTotal, itemsDone };
+  }, [groups, have]);
 
-  function persistCheck(label: string, nextChecked: boolean) {
+  const pct = totals.totalNeeded > 0
+    ? Math.round((totals.totalHave / totals.totalNeeded) * 100)
+    : 0;
+
+  function persistHave(label: string, count: number, prevCount: number) {
     startTransition(async () => {
       try {
-        await setReadinessChecked(projectionId, label, nextChecked);
+        await setReadinessHave(projectionId, label, count);
         setLastSaved(new Date().toISOString());
       } catch (err) {
-        // Roll back optimistic update on failure so the UI matches the DB.
-        setChecked((prev) => {
-          const next = new Set(prev);
-          if (nextChecked) next.delete(label);
-          else next.add(label);
-          return next;
-        });
-        console.error('setReadinessChecked failed:', err);
+        // Roll back optimistic update on failure.
+        setHave((prev) => ({ ...prev, [label]: prevCount }));
+        console.error('setReadinessHave failed:', err);
       }
     });
   }
 
-  function toggleItem(label: string) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      const nextChecked = !next.has(label);
-      if (nextChecked) next.add(label);
-      else next.delete(label);
-      persistCheck(label, nextChecked);
-      return next;
-    });
-    // Gentle haptic feedback on phones that support it.
+  /**
+   * Whole-row tap: cycle 0 ↔ full. If currently partial (0 < have < need)
+   * treat it as a "complete it" — go to full.
+   */
+  function toggleItem(item: RenderedItem) {
+    const current = have[item.label] ?? 0;
+    const next = current >= item.count ? 0 : item.count;
+    setHave((prev) => ({ ...prev, [item.label]: next }));
+    persistHave(item.label, next, current);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try { (navigator as Navigator & { vibrate?: (p: number) => void }).vibrate?.(8); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Direct count input — called from the qty input's onChange/onBlur.
+   * Clamps to [0, need-count].
+   */
+  function setItemCount(item: RenderedItem, rawValue: string) {
+    const parsed = parseInt(rawValue, 10);
+    const current = have[item.label] ?? 0;
+    const next = Number.isFinite(parsed)
+      ? Math.max(0, Math.min(item.count, parsed))
+      : 0;
+    if (next === current) return;
+    setHave((prev) => ({ ...prev, [item.label]: next }));
+    persistHave(item.label, next, current);
   }
 
   function persistNote(key: string, value: string) {
@@ -106,7 +153,6 @@ export function ReadinessChecklistClient({
 
   function onNoteChange(key: string, value: string) {
     setNotes((prev) => ({ ...prev, [key]: value }));
-    // Debounce: only persist 800ms after the last keystroke.
     const timer = noteTimers.current[key];
     if (timer) clearTimeout(timer);
     noteTimers.current[key] = setTimeout(() => persistNote(key, value), 800);
@@ -119,13 +165,32 @@ export function ReadinessChecklistClient({
     persistNote(key, notes[key] ?? '');
   }
 
-  // Cleanup pending debounce timers on unmount.
   useEffect(() => {
     const timers = noteTimers.current;
     return () => {
       Object.values(timers).forEach((t) => { if (t) clearTimeout(t); });
     };
   }, []);
+
+  // Build the "still needed" list for the summary at the bottom.
+  const stillNeeded = useMemo(() => {
+    const out: { label: string; need: number; have: number; gap: number; group: string }[] = [];
+    for (const g of groups) {
+      for (const it of g.items) {
+        const h = Math.min(have[it.label] ?? 0, it.count);
+        if (h < it.count) {
+          out.push({
+            label: it.label,
+            need: it.count,
+            have: h,
+            gap: it.count - h,
+            group: g.title,
+          });
+        }
+      }
+    }
+    return out;
+  }, [groups, have]);
 
   return (
     <>
@@ -152,7 +217,9 @@ export function ReadinessChecklistClient({
           </div>
           <div className="rt-rc-progress">
             <div className="rt-rc-progress-row">
-              <span className="rt-rc-progress-num">{checkedCount} of {totalItems}</span>
+              <span className="rt-rc-progress-num">
+                {totals.itemsDone} of {totals.itemsTotal} complete
+              </span>
               <span className="rt-rc-progress-pct">{pct}%</span>
             </div>
             <div className="rt-rc-progress-bar" aria-hidden>
@@ -168,40 +235,25 @@ export function ReadinessChecklistClient({
 
         {/* ─── Item groups ────────────────────────────────────────── */}
         {groups.map((g) => {
-          const groupChecked = g.items.filter((i) => checked.has(i.label)).length;
+          const groupDone = g.items.filter(
+            (i) => (have[i.label] ?? 0) >= i.count,
+          ).length;
           return (
             <section className="rt-rc-group" key={g.title}>
               <div className="rt-rc-group-head">
                 <h2 className="rt-rc-group-title">{g.title}</h2>
-                <span className="rt-rc-group-count">{groupChecked} / {g.items.length}</span>
+                <span className="rt-rc-group-count">{groupDone} / {g.items.length}</span>
               </div>
               <ul className="rt-rc-list">
-                {g.items.map((it) => {
-                  const isChecked = checked.has(it.label);
-                  return (
-                    <li key={it.label} className="rt-rc-item" data-checked={isChecked || undefined}>
-                      <button
-                        type="button"
-                        className="rt-rc-item-btn"
-                        onClick={() => toggleItem(it.label)}
-                        aria-pressed={isChecked}
-                      >
-                        <span className="rt-rc-check" aria-hidden>
-                          {isChecked && (
-                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <path d="M3 8.5l3.5 3.5L13 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="rt-rc-item-text">
-                          <span className="rt-rc-item-label">{it.label}</span>
-                          {it.note && <span className="rt-rc-item-note">{it.note}</span>}
-                        </span>
-                        <span className="rt-rc-item-qty">{it.count}</span>
-                      </button>
-                    </li>
-                  );
-                })}
+                {g.items.map((it) => (
+                  <ItemRow
+                    key={it.label}
+                    item={it}
+                    haveCount={have[it.label] ?? 0}
+                    onToggle={() => toggleItem(it)}
+                    onSetCount={(raw) => setItemCount(it, raw)}
+                  />
+                ))}
               </ul>
             </section>
           );
@@ -225,11 +277,111 @@ export function ReadinessChecklistClient({
           </div>
         </section>
 
+        {/* ─── Still-needed summary (shopping list) ──────────────── */}
+        <section className="rt-rc-group rt-rc-needed">
+          <div className="rt-rc-group-head">
+            <h2 className="rt-rc-group-title">Still needed</h2>
+            <span className="rt-rc-group-count">
+              {stillNeeded.length} item{stillNeeded.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          {stillNeeded.length === 0 ? (
+            <p className="rt-rc-needed-empty">
+              Everything is accounted for. The property is guest-ready.
+            </p>
+          ) : (
+            <ul className="rt-rc-needed-list">
+              {stillNeeded.map((n) => (
+                <li key={n.label} className="rt-rc-needed-item">
+                  <span className="rt-rc-needed-label">{n.label}</span>
+                  <span className="rt-rc-needed-meta">
+                    <span className="rt-rc-needed-group">{n.group}</span>
+                    <span className="rt-rc-needed-qty">
+                      {n.have > 0 ? `${n.have} / ${n.need}` : `Need ${n.need}`}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <footer className="rt-rc-foot">
           Walk-through · Rising Tide · risingtidestr.com
         </footer>
       </div>
     </>
+  );
+}
+
+function ItemRow({
+  item,
+  haveCount,
+  onToggle,
+  onSetCount,
+}: {
+  item: RenderedItem;
+  haveCount: number;
+  onToggle: () => void;
+  onSetCount: (raw: string) => void;
+}) {
+  // Local input value so typing doesn't fight the optimistic state update.
+  const [draft, setDraft] = useState<string>(String(haveCount));
+  useEffect(() => { setDraft(String(haveCount)); }, [haveCount]);
+
+  const isFull = haveCount >= item.count;
+  const isPartial = haveCount > 0 && haveCount < item.count;
+  const isEmpty = haveCount === 0;
+
+  return (
+    <li
+      className="rt-rc-item"
+      data-state={isFull ? 'full' : isPartial ? 'partial' : 'empty'}
+    >
+      <button
+        type="button"
+        className="rt-rc-item-btn"
+        onClick={onToggle}
+        aria-pressed={isFull}
+        aria-label={`${item.label}, ${haveCount} of ${item.count}, tap to toggle`}
+      >
+        <span className="rt-rc-check" aria-hidden>
+          {isFull && (
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M3 8.5l3.5 3.5L13 4.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+          {isPartial && <span className="rt-rc-check-partial" aria-hidden />}
+        </span>
+        <span className="rt-rc-item-text">
+          <span className="rt-rc-item-label">{item.label}</span>
+          {item.note && <span className="rt-rc-item-note">{item.note}</span>}
+        </span>
+      </button>
+      {/* Qty editor: numeric input + the / need-count. Stops click
+          propagation so tapping the input doesn't also trigger the
+          row's toggle handler. */}
+      <div
+        className="rt-rc-qty"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={item.count}
+          step={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => onSetCount(draft)}
+          onFocus={(e) => e.target.select()}
+          className="rt-rc-qty-input"
+          aria-label={`${item.label} count`}
+        />
+        <span className="rt-rc-qty-sep">/</span>
+        <span className="rt-rc-qty-need">{item.count}</span>
+      </div>
+    </li>
   );
 }
 
@@ -275,10 +427,6 @@ function formatSavedAt(iso: string): string {
 }
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
-// Mobile-first: assume narrow viewport, scale up at >720px to a comfy
-// two-column layout for desktop preview. Tap targets are ≥44pt; checkboxes
-// are 22px with extra padding on the button so the full row is grabbable.
-// Sticky header keeps progress visible while scrolling long groups.
 const readinessClientCss = `
   .rt-rc {
     max-width: 720px;
@@ -295,10 +443,8 @@ const readinessClientCss = `
     top: 0;
     z-index: 10;
     background: var(--paper);
-    padding: 12px 0 14px;
+    padding: 12px 16px 14px;
     margin: 0 -16px;
-    padding-left: 16px;
-    padding-right: 16px;
     border-bottom: 1px solid var(--rule);
   }
   .rt-rc-head-top {
@@ -353,17 +499,16 @@ const readinessClientCss = `
     margin-bottom: 4px;
   }
   .rt-rc-progress-num {
-    font-family: var(--font-mono-dash), ui-monospace, monospace;
     font-size: 12px;
-    font-weight: 700;
     color: var(--ink);
     letter-spacing: 0.02em;
   }
   .rt-rc-progress-pct {
-    font-size: 11px;
-    letter-spacing: 0.14em;
+    font-family: var(--font-mono-dash), ui-monospace, monospace;
+    font-size: 13px;
+    letter-spacing: 0.04em;
     color: var(--signal);
-    font-weight: 600;
+    font-weight: 700;
   }
   .rt-rc-progress-bar {
     height: 3px;
@@ -416,14 +561,17 @@ const readinessClientCss = `
     margin: 0;
   }
   .rt-rc-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: stretch;
     border-bottom: 1px solid var(--rule);
+    gap: 6px;
   }
   .rt-rc-item-btn {
     display: grid;
-    grid-template-columns: 28px 1fr auto;
-    gap: 14px;
+    grid-template-columns: 28px 1fr;
+    gap: 12px;
     align-items: center;
-    width: 100%;
     min-height: 56px;
     padding: 10px 4px;
     background: transparent;
@@ -448,11 +596,24 @@ const readinessClientCss = `
     flex-shrink: 0;
     transition: all 120ms ease;
     color: var(--paper);
+    position: relative;
   }
-  .rt-rc-item[data-checked] .rt-rc-check {
+  .rt-rc-item[data-state="full"] .rt-rc-check {
     background: var(--signal);
     border-color: var(--signal);
     color: var(--paper);
+  }
+  .rt-rc-item[data-state="partial"] .rt-rc-check {
+    border-color: var(--signal);
+    background: var(--paper);
+  }
+  /* Half-fill diagonal for partial state — gives an obvious "started
+     but not done" look without needing a different icon. */
+  .rt-rc-check-partial {
+    position: absolute;
+    inset: 2px;
+    background: linear-gradient(135deg, var(--signal) 0 50%, transparent 50% 100%);
+    border-radius: 3px;
   }
   .rt-rc-item-text { min-width: 0; }
   .rt-rc-item-label {
@@ -463,7 +624,7 @@ const readinessClientCss = `
     font-weight: 500;
     transition: all 160ms ease;
   }
-  .rt-rc-item[data-checked] .rt-rc-item-label {
+  .rt-rc-item[data-state="full"] .rt-rc-item-label {
     color: var(--ink-4);
     text-decoration: line-through;
     text-decoration-color: var(--ink-4);
@@ -477,17 +638,52 @@ const readinessClientCss = `
     line-height: 1.3;
     margin-top: 2px;
   }
-  .rt-rc-item-qty {
+
+  /* Qty editor: input + " / need" suffix */
+  .rt-rc-qty {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px 0 4px;
+    align-self: center;
+  }
+  .rt-rc-qty-input {
+    width: 46px;
+    min-height: 36px;
+    padding: 6px 8px;
     font-family: var(--font-mono-dash), ui-monospace, monospace;
     font-size: 15px;
-    color: var(--signal);
     font-weight: 700;
-    letter-spacing: 0.02em;
-    min-width: 30px;
+    color: var(--signal);
     text-align: right;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    -moz-appearance: textfield;
   }
-  .rt-rc-item[data-checked] .rt-rc-item-qty {
+  .rt-rc-qty-input::-webkit-outer-spin-button,
+  .rt-rc-qty-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .rt-rc-qty-input:focus {
+    outline: none;
+    border-color: var(--signal);
+    box-shadow: 0 0 0 3px rgba(200, 90, 58, 0.12);
+  }
+  .rt-rc-item[data-state="full"] .rt-rc-qty-input { color: var(--ink-4); }
+  .rt-rc-qty-sep {
+    font-family: var(--font-mono-dash), ui-monospace, monospace;
+    font-size: 13px;
     color: var(--ink-4);
+  }
+  .rt-rc-qty-need {
+    font-family: var(--font-mono-dash), ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--ink-3);
+    font-weight: 600;
+    min-width: 22px;
+    text-align: left;
   }
 
   /* ─── Walkthrough notes (real textareas) ─────────────────── */
@@ -536,6 +732,49 @@ const readinessClientCss = `
     box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
   }
 
+  /* ─── Still needed (shopping list summary) ───────────────── */
+  .rt-rc-needed-empty {
+    font-size: 13px;
+    color: var(--ink-3);
+    font-style: italic;
+    margin: 14px 0 0;
+  }
+  .rt-rc-needed-list {
+    list-style: none;
+    padding: 0;
+    margin: 6px 0 0;
+  }
+  .rt-rc-needed-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-rc-needed-label {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .rt-rc-needed-meta {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .rt-rc-needed-group {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .rt-rc-needed-qty {
+    font-family: var(--font-mono-dash), ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--signal);
+    font-weight: 700;
+  }
+
   /* ─── Footer ──────────────────────────────────────────────── */
   .rt-rc-foot {
     margin-top: 40px;
@@ -552,9 +791,9 @@ const readinessClientCss = `
   @media (min-width: 720px) {
     .rt-rc { padding: 0 24px 80px; }
     .rt-rc-head {
-      margin: 0 -24px;
       padding-left: 24px;
       padding-right: 24px;
+      margin: 0 -24px;
     }
     .rt-rc-h1 { font-size: 34px; }
     .rt-rc-list {

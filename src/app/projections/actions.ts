@@ -318,12 +318,13 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
 }
 
 // ─── Readiness checklist mutations ─────────────────────────────────────────
-// Two write paths feed into the same jsonb column: tap-to-check (toggles a
-// label in the `checked` array) and notes (writes a string into the `notes`
-// dict). Each call does a read-merge-write because the column is a single
-// blob and we don't want concurrent walkthrough taps to step on each other.
-// The path is revalidated so the next server render sees the update; the
-// client already updated optimistically.
+// Each call does a read-merge-write on the single jsonb column. Critically,
+// these actions do NOT revalidatePath — the analyst is *on* the readiness
+// page during a walkthrough, and revalidating the current route triggers
+// the parent /projections/loading.tsx, which feels like the page froze.
+// Readiness state is purely client-managed in-memory while the page is
+// mounted; the next navigation re-fetches because the route is
+// dynamic = 'force-dynamic'.
 
 async function readReadinessState(projectionId: string): Promise<ReadinessState> {
   const { data, error } = await supabase
@@ -334,6 +335,7 @@ async function readReadinessState(projectionId: string): Promise<ReadinessState>
   if (error) throw new Error(error.message);
   const raw = (data?.readiness_state ?? null) as ReadinessState | null;
   return {
+    have: raw?.have && typeof raw.have === 'object' ? raw.have : {},
     checked: Array.isArray(raw?.checked) ? raw.checked : [],
     notes: raw?.notes && typeof raw.notes === 'object' ? raw.notes : {},
     updated_at: raw?.updated_at,
@@ -347,28 +349,33 @@ async function writeReadinessState(projectionId: string, next: ReadinessState): 
     .update({ readiness_state: stamped })
     .eq('id', projectionId);
   if (error) throw new Error(error.message);
-  revalidatePath(`/projections/${projectionId}/readiness`);
-  revalidatePath(`/projections/${projectionId}`);
+  // Intentionally NO revalidatePath — see header comment.
 }
 
 /**
- * Toggle the check state of a single item in the readiness checklist.
- * `itemLabel` is the label as defined in READINESS_GROUPS (e.g. "Coffee mugs").
- * Idempotent: same label + same state is a no-op write.
+ * Set how many units of an item the owner has. Pass 0 for "they have
+ * none"; pass need-count (or higher) for "complete". `itemLabel` matches
+ * READINESS_GROUPS in lib/projections-readiness.ts.
+ *
+ * Writes to the canonical `have` dict and strips the legacy `checked`
+ * entry for this label so the two stay consistent.
  */
-export async function setReadinessChecked(
+export async function setReadinessHave(
   projectionId: string,
   itemLabel: string,
-  checked: boolean,
+  count: number,
 ): Promise<void> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  const safeCount = Math.max(0, Math.round(Number(count) || 0));
   const state = await readReadinessState(projectionId);
-  const set = new Set(state.checked);
-  if (checked) set.add(itemLabel);
-  else set.delete(itemLabel);
-  await writeReadinessState(projectionId, { ...state, checked: Array.from(set) });
+  const have = { ...(state.have ?? {}) };
+  have[itemLabel] = safeCount;
+  // Drop the legacy `checked` entry for this label so the two views can't
+  // disagree. Future reads derive presence purely from `have`.
+  const checked = (state.checked ?? []).filter((c) => c !== itemLabel);
+  await writeReadinessState(projectionId, { ...state, have, checked });
 }
 
 /**
