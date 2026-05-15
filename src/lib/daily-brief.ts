@@ -341,24 +341,38 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   const triageById = new Map(triaged.map(t => [t.id, t]));
 
   const nowIso = new Date().toISOString();
-  const upserts: EmailTriageRow[] = fetched.map(e => {
-    const t = triageById.get(e.id);
-    return {
-      gmail_message_id: e.id,
-      thread_id: e.threadId,
-      from_name: e.fromName,
-      from_email: e.fromEmail,
-      subject: e.subject,
-      snippet: e.snippet,
-      received_at: e.receivedAt,
-      triage: t?.category ?? 'fyi',
-      triage_summary: t?.summary ?? '',
-      is_unread: true,
-    };
-  });
 
-  if (upserts.length) {
-    await sb.from('email_triage').upsert(upserts, { onConflict: 'gmail_message_id' });
+  // INSERT-only for new emails so we never overwrite existing
+  // triage data with empty defaults.
+  const newRows: EmailTriageRow[] = fetched
+    .filter(e => !existing.has(e.id))
+    .map(e => {
+      const t = triageById.get(e.id);
+      return {
+        gmail_message_id: e.id,
+        thread_id: e.threadId,
+        from_name: e.fromName,
+        from_email: e.fromEmail,
+        subject: e.subject,
+        snippet: e.snippet,
+        received_at: e.receivedAt,
+        triage: t?.category ?? 'fyi',
+        triage_summary: t?.summary ?? '',
+        is_unread: true,
+      };
+    });
+  if (newRows.length) {
+    await sb.from('email_triage').insert(newRows);
+  }
+
+  // For already-cached emails: only flip flags + bump last_seen_at.
+  // Triage classification stays untouched.
+  const refreshIds = fetched.filter(e => existing.has(e.id)).map(e => e.id);
+  if (refreshIds.length) {
+    await sb
+      .from('email_triage')
+      .update({ is_unread: true, last_seen_at: nowIso })
+      .in('gmail_message_id', refreshIds);
   }
 
   // Anything previously marked unread but NOT in the current inbox
