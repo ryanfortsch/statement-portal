@@ -382,7 +382,10 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         borderBottom: '1px solid var(--rule)',
       }}
     >
-      {/* Date column */}
+      {/* Date column. Top: check-in (the date the row is about). Middle:
+          check-out + nights. Bottom: when the previous guest left (only
+          when there's a non-zero gap). Stays in the fixed 160px column so
+          it never wraps under right-side button pressure. */}
       <div className="rt-turnover-date">
         <div className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
           {checkIn}
@@ -391,6 +394,14 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           → {checkOut}
           {t.nights ? ` · ${t.nights} nt${t.nights === 1 ? '' : 's'}` : ''}
         </div>
+        {!t.isSameDayTurnover && gapDays != null && gapDays >= 1 && t.previousCheckout && (
+          <div
+            style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.04em' }}
+            title={`Last guest checked out ${t.previousCheckout} · ${gapDays}-day gap`}
+          >
+            clear since {formatDateShort(t.previousCheckout)}
+          </div>
+        )}
       </div>
 
       {/* Property + guest column */}
@@ -416,12 +427,8 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </span>
           )}
         </div>
-        {/* Guest + channel + optional gap context. Gap is folded into this
-            line (rather than its own row) so it stays understated and so
-            narrow middle columns — where the right side stacks Plan +
-            Start Inspection buttons — don't wrap the gap text across
-            multiple lines. Same-day turnovers skip the inline gap and
-            use the signal-colored banner below instead. */}
+        {/* Guest + channel. Gap context lives in the fixed-width date
+            column on the left so it never wraps under narrow conditions. */}
         <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.4 }}>
           {t.guestName || 'Unnamed guest'}
           {t.channel && (
@@ -429,15 +436,6 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
               <span style={{ color: 'var(--ink-4)' }}> · </span>
               <span style={{ color: 'var(--ink-3)' }}>{t.channel}</span>
             </>
-          )}
-          {!t.isSameDayTurnover && gapDays != null && gapDays >= 1 && t.previousCheckout && (
-            <span
-              style={{ color: 'var(--ink-4)' }}
-              title={`Last guest checked out ${t.previousCheckout}`}
-            >
-              {' · '}
-              {gapDays}d clear since {formatDateShort(t.previousCheckout)}
-            </span>
           )}
         </div>
         {/* Same-day turnover keeps its loud signal banner — it's a real
