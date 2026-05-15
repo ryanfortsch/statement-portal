@@ -19,8 +19,12 @@ import {
   computeReadiness,
 } from '@/lib/projections-readiness';
 
-const FROM_NAME = 'Rising Tide · Helm';
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'allie@risingtidestr.com';
+// Readiness reviews send from a dedicated onboarding@ inbox so the thread
+// reads as an automated handoff (separate from Allie's personal contract
+// emails). Env-overridable in case it needs to move to a different inbox
+// without a code push.
+const FROM_NAME = 'Rising Tide Onboarding';
+const FROM_EMAIL = process.env.READINESS_FROM_EMAIL || 'onboarding@risingtidestr.com';
 
 // Team review distribution. Allie owns ops day-to-day so she's the
 // primary; Ryan + Dotti are CC'd. Pulled from env so the addresses can be
