@@ -656,3 +656,33 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   border-bottom: 1px solid var(--rule);
 }
 .rt-mobile-menu-row:hover { background: var(--paper-2); }
+
+/* ─── Auth page ship-wheel hero ───────────────────────────────────── */
+/* Two halves of a ship's wheel slide in from each side and meet at the
+   centerline. The animation runs once on page load and stays in the
+   joined position. Reduced-motion users get the joined state without
+   the transition. */
+.rt-helm-wheel-left,
+.rt-helm-wheel-right {
+  animation-duration: 1100ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+.rt-helm-wheel-left { animation-name: rt-helm-wheel-left; }
+.rt-helm-wheel-right { animation-name: rt-helm-wheel-right; }
+@keyframes rt-helm-wheel-left {
+  from { transform: translateX(-36px); opacity: 0; }
+  35% { opacity: 1; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes rt-helm-wheel-right {
+  from { transform: translateX(36px); opacity: 0; }
+  35% { opacity: 1; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rt-helm-wheel-left,
+  .rt-helm-wheel-right {
+    animation: none;
+  }
+}
