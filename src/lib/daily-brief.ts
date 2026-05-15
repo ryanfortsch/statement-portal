@@ -285,9 +285,10 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
 
 // Cross-channel reply detection: Dotti often handles a Bethany or owner
 // thread via Quo SMS / phone / a manual contact-log note instead of
-// email. Pull the most recent outbound touch per contact, then map back
-// through contacts.emails to the sender address. Anything with a touch
-// newer than the inbound is treated as handled.
+// email. Pull the most recent outbound touch per contact, map back
+// through contacts.emails to the sender address. Anyone whose phone /
+// email isn't in contacts won't be covered here — those land in the
+// brief and Dotti can mark them handled inline via /today.
 async function loadRecentOutboundTouchByEmail(): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   try {
@@ -306,6 +307,8 @@ async function loadRecentOutboundTouchByEmail(): Promise<Map<string, number>> {
     }
     const contactIds = Array.from(latestByContact.keys());
     if (!contactIds.length) return out;
+
+    // contacts.emails path
     const { data: contacts } = await supabase
       .from('contacts')
       .select('id, emails')
@@ -319,6 +322,7 @@ async function loadRecentOutboundTouchByEmail(): Promise<Map<string, number>> {
         if (!prev || ms > prev) out.set(lower, ms);
       }
     }
+
   } catch {
     // best-effort; brief still renders without it
   }
