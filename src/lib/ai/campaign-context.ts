@@ -7,7 +7,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { PROPERTIES, type Property } from '@/lib/properties';
-import { propertyCardData } from './property-cards';
+import { heroUrlForProperty, pageUrlForGuestyListing } from './property-cards';
 
 export type CampaignDraftContext = {
   /** Compact list of the homes for the model to pick from. NO ADDRESSES. */
@@ -46,27 +46,28 @@ const NEIGHBORHOOD: Record<string, string> = {
 
 export async function loadDraftContext(args: { segmentId?: string | null }): Promise<CampaignDraftContext> {
   // Marketing titles live in Helm DB (e.g. "Stay at Rocky Neck") so fetch
-  // them once and merge with the local PROPERTIES map.
+  // them once and merge with the local PROPERTIES map. We also pull
+  // guesty_listing_id off the same row because staycapeann.com's
+  // /stays/[id] route uses the Guesty listing ID as the slug.
   const { data: dbProps } = await supabase
     .from('properties')
-    .select('id, title')
+    .select('id, title, guesty_listing_id')
     .eq('is_active', true);
   const titleById = new Map<string, string | null>();
-  for (const row of (dbProps ?? []) as Array<{ id: string; title: string | null }>) {
+  const guestyIdById = new Map<string, string | null>();
+  for (const row of (dbProps ?? []) as Array<{ id: string; title: string | null; guesty_listing_id: string | null }>) {
     titleById.set(row.id, row.title);
+    guestyIdById.set(row.id, row.guesty_listing_id);
   }
 
   const properties = Object.values(PROPERTIES)
     .filter((p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th') // Ryan's personal, not guest-facing
-    .map((p: Property) => {
-      const card = propertyCardData(p.id);
-      return {
-        title: titleById.get(p.id) ?? null,
-        neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
-        pageUrl: card?.pageUrl ?? null,
-        heroUrl: card?.heroUrl ?? null,
-      };
-    });
+    .map((p: Property) => ({
+      title: titleById.get(p.id) ?? null,
+      neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
+      pageUrl: pageUrlForGuestyListing(guestyIdById.get(p.id) ?? null),
+      heroUrl: heroUrlForProperty(p.id),
+    }));
 
   let segment: CampaignDraftContext['segment'] = null;
   if (args.segmentId) {
@@ -104,7 +105,7 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 export function formatContextBlock(ctx: CampaignDraftContext): string {
   const lines: string[] = [];
 
-  lines.push('Homes in the collection. Refer to each home ONLY by its guest-facing title');
+  lines.push('Homes we manage. Refer to each home ONLY by its guest-facing title');
   lines.push('and neighborhood. NEVER use a street address or internal name. When a home');
   lines.push('has no title (null), use the neighborhood phrase ("the home on the Neck").');
   lines.push('');
