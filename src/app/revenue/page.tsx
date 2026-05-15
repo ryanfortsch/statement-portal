@@ -3,6 +3,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { TimeRangePicker } from './TimeRangePicker';
+import { ViewToggle, type RevenueView } from './ViewToggle';
 import { AutoRefresh } from './AutoRefresh';
 import {
   computeDateRange,
@@ -54,7 +55,7 @@ const VALID_PRESETS: RangePreset[] = [
 ];
 
 type PageProps = {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; view?: string }>;
 };
 
 export default async function RevenuePage({ searchParams }: PageProps) {
@@ -64,6 +65,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     presetParam && (VALID_PRESETS as string[]).includes(presetParam)
       ? (presetParam as RangePreset)
       : 'this_month';
+  const view: RevenueView = params?.view === 'actuals' ? 'actuals' : 'pacing';
 
   const { rangeStart, rangeEnd } = computeDateRange(preset);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
@@ -88,7 +90,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, current, priorFull] = await Promise.all([
     readSyncStatus(),
-    computeRevenueSnapshot(rangeStart, rangeEnd),
+    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing' }),
     prior
       ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd)
       : Promise.resolve(null),
@@ -130,7 +132,10 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 justifyContent: 'space-between',
               }}
             >
-              <TimeRangePicker value={preset} />
+              <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
+                <TimeRangePicker value={preset} />
+                {pacing && pacing.multiplier > 1 && <ViewToggle value={view} />}
+              </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
             </div>
             {pacing && pacing.multiplier > 1 && (
@@ -144,7 +149,9 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               >
                 Pacing {pacing.pacingPct.toFixed(0)}% so far this month. Gloucester
                 historical average for this month is {pacing.historicalAvgPct.toFixed(0)}%.
-                Revenue figures below project booked-so-far × {pacing.multiplier.toFixed(2)}.
+                {view === 'pacing'
+                  ? ` Revenue below projects booked × ${pacing.multiplier.toFixed(2)}.`
+                  : ' Revenue below shows booked-so-far actuals only.'}
               </p>
             )}
           </>
@@ -272,16 +279,12 @@ function PropertyCard({
             <span
               className="eyebrow"
               style={{
-                color: snapshot.source === 'statement' ? 'var(--tide-deep)' : 'var(--signal)',
+                color: SOURCE_COLOR[snapshot.source],
                 whiteSpace: 'nowrap',
               }}
-              title={
-                snapshot.source === 'statement'
-                  ? 'From the monthly owner statement (canonical for closed months)'
-                  : 'Projecting booked-so-far toward historical Gloucester occupancy'
-              }
+              title={SOURCE_TITLE[snapshot.source]}
             >
-              {snapshot.source === 'statement' ? 'Statement' : 'Pacing'}
+              {SOURCE_LABEL[snapshot.source]}
             </span>
           )}
         </div>
@@ -322,6 +325,27 @@ function PropertyCard({
     </article>
   );
 }
+
+const SOURCE_LABEL: Record<PropertySnapshot['source'], string> = {
+  statement: 'Statement',
+  pacing: 'Pacing',
+  booked: 'Booked',
+  computed: '',
+};
+
+const SOURCE_COLOR: Record<PropertySnapshot['source'], string> = {
+  statement: 'var(--tide-deep)',
+  pacing: 'var(--signal)',
+  booked: 'var(--ink-3)',
+  computed: 'var(--ink-3)',
+};
+
+const SOURCE_TITLE: Record<PropertySnapshot['source'], string> = {
+  statement: 'From the monthly owner statement (canonical for closed months)',
+  pacing: 'Booked-so-far × historical-occupancy multiplier (projected)',
+  booked: 'Booked-so-far actuals only, no projection',
+  computed: '',
+};
 
 function Metric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
