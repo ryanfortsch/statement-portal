@@ -19,7 +19,7 @@
  * stay server-rendered).
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 
 export function CopyLinkButton({ text, label = 'Copy' }: { text: string; label?: string }) {
@@ -84,6 +84,68 @@ export function SignSubmitButton() {
  * takes 5-15s. Without disabled-state feedback the button looks dead and
  * staff click it multiple times.
  */
+/**
+ * DocuSign-style floating "Jump to signature" pill. Fixed bottom-right
+ * of the page; on click, smooth-scrolls the public /contract/<token>
+ * page to the .rt-c-sig-page section so a signer doesn't have to scroll
+ * through the entire contract to find where to sign. Hides itself once
+ * the signature section is in view (IntersectionObserver) so it doesn't
+ * loiter once the signer has reached the form.
+ */
+export function ScrollToSignButton() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const sigPage = document.querySelector('.rt-c-sig-page');
+    if (!sigPage) return;
+    // Initial check: only show if sig page isn't already in view.
+    const rect = sigPage.getBoundingClientRect();
+    setVisible(rect.top > window.innerHeight - 100);
+    // Hide once it scrolls into view.
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(!entry.isIntersecting),
+      { rootMargin: '-80px' },
+    );
+    observer.observe(sigPage);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const sigPage = document.querySelector('.rt-c-sig-page');
+        sigPage?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }}
+      style={{
+        position: 'fixed',
+        bottom: 24,
+        right: 24,
+        zIndex: 100,
+        background: 'var(--signal)',
+        color: 'var(--paper)',
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: '0.14em',
+        textTransform: 'uppercase',
+        padding: '14px 22px',
+        border: 'none',
+        borderRadius: 999,
+        cursor: 'pointer',
+        boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      Jump to signature
+      <span style={{ fontSize: 14 }}>↓</span>
+    </button>
+  );
+}
+
 export function CountersignButton() {
   const { pending } = useFormStatus();
   return (

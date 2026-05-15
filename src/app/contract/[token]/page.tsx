@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';
-import { SignSubmitButton } from '@/components/projections/SigningButtons';
+import { SignSubmitButton, ScrollToSignButton } from '@/components/projections/SigningButtons';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +30,15 @@ export default async function ContractSignPage({ params }: { params: Promise<{ t
     <SignForm token={token} prefillName={ownerName} />
   );
 
-  return <ContractDocument projection={projection} signingForm={signingForm} />;
+  return (
+    <>
+      <ContractDocument projection={projection} signingForm={signingForm} />
+      {/* Floating "Jump to signature" pill — only show before signing,
+          since after signing the form is gone and the page is the
+          executed contract + certificate. */}
+      {!projection.contract_signed_at && <ScrollToSignButton />}
+    </>
+  );
 }
 
 function SignForm({ token, prefillName }: { token: string; prefillName: string }) {
