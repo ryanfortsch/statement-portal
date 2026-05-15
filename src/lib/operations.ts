@@ -112,6 +112,11 @@ export type ReservationRow = {
   check_out: string;
   nights: number | null;
   status: string | null;
+  // Surfaced on calendar-cell hover tooltips so the operator gets the
+  // booking context without bouncing to Guesty. host_payout drives the
+  // "payout" line; confirmation_code rides as a small monospaced trailer.
+  host_payout: number | null;
+  confirmation_code: string | null;
 };
 
 export type InspectionRow = {
@@ -227,7 +232,7 @@ export async function loadOperationsData(
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
     .select(
-      'guesty_reservation_id, property_id, guest_name, channel, guesty_channel_id, check_in, check_out, nights, status'
+      'guesty_reservation_id, property_id, guest_name, channel, guesty_channel_id, check_in, check_out, nights, status, host_payout, confirmation_code'
     )
     .lte('check_in', fetchEnd)
     .gte('check_out', fetchStart)
