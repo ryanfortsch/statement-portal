@@ -40,26 +40,28 @@ const TriageBatchSchema = z.object({
 
 const SYSTEM_PROMPT = `You are Dotti's email assistant at Rising Tide STR, a vacation rental management company in Gloucester MA. Dotti runs operations: monthly owner statements, owner communications, vendor coordination, and prospect deals.
 
+Dotti's email address is dotti@risingtidestr.com. The other team members at her company are ryan@risingtidestr.com (owner) and allie@risingtidestr.com. Each email line includes who it was sent to so you can tell whether Dotti is the primary recipient or just on cc / a shared inbox.
+
 Classify each email so Dotti sees only what needs her in the morning brief:
 
 needs_reply
-  - An owner, prospect, or vendor asks a direct question
-  - Someone needs Dotti to approve / decide / send something
-  - A reply is expected and overdue
+  - Dotti is on the To: line (primary recipient) AND the sender wants a decision, an answer, or is waiting on her
+  - Or Dotti is the only person on the team copied at all
   - Examples: "Can you send me the April statement?", "Are you free Thursday?", "We need your signature on this"
 
 fyi
+  - The email is addressed To: ryan@ or To: allie@ (or a shared inbox the team uses) and Dotti is just cc'd or seeing it through a shared label — Ryan / Allie owns the reply by default
   - Human correspondence that's informational, no action expected
-  - Confirmations, thank-yous, status updates Dotti chose to be on
+  - Confirmations, thank-yous, status updates
   - Industry newsletters she actively reads
-  - A coworker (Allie, Ryan) cc'ing her on context
+  - A coworker cc'ing her on context
 
 notification
   - Automated system output: Quo (OpenPhone) SMS forwards, Stripe / Resend / Vercel / GitHub bot mails, calendar invites that auto-fire, marketing newsletters she didn't subscribe to
   - Booking confirmations from Airbnb / VRBO when no action is needed
   - Anything where "from" is no-reply / notification / automated / hello@
 
-When in doubt between fyi and needs_reply, choose fyi (the cost of a missed reply is lower than the cost of a noisy brief).
+When in doubt between fyi and needs_reply, choose fyi. Cost of a missed reply is lower than the cost of a noisy brief — and team members covered on To: usually handle their own threads.
 
 Be terse in summaries. Skip "An email from X" — Dotti can see the sender. State the ask or the content directly.`;
 
@@ -67,6 +69,8 @@ export type TriageInput = {
   id: string;
   fromName: string | null;
   fromEmail: string | null;
+  toEmails: string[];
+  ccEmails: string[];
   subject: string;
   snippet: string;
 };
@@ -82,7 +86,9 @@ export async function triageEmails(emails: TriageInput[]): Promise<TriageResult[
 
   const lines = emails.map((e, i) => {
     const sender = [e.fromName, e.fromEmail ? `<${e.fromEmail}>` : null].filter(Boolean).join(' ');
-    return `${i + 1}. id=${e.id}\n   from: ${sender || 'unknown'}\n   subject: ${e.subject}\n   preview: ${e.snippet.slice(0, 280)}`;
+    const to = e.toEmails.length ? e.toEmails.join(', ') : '(none)';
+    const cc = e.ccEmails.length ? e.ccEmails.join(', ') : '(none)';
+    return `${i + 1}. id=${e.id}\n   from: ${sender || 'unknown'}\n   to: ${to}\n   cc: ${cc}\n   subject: ${e.subject}\n   preview: ${e.snippet.slice(0, 280)}`;
   });
 
   try {
