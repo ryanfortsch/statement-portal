@@ -232,7 +232,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
                 : 'Awaiting submission'
             }
           >
-            <OnboardingStageBody projection={projection} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
+            <OnboardingStageBody projection={projection} projectionId={id} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
           </Stage>
 
           {/* 05 — Promote to managed property */}
@@ -572,10 +572,32 @@ function CountersignRow({ projectionId }: { projectionId: string }) {
   );
 }
 
-function OnboardingStageBody({ projection, onboardingTouch }: { projection: ProjectionRow; onboardingTouch: React.ReactNode | null }) {
+function OnboardingStageBody({
+  projection,
+  projectionId,
+  onboardingTouch,
+}: {
+  projection: ProjectionRow;
+  projectionId: string;
+  onboardingTouch: React.ReactNode | null;
+}) {
   const submitted = projection.onboarding_submitted_at;
   const data = projection.onboarding_data;
   const link = `/onboarding/${projection.onboarding_token}`;
+
+  // Inputs that drive the readiness checklist's computed quantities.
+  // Show a one-line "computed for X guests / Y bedrooms / Z bathrooms"
+  // hint so it's clear how the punch-list numbers were derived before
+  // opening the doc.
+  const beds = Math.max(1, Math.round(projection.bedrooms || 1));
+  const guests = beds * 2;
+  const intakeBaths = projection.onboarding_data?.bathrooms;
+  const bathsParsed = intakeBaths ? parseFloat(String(intakeBaths).replace(/[^0-9.]/g, '')) : NaN;
+  const baths = Number.isFinite(bathsParsed) && bathsParsed > 0
+    ? Math.ceil(bathsParsed)
+    : Math.max(1, Math.round(beds * 0.75));
+  const bathsSource = Number.isFinite(bathsParsed) ? 'from intake' : 'estimated';
+
   return (
     <>
       {!submitted && (
@@ -589,6 +611,33 @@ function OnboardingStageBody({ projection, onboardingTouch }: { projection: Proj
         </p>
       )}
       <LinkRow link={link} />
+
+      {/* Readiness checklist — sub-deliverable that lives inside the
+          Onboarding stage rather than its own pipeline step. Always
+          available; quantities default from projection.bedrooms when the
+          intake form hasn't been submitted yet, and refine once the
+          owner fills in bathrooms. */}
+      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+          <span className="eyebrow">Property Readiness Checklist</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+            optional · walk-through punch list
+          </span>
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Room-by-room punch list to turn the property from owner-ready to guest-ready. Quantities
+          are computed for {guests} guests across {beds} bedroom{beds === 1 ? '' : 's'} and {baths}{' '}
+          bathroom{baths === 1 ? '' : 's'} ({bathsSource}). Useful for owners new to STR who need
+          help sizing pots, towels, and the supply closet.
+        </p>
+        <DeliverableActions
+          projectionId={projectionId}
+          type="readiness"
+          openSlug="readiness"
+          downloadLabel="Download Checklist"
+        />
+      </div>
+
       {submitted && data && <OnboardingSummary data={data} />}
     </>
   );
@@ -750,8 +799,8 @@ function DeliverableActions({
   extraAction,
 }: {
   projectionId: string;
-  type: 'projection' | 'guide' | 'contract';
-  openSlug: 'render' | 'guide' | 'contract';
+  type: 'projection' | 'guide' | 'contract' | 'readiness';
+  openSlug: 'render' | 'guide' | 'contract' | 'readiness';
   downloadLabel: string;
   extraAction?: React.ReactNode;
 }) {

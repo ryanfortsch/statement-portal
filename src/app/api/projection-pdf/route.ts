@@ -17,7 +17,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const VALID_TYPES: DeliverableType[] = ['projection', 'guide', 'contract'];
+const VALID_TYPES: DeliverableType[] = ['projection', 'guide', 'contract', 'readiness'];
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
