@@ -167,6 +167,32 @@ export async function listCalls(p: ListCallsParams): Promise<QuoListResponse<Quo
   });
 }
 
+export type SendMessageParams = {
+  from: string;
+  to: string;
+  content: string;
+};
+
+// POST /v1/messages — Quo's outbound SMS endpoint. `from` is the E.164
+// of one of our Quo numbers (use the env-pinned QUO_FROM_NUMBER or pick
+// the first from listPhoneNumbers()); `to` is the recipient E.164.
+export async function sendMessage(p: SendMessageParams): Promise<QuoMessage> {
+  const res = await fetch(`${API_HOST}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: apiKey(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from: p.from, to: [p.to], content: p.content }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Quo send failed (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { data: QuoMessage };
+  return data.data;
+}
+
 // ── Webhook signature verification ─────────────────────────────────
 //
 // Per Quo docs: header value format is

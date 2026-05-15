@@ -22,6 +22,15 @@ export type HelmModule = {
 
 export const HELM_MODULES: HelmModule[] = [
   {
+    id: 'today',
+    href: '/today',
+    number: '00',
+    title: 'Today',
+    description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
+    status: 'active',
+    primary: true,
+  },
+  {
     id: 'statements',
     href: '/statements',
     number: '01',
