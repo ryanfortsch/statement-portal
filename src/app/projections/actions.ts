@@ -22,6 +22,7 @@ import {
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
 import { sendOwnerSignedEmail, sendExecutedEmail, sendCountersignNotification } from '@/lib/contract-email';
+import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
 
 /**
@@ -770,6 +771,35 @@ export async function submitOnboarding(formData: FormData) {
 
     if (error) throw new Error(error.message);
 
+    // Fire a staff notification on the first submission only (idempotency
+    // via onboarding_notification_sent_at). Non-fatal if Resend errors —
+    // the form data is already persisted; the redirect below still
+    // confirms submission to the owner.
+    const { data: full } = await supabase
+      .from('projections')
+      .select('id, prospect_name, property_address, onboarding_notification_sent_at')
+      .eq('onboarding_token', token)
+      .maybeSingle();
+    if (full && !full.onboarding_notification_sent_at) {
+      const origin = await getRequestOrigin();
+      if (origin) {
+        const result = await sendOnboardingSubmittedEmail({
+          propertyAddress: (full as { property_address: string }).property_address,
+          ownerName: (full as { prospect_name: string | null }).prospect_name,
+          data,
+          helmUrl: `${origin}/projections/${(full as { id: string }).id}`,
+        });
+        if (result.ok) {
+          await supabase
+            .from('projections')
+            .update({ onboarding_notification_sent_at: new Date().toISOString() })
+            .eq('onboarding_token', token);
+        } else {
+          console.warn('[submitOnboarding] notification email skipped:', result.reason);
+        }
+      }
+    }
+
     revalidatePath(`/onboarding/${token}`);
     redirect(`/onboarding/${token}/thanks`);
   }
@@ -807,6 +837,34 @@ export async function submitOnboarding(formData: FormData) {
     .eq('onboarding_token', token);
 
   if (error) throw new Error(error.message);
+
+  // Staff notification — same idempotent pattern as the projection
+  // branch above. Looks up the property to get address + notification
+  // flag, sends the email if not already sent, then stamps.
+  const { data: fullProp } = await supabase
+    .from('properties')
+    .select('id, address, name, onboarding_notification_sent_at')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (fullProp && !(fullProp as { onboarding_notification_sent_at: string | null }).onboarding_notification_sent_at) {
+    const origin = await getRequestOrigin();
+    if (origin) {
+      const result = await sendOnboardingSubmittedEmail({
+        propertyAddress: (fullProp as { address: string; name: string }).address || (fullProp as { name: string }).name,
+        ownerName: data.full_name || null,
+        data,
+        helmUrl: `${origin}/properties/${(fullProp as { id: string }).id}`,
+      });
+      if (result.ok) {
+        await supabase
+          .from('properties')
+          .update({ onboarding_notification_sent_at: new Date().toISOString() })
+          .eq('onboarding_token', token);
+      } else {
+        console.warn('[submitOnboarding] property-path notification email skipped:', result.reason);
+      }
+    }
+  }
 
   revalidatePath(`/onboarding/${token}`);
   revalidatePath(`/properties/${propHit.id}`);

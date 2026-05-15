@@ -109,6 +109,10 @@ export type ProjectionRow = {
   // goes out so the action is idempotent (no double-send on refresh).
   contract_owner_email_sent_at: string | null;
   contract_executed_email_sent_at: string | null;
+  // Onboarding-submitted notification idempotency. Stamped once after
+  // the staff-alert email fires; skipped on re-submissions of the
+  // same form.
+  onboarding_notification_sent_at: string | null;
 
   // Gmail-derived deliverable status (latest send per type)
   gmail_touches: GmailTouches | null;
