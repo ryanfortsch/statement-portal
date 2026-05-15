@@ -261,7 +261,12 @@ type GmailThreadMessage = {
   id: string;
   internalDate?: string;
   labelIds?: string[];
+  payload?: { headers?: GmailHeader[] };
 };
+
+// Treat any Rising Tide staff email as "us" — Allie or Ryan replying
+// counts the same as Dotti replying.
+const TEAM_DOMAIN_RE = /@risingtidestr\.com$/i;
 
 async function hasOutboundReplyAfter(
   token: string,
@@ -269,17 +274,24 @@ async function hasOutboundReplyAfter(
   inboundReceivedAt: string,
 ): Promise<boolean> {
   try {
+    // metadata + From header is more reliable than minimal — minimal
+    // sometimes drops labelIds, and some clients send replies without
+    // the SENT label set. Falling back to a domain check on From
+    // catches both cases.
     const res = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=minimal`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata&metadataHeaders=From`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (!res.ok) return false;
     const data = (await res.json()) as { messages?: GmailThreadMessage[] };
     const inboundMs = new Date(inboundReceivedAt).getTime();
     for (const m of data.messages ?? []) {
-      if (!m.labelIds?.includes('SENT')) continue;
       const ms = Number(m.internalDate ?? '0');
-      if (ms > inboundMs) return true;
+      if (ms <= inboundMs) continue;
+      if (m.labelIds?.includes('SENT')) return true;
+      const fromHeader = m.payload?.headers?.find(h => h.name.toLowerCase() === 'from')?.value ?? null;
+      const { email } = parseFrom(fromHeader);
+      if (email && TEAM_DOMAIN_RE.test(email)) return true;
     }
     return false;
   } catch {
