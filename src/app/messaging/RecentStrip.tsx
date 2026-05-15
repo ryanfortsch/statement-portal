@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
 import { prettifySlug, guestFirstFromDraft, statusToneColor, relativeTimeShort } from './format';
@@ -17,10 +18,19 @@ const STATUS_LABELS: Record<string, string> = {
   courtesy_ack: 'No reply needed',
 };
 
+const DEFAULT_VISIBLE = 5;
+
 export function RecentStrip({ initialRecent }: Props) {
+  const [expanded, setExpanded] = useState(false);
+
   if (initialRecent.length === 0) {
     return null;
   }
+
+  const visible = expanded
+    ? initialRecent
+    : initialRecent.slice(0, DEFAULT_VISIBLE);
+  const hasMore = initialRecent.length > DEFAULT_VISIBLE;
 
   return (
     <Section
@@ -36,7 +46,7 @@ export function RecentStrip({ initialRecent }: Props) {
           borderTop: '1px solid var(--rule)',
         }}
       >
-        {initialRecent.map((row) => {
+        {visible.map((row) => {
           const statusLabel = STATUS_LABELS[row.status] || row.status;
           const statusColor = statusToneColor(row.status);
           const propertyLabel =
@@ -103,6 +113,36 @@ export function RecentStrip({ initialRecent }: Props) {
           );
         })}
       </ul>
+      {hasMore && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            paddingTop: 14,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: 'var(--ink-3)',
+              background: 'transparent',
+              border: '1px solid var(--rule)',
+              padding: '8px 16px',
+              cursor: 'pointer',
+            }}
+          >
+            {expanded
+              ? `Show less ▴`
+              : `Show all ${initialRecent.length} ▾`}
+          </button>
+        </div>
+      )}
     </Section>
   );
 }
