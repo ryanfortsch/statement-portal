@@ -12,7 +12,13 @@
  * (host_payout * 2 / 6) to that range's revenue.
  */
 import { supabase } from './supabase';
-import { dayAfter, nightsBetween } from './revenue-date-range';
+import {
+  dayAfter,
+  daysInMonth,
+  exactCalendarMonth,
+  nightsBetween,
+} from './revenue-date-range';
+import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 
 const ALLOWED_STATUSES = new Set([
   'confirmed',
@@ -39,6 +45,33 @@ export type PropertyRevenueMetrics = {
   projectedOwnerPayout: number | null;
 };
 
+/**
+ * Where this property's numbers came from for the requested range.
+ *
+ *   'statement' - we found a closed `property_statements` row for this
+ *                 calendar month; the metrics are the Statement values
+ *                 (canonical for closed months).
+ *   'pacing'    - the requested range is the current calendar month; the
+ *                 metrics combine booked-so-far with a portfolio pacing
+ *                 multiplier that projects toward historical Gloucester
+ *                 occupancy for this month-of-year.
+ *   'computed'  - pro-rated from guesty_reservations only (used for
+ *                 non-month-aligned ranges, future months, or months
+ *                 without a Statement yet).
+ */
+export type SnapshotSource = 'statement' | 'pacing' | 'computed';
+
+export type PacingInfo = {
+  /** Portfolio pacing (booked nights / nights possible) as 0-100. */
+  pacingPct: number;
+  /** Historical Gloucester avg for this month-of-year as 0-100. */
+  historicalAvgPct: number;
+  /** historicalAvgPct / pacingPct, floored at 1. Applied to revenue. */
+  multiplier: number;
+  /** YYYY-MM key the pacing applies to. */
+  month: string;
+};
+
 export type PropertySnapshot = {
   propertyId: string;
   propertyName: string;
@@ -47,6 +80,8 @@ export type PropertySnapshot = {
   isRisingTideOwned: boolean;
   metrics: PropertyRevenueMetrics;
   turnoversNext30: number;
+  /** Where the metrics came from. */
+  source: SnapshotSource;
 };
 
 export type SnapshotsResponse = {
@@ -54,6 +89,8 @@ export type SnapshotsResponse = {
   rangeEnd: string;
   snapshots: PropertySnapshot[];
   portfolio: PortfolioTotals;
+  /** Set when the entire range is the current calendar month. */
+  pacing: PacingInfo | null;
 };
 
 export type PortfolioTotals = {
@@ -209,7 +246,7 @@ export async function computeRevenueSnapshot(
   // 5. Per-property pro-rated math.
   const totalNightsInPeriod = nightsBetween(rangeStart, periodEndExclusive);
 
-  const snapshots: PropertySnapshot[] = properties.map((prop) => {
+  const baseSnapshots: PropertySnapshot[] = properties.map((prop) => {
     const propStart = effectiveStart(rangeStart, prop.activated_at);
     const skipped = propStart >= periodEndExclusive;
 
@@ -233,6 +270,7 @@ export async function computeRevenueSnapshot(
         isRisingTideOwned: prop.is_rising_tide_owned,
         metrics: empty,
         turnoversNext30: forwardCountByProperty.get(prop.id) ?? 0,
+        source: 'computed',
       };
     }
 
@@ -298,8 +336,22 @@ export async function computeRevenueSnapshot(
         projectedOwnerPayout: ownerPayout > 0 ? round2(ownerPayout) : null,
       },
       turnoversNext30: forwardCountByProperty.get(prop.id) ?? 0,
+      source: 'computed',
     };
   });
+
+  // 5b. Per-property overrides for calendar-month ranges.
+  //   - Closed month with a Statement -> use Statement values exactly (matches
+  //     what the owner received in their monthly statement).
+  //   - Current month -> apply the smart-forecast pacing multiplier on top of
+  //     booked-so-far revenue, so the dashboard projects toward the historical
+  //     Gloucester occupancy benchmark for this month-of-year.
+  const { snapshots, pacing } = await applyStatementsAndPacing(
+    baseSnapshots,
+    rangeStart,
+    rangeEnd,
+    properties,
+  );
 
   // 6. Portfolio totals.
   let totalStays = 0;
@@ -332,6 +384,7 @@ export async function computeRevenueSnapshot(
     rangeStart,
     rangeEnd,
     snapshots,
+    pacing,
     portfolio: {
       propertyCount: snapshots.length,
       totalStays,
@@ -345,6 +398,128 @@ export async function computeRevenueSnapshot(
     },
   };
 }
+
+/**
+ * For a single-calendar-month range, overlay Statement data on closed months
+ * and a portfolio pacing multiplier on the current month. Returns the
+ * possibly-mutated snapshots plus the pacing inputs (so the UI can show
+ * "pacing toward X% based on booked-so-far Y%").
+ */
+async function applyStatementsAndPacing(
+  base: PropertySnapshot[],
+  rangeStart: string,
+  rangeEnd: string,
+  properties: PropertyRow[],
+): Promise<{ snapshots: PropertySnapshot[]; pacing: PacingInfo | null }> {
+  const cal = exactCalendarMonth({ rangeStart, rangeEnd });
+  if (!cal) return { snapshots: base, pacing: null };
+
+  const monthKey = `${cal.year}-${String(cal.month + 1).padStart(2, '0')}`;
+  const daysThisMonth = daysInMonth(cal.year, cal.month + 1);
+
+  // Statements for this month, keyed by property_id.
+  const { data: stmtData } = await supabase
+    .from('property_statements')
+    .select('property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
+    .eq('month', monthKey);
+
+  const stmtByProperty = new Map<string, StatementRow>();
+  for (const row of (stmtData ?? []) as StatementRow[]) {
+    stmtByProperty.set(row.property_id, row);
+  }
+
+  // Is the requested month the calendar month we're currently in?
+  const now = new Date();
+  const isCurrentMonth = now.getFullYear() === cal.year && now.getMonth() === cal.month;
+
+  // Pacing multiplier (portfolio-level) — only computed when current month.
+  let pacing: PacingInfo | null = null;
+  if (isCurrentMonth) {
+    const mgmtProps = properties.filter(
+      (p) =>
+        !p.is_rising_tide_owned &&
+        (!p.activated_at || p.activated_at.slice(0, 10) <= `${monthKey}-01`),
+    );
+    let portfolioNightsBooked = 0;
+    const mgmtIds = new Set(mgmtProps.map((p) => p.id));
+    for (const s of base) {
+      if (mgmtIds.has(s.propertyId)) portfolioNightsBooked += s.metrics.nightsSold;
+    }
+    const portfolioNightsPossible = daysThisMonth * mgmtProps.length;
+    const pacingPct =
+      portfolioNightsPossible > 0
+        ? (portfolioNightsBooked / portfolioNightsPossible) * 100
+        : 0;
+    const historicalAvgPct = HISTORICAL_AVG_RECENT[cal.month] ?? 0;
+    const multiplier =
+      pacingPct > 0 && historicalAvgPct > pacingPct ? historicalAvgPct / pacingPct : 1;
+    pacing = { pacingPct: round1(pacingPct), historicalAvgPct: round1(historicalAvgPct), multiplier, month: monthKey };
+  }
+
+  const snapshots = base.map((s): PropertySnapshot => {
+    // (1) Closed month with a Statement -> use Statement values exactly.
+    const stmt = stmtByProperty.get(s.propertyId);
+    if (stmt) {
+      const nights = Number(stmt.nights_booked) || 0;
+      const revenue = Number(stmt.rental_revenue) || 0;
+      const ADR = nights > 0 && revenue > 0 ? revenue / nights : null;
+      const occupancy = daysThisMonth > 0 ? (nights / daysThisMonth) * 100 : null;
+      return {
+        ...s,
+        source: 'statement',
+        metrics: {
+          staysCount: Number(stmt.num_stays) || 0,
+          nightsSold: nights,
+          totalRevenue: revenue > 0 ? round2(revenue) : null,
+          ADR: ADR !== null ? round2(ADR) : null,
+          occupancyPct: occupancy !== null ? round1(occupancy) : null,
+          managementFee: Number(stmt.management_fee) > 0 ? round2(Number(stmt.management_fee)) : 0,
+          cleaningCost: Number(stmt.cleaning_total) > 0 ? round2(Number(stmt.cleaning_total)) : null,
+          projectedOwnerPayout: Number(stmt.owner_payout) > 0 ? round2(Number(stmt.owner_payout)) : null,
+        },
+      };
+    }
+
+    // (2) Current month -> apply pacing multiplier to revenue/mgmt/payout.
+    //     Keep stays/nights/occupancy/ADR as booked-so-far (those are honest
+    //     actuals; revenue gets projected forward).
+    if (isCurrentMonth && pacing && pacing.multiplier > 1) {
+      const m = s.metrics;
+      if (m.totalRevenue == null) return { ...s, source: 'pacing' };
+      const prop = properties.find((p) => p.id === s.propertyId);
+      const mgmtFraction = prop?.is_rising_tide_owned
+        ? 0
+        : Number(prop?.management_fee_pct ?? 0) / 100;
+      const projectedRevenue = m.totalRevenue * pacing.multiplier;
+      const projectedMgmtFee = projectedRevenue * mgmtFraction;
+      const projectedPayout = projectedRevenue - projectedMgmtFee - (m.cleaningCost ?? 0);
+      return {
+        ...s,
+        source: 'pacing',
+        metrics: {
+          ...m,
+          totalRevenue: round2(projectedRevenue),
+          managementFee: round2(projectedMgmtFee),
+          projectedOwnerPayout: projectedPayout > 0 ? round2(projectedPayout) : null,
+        },
+      };
+    }
+
+    return s;
+  });
+
+  return { snapshots, pacing };
+}
+
+type StatementRow = {
+  property_id: string;
+  num_stays: number | null;
+  nights_booked: number | null;
+  rental_revenue: number | null;
+  management_fee: number | null;
+  cleaning_total: number | null;
+  owner_payout: number | null;
+};
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

@@ -63,6 +63,34 @@ export function ageToneColor(ageMinutes: number | null | undefined): string {
  * that doesn't exist as a Helm-wide token yet (the theme is warm-paper,
  * so we use a desaturated sage that fits).
  */
+/**
+ * Format an ISO timestamp as a compact relative time: "3m ago", "2h ago",
+ * "5h 12m ago", "1d ago". Used in the Recent strip so each row carries a
+ * sense of when it landed.
+ */
+export function relativeTimeShort(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return '';
+    const diffMs = Date.now() - then;
+    if (diffMs < 0) return 'just now';
+    const min = Math.floor(diffMs / 60_000);
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    const remMin = min % 60;
+    if (hr < 24) {
+      return remMin > 0 && hr < 6 ? `${hr}h ${remMin}m ago` : `${hr}h ago`;
+    }
+    const days = Math.floor(hr / 24);
+    return `${days}d ago`;
+  } catch {
+    return '';
+  }
+}
+
+
 export function statusToneColor(status: string): string {
   switch (status) {
     case 'approved':

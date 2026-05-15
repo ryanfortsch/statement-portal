@@ -170,12 +170,42 @@ export function dayAfter(dateStr: string): string {
 }
 
 /**
- * Same-length window immediately before `range`. Used to compute
- * period-over-period delta percentages on the Revenue dashboard.
+ * Detect whether a range is exactly one calendar month (first of month
+ * through last day). Returns the 0-indexed month and year when so, else
+ * null. Used by previousRange + the snapshot lib to switch between
+ * sliding-window and calendar-month semantics.
+ */
+export function exactCalendarMonth(range: DateRange): { year: number; month: number } | null {
+  const start = new Date(range.rangeStart + 'T00:00:00Z');
+  const end = new Date(range.rangeEnd + 'T00:00:00Z');
+  if (start.getUTCDate() !== 1) return null;
+  if (end.getUTCMonth() !== start.getUTCMonth()) return null;
+  if (end.getUTCFullYear() !== start.getUTCFullYear()) return null;
+  const lastDay = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  if (end.getUTCDate() !== lastDay) return null;
+  return { year: start.getUTCFullYear(), month: start.getUTCMonth() };
+}
+
+/**
+ * The prior period for delta comparisons.
  *
- * Example: range Apr 1 to Apr 30 -> previous Mar 2 to Mar 31 (30 days each).
+ * - When `range` is exactly one calendar month (e.g. May 1 to May 31),
+ *   prior is the previous calendar month exactly (April 1 to April 30).
+ *   This matches "vs last month" intuition and lines up with what the
+ *   Statements module reports.
+ * - Otherwise, prior is the same-length window immediately preceding
+ *   `range` (e.g. Last 30 Days -> the 30 days before that).
  */
 export function previousRange(range: DateRange): DateRange {
+  const cal = exactCalendarMonth(range);
+  if (cal) {
+    const py = cal.month === 0 ? cal.year - 1 : cal.year;
+    const pm = cal.month === 0 ? 11 : cal.month - 1;
+    return { rangeStart: firstOfMonth(py, pm), rangeEnd: lastOfMonth(py, pm) };
+  }
+
   const start = new Date(range.rangeStart + 'T00:00:00Z');
   const end = new Date(range.rangeEnd + 'T00:00:00Z');
   const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
@@ -189,6 +219,14 @@ export function previousRange(range: DateRange): DateRange {
     rangeStart: prevStart.toISOString().split('T')[0],
     rangeEnd: prevEnd.toISOString().split('T')[0],
   };
+}
+
+/**
+ * Day-count of a month (1-12, year). Wrapper so callers don't have to
+ * recreate the new-Date dance.
+ */
+export function daysInMonth(year: number, oneIndexedMonth: number): number {
+  return new Date(year, oneIndexedMonth, 0).getDate();
 }
 
 /**

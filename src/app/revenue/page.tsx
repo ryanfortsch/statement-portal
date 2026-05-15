@@ -94,7 +94,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
       : Promise.resolve(null),
   ]);
 
-  const { snapshots, portfolio } = current;
+  const { snapshots, portfolio, pacing } = current;
   const priorPortfolio = priorFull?.portfolio ?? null;
 
   // Build a per-property prior-payout lookup so each card can show its own
@@ -120,18 +120,34 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         emphasis="at a glance."
         paddingTop={48}
         belowDescription={
-          <div
-            className="flex items-baseline"
-            style={{
-              marginTop: 22,
-              gap: 20,
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-            }}
-          >
-            <TimeRangePicker value={preset} />
-            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
-          </div>
+          <>
+            <div
+              className="flex items-baseline"
+              style={{
+                marginTop: 22,
+                gap: 20,
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+              }}
+            >
+              <TimeRangePicker value={preset} />
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
+            </div>
+            {pacing && pacing.multiplier > 1 && (
+              <p
+                style={{
+                  marginTop: 12,
+                  fontSize: 12,
+                  color: 'var(--ink-3)',
+                  lineHeight: 1.5,
+                }}
+              >
+                Pacing {pacing.pacingPct.toFixed(0)}% so far this month. Gloucester
+                historical average for this month is {pacing.historicalAvgPct.toFixed(0)}%.
+                Revenue figures below project booked-so-far × {pacing.multiplier.toFixed(2)}.
+              </p>
+            )}
+          </>
         }
       />
 
@@ -252,6 +268,22 @@ function PropertyCard({
           >
             {snapshot.propertyName}
           </h3>
+          {snapshot.source !== 'computed' && (
+            <span
+              className="eyebrow"
+              style={{
+                color: snapshot.source === 'statement' ? 'var(--tide-deep)' : 'var(--signal)',
+                whiteSpace: 'nowrap',
+              }}
+              title={
+                snapshot.source === 'statement'
+                  ? 'From the monthly owner statement (canonical for closed months)'
+                  : 'Projecting booked-so-far toward historical Gloucester occupancy'
+              }
+            >
+              {snapshot.source === 'statement' ? 'Statement' : 'Pacing'}
+            </span>
+          )}
         </div>
         {delta != null && delta !== 0 && (
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>

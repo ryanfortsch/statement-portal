@@ -23,13 +23,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { HelmPropertyRow } from '@/lib/properties';
 
-// Fallback view for the first paint or for property sets with zero / one
-// valid coord. Once markers are added we call fitBounds to frame the
-// actual pins (which auto-extends to include 20 Enon in Beverly and 3
-// South in Rockport, both of which fall outside a hardcoded center+zoom
-// fit to Gloucester).
+// Fallback view for the first paint before fitBounds runs.
 const FALLBACK_CENTER: [number, number] = [42.605, -70.690];
 const FALLBACK_ZOOM = 11;
+
+// Cape Ann bounding box — Gloucester + Rockport only. The 9-of-10
+// managed properties on Cape Ann all sit inside this rectangle; 20 Enon
+// (Beverly, at -70.885) sits ~0.16° west and falls off the default
+// view on purpose, so the map starts tight on the core footprint
+// instead of pancake-flat across half the North Shore. Pan/zoom out to
+// reveal Beverly when needed.
+const CAPE_ANN_BOUNDS: [[number, number], [number, number]] = [
+  [42.585, -70.720], // SW: south of 3 Locust, west of 30 Woodward
+  [42.665, -70.595], // NE: north of 3 South Rockport, east of the Atlantic edge
+];
 
 type Props = {
   properties: HelmPropertyRow[];
@@ -100,18 +107,14 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
       marker.addTo(mapInstance.current);
     });
 
-    // Auto-frame the actual pins. With 10 properties spread from Rockport
-    // (NE) to Beverly (W), a hardcoded center+zoom was always going to
-    // clip some pins; fitBounds picks the tightest viewport that contains
-    // every placed marker, with padding so the pins don't hug the edge.
-    // For 0 or 1 pins, leave the FALLBACK_CENTER + FALLBACK_ZOOM in
-    // place (fitBounds on a single point zooms to maxZoom, which looks
-    // useless on a property page).
-    if (placedCoords.length >= 2) {
-      const bounds = L.latLngBounds(placedCoords);
-      mapInstance.current.fitBounds(bounds, { padding: [32, 32], maxZoom: 13 });
-    } else if (placedCoords.length === 1) {
-      mapInstance.current.setView(placedCoords[0], 13);
+    // Default to the Cape Ann frame — Gloucester + Rockport — even
+    // though Beverly's pin still exists on the map at its real
+    // coordinates. Auto-fitting over every placed pin pulls the zoom
+    // out across the whole North Shore to keep 20 Enon in view, which
+    // makes the Cape Ann cluster (9 of 10 properties) read as a tiny
+    // dot. Pan/zoom out to find Beverly when you need it.
+    if (placedCoords.length > 0) {
+      mapInstance.current.fitBounds(CAPE_ANN_BOUNDS, { padding: [16, 16] });
     }
 
     // Click outside any marker to deselect.
