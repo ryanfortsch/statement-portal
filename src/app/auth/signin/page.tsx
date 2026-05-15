@@ -1,4 +1,5 @@
 import { signIn } from "@/auth";
+import { ShipWheel } from "./ShipWheel";
 
 type SearchParams = { callbackUrl?: string; error?: string };
 
@@ -16,12 +17,9 @@ export default async function SignInPage({
     >
       <div style={{ width: "100%", maxWidth: 380, padding: "0 24px" }}>
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/rising-tide-logo.png"
-            alt="Rising Tide"
-            style={{ width: 56, height: 56, margin: "0 auto 20px" }}
-          />
+          <div style={{ marginBottom: 24 }}>
+            <ShipWheel size={140} />
+          </div>
           <h1
             className="font-serif"
             style={{
@@ -29,6 +27,7 @@ export default async function SignInPage({
               fontWeight: 400,
               letterSpacing: "-0.02em",
               color: "var(--ink)",
+              margin: 0,
             }}
           >
             Helm
