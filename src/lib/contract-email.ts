@@ -17,9 +17,45 @@
  * should record the DB state even if the email fails, so the signature
  * isn't lost on a transient Resend outage.
  */
-import { renderProjectionPdf, projectionPdfFilename } from '@/lib/projection-pdf';
+import { projectionPdfFilename } from '@/lib/projection-pdf';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import type { ProjectionRow } from '@/lib/projections-types';
+
+/**
+ * Fetch the contract PDF by calling the existing /api/projection-pdf
+ * endpoint via HTTP. This sidesteps a Vercel function-bundling issue
+ * where the chromium binary used by Puppeteer was traced into the API
+ * route's deployment package but NOT into the server action's function,
+ * causing the inline renderProjectionPdf call from submitContractSignature
+ * to fail at runtime with a confusing "PDF render failed" error. The
+ * API route ALREADY has the binary bundled (since it explicitly
+ * declares `export const runtime = 'nodejs'; export const maxDuration
+ * = 60;` and has been in use by the Download PDF button for months),
+ * so reusing it is the most reliable path.
+ *
+ * Passes the Vercel Deployment Protection bypass header so production
+ * preview deployments are reachable when this is called from inside a
+ * server action (same pattern the inline renderProjectionPdf uses).
+ */
+async function fetchContractPdf(args: {
+  projectionId: string;
+  origin: string;
+}): Promise<Buffer> {
+  const url = `${args.origin}/api/projection-pdf?id=${encodeURIComponent(args.projectionId)}&type=contract`;
+  const headers: Record<string, string> = {};
+  const bypass = process.env.VERCEL_PROTECTION_BYPASS;
+  if (bypass) {
+    headers['x-vercel-protection-bypass'] = bypass;
+    headers['x-vercel-set-bypass-cookie'] = 'true';
+  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`projection-pdf fetch ${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+  }
+  const arr = await res.arrayBuffer();
+  return Buffer.from(arr);
+}
 
 const FROM_NAME = 'Rising Tide';
 // Reuse the existing RESEND_FROM_EMAIL env var (already configured for
@@ -46,14 +82,13 @@ export async function sendOwnerSignedEmail(args: {
 
   let pdf: Buffer;
   try {
-    pdf = await renderProjectionPdf({
-      projectionId: projection.id,
-      type: 'contract',
-      origin,
-    });
+    pdf = await fetchContractPdf({ projectionId: projection.id, origin });
   } catch (err) {
-    console.error('[contract-email] PDF render failed (owner-signed):', err);
-    return { ok: false, reason: 'pdf render failed' };
+    console.error(
+      `[contract-email] PDF fetch failed (owner-signed) for ${projection.id} at origin ${origin}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return { ok: false, reason: 'pdf fetch failed' };
   }
 
   const filename = projectionPdfFilename(projection.property_address, 'contract');
@@ -102,14 +137,13 @@ export async function sendExecutedEmail(args: {
 
   let pdf: Buffer;
   try {
-    pdf = await renderProjectionPdf({
-      projectionId: projection.id,
-      type: 'contract',
-      origin,
-    });
+    pdf = await fetchContractPdf({ projectionId: projection.id, origin });
   } catch (err) {
-    console.error('[contract-email] PDF render failed (executed):', err);
-    return { ok: false, reason: 'pdf render failed' };
+    console.error(
+      `[contract-email] PDF fetch failed (executed) for ${projection.id} at origin ${origin}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return { ok: false, reason: 'pdf fetch failed' };
   }
 
   const filename = projectionPdfFilename(projection.property_address, 'contract');

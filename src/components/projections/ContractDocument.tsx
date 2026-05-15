@@ -65,21 +65,23 @@ export function ContractDocument({
     timeZone: 'America/New_York',
   });
 
-  // Signature state. The "Date" field in the signature block is the contract's
-  // effective date (term_start), not the moment the owner clicked submit.
+  // Signature state. The DATE field next to each signature is the date
+  // that party SIGNED — not the contract's effective term_start date.
+  // Standard e-signature convention: date next to signature = moment
+  // the signer executed. (term_start lives in the Term section body.)
   const signedName = projection.contract_signed_name || null;
   const signedAt = projection.contract_signed_at;
-  const effectiveDate = projection.term_start ? formatDateNarrative(projection.term_start) : null;
+  const ownerSignedDate = signedAt
+    ? new Date(signedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
   // Countersignature (Allie). The PM signature row renders her name
   // only after she has explicitly countersigned from the projection
-  // detail page. The PM signature DATE field is the countersignature
-  // timestamp formatted as the document date (so the PDF reflects the
-  // moment of full execution).
+  // detail page. PM signature date = countersign moment.
   const countersignedAt = projection.contract_countersigned_at;
   const pmSignedName = countersignedAt ? "Allie O'Brien" : null;
   const pmSignedDate = countersignedAt
     ? new Date(countersignedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : effectiveDate;
+    : null;
 
   // Legacy custom_clauses fallback: ONLY when the new overrides path is
   // unused AND there's pre-overrides clause data on the row. New work
@@ -201,7 +203,7 @@ export function ContractDocument({
                 eyebrow="Owner"
                 printedName={ownerName}
                 signedName={signedName}
-                dateValue={effectiveDate}
+                dateValue={ownerSignedDate}
               />
               <SignerBlock
                 eyebrow="Property Manager"
@@ -214,8 +216,12 @@ export function ContractDocument({
           {signedName && signedAt && (
             <div className="rt-c-audit">
               Electronically signed by <strong>{signedName}</strong> on{' '}
-              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
-              {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}.
+              {/* IP + user-agent are persisted to contract_signed_ip and
+                  contract_signed_user_agent for the legal audit trail
+                  but kept off the visible document face — standard e-sign
+                  convention puts those on a separate Certificate of
+                  Completion, not the contract itself. */}
               {countersignedAt && (
                 <>
                   {' '}Countersigned by <strong>Allie O&rsquo;Brien</strong> on{' '}
