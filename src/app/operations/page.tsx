@@ -354,6 +354,22 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
   const cleaningDone = t.cleaning !== null;
   const cleaningRelative = t.cleaning ? formatRelativeShort(t.cleaning.completedAt) : null;
 
+  // Gap context: for non-same-day turnovers with a known previousCheckout,
+  // surface how long the property has been sitting since the last guest.
+  // Answers "is this a tight turn or has it been clean for a week?" at a
+  // glance. Same-day cases use the existing "Tight turnaround" banner.
+  const gapDays =
+    !t.isSameDayTurnover && t.previousCheckout
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.parse(`${t.checkIn.slice(0, 10)}T00:00:00`) -
+              Date.parse(`${t.previousCheckout}T00:00:00`)) /
+              86_400_000,
+          ),
+        )
+      : null;
+
   return (
     <div
       className="rt-turnover-row"
@@ -409,11 +425,12 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </>
           )}
         </div>
-        {/* Same-day turnover gets a visible banner because it's a real
-            urgency signal. Routine "Prev. checkout May 12" lines were
-            scaffolding that read as noise on both desktop and mobile -
-            the work-slip count + cleaning chip already convey state. */}
-        {t.isSameDayTurnover && (
+        {/* Same-day turnover gets a visible signal-colored banner. The
+            non-same-day case gets a quiet grey gap line so the operator
+            can tell at a glance whether the property is a tight turn or
+            has been sitting clean for days — without making every row
+            shout. Both share the same slot below the guest line. */}
+        {t.isSameDayTurnover ? (
           <div
             className="rt-turnover-prev rt-turnover-prev-sameday"
             style={{
@@ -425,7 +442,20 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           >
             Tight turnaround · previous guest checks out today
           </div>
-        )}
+        ) : gapDays != null && gapDays >= 1 && t.previousCheckout ? (
+          <div
+            className="rt-turnover-prev"
+            style={{
+              marginTop: 2,
+              fontSize: 11,
+              color: 'var(--ink-4)',
+              fontWeight: 400,
+            }}
+            title={`Last guest checked out ${t.previousCheckout}`}
+          >
+            Last guest {formatDateShort(t.previousCheckout)} · {gapDays}-day gap
+          </div>
+        ) : null}
       </div>
 
       {/* Status chips: work slips + cleaning + inspection on a single
