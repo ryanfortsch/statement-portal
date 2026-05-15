@@ -1,22 +1,38 @@
 /**
- * Animated ship-wheel for the sign-in page. Two halves drift in from
- * each side, slow as they approach, slam together at the centerline,
- * and recoil briefly before settling — the "vault lock" moment. The
- * keyframes do all the dramatic timing; the SVG geometry just needs
- * to be substantial enough that the impact reads.
+ * Animated ship-wheel for the sign-in page. The "portal" pass.
  *
- * Iteration over the first pass (which Dotti said looked like a
- * spider web): thicker filled donut rim instead of a thin stroked
- * ring, chunkier handle knobs, fewer-but-bolder spokes. The whole
- * shape carries weight now so the slam looks like two heavy halves
- * meeting, not two skeleton fragments.
+ * Three-stage choreography (timings in globals.css):
  *
- * Implementation: one canonical wheel in <defs>, referenced twice via
- * <use>, each clipped to one half. The clipPath sits INSIDE the
- * animated <g> so the half-shape is computed first and then
- * transformed as a unit — otherwise the clip stays still in viewport
- * coordinates and the moving wheel slides through it. Respects
- * prefers-reduced-motion via globals.css.
+ *   Stage 1 — DRIFT (0 - ~65% of timeline)
+ *     Two halves slide in from ±90px offscreen. Linear approach with
+ *     opacity ramping up early so the user sees them coming. The
+ *     halves are clipped at the centerline so each one is a real
+ *     half-wheel, not a full wheel sliding under a mask.
+ *
+ *   Stage 2 — IMPACT (~68% of timeline)
+ *     Halves arrive at the centerline. Each one recoils slightly past
+ *     center (translateX overshoots into the OTHER half's space by a
+ *     few px), then wobbles back and settles. The opposing recoils
+ *     compress the seam, releasing it like a vault bolt seating.
+ *
+ *   Stage 3 — LOCK + STEER (~68% onward)
+ *     The whole wheel (both halves wrapped in a single <g>) rotates
+ *     90° as the halves settle. That's the "turning the lock" moment.
+ *     Once locked, a much slower continuous rotation kicks in (120s
+ *     per revolution) — barely perceptible, but the wheel is alive
+ *     rather than frozen.
+ *
+ * Implementation notes:
+ *   - One canonical wheel shape lives in <defs> and is referenced twice
+ *     via <use>, each clipped to one half. The clipPath is INSIDE the
+ *     animated <g> so the half-shape is computed first, then
+ *     transformed as a unit.
+ *   - The spin group wraps BOTH halves so the lock + steer rotation
+ *     applies to the joined wheel as a whole, while each half still
+ *     runs its own translation/wobble underneath.
+ *   - Drop-shadow filter on the outer SVG gives material weight so it
+ *     feels like a heavy object, not a flat icon.
+ *   - prefers-reduced-motion kills all four animations via globals.css.
  */
 
 const HANDLE_POSITIONS: Array<[number, number]> = [
@@ -30,7 +46,7 @@ const HANDLE_POSITIONS: Array<[number, number]> = [
   [37.8, 37.8],   // top-left
 ];
 
-export function ShipWheel({ size = 96 }: { size?: number }) {
+export function ShipWheel({ size = 112 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -38,7 +54,13 @@ export function ShipWheel({ size = 96 }: { size?: number }) {
       viewBox="0 0 200 200"
       role="img"
       aria-label="Helm"
-      style={{ display: 'block', margin: '0 auto', color: 'var(--ink)' }}
+      style={{
+        display: 'block',
+        margin: '0 auto',
+        color: 'var(--ink)',
+        overflow: 'visible',
+        filter: 'drop-shadow(0 8px 20px rgba(30, 46, 52, 0.22))',
+      }}
     >
       <defs>
         <g id="rt-wheel-shape">
@@ -58,9 +80,9 @@ export function ShipWheel({ size = 96 }: { size?: number }) {
             />
           ))}
 
-          {/* Filled donut rim. Outer disc in ink, inner disc in paper —
-              the difference is the wood-thick rim. Gives the wheel
-              real visual weight at small sizes. */}
+          {/* Filled donut rim. Outer disc ink, inner disc paper — the
+              difference is the wood-thick rim. Reads as a real wooden
+              wheel at any size. */}
           <circle cx="100" cy="100" r="72" fill="currentColor" />
           <circle cx="100" cy="100" r="58" fill="var(--paper)" />
 
@@ -101,29 +123,21 @@ export function ShipWheel({ size = 96 }: { size?: number }) {
         </clipPath>
       </defs>
 
-      <g className="rt-helm-wheel-left">
-        <g clipPath="url(#rt-wheel-clip-left)">
-          <use href="#rt-wheel-shape" />
+      {/* Spin wrapper rotates the WHOLE joined wheel after impact and
+          continues a very slow steer thereafter. Both halves live
+          inside it so the lock turn applies to them as one object. */}
+      <g className="rt-helm-wheel-spin">
+        <g className="rt-helm-wheel-left">
+          <g clipPath="url(#rt-wheel-clip-left)">
+            <use href="#rt-wheel-shape" />
+          </g>
+        </g>
+        <g className="rt-helm-wheel-right">
+          <g clipPath="url(#rt-wheel-clip-right)">
+            <use href="#rt-wheel-shape" />
+          </g>
         </g>
       </g>
-      <g className="rt-helm-wheel-right">
-        <g clipPath="url(#rt-wheel-clip-right)">
-          <use href="#rt-wheel-shape" />
-        </g>
-      </g>
-
-      {/* Brief flash at the seam at the moment of impact. Scales up
-          and fades out — reads as a "thud" rather than a sparkle. */}
-      <line
-        x1="100"
-        y1="38"
-        x2="100"
-        y2="162"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        className="rt-helm-wheel-impact"
-      />
     </svg>
   );
 }
