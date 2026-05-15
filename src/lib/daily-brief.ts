@@ -169,7 +169,23 @@ async function loadUnreadEmails(): Promise<BriefEmail[]> {
   const token = await getGmailAccessToken();
   if (!token) return [];
 
-  const q = 'is:unread in:inbox -category:promotions -category:social -category:updates newer_than:14d';
+  // Deterministic noise filter at the query level so we never spend an
+  // LLM call on known automated forwards. The AI still catches anything
+  // else we missed.
+  const excludeSenders = [
+    'no-reply@openphone.com',
+    'noreply@openphone.com',
+    'no-reply@quo.com',
+    'noreply@quo.com',
+    'notifications@vercel.com',
+    'notify@vercel.com',
+    'no-reply@vercel.com',
+    'noreply@github.com',
+    'notifications@github.com',
+  ]
+    .map(s => `-from:${s}`)
+    .join(' ');
+  const q = `is:unread in:inbox -category:promotions -category:social -category:updates newer_than:14d ${excludeSenders}`;
   const listRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(q)}`,
     { headers: { Authorization: `Bearer ${token}` } },
