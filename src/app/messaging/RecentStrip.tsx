@@ -2,7 +2,7 @@
 
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
-import { prettifySlug, guestFirstFromDraft, statusToneColor } from './format';
+import { prettifySlug, guestFirstFromDraft, statusToneColor, relativeTimeShort } from './format';
 
 type Props = {
   initialRecent: Approval[];
@@ -47,6 +47,9 @@ export function RecentStrip({ initialRecent }: Props) {
             row.guest_first ||
             guestFirstFromDraft(row.draft) ||
             'Guest';
+          const ts = row.resolved_at || row.created_at;
+          const relTime = relativeTimeShort(ts);
+          const absTime = ts || undefined;
           return (
             <li
               key={row.id}
@@ -54,7 +57,7 @@ export function RecentStrip({ initialRecent }: Props) {
                 borderBottom: '1px solid var(--rule)',
                 padding: '12px 0',
                 display: 'grid',
-                gridTemplateColumns: '180px 1fr 170px',
+                gridTemplateColumns: '180px 1fr 80px 170px',
                 gap: 12,
                 alignItems: 'baseline',
                 fontSize: 13,
@@ -74,6 +77,17 @@ export function RecentStrip({ initialRecent }: Props) {
                 title={row.draft || row.guest_text}
               >
                 {row.draft || row.guest_text || ''}
+              </span>
+              <span
+                style={{
+                  color: 'var(--ink-4)',
+                  fontSize: 11,
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                }}
+                title={absTime}
+              >
+                {relTime}
               </span>
               <span
                 className="eyebrow"
