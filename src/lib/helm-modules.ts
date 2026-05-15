@@ -100,7 +100,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Messaging',
     description: 'Guest message drafts awaiting approval. Approve, reject, or coach the AI right from Helm. Backed by the Stay Concierge service.',
     status: 'active',
-    primary: false,
+    primary: true,
   },
   {
     id: 'guest-intel',
@@ -188,14 +188,13 @@ export const HELM_MODULES: HelmModule[] = [
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
  * array order so the master list can stay in module-number order while
- * the nav shows the three daily-flow tabs in the order Dotti reads them
+ * the nav shows the four daily-flow tabs in the order Dotti reads them
  * left-to-right: Today (the morning launchpad), Turnovers (the ops
- * pipeline), Work (the persistent backlog board). Messaging /
- * Properties / Prospects / Inspections all sit one click away in More
- * because they're either push-driven (Messaging notifies you) or
- * lookup-driven (you go there knowing what you want).
+ * pipeline), Work (the persistent backlog board), and Messaging (the
+ * guest-reply queue, which carries a pending-count badge so she can
+ * see at a glance whether anything's waiting).
  */
-const PRIMARY_ORDER: string[] = ['today', 'operations', 'work'];
+const PRIMARY_ORDER: string[] = ['today', 'operations', 'work', 'messaging'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
