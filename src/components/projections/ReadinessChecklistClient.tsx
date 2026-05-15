@@ -2,7 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { setReadinessHave, setReadinessNote } from '@/app/projections/actions';
+import {
+  setReadinessHave,
+  setReadinessNote,
+  requestReadinessReview,
+} from '@/app/projections/actions';
 import {
   READINESS_NOTE_FIELDS,
   type ReadinessNoteField,
@@ -75,6 +79,12 @@ export function ReadinessChecklistClient({
   const [lastSaved, setLastSaved] = useState<string | null>(initial.updated_at ?? null);
   const [, startTransition] = useTransition();
   const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+
+  // Review-email send state for the bottom-of-page "Send to team" button.
+  // Tri-state: 'idle' / 'sending' / 'sent' / 'error'. 'sent' auto-resets
+  // to 'idle' after 6s so a second send is reachable if needed.
+  const [reviewStatus, setReviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   // Aggregate progress: an item counts as "done" when have >= need.
   const totals = useMemo(() => {
@@ -171,6 +181,26 @@ export function ReadinessChecklistClient({
       Object.values(timers).forEach((t) => { if (t) clearTimeout(t); });
     };
   }, []);
+
+  function sendReview() {
+    setReviewStatus('sending');
+    setReviewError(null);
+    startTransition(async () => {
+      try {
+        const result = await requestReadinessReview(projectionId);
+        if (result.ok) {
+          setReviewStatus('sent');
+          setTimeout(() => setReviewStatus('idle'), 6000);
+        } else {
+          setReviewStatus('error');
+          setReviewError(result.reason || 'send failed');
+        }
+      } catch (err) {
+        setReviewStatus('error');
+        setReviewError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
 
   // Build the "still needed" list for the summary at the bottom.
   const stillNeeded = useMemo(() => {
@@ -304,6 +334,31 @@ export function ReadinessChecklistClient({
               ))}
             </ul>
           )}
+
+          {/* Send-to-team button. Emails Allie + CCs Ryan + Dotti so the
+              team can review the punch list + walkthrough notes before
+              anything goes outbound to the owner. */}
+          <div className="rt-rc-send-wrap">
+            <button
+              type="button"
+              className="rt-rc-send-btn"
+              onClick={sendReview}
+              disabled={reviewStatus === 'sending'}
+              data-status={reviewStatus}
+            >
+              {reviewStatus === 'sending' && 'Sending…'}
+              {reviewStatus === 'sent' && '✓ Sent to team'}
+              {reviewStatus === 'error' && 'Retry send to team'}
+              {reviewStatus === 'idle' && 'Send to team for review →'}
+            </button>
+            <p className="rt-rc-send-hint">
+              {reviewStatus === 'sent'
+                ? `Allie, Ryan, and you should have it shortly. Review and forward to ${salutation.split(' ')[0]} when ready.`
+                : reviewStatus === 'error'
+                  ? `Send failed: ${reviewError ?? 'unknown error'}. Try again or check the logs.`
+                  : 'Emails the current still-needed list + walkthrough notes to Allie, Ryan, and you for review. Owner is not on the thread.'}
+            </p>
+          </div>
         </section>
 
         <footer className="rt-rc-foot">
@@ -773,6 +828,45 @@ const readinessClientCss = `
     font-size: 13px;
     color: var(--signal);
     font-weight: 700;
+  }
+
+  /* Send-to-team action */
+  .rt-rc-send-wrap {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+  .rt-rc-send-btn {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 14px 22px;
+    min-height: 48px;
+    cursor: pointer;
+    transition: opacity 120ms ease, background 120ms ease;
+    -webkit-tap-highlight-color: rgba(0,0,0,0.04);
+  }
+  .rt-rc-send-btn:disabled { opacity: 0.6; cursor: wait; }
+  .rt-rc-send-btn[data-status="sent"] {
+    background: var(--positive);
+    color: var(--paper);
+  }
+  .rt-rc-send-btn[data-status="error"] {
+    background: var(--negative);
+    color: var(--paper);
+  }
+  .rt-rc-send-hint {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--ink-3);
+    line-height: 1.5;
+    max-width: 540px;
   }
 
   /* ─── Footer ──────────────────────────────────────────────── */

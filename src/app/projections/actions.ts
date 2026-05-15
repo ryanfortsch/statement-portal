@@ -22,6 +22,7 @@ import {
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
 import { sendOwnerSignedEmail, sendExecutedEmail } from '@/lib/contract-email';
+import { sendReadinessReviewEmail } from '@/lib/readiness-email';
 
 /**
  * Build an absolute origin URL for use by server-side Puppeteer renders.
@@ -404,6 +405,35 @@ export async function setReadinessNote(
   if (trimmed === '') delete notes[noteKey];
   else notes[noteKey] = value;
   await writeReadinessState(projectionId, { ...state, notes });
+}
+
+/**
+ * Email the current readiness state to the Rising Tide team (Allie + Ryan
+ * + Dotti) for internal review. Not sent to the owner directly — the team
+ * polishes the list and forwards it. Returns { ok, reason? } so the UI
+ * can show a sent / failed confirmation without throwing.
+ */
+export async function requestReadinessReview(
+  projectionId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, reason: 'not signed in' };
+
+  const { data, error } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error || !data) {
+    return { ok: false, reason: error?.message || 'projection not found' };
+  }
+  const projection = data as ProjectionRow;
+
+  const origin = await getRequestOrigin();
+  const readinessUrl = `${origin}/projections/${projectionId}/readiness`;
+  const triggeredBy = session.user.name || session.user.email || null;
+
+  return await sendReadinessReviewEmail({ projection, triggeredBy, readinessUrl });
 }
 
 /**
