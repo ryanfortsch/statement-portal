@@ -73,28 +73,56 @@ Non-negotiable rules:
 6. Quiet by default. No exclamation points. No emoji. No "HUGE SAVINGS".
    No false urgency. If the news genuinely is time-sensitive, say so
    plainly ("This week leaves the calendar Friday").
+
+7. PRIVACY: NEVER include a street address, house number, or street
+   name in any campaign. Recipients do not know where the home is and
+   we do not tell them until they book. Refer to homes by their
+   guest-facing title only (e.g. "Stay at Rocky Neck", "Stay at Smith
+   Cove") plus neighborhood ("Rocky Neck", "Niles Beach", "Old Garden
+   Beach", "Beverly", "Rockport"). NEVER write "21 Horton", "20 Enon",
+   "30 Woodward", or any other internal-name form that contains a
+   number and street name. If a home has no guest-facing title in the
+   context, refer to it by its neighborhood ("the home on the Neck",
+   "a cottage in Beverly").
+
+8. PROPERTY-CARD PATTERN. When you reference a specific home, render
+   it as a card using Markdown image + heading + link. The exact shape:
+
+       ![Stay at Rocky Neck](https://staycapeann.com/photos/21-horton/hero.jpg)
+
+       ### Stay at Rocky Neck
+       A short specific line about what makes this one this one.
+
+       [See the home →](https://staycapeann.com/stays/21-horton)
+
+   The image URL and the page URL are both supplied in the context
+   block below; use them verbatim. NEVER fabricate image URLs.
+   If a property has no hero image in the context, do not render an
+   image; just use the heading + one-line description + link.
 `.trim();
 
 export const MARKDOWN_RULES = `
 The body field renders Markdown. The renderer supports this subset and
 ONLY this subset:
 
-  # H1           (one-line, sparingly)
-  ## H2          (section heads, preferred)
-  ### H3         (sub-points, rare)
-  **bold**       (emphasis)
-  *italic*       (NOT _italic_, underscores are not supported)
+  # H1                       (one-line, sparingly)
+  ## H2                      (section heads, preferred)
+  ### H3                     (property card headings)
+  **bold**                   (emphasis)
+  *italic*                   (NOT _italic_, underscores are not supported)
   [text](https://url)
-  - bullet       (single dash + space)
-  > blockquote   (one line, italicized, accent border)
-  ---            (horizontal rule, between sections)
+  ![alt text](https://url)   (image; used for property hero cards)
+  - bullet                   (single dash + space)
+  > blockquote               (one line, italicized, accent border)
+  ---                        (horizontal rule, between sections)
   blank-line-separated paragraphs
 
-Do not use: tables, code fences, images, footnotes, nested lists, HTML.
+Do not use: tables, code fences, footnotes, nested lists, HTML.
 Anything outside the above will render as plain text and look broken.
 
-Aim for under 200 words in the body. One image link via Markdown link is
-fine; never embed an image tag.
+Aim for under 200 words of prose. Property cards count as light visual
+content, not word count. A campaign featuring three homes is fine if
+each card has one tight line of prose plus the image and link.
 `.trim();
 
 export const TONE_GUIDANCE: Record<CampaignTone, string> = {

@@ -139,6 +139,18 @@ function markdownToHtml(md: string): string {
       continue;
     }
 
+    // Image-only paragraph: ![alt](url). Wraps in a max-width container
+    // that respects email-client image sizing.
+    const imgOnly = block.match(/^!\[([^\]]*)\]\((https?:[^\s)]+)\)$/);
+    if (imgOnly) {
+      const alt = imgOnly[1];
+      const url = imgOnly[2];
+      parts.push(
+        `<p style="margin:20px 0; line-height:0;"><img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" width="536" style="display:block; width:100%; max-width:536px; height:auto; border:0; outline:none; text-decoration:none;" /></p>`
+      );
+      continue;
+    }
+
     // Heading
     const h = block.match(/^(#{1,3})\s+(.*)$/);
     if (h) {
@@ -206,6 +218,7 @@ function stripMarkdown(md: string): string {
   return md
     .replace(/\r\n/g, '\n')
     .replace(/^(#{1,6})\s+/gm, '')
+    .replace(/!\[([^\]]*)\]\((https?:[^\s)]+)\)/g, '') // strip images from plain-text
     .replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '$1 ($2)')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*\n]+)\*/g, '$1')

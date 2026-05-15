@@ -7,14 +7,19 @@
 
 import { supabase } from '@/lib/supabase';
 import { PROPERTIES, type Property } from '@/lib/properties';
+import { propertyCardData } from './property-cards';
 
 export type CampaignDraftContext = {
-  /** Compact list of the homes for the model to pick from. */
+  /** Compact list of the homes for the model to pick from. NO ADDRESSES. */
   properties: Array<{
-    name: string;
-    city: string;
-    address: string;
+    /** Guest-facing marketing title, e.g. "Stay at Rocky Neck". May be null when no title is set. */
     title: string | null;
+    /** Neighborhood / town flavor, e.g. "Rocky Neck, Gloucester". */
+    neighborhood: string;
+    /** Public page URL on staycapeann.com. */
+    pageUrl: string | null;
+    /** Public hero image URL, or null if we don't have one yet. */
+    heroUrl: string | null;
   }>;
   /** Picked segment for this draft, or null if not picked yet. */
   segment: {
@@ -24,6 +29,19 @@ export type CampaignDraftContext = {
     isWeekly: boolean;
     isInsider: boolean;
   } | null;
+};
+
+const NEIGHBORHOOD: Record<string, string> = {
+  '3_south_st': 'Old Garden Beach, Rockport',
+  '21_horton': 'Rocky Neck, Gloucester',
+  '53_rocky_neck': 'Rocky Neck, Gloucester',
+  '4_brier_neck': 'Brier Neck, Gloucester',
+  '30_woodward': 'Little River, Gloucester',
+  '20_hammond': 'East Gloucester',
+  '20_enon': 'Beverly',
+  '73_rocky_neck': 'Smith Cove, Gloucester',
+  '17_beach_rd': 'Niles Beach, Gloucester',
+  '3_locust': 'Niles Beach, Gloucester',
 };
 
 export async function loadDraftContext(args: { segmentId?: string | null }): Promise<CampaignDraftContext> {
@@ -40,12 +58,15 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 
   const properties = Object.values(PROPERTIES)
     .filter((p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th') // Ryan's personal, not guest-facing
-    .map((p: Property) => ({
-      name: p.name,
-      city: p.city,
-      address: p.address,
-      title: titleById.get(p.id) ?? null,
-    }));
+    .map((p: Property) => {
+      const card = propertyCardData(p.id);
+      return {
+        title: titleById.get(p.id) ?? null,
+        neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
+        pageUrl: card?.pageUrl ?? null,
+        heroUrl: card?.heroUrl ?? null,
+      };
+    });
 
   let segment: CampaignDraftContext['segment'] = null;
   if (args.segmentId) {
@@ -83,10 +104,17 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 export function formatContextBlock(ctx: CampaignDraftContext): string {
   const lines: string[] = [];
 
-  lines.push('Homes in the collection:');
+  lines.push('Homes in the collection. Refer to each home ONLY by its guest-facing title');
+  lines.push('and neighborhood. NEVER use a street address or internal name. When a home');
+  lines.push('has no title (null), use the neighborhood phrase ("the home on the Neck").');
+  lines.push('');
   for (const p of ctx.properties) {
-    const titlePart = p.title ? ` ("${p.title}")` : '';
-    lines.push(`  - ${p.name}${titlePart}, ${p.city}. ${p.address}.`);
+    const titlePart = p.title ? `"${p.title}"` : '(no guest-facing title set)';
+    const pagePart = p.pageUrl ? `  page: ${p.pageUrl}` : '  page: (none)';
+    const heroPart = p.heroUrl ? `  hero: ${p.heroUrl}` : '  hero: (not available, use heading + link only)';
+    lines.push(`  - ${titlePart}, ${p.neighborhood}`);
+    lines.push(pagePart);
+    lines.push(heroPart);
   }
   lines.push('');
 

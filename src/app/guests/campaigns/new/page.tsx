@@ -3,6 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { listSegments } from '@/lib/guests';
 import { TONE_OPTIONS } from '@/lib/ai/brand-voice';
 import { createDraftFromBrief, createDraftCampaign } from '../actions';
+import { DraftButton } from './DraftButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,29 +135,10 @@ export default async function NewCampaignPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="submit"
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                padding: '14px 28px',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Draft with Helm →
-            </button>
+            <DraftButton />
             <Link href="/guests/campaigns" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
               Cancel
             </Link>
-            <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              Generation takes 10 to 20 seconds.
-            </span>
           </div>
         </form>
 
