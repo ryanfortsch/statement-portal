@@ -16,7 +16,7 @@ export default async function SignInPage({
       style={{ background: "var(--paper)" }}
     >
       <div style={{ width: "100%", maxWidth: 380, padding: "0 24px" }}>
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <div className="rt-helm-signin-brand" style={{ textAlign: "center", marginBottom: 28 }}>
           {/* Pennant logo back in its original spot - the brand mark. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -39,12 +39,13 @@ export default async function SignInPage({
           <div className="eyebrow" style={{ marginTop: 10 }}>
             Rising Tide &middot; Internal Operations
           </div>
-          {/* Ship-wheel as a secondary animated seal beneath the
-              wordmark - sized smaller than the pennant so the brand
-              mark stays primary. */}
-          <div style={{ marginTop: 28 }}>
-            <ShipWheel size={96} />
-          </div>
+        </div>
+
+        {/* Ship-wheel runs its full ceremony - drift, impact, lock,
+            continuous steer. The button below gates on the lock
+            completing so the wheel literally opens the action. */}
+        <div style={{ marginBottom: 36, textAlign: "center" }}>
+          <ShipWheel size={112} />
         </div>
 
         {error && (
@@ -63,6 +64,7 @@ export default async function SignInPage({
         )}
 
         <form
+          className="rt-helm-signin-action"
           action={async () => {
             "use server";
             await signIn("google", { redirectTo: callbackUrl ?? "/" });
@@ -93,6 +95,7 @@ export default async function SignInPage({
         </form>
 
         <p
+          className="rt-helm-signin-footer"
           style={{
             textAlign: "center",
             color: "var(--ink-4)",
