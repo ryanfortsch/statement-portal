@@ -148,3 +148,67 @@ export async function listContactEvents(contactId: string, limit = 50): Promise<
     .limit(limit);
   return (data ?? []) as ContactEvent[];
 }
+
+export type ContactStay = {
+  reservation_id: string;
+  property_id: string | null;
+  property_name: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  nights: number | null;
+  channel: string | null;
+  confirmation_code: string | null;
+  status: string | null;
+};
+
+/**
+ * Past + upcoming stays for a contact, looked up by guesty_guest_id.
+ * Joined to properties for the short name (e.g. "21 Horton"). Internal
+ * Helm UI, so showing the property name is fine here even though it
+ * would be forbidden in guest-facing campaign copy.
+ */
+export async function listContactStays(guestyGuestId: string | null | undefined): Promise<ContactStay[]> {
+  if (!isConfigured || !guestyGuestId) return [];
+
+  const { data } = await supabase
+    .from('guesty_reservations')
+    .select(`
+      guesty_reservation_id,
+      property_id,
+      check_in,
+      check_out,
+      nights,
+      channel,
+      confirmation_code,
+      status,
+      properties:property_id ( name )
+    `)
+    .eq('guest_id', guestyGuestId)
+    .order('check_in', { ascending: false })
+    .limit(100);
+
+  return ((data ?? []) as Array<{
+    guesty_reservation_id: string;
+    property_id: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    nights: number | null;
+    channel: string | null;
+    confirmation_code: string | null;
+    status: string | null;
+    properties: { name: string } | { name: string }[] | null;
+  }>).map((row) => {
+    const prop = Array.isArray(row.properties) ? row.properties[0] : row.properties;
+    return {
+      reservation_id: row.guesty_reservation_id,
+      property_id: row.property_id,
+      property_name: prop?.name ?? null,
+      check_in: row.check_in,
+      check_out: row.check_out,
+      nights: row.nights,
+      channel: row.channel,
+      confirmation_code: row.confirmation_code,
+      status: row.status,
+    };
+  });
+}

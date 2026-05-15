@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { getContact, listContactEvents } from '@/lib/guests';
+import { getContact, listContactEvents, listContactStays, type ContactStay } from '@/lib/guests';
 import { displayName, formatTagLabel } from '@/lib/guests-types';
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
@@ -17,6 +17,8 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
   ]);
 
   if (!contact) notFound();
+
+  const stays = await listContactStays(contact.guesty_guest_id);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -105,6 +107,24 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           </a>
         </div>
       </section>
+
+      {/* STAYS - past + upcoming reservations joined from
+          guesty_reservations via guesty_guest_id. Internal Helm UI, so
+          internal property names ("21 Horton") are fine here; the
+          brand voice rule banning addresses applies to guest-facing
+          campaign copy only. */}
+      {stays.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <div className="eyebrow">Stays ({stays.length})</div>
+          </div>
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {stays.map((s) => (
+              <StayRow key={s.reservation_id} stay={s} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* REVIEWS — what this guest said about their stays (when matched
           via contact_id by the Guesty sync). */}
@@ -219,6 +239,66 @@ function ReviewSummary({ review: r }: { review: ReviewRow }) {
       <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{date}</span>
     </div>
   );
+}
+
+function StayRow({ stay: s }: { stay: ContactStay }) {
+  const propertyLabel = s.property_name ?? s.property_id ?? 'Unknown property';
+  const dateRange = formatStayDateRange(s.check_in, s.check_out);
+  const today = new Date();
+  const checkInDate = s.check_in ? new Date(s.check_in) : null;
+  const isUpcoming = checkInDate ? checkInDate.getTime() > today.getTime() : false;
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '180px 1fr auto auto',
+        gap: 16,
+        alignItems: 'baseline',
+        padding: '14px 0',
+        borderBottom: '1px solid var(--rule)',
+      }}
+    >
+      <span className="font-mono tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+        {dateRange}
+      </span>
+      <span className="font-serif" style={{ fontSize: 15, fontWeight: 400, color: 'var(--ink)' }}>
+        {propertyLabel}
+        {isUpcoming && (
+          <span
+            style={{
+              marginLeft: 10,
+              fontSize: 10,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+              color: 'var(--signal)',
+            }}
+          >
+            Upcoming
+          </span>
+        )}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        {s.nights != null ? `${s.nights} ${s.nights === 1 ? 'night' : 'nights'}` : ''}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        {s.channel ?? ''}
+      </span>
+    </div>
+  );
+}
+
+function formatStayDateRange(checkIn: string | null, checkOut: string | null): string {
+  if (!checkIn) return '—';
+  const ci = new Date(checkIn);
+  const co = checkOut ? new Date(checkOut) : null;
+  const sameMonth = co && ci.getMonth() === co.getMonth() && ci.getFullYear() === co.getFullYear();
+  if (!co) return formatDate(checkIn);
+  if (sameMonth) {
+    const month = ci.toLocaleDateString('en-US', { month: 'short' });
+    return `${month} ${ci.getDate()} - ${co.getDate()}, ${co.getFullYear()}`;
+  }
+  return `${formatDate(checkIn)} - ${formatDate(checkOut as string)}`;
 }
 
 function Field({ label, value, last = false }: { label: string; value: string; last?: boolean }) {

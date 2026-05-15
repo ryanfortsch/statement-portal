@@ -252,7 +252,7 @@ async function upsertContact(args: {
 
   const { data: existing } = await sb()
     .from('audience_contacts')
-    .select('id, status, tags, first_name, last_name, source, source_detail')
+    .select('id, status, tags, first_name, last_name, source, source_detail, guesty_guest_id')
     .eq('email', email)
     .maybeSingle();
 
@@ -265,6 +265,7 @@ async function upsertContact(args: {
       subscribed_at: new Date().toISOString(),
       source: 'guesty_post_stay',
       source_detail: `Guesty guest ${guestyGuestId}`,
+      guesty_guest_id: guestyGuestId,
       tags,
       marketing_consent: true,
     });
@@ -280,6 +281,11 @@ async function upsertContact(args: {
   const updates: Record<string, unknown> = { tags: mergedTags };
   if (!existing.first_name && firstName) updates.first_name = firstName;
   if (!existing.last_name && lastName) updates.last_name = lastName;
+  // Backfill guesty_guest_id when it wasn't set yet (Squarespace contact
+  // who turned out to also be a Guesty guest, or pre-migration rows).
+  if (!(existing as { guesty_guest_id?: string | null }).guesty_guest_id) {
+    updates.guesty_guest_id = guestyGuestId;
+  }
   // If the contact was previously imported from Squarespace and had no source
   // detail, surface that they're also a Guesty guest.
   if (!existing.source_detail || existing.source === 'manual') {
