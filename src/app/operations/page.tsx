@@ -491,7 +491,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           gap: 4,
           whiteSpace: 'nowrap',
           fontSize: 12,
@@ -560,7 +560,11 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           Resume →
         </Link>
       ) : (
-        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+        // Plan + Start Inspection side-by-side (was stacked vertically),
+        // so this action column matches the height of a Summary/Resume
+        // row. Keeps the right edge of every row at roughly the same
+        // visual position across rows.
+        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <PlanButton
             guestyReservationId={t.reservationId}
             propertyId={t.propertyId}
