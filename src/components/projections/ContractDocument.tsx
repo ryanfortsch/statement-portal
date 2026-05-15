@@ -54,11 +54,15 @@ export function ContractDocument({
 
   const vars = buildTemplateVars(projection);
   const ownerName = vars.ownerName;
+  // Pinned to America/New_York — server renders in UTC on Vercel, and
+  // a late-night save would otherwise roll the "issued" date forward
+  // by a day for Eastern-tz users.
   const issuedDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'America/New_York',
   });
 
   // Signature state. The "Date" field in the signature block is the contract's
@@ -200,7 +204,7 @@ export function ContractDocument({
           {signedName && signedAt && (
             <div className="rt-c-audit">
               Electronically signed by <strong>{signedName}</strong> on{' '}
-              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
+              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
               {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
             </div>
           )}

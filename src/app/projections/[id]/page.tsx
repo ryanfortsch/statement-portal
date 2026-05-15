@@ -491,7 +491,7 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
       )}
       {signedAt && signedName && (
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
-          Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
+          Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
           {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
         </p>
       )}

@@ -458,11 +458,15 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
 
 function formatSavedAt(iso: string): string {
   try {
+    // Pin to Rising Tide HQ tz — this component renders server-side and
+    // Vercel runs in UTC, so without a timeZone hint the chip would read
+    // 4h ahead of local. All staff are on Eastern, so it's a hard pin.
     return new Date(iso).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+      timeZone: 'America/New_York',
     });
   } catch {
     return iso;

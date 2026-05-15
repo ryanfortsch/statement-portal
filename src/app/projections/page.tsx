@@ -189,7 +189,9 @@ const TOUCH_LABEL: Record<GmailTouchType, string> = {
 };
 
 function TouchBadge({ type, sentAt, fromUser }: { type: GmailTouchType; sentAt: string; fromUser?: string }) {
-  const tip = `${TOUCH_LABEL[type]} sent ${new Date(sentAt).toLocaleString()}${fromUser ? ` by ${fromUser}` : ''}`;
+  // Eastern-pinned: server renders in UTC on Vercel; without the tz hint
+  // the tooltip would read 4–5h ahead of Rising Tide local.
+  const tip = `${TOUCH_LABEL[type]} sent ${new Date(sentAt).toLocaleString('en-US', { timeZone: 'America/New_York' })}${fromUser ? ` by ${fromUser}` : ''}`;
   return (
     <span
       title={tip}
@@ -215,7 +217,13 @@ function TouchBadge({ type, sentAt, fromUser }: { type: GmailTouchType; sentAt: 
 
 function shortDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    // Eastern-pinned: a Gmail send at 11pm EDT would otherwise display
+    // as the next day in the row's "Last touch" chip.
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'America/New_York',
+    });
   } catch {
     return iso.slice(0, 10);
   }
