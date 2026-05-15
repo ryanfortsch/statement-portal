@@ -6,6 +6,7 @@ import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { PlanButton } from './PlanButton';
+import { CalendarCellTooltip } from './CalendarCellTooltip';
 import {
   loadOperationsData,
   RANGE_LABEL,
@@ -764,9 +765,8 @@ function PropertyCalendarRow({
             ? 'rgba(232, 184, 165, 0.18)' // signal-soft @ 18% for today vacancy
             : 'transparent';
 
-        return (
+        const cellInner = (
           <div
-            key={cell.date}
             style={{
               height: rowHeight,
               borderBottom: rowBorder,
@@ -781,12 +781,8 @@ function PropertyCalendarRow({
               whiteSpace: 'nowrap',
               textOverflow: 'ellipsis',
               minWidth: 0,
+              cursor: occupied ? 'help' : 'default',
             }}
-            title={
-              occupied && cell.reservation
-                ? `${cell.reservation.guest_name ?? 'Guest'} · ${cell.reservation.check_in} → ${cell.reservation.check_out}`
-                : undefined
-            }
           >
             {cell.isCheckIn && cell.reservation ? (
               <span
@@ -801,6 +797,27 @@ function PropertyCalendarRow({
               </span>
             ) : null}
           </div>
+        );
+
+        if (!occupied || !cell.reservation) {
+          return <div key={cell.date}>{cellInner}</div>;
+        }
+
+        return (
+          <CalendarCellTooltip
+            key={cell.date}
+            data={{
+              guestName: cell.reservation.guest_name,
+              channel: cell.reservation.channel,
+              checkIn: cell.reservation.check_in,
+              checkOut: cell.reservation.check_out,
+              nights: cell.reservation.nights,
+              hostPayout: cell.reservation.host_payout,
+              confirmationCode: cell.reservation.confirmation_code,
+            }}
+          >
+            {cellInner}
+          </CalendarCellTooltip>
         );
       })}
     </>
