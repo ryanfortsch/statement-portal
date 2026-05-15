@@ -6,7 +6,7 @@ import {
   loadDailyBrief,
   briefHeadline,
   type BriefStay,
-  type BriefInboundTouch,
+  type BriefEmail,
   type BriefInspection,
   type BriefProspect,
 } from '@/lib/daily-brief';
@@ -70,13 +70,25 @@ function SectionHead({
         ) : null}
       </div>
       {href ? (
-        <Link
-          href={href}
-          className="text-[11px] uppercase tracking-[0.14em] hover:underline"
-          style={{ color: 'var(--signal)' }}
-        >
-          Open →
-        </Link>
+        href.startsWith('http') ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] uppercase tracking-[0.14em] hover:underline"
+            style={{ color: 'var(--signal)' }}
+          >
+            Open →
+          </a>
+        ) : (
+          <Link
+            href={href}
+            className="text-[11px] uppercase tracking-[0.14em] hover:underline"
+            style={{ color: 'var(--signal)' }}
+          >
+            Open →
+          </Link>
+        )
       ) : null}
     </div>
   );
@@ -151,27 +163,42 @@ function StayRow({
   );
 }
 
-function InboundRow({ t }: { t: BriefInboundTouch }) {
+function formatAge(ageHours: number): string {
+  if (ageHours < 1) return 'just now';
+  if (ageHours < 24) return `${ageHours}h ago`;
+  return `${Math.round(ageHours / 24)}d ago`;
+}
+
+function EmailRow({ e }: { e: BriefEmail }) {
+  const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
+  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
   return (
     <li
       className="py-2.5 border-b last:border-b-0"
       style={{ borderColor: 'var(--rule-soft)' }}
     >
       <div className="flex justify-between items-baseline gap-4">
-        <Link
-          href={`/crm/${t.contactId}`}
+        <a
+          href={gmailUrl}
+          target="_blank"
+          rel="noreferrer"
           className="text-sm font-medium hover:underline underline-offset-2"
           style={{ color: 'var(--ink)' }}
         >
-          {t.contactName ?? 'Unknown contact'}
-        </Link>
+          {fromLabel}
+        </a>
         <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
-          {t.daysWaiting === 0 ? 'today' : `${t.daysWaiting}d waiting`} · {t.channel}
+          {formatAge(e.ageHours)}
         </span>
       </div>
-      <div className="text-xs mt-0.5" style={{ color: 'var(--ink-3)' }}>
-        {t.summary.length > 140 ? `${t.summary.slice(0, 140)}…` : t.summary}
+      <div className="text-xs mt-0.5" style={{ color: 'var(--ink)' }}>
+        {e.subject}
       </div>
+      {e.snippet ? (
+        <div className="text-xs mt-0.5" style={{ color: 'var(--ink-3)' }}>
+          {e.snippet.length > 150 ? `${e.snippet.slice(0, 150)}…` : e.snippet}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -265,59 +292,28 @@ export default async function TodayPage() {
   let n = 1;
   const num = () => String(n++).padStart(2, '0');
 
-  if (brief.inboundWaiting.length) {
-    sections.push(
-      <section key="emails" className="mb-12">
-        <SectionHead number={num()} title="Emails waiting on a reply" count={brief.inboundWaiting.length} href="/crm" />
-        <ul>
-          {brief.inboundWaiting.slice(0, 12).map(t => (
-            <InboundRow key={t.contactId} t={t} />
-          ))}
-        </ul>
-      </section>,
-    );
-  }
-
-  if (brief.pendingApprovals.length) {
-    sections.push(
-      <section key="approvals" className="mb-12">
-        <SectionHead
-          number={num()}
-          title="Guest message drafts"
-          count={brief.pendingApprovals.length}
-          href="/messaging"
-        />
-        <ul>
-          {brief.pendingApprovals.slice(0, 8).map(a => (
-            <ApprovalRow key={a.id} a={a} />
-          ))}
-        </ul>
-      </section>,
-    );
-  }
-
   if (
-    brief.checkoutsToday.length ||
     brief.checkinsToday.length ||
+    brief.checkoutsToday.length ||
     inspectionsWithoutStay.length
   ) {
     sections.push(
-      <section key="boards" className="mb-12">
-        <SectionHead number={num()} title="On the boards today" href="/operations" />
+      <section key="checkins" className="mb-12">
+        <SectionHead number={num()} title="Check-ins today" href="/operations" />
         <ul>
-          {brief.checkoutsToday.map((s, i) => (
-            <StayRow
-              key={`out-${s.propertyId}-${i}`}
-              s={s}
-              label="OUT"
-              inspected={inspectedToday.has(s.propertyId)}
-            />
-          ))}
           {brief.checkinsToday.map((s, i) => (
             <StayRow
               key={`in-${s.propertyId}-${i}`}
               s={s}
               label="IN"
+              inspected={inspectedToday.has(s.propertyId)}
+            />
+          ))}
+          {brief.checkoutsToday.map((s, i) => (
+            <StayRow
+              key={`out-${s.propertyId}-${i}`}
+              s={s}
+              label="OUT"
               inspected={inspectedToday.has(s.propertyId)}
             />
           ))}
@@ -352,6 +348,42 @@ export default async function TodayPage() {
                   : ''}
               </span>
             </li>
+          ))}
+        </ul>
+      </section>,
+    );
+  }
+
+  if (brief.unreadEmails.length) {
+    sections.push(
+      <section key="emails" className="mb-12">
+        <SectionHead
+          number={num()}
+          title="Email"
+          count={brief.unreadEmails.length}
+          href="https://mail.google.com/mail/u/0/#inbox"
+        />
+        <ul>
+          {brief.unreadEmails.slice(0, 12).map(e => (
+            <EmailRow key={e.id} e={e} />
+          ))}
+        </ul>
+      </section>,
+    );
+  }
+
+  if (brief.pendingApprovals.length) {
+    sections.push(
+      <section key="approvals" className="mb-12">
+        <SectionHead
+          number={num()}
+          title="Guest message drafts"
+          count={brief.pendingApprovals.length}
+          href="/messaging"
+        />
+        <ul>
+          {brief.pendingApprovals.slice(0, 8).map(a => (
+            <ApprovalRow key={a.id} a={a} />
           ))}
         </ul>
       </section>,
@@ -444,10 +476,12 @@ export default async function TodayPage() {
           className="mt-12 pt-4 text-[11px] flex justify-between items-baseline"
           style={{ borderTop: '1px solid var(--rule-soft)', color: 'var(--ink-4)' }}
         >
-          <span>Gmail synced {relativeTime(brief.lastGmailSyncAt)}</span>
           <span>
-            {brief.totals.activeProspects} prospects in funnel
+            {brief.gmailConfigured
+              ? `Gmail · live ${relativeTime(brief.lastGmailSyncAt)}`
+              : 'Gmail not connected'}
           </span>
+          <span>{brief.totals.activeProspects} prospects in funnel</span>
         </div>
       </main>
 
