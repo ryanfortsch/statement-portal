@@ -75,6 +75,8 @@ export type BriefEmail = {
   threadId: string;
   fromName: string | null;
   fromEmail: string | null;
+  toEmails: string[];
+  ccEmails: string[];
   subject: string;
   snippet: string;
   receivedAt: string;
@@ -211,7 +213,7 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   const detailed = await Promise.all(
     stubs.map(async stub => {
       const detailRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${stub.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${stub.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!detailRes.ok) return null;
@@ -225,6 +227,15 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
       const headers = data.payload?.headers ?? [];
       const get = (n: string) => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value ?? null;
       const { name, email } = parseFrom(get('from'));
+      const splitRecipients = (raw: string | null): string[] => {
+        if (!raw) return [];
+        return raw
+          .split(',')
+          .map(part => parseFrom(part).email)
+          .filter((e): e is string => Boolean(e));
+      };
+      const toEmails = splitRecipients(get('to'));
+      const ccEmails = splitRecipients(get('cc'));
       const receivedMs = Number(data.internalDate ?? '0');
       const receivedAt = new Date(receivedMs || Date.now()).toISOString();
       const ageHours = Math.max(0, Math.round((Date.now() - (receivedMs || Date.now())) / 3_600_000));
@@ -233,6 +244,8 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
         threadId: data.threadId,
         fromName: name,
         fromEmail: email,
+        toEmails,
+        ccEmails,
         subject: get('subject') ?? '(no subject)',
         snippet: (data.snippet ?? '').slice(0, 200),
         receivedAt,
@@ -401,6 +414,8 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
           id: e.id,
           fromName: e.fromName,
           fromEmail: e.fromEmail,
+          toEmails: e.toEmails,
+          ccEmails: e.ccEmails,
           subject: e.subject,
           snippet: e.snippet,
         })),
@@ -484,6 +499,8 @@ async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
     threadId: r.thread_id,
     fromName: r.from_name,
     fromEmail: r.from_email,
+    toEmails: [],
+    ccEmails: [],
     subject: r.subject,
     snippet: r.snippet,
     receivedAt: r.received_at,
