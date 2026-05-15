@@ -32,5 +32,19 @@ export async function GET(req: NextRequest) {
     { headers: { Authorization: `Bearer ${token}` } },
   );
   const data = await r.json();
-  return NextResponse.json({ headers: data?.payload?.headers ?? [], status: r.status });
+  const headers = data?.payload?.headers ?? [];
+  const get = (n: string) =>
+    headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === n.toLowerCase())?.value ?? null;
+  const toRaw = get('to');
+  const ccRaw = get('cc');
+  // Char-by-char inspection of the To value so we can tell whether
+  // it's actually < > or &lt; &gt; or something else.
+  const toBytes = toRaw ? Array.from(toRaw as string).map(c => `${c}(${c.charCodeAt(0)})`).slice(0, 60).join(' ') : null;
+  return NextResponse.json({
+    headers,
+    toRaw,
+    ccRaw,
+    toBytes,
+    status: r.status,
+  });
 }
