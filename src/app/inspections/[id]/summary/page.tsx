@@ -10,6 +10,7 @@ import type {
   InspectionRow,
   InspectionItemRow,
   InspectionResultRow,
+  PropertyZoneRow,
 } from '@/lib/inspections-types';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,7 @@ type PropertyShape = { id: string; name: string; title: string | null; city: str
 type ResultWithItem = {
   result: InspectionResultRow;
   item: InspectionItemRow;
+  zone: PropertyZoneRow | null;
 };
 
 type SummaryNote = {
@@ -60,7 +62,7 @@ async function getInspection(id: string): Promise<{
 
   const insp = inspection as InspectionRow;
 
-  const [{ data: property }, { data: results }, { data: items }, { data: notesData }, { data: workSlipsData }] = await Promise.all([
+  const [{ data: property }, { data: results }, { data: items }, { data: notesData }, { data: workSlipsData }, { data: zoneRows }] = await Promise.all([
     supabase
       .from('properties')
       .select('id, name, title, city')
@@ -68,7 +70,7 @@ async function getInspection(id: string): Promise<{
       .maybeSingle(),
     supabase
       .from('inspection_results')
-      .select('id, inspection_id, item_id, status, notes, photo_urls, created_at')
+      .select('id, inspection_id, item_id, property_zone_id, status, notes, photo_urls, created_at')
       .eq('inspection_id', id),
     supabase
       .from('inspection_items')
@@ -84,6 +86,11 @@ async function getInspection(id: string): Promise<{
       .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
       .eq('inspection_id', id)
       .order('created_at', { ascending: true }),
+    supabase
+      .from('property_zones')
+      .select('*')
+      .eq('property_id', insp.property_id)
+      .order('walk_order', { ascending: true }),
   ]);
 
   if (!property) return null;
@@ -93,14 +100,28 @@ async function getInspection(id: string): Promise<{
     itemMap.set(it.id, it);
   }
 
+  const zoneMap = new Map<string, PropertyZoneRow>();
+  for (const z of (zoneRows ?? []) as PropertyZoneRow[]) {
+    zoneMap.set(z.id, z);
+  }
+
   const merged: ResultWithItem[] = ((results ?? []) as InspectionResultRow[])
     .map((r) => {
       const item = itemMap.get(r.item_id);
       if (!item) return null;
-      return { result: r, item };
+      const zone = r.property_zone_id ? zoneMap.get(r.property_zone_id) ?? null : null;
+      return { result: r, item, zone };
     })
     .filter((x): x is ResultWithItem => x !== null)
-    .sort((a, b) => a.item.sort_order - b.item.sort_order);
+    .sort((a, b) => {
+      // Zone-mapped results sort by zone walk_order, then item sort_order.
+      // Fallback results (no zone) sort by item sort_order only and land
+      // at the bottom of the list.
+      const aw = a.zone?.walk_order ?? Infinity;
+      const bw = b.zone?.walk_order ?? Infinity;
+      if (aw !== bw) return aw - bw;
+      return a.item.sort_order - b.item.sort_order;
+    });
 
   return {
     inspection: insp,
@@ -432,6 +453,26 @@ function IssueRow({ row }: { row: ResultWithItem }) {
           {row.item.category}
         </span>
         <div>
+          {row.zone && (
+            <div
+              style={{
+                fontSize: 10,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                color: 'var(--tide-deep)',
+                fontWeight: 600,
+                marginBottom: 4,
+              }}
+            >
+              {row.zone.name}
+              {row.zone.floor_label && (
+                <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>
+                  {' · '}
+                  {row.zone.floor_label}
+                </span>
+              )}
+            </div>
+          )}
           <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{row.item.title}</div>
           {row.result.notes && (
             <div style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}>
@@ -460,7 +501,7 @@ function CompactRow({ row, statusColor }: { row: ResultWithItem; statusColor: st
         fontSize: 12,
       }}
     >
-      <span style={{ color: 'var(--ink-4)' }}>{row.item.category}</span>
+      <span style={{ color: 'var(--ink-4)' }}>{row.zone?.name ?? row.item.category}</span>
       <span style={{ color: 'var(--ink-3)' }}>{row.item.title}</span>
       <span
         style={{

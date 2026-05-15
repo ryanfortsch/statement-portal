@@ -17,19 +17,34 @@ import type {
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
 
-type StepperItem = {
-  id: string;
+/**
+ * One deck card. For zone-mapped properties the same template item can
+ * appear multiple times with different zoneIds (e.g. three bathrooms);
+ * `cardKey` is a stable composite ID used for React state.
+ */
+type StepperCard = {
+  cardKey: string;
+  itemId: string;
+  zoneId: string | null;
   title: string;
   description: string | null;
   category: string;
   item_category: string | null;
+  zoneName: string | null;
+  zoneFloorLabel: string | null;
+  walkOrder: number | null;
 };
 
 type StepperResult = {
   item_id: string;
+  zone_id: string | null;
   status: InspectionStatus;
   notes: string | null;
 };
+
+function cardKeyOf(itemId: string, zoneId: string | null): string {
+  return `${itemId}::${zoneId ?? '_'}`;
+}
 
 type StepperNote = {
   id: string;
@@ -56,7 +71,7 @@ type Props = {
   propertyId: string;
   propertyName: string;
   inspectorName: string;
-  items: StepperItem[];
+  cards: StepperCard[];
   initialResults: StepperResult[];
   initialNotes?: StepperNote[];
   initialWorkSlips?: StepperWorkSlip[];
@@ -67,20 +82,22 @@ export function Stepper({
   propertyId,
   propertyName,
   inspectorName,
-  items,
+  cards,
   initialResults,
   initialNotes = [],
   initialWorkSlips = [],
 }: Props) {
   const router = useRouter();
   const [results, setResults] = useState<Map<string, StepperResult>>(
-    () => new Map(initialResults.map((r) => [r.item_id, r]))
+    () => new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r]))
   );
   const [notes, setNotesList] = useState<StepperNote[]>(initialNotes);
   const [workSlips, setWorkSlips] = useState<StepperWorkSlip[]>(initialWorkSlips);
   const [activeIdx, setActiveIdx] = useState<number>(() => {
-    const firstUnmarked = items.findIndex((i) => !initialResults.find((r) => r.item_id === i.id));
-    return firstUnmarked === -1 ? items.length : firstUnmarked;
+    const firstUnmarked = cards.findIndex(
+      (c) => !initialResults.find((r) => r.item_id === c.itemId && r.zone_id === c.zoneId),
+    );
+    return firstUnmarked === -1 ? cards.length : firstUnmarked;
   });
   const [, startTransition] = useTransition();
   const [isCompleting, setIsCompleting] = useState(false);
@@ -90,33 +107,38 @@ export function Stepper({
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showWorkSlipModal, setShowWorkSlipModal] = useState(false);
 
-  const total = items.length;
+  const total = cards.length;
   const markedCount = results.size;
   const showReview = activeIdx >= total;
-  const activeItem = !showReview ? items[activeIdx] : null;
-  const activeResult = activeItem ? results.get(activeItem.id) : null;
+  const activeCard = !showReview ? cards[activeIdx] : null;
+  const activeResult = activeCard ? results.get(activeCard.cardKey) : null;
 
-  // Notes / work slips for the active card (filtered from the full lists)
-  const activeNotes = activeItem
-    ? notes.filter((n) => n.inspection_item_id === activeItem.id)
+  // Notes / work slips for the active card. Keyed by inspection_item_id
+  // for now — if the same template item is on multiple zone cards, notes
+  // attached to it will surface on all of them. Per-zone scoping is a
+  // follow-up; the current behavior is conservative (more visibility,
+  // never less).
+  const activeNotes = activeCard
+    ? notes.filter((n) => n.inspection_item_id === activeCard.itemId)
     : [];
-  const activeWorkSlips = activeItem
-    ? workSlips.filter((ws) => ws.inspection_item_id === activeItem.id)
+  const activeWorkSlips = activeCard
+    ? workSlips.filter((ws) => ws.inspection_item_id === activeCard.itemId)
     : [];
 
-  function applyOptimistic(next: StepperResult) {
+  function applyOptimistic(card: StepperCard, next: StepperResult) {
     setResults((prev) => {
       const m = new Map(prev);
-      m.set(next.item_id, next);
+      m.set(card.cardKey, next);
       return m;
     });
   }
 
-  function persist(next: StepperResult) {
+  function persist(card: StepperCard, next: StepperResult) {
     startTransition(async () => {
       const res = await saveResult({
         inspectionId,
-        itemId: next.item_id,
+        itemId: card.itemId,
+        zoneId: card.zoneId,
         status: next.status,
         notes: next.notes,
       });
@@ -125,25 +147,26 @@ export function Stepper({
   }
 
   function mark(status: InspectionStatus) {
-    if (!activeItem) return;
+    if (!activeCard) return;
     setError(null);
     const next: StepperResult = {
-      item_id: activeItem.id,
+      item_id: activeCard.itemId,
+      zone_id: activeCard.zoneId,
       status,
       notes: activeResult?.notes ?? null,
     };
-    applyOptimistic(next);
-    persist(next);
+    applyOptimistic(activeCard, next);
+    persist(activeCard, next);
     // Advance after a beat so the user sees their mark register
     setTimeout(() => setActiveIdx((i) => Math.min(i + 1, total)), 180);
   }
 
   async function submitNote(text: string, asProperty: boolean, photoUrls: string[]): Promise<string | null> {
-    if (!activeItem) return 'No active card';
+    if (!activeCard) return 'No active card';
     const res = await addInspectionNote({
       inspectionId,
       propertyId,
-      itemId: activeItem.id,
+      itemId: activeCard.itemId,
       text,
       noteType: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
       photoUrls,
@@ -153,7 +176,7 @@ export function Stepper({
       ...prev,
       {
         id: res.id,
-        inspection_item_id: activeItem.id,
+        inspection_item_id: activeCard.itemId,
         note_text: text.trim() || '(photo)',
         note_type: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
         author_email: '',
@@ -172,11 +195,11 @@ export function Stepper({
     priority: WorkSlipPriority;
     photoUrls: string[];
   }): Promise<string | null> {
-    if (!activeItem) return 'No active card';
+    if (!activeCard) return 'No active card';
     const res = await createWorkSlipFromInspection({
       inspectionId,
       propertyId,
-      itemId: activeItem.id,
+      itemId: activeCard.itemId,
       title: input.title,
       description: input.description,
       location: input.location,
@@ -189,7 +212,7 @@ export function Stepper({
       ...prev,
       {
         id: res.id,
-        inspection_item_id: activeItem.id,
+        inspection_item_id: activeCard.itemId,
         title: input.title.trim(),
         category: input.category,
         priority: input.priority,
@@ -235,11 +258,11 @@ export function Stepper({
           </p>
 
           <div style={{ marginTop: 28, borderTop: '1px solid var(--ink)' }}>
-            {items.map((it, idx) => {
-              const r = results.get(it.id);
+            {cards.map((card, idx) => {
+              const r = results.get(card.cardKey);
               return (
                 <button
-                  key={it.id}
+                  key={card.cardKey}
                   type="button"
                   onClick={() => setActiveIdx(idx)}
                   style={{
@@ -260,7 +283,27 @@ export function Stepper({
                     {String(idx + 1).padStart(2, '0')}
                   </span>
                   <div>
-                    <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{it.title}</div>
+                    {card.zoneName && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          letterSpacing: '.18em',
+                          textTransform: 'uppercase',
+                          color: 'var(--tide-deep)',
+                          fontWeight: 600,
+                          marginBottom: 2,
+                        }}
+                      >
+                        {card.zoneName}
+                        {card.zoneFloorLabel && (
+                          <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>
+                            {' · '}
+                            {card.zoneFloorLabel}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{card.title}</div>
                     {r?.notes && (
                       <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
                         &ldquo;{r.notes}&rdquo;
@@ -299,7 +342,7 @@ export function Stepper({
   }
 
   // ─── Card screen ───────────────────────────────────────────────────
-  if (!activeItem) return null;
+  if (!activeCard) return null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -315,8 +358,42 @@ export function Stepper({
         className="max-w-[760px] mx-auto px-6 sm:px-10"
         style={{ paddingTop: 32, paddingBottom: 200, width: '100%', flex: 1 }}
       >
+        {activeCard.zoneName && (
+          <div
+            style={{
+              marginBottom: 16,
+              paddingBottom: 12,
+              borderBottom: '1px solid var(--rule-soft)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                letterSpacing: '.22em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-4)',
+                fontWeight: 500,
+                marginBottom: 4,
+              }}
+            >
+              {activeCard.walkOrder != null ? `Stop ${activeCard.walkOrder}` : 'Zone'}
+              {activeCard.zoneFloorLabel && ` · ${activeCard.zoneFloorLabel}`}
+            </div>
+            <div
+              className="font-serif"
+              style={{
+                fontSize: 22,
+                fontWeight: 400,
+                letterSpacing: '-0.01em',
+                color: 'var(--tide-deep)',
+              }}
+            >
+              {activeCard.zoneName}
+            </div>
+          </div>
+        )}
         <div className="eyebrow" style={{ marginBottom: 12 }}>
-          {(activeItem.item_category || 'EVERY_TIME').replaceAll('_', ' ')} &middot; {activeItem.category}
+          {(activeCard.item_category || 'EVERY_TIME').replaceAll('_', ' ')} &middot; {activeCard.category}
         </div>
         <h1
           className="font-serif"
@@ -328,11 +405,11 @@ export function Stepper({
             color: 'var(--ink)',
           }}
         >
-          {activeItem.title}
+          {activeCard.title}
         </h1>
-        {activeItem.description && (
+        {activeCard.description && (
           <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.5, color: 'var(--ink-3)' }}>
-            {activeItem.description}
+            {activeCard.description}
           </p>
         )}
 
@@ -455,9 +532,9 @@ export function Stepper({
       </section>
 
       {/* MODALS */}
-      {showNoteModal && activeItem && (
+      {showNoteModal && activeCard && (
         <NoteModal
-          itemTitle={activeItem.title}
+          itemTitle={activeCard.title}
           inspectionId={inspectionId}
           onClose={() => setShowNoteModal(false)}
           onSubmit={async (text, asProperty, photos) => {
@@ -468,9 +545,9 @@ export function Stepper({
           }}
         />
       )}
-      {showWorkSlipModal && activeItem && (
+      {showWorkSlipModal && activeCard && (
         <WorkSlipModal
-          itemTitle={activeItem.title}
+          itemTitle={activeCard.title}
           inspectionId={inspectionId}
           onClose={() => setShowWorkSlipModal(false)}
           onSubmit={async (input) => {

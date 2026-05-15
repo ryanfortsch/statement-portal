@@ -8,6 +8,9 @@ import type {
   InspectionItemRow,
   InspectionResultRow,
   InspectionNoteRow,
+  ItemCategory,
+  OrderedCard,
+  PropertyZoneRow,
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
@@ -17,10 +20,27 @@ export const dynamic = 'force-dynamic';
 
 type PropertyShape = { id: string; name: string; title: string | null; city: string };
 
+type StepperCardShape = {
+  cardKey: string; // stable composite of itemId + zoneId for keying React state
+  itemId: string;
+  zoneId: string | null;
+  title: string;
+  description: string | null;
+  category: string;
+  item_category: ItemCategory | null;
+  zoneName: string | null;
+  zoneFloorLabel: string | null;
+  walkOrder: number | null;
+};
+
+function cardKeyOf(itemId: string, zoneId: string | null): string {
+  return `${itemId}::${zoneId ?? '_'}`;
+}
+
 async function getInspection(id: string): Promise<{
   inspection: InspectionRow;
   property: PropertyShape;
-  items: InspectionItemRow[];
+  cards: StepperCardShape[];
   results: InspectionResultRow[];
 } | null> {
   const { data: inspection, error } = await supabase
@@ -32,48 +52,94 @@ async function getInspection(id: string): Promise<{
 
   const insp = inspection as InspectionRow;
 
-  // The deck for this inspection: 10 ordered item ids snapshotted at
-  // startInspection time. Older inspections (created before the deck
-  // system landed) won't have ordered_item_ids, so we fall back to the
-  // full template item list for those.
-  const deckIds = insp.ordered_item_ids ?? null;
+  // Increment 2 stores the deck as ordered_cards (array of {itemId, zoneId});
+  // older in-progress inspections only have ordered_item_ids. Build a unified
+  // OrderedCard[] from whichever is available.
+  let cards: OrderedCard[] = [];
+  if (Array.isArray(insp.ordered_cards) && insp.ordered_cards.length > 0) {
+    cards = insp.ordered_cards;
+  } else if (insp.ordered_item_ids && insp.ordered_item_ids.length > 0) {
+    cards = insp.ordered_item_ids.map((iid) => ({ itemId: iid, zoneId: null }));
+  }
 
-  const [{ data: property }, { data: items }, { data: results }] = await Promise.all([
-    supabase
-      .from('properties')
-      .select('id, name, title, city')
-      .eq('id', insp.property_id)
-      .maybeSingle(),
-    deckIds && deckIds.length > 0
-      ? supabase
-          .from('inspection_items')
-          .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
-          .in('id', deckIds)
-      : supabase
-          .from('inspection_items')
-          .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
-          .eq('template_id', insp.template_id)
-          .order('sort_order'),
-    supabase
-      .from('inspection_results')
-      .select('id, inspection_id, item_id, status, notes, photo_urls, created_at')
-      .eq('inspection_id', id),
-  ]);
+  const itemIds = Array.from(new Set(cards.map((c) => c.itemId)));
+  const zoneIds = Array.from(
+    new Set(cards.map((c) => c.zoneId).filter((z): z is string => !!z)),
+  );
+
+  const [{ data: property }, { data: items }, { data: results }, { data: zoneRows }] =
+    await Promise.all([
+      supabase
+        .from('properties')
+        .select('id, name, title, city')
+        .eq('id', insp.property_id)
+        .maybeSingle(),
+      itemIds.length > 0
+        ? supabase
+            .from('inspection_items')
+            .select(
+              'id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint',
+            )
+            .in('id', itemIds)
+        : supabase
+            .from('inspection_items')
+            .select(
+              'id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint',
+            )
+            .eq('template_id', insp.template_id)
+            .order('sort_order'),
+      supabase
+        .from('inspection_results')
+        .select(
+          'id, inspection_id, item_id, property_zone_id, status, notes, photo_urls, created_at',
+        )
+        .eq('inspection_id', id),
+      zoneIds.length > 0
+        ? supabase.from('property_zones').select('*').in('id', zoneIds)
+        : { data: [] as PropertyZoneRow[] },
+    ]);
 
   if (!property) return null;
 
-  let orderedItems = (items ?? []) as InspectionItemRow[];
-  if (deckIds && deckIds.length > 0) {
-    const itemMap = new Map(orderedItems.map((it) => [it.id, it]));
-    orderedItems = deckIds
-      .map((iid) => itemMap.get(iid))
-      .filter((x): x is InspectionItemRow => x != null);
+  // Fallback: no deck stored at all (very old inspection) — synthesize one
+  // from the template items so the stepper still renders something.
+  if (cards.length === 0) {
+    cards = ((items ?? []) as InspectionItemRow[]).map((it) => ({
+      itemId: it.id,
+      zoneId: null,
+    }));
   }
+
+  const itemMap = new Map<string, InspectionItemRow>();
+  for (const it of (items ?? []) as InspectionItemRow[]) itemMap.set(it.id, it);
+
+  const zoneMap = new Map<string, PropertyZoneRow>();
+  for (const z of (zoneRows ?? []) as PropertyZoneRow[]) zoneMap.set(z.id, z);
+
+  const stepperCards: StepperCardShape[] = cards
+    .map((c) => {
+      const it = itemMap.get(c.itemId);
+      if (!it) return null;
+      const z = c.zoneId ? zoneMap.get(c.zoneId) : null;
+      return {
+        cardKey: cardKeyOf(c.itemId, c.zoneId),
+        itemId: c.itemId,
+        zoneId: c.zoneId,
+        title: it.title,
+        description: it.description,
+        category: it.category,
+        item_category: it.item_category,
+        zoneName: z?.name ?? null,
+        zoneFloorLabel: z?.floor_label ?? null,
+        walkOrder: z?.walk_order ?? null,
+      };
+    })
+    .filter((c): c is StepperCardShape => c !== null);
 
   return {
     inspection: insp,
     property: property as PropertyShape,
-    items: orderedItems,
+    cards: stepperCards,
     results: (results ?? []) as InspectionResultRow[],
   };
 }
@@ -89,10 +155,8 @@ export default async function InspectionInProgressPage({
   const data = await getInspection(id);
   if (!data) notFound();
 
-  const { inspection, property, items, results } = data;
+  const { inspection, property, cards, results } = data;
 
-  // If already completed, jump straight to the summary so the inspector
-  // can't accidentally re-open the stepper for a finalized inspection.
   if (inspection.completed_at) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -113,8 +177,6 @@ export default async function InspectionInProgressPage({
     );
   }
 
-  // Pull notes + work slips already attached to this inspection so the
-  // stepper can show them as inline chips on the right cards.
   const [{ data: notesData }, { data: workSlipsData }] = await Promise.all([
     supabase
       .from('inspection_notes')
@@ -161,10 +223,6 @@ export default async function InspectionInProgressPage({
     photo_urls: ws.photo_urls ?? [],
   }));
 
-  // Mobile-first stepper takes over the viewport. The HelmMasthead is
-  // intentionally NOT rendered while in-progress so the inspector sees
-  // nothing extraneous while walking the property -- the stepper has its
-  // own minimal top bar (Exit + progress) and bottom action bar.
   return (
     <Stepper
       inspectionId={id}
@@ -173,15 +231,10 @@ export default async function InspectionInProgressPage({
       inspectorName={inspection.inspector_name}
       initialNotes={initialNotes}
       initialWorkSlips={initialWorkSlips}
-      items={items.map((it) => ({
-        id: it.id,
-        title: it.title,
-        description: it.description,
-        category: it.category,
-        item_category: it.item_category,
-      }))}
+      cards={cards}
       initialResults={results.map((r) => ({
         item_id: r.item_id,
+        zone_id: r.property_zone_id,
         status: r.status,
         notes: r.notes,
       }))}
