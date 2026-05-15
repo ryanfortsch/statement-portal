@@ -344,16 +344,14 @@ export function computeSmartForecast(
       // Pacing-up: scale booked Guesty revenue by portfolio multiplier.
       const scaledFromBookings = cell.revenue * mi.multiplier;
       const monthIdx = parseInt(ym.split('-')[1], 10) - 1;
-      // Layered fallback floor:
-      //   1. Property's actual revenue from same month last year (most accurate)
-      //   2. Annualized total × Gloucester seasonality share (for months
-      //      with no last-year activity — handles new onboards or sparse data)
-      const expectedFromLastYearMonth = baseline?.monthlyHistory[monthIdx] ?? 0;
-      const expectedFromAnnualized =
+      // Methodology baseline: property's annual gross (from statements)
+      // × that month's share of the Gloucester seasonality curve. Clean
+      // and consistent — assumes the property fills to its annual pace
+      // following the market's monthly distribution.
+      const expectedFromMethodology =
         (baseline?.annualGross ?? 0) * seasonalityShare[monthIdx];
-      const floor = Math.max(expectedFromLastYearMonth, expectedFromAnnualized);
-      // Take the larger of pacing-scaled bookings vs fallback floor.
-      const projectedGross = Math.max(scaledFromBookings, floor);
+      // Take the larger of pacing-scaled bookings vs methodology.
+      const projectedGross = Math.max(scaledFromBookings, expectedFromMethodology);
       const feeFraction = (p.mgmtFeePct ?? 0) / 100;
       return {
         month: ym,

@@ -82,108 +82,89 @@ export type PropertyBaseline = {
   monthlyHistory: number[]; // 12 entries, Jan..Dec
 };
 
+// Gloucester seasonality (occupancy share by month-of-year). Pulled
+// inline here so we can extrapolate partial-year statement data — if a
+// property only has 4 months of closed statements covering Jan-Apr, we
+// scale up by 1 / (share of year those 4 months represent) to estimate
+// the full annual.
+const GLOUCESTER_SEASONALITY = [
+  28.35, 46.12, 48.10, 54.09, 54.91, 63.39,
+  77.23, 78.77, 55.94, 64.72, 34.87, 36.18,
+];
+const GLOUCESTER_SUM = GLOUCESTER_SEASONALITY.reduce((s, v) => s + v, 0);
+
 export async function getPropertyAnnualBaselines(): Promise<Map<string, PropertyBaseline>> {
   if (!isConfigured) return new Map();
   try {
-    const today = new Date();
-    const yearAgo = new Date(today);
-    yearAgo.setDate(yearAgo.getDate() - 365);
-    const todayStr = today.toISOString().split('T')[0];
-    const yearAgoStr = yearAgo.toISOString().split('T')[0];
-
+    // Pull all available rental_revenue rows. property_statements is
+    // RT's authoritative reconciled monthly record — preferable to
+    // guesty_reservations for historicals because Guesty syncs forward
+    // bookings reliably but past stays can be sparse.
     const { data, error } = await supabase
-      .from('guesty_reservations')
-      .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
-      .gte('check_out', yearAgoStr)
-      .lt('check_in', todayStr);
+      .from('property_statements')
+      .select('property_id, month, rental_revenue');
     if (error) {
-      console.error('[property-baselines] guesty query failed:', error.message);
+      console.error('[property-baselines] statements query failed:', error.message);
       return new Map();
     }
 
     type Bucket = {
-      monthlyHistory: number[];
-      total: number;
-      earliest: string;
-      latest: string;
+      monthlyHistory: number[];      // index 0..11 = Jan..Dec; accumulates across years if multiple years of statements
+      monthlyHistoryCount: number[]; // how many statements contributed to each month
+      observedMonths: Set<string>;   // YYYY-MM strings seen for this property
     };
     const byProp = new Map<string, Bucket>();
 
-    const nightsBetween = (start: string, end: string): number => {
-      const ms = new Date(end).getTime() - new Date(start).getTime();
-      return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
-    };
-
-    for (const r of (data ?? []) as Array<{
+    for (const row of (data ?? []) as Array<{
       property_id: string | null;
-      check_in: string | null;
-      check_out: string | null;
-      status: string | null;
-      host_payout: number | null;
-      owner_net_revenue_guesty: number | null;
-      total_paid: number | null;
+      month: string | null;
+      rental_revenue: number | null;
     }>) {
-      if (!r.property_id || !r.check_in || !r.check_out) continue;
-      const status = (r.status || '').toLowerCase().replace(/_/g, '-');
-      if (
-        status.includes('cancel') ||
-        status.includes('declin') ||
-        status === 'inquiry' ||
-        status === 'expired'
-      ) {
-        continue;
-      }
-      const gross =
-        Number(r.host_payout ?? 0) ||
-        Number(r.owner_net_revenue_guesty ?? 0) ||
-        Number(r.total_paid ?? 0);
-      if (gross <= 0) continue;
-      const totalNights = nightsBetween(r.check_in, r.check_out);
-      if (totalNights <= 0) continue;
-      const perNight = gross / totalNights;
+      if (!row.property_id || !row.month) continue;
+      const rev = Number(row.rental_revenue ?? 0);
+      if (rev <= 0) continue;
+      const monthOfYear = parseInt(row.month.slice(5, 7), 10) - 1; // 0..11
+      if (Number.isNaN(monthOfYear) || monthOfYear < 0 || monthOfYear > 11) continue;
 
-      const bucket = byProp.get(r.property_id) ?? {
+      const bucket = byProp.get(row.property_id) ?? {
         monthlyHistory: Array(12).fill(0),
-        total: 0,
-        earliest: r.check_in,
-        latest: r.check_out,
+        monthlyHistoryCount: Array(12).fill(0),
+        observedMonths: new Set<string>(),
       };
-
-      // Walk this stay across months and bucket nights × perNight.
-      let cursor = new Date(r.check_in);
-      const checkOut = new Date(r.check_out);
-      while (cursor < checkOut) {
-        const cy = cursor.getFullYear();
-        const cm = cursor.getMonth();
-        const monthStart = new Date(cy, cm, 1);
-        const monthEnd = new Date(cy, cm + 1, 1);
-        const overlapStart = cursor > monthStart ? cursor : monthStart;
-        const overlapEnd = checkOut < monthEnd ? checkOut : monthEnd;
-        const nights = nightsBetween(
-          overlapStart.toISOString().split('T')[0],
-          overlapEnd.toISOString().split('T')[0],
-        );
-        if (nights > 0) {
-          bucket.monthlyHistory[cm] += perNight * nights;
-          bucket.total += perNight * nights;
-        }
-        cursor = monthEnd;
-      }
-
-      if (r.check_in < bucket.earliest) bucket.earliest = r.check_in;
-      if (r.check_out > bucket.latest) bucket.latest = r.check_out;
-      byProp.set(r.property_id, bucket);
+      bucket.monthlyHistory[monthOfYear] += rev;
+      bucket.monthlyHistoryCount[monthOfYear] += 1;
+      bucket.observedMonths.add(row.month);
+      byProp.set(row.property_id, bucket);
     }
 
     const baselines = new Map<string, PropertyBaseline>();
-    for (const [propId, { monthlyHistory, total }] of byProp) {
-      // Trailing 12 months of observed revenue, no extrapolation. For
-      // properties active the whole year, this is their actual annual.
-      // For properties activated mid-window (new onboards), this is the
-      // partial-year actual — under-projects them slightly until they have
-      // a full year of history, which is fine and self-correcting.
-      const annualGross = total;
-      baselines.set(propId, { annualGross, monthlyHistory });
+    for (const [propId, { monthlyHistory, monthlyHistoryCount, observedMonths }] of byProp) {
+      // Average across multiple statement years for a given month-of-year
+      // (e.g. Nov 2025 + Nov 2024 → averaged) so the projection isn't
+      // skewed by a single hot month.
+      const avgMonthly = monthlyHistory.map((sum, i) =>
+        monthlyHistoryCount[i] > 0 ? sum / monthlyHistoryCount[i] : 0,
+      );
+
+      // Annualize the observed data. Sum the avg-monthly values for
+      // months we actually have data for, divide by the Gloucester
+      // seasonality share those months represent, → full-year estimate.
+      const monthsObservedSet = new Set<number>();
+      for (const ym of observedMonths) {
+        const moy = parseInt(ym.slice(5, 7), 10) - 1;
+        if (!Number.isNaN(moy)) monthsObservedSet.add(moy);
+      }
+      const observedSum = Array.from(monthsObservedSet).reduce(
+        (s, i) => s + avgMonthly[i],
+        0,
+      );
+      const observedShare = Array.from(monthsObservedSet).reduce(
+        (s, i) => s + GLOUCESTER_SEASONALITY[i] / GLOUCESTER_SUM,
+        0,
+      );
+      const annualGross = observedShare > 0 ? observedSum / observedShare : observedSum;
+
+      baselines.set(propId, { annualGross, monthlyHistory: avgMonthly });
     }
     return baselines;
   } catch (err) {

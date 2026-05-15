@@ -512,11 +512,13 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
         Per property × per month, the projection takes the larger of:
         (a) <em>Pacing scale-up</em> — current Guesty bookings × (Gloucester
         historical occupancy ÷ portfolio pacing this month, floored at 1×); or
-        (b) <em>Annual × seasonality</em> — the property&apos;s trailing-12-month
-        gross from Guesty, multiplied by that month&apos;s share of the Gloucester
-        annual occupancy curve. A property earning \$130K trailing year with Nov
-        share at 5.4% projects \$7K Nov gross, regardless of current bookings.
-        The mgmt fee column is gross × that property&apos;s mgmt fee %.
+        (b) <em>Annual × seasonality</em> — the property&apos;s expected annual
+        gross (from <code>property_statements</code> rental_revenue,
+        extrapolated to a full year using Gloucester seasonality if fewer than
+        12 closed months exist) × that month&apos;s share of the Gloucester
+        annual occupancy curve. A property earning \$130K expected annual with
+        Nov share at 5.4% projects \$7K Nov gross, regardless of current
+        bookings. The mgmt fee column is gross × that property&apos;s fee %.
       </div>
     </div>
   );
