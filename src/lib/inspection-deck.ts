@@ -2,21 +2,28 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type {
   InspectionItemRow,
   ItemCategory,
+  OrderedCard,
   SeasonMode,
 } from './inspections-types';
 
 /**
- * Helm-native port of Perfection's `inspectionOrdering.ts`. Generates the
- * 10-card deck for a property's next inspection.
+ * Generates the deck for a property's next inspection.
  *
- * Composition (hard rules):
- *   - Exactly 10 cards (MAX_DECK_SIZE)
- *   - 7 EVERY_TIME items (always picked, in template sort_order)
- *   - 3 NICE_TO_HAVE items (rotated by priority then oldest-completed)
- *   - Optionally 1 INTERMITTENT item (replaces a NICE_TO_HAVE slot when
- *     all three conditions hold: at least one DUE based on interval_days
- *     since last completion; spacing of >= 4 inspections since last
- *     intermittent on this property; season_constraint allows it)
+ * Two modes:
+ *   - **Zone-driven** (preferred): if the property has zones with at
+ *     least one item assignment, expand the deck as (zone, item) cards
+ *     in walk_order. A single template item can repeat across zones,
+ *     so a property with three bathrooms produces three bathroom cards
+ *     in the order an inspector physically walks the property.
+ *   - **Fallback (Helm Core 12)**: if the property isn't mapped yet,
+ *     fall back to the original 7+3 composition:
+ *       * 7 EVERY_TIME items (always picked, in template sort_order)
+ *       * 3 NICE_TO_HAVE items (rotated by priority then oldest-completed)
+ *       * Optionally 1 INTERMITTENT item (replaces a NICE_TO_HAVE slot
+ *         when DUE + spacing + season constraints all hold)
+ *
+ * Both modes return the same DeckResult shape; zone-driven cards carry
+ * a zoneId while fallback cards have zoneId: null.
  */
 
 const MAX_DECK_SIZE = 10;
@@ -35,12 +42,15 @@ type DeckItem = Pick<
 };
 
 export type DeckResult = {
-  itemIds: string[];
-  items: DeckItem[];
+  cards: OrderedCard[];
+  itemIds: string[]; // legacy column kept in sync for back-compat
   composition: {
-    everyTimeCount: number;
-    niceToHaveCount: number;
-    intermittentCount: number;
+    mode: 'zone-driven' | 'fallback';
+    cardCount: number;
+    zoneCount?: number;
+    everyTimeCount?: number;
+    niceToHaveCount?: number;
+    intermittentCount?: number;
   };
 };
 
@@ -51,10 +61,84 @@ export async function generateDeck(args: {
 }): Promise<DeckResult> {
   const sb = args.client ?? defaultClient();
 
+  // First check whether the property has a usable zone mapping. We
+  // consider a mapping usable when at least one zone has at least one
+  // item assigned; otherwise we drop straight to the fallback so an
+  // empty layout page doesn't strand the inspector.
+  const { data: zoneRows } = await sb
+    .from('property_zones')
+    .select('id, walk_order')
+    .eq('property_id', args.propertyId)
+    .order('walk_order', { ascending: true });
+  const zones = (zoneRows ?? []) as Array<{ id: string; walk_order: number }>;
+
+  if (zones.length > 0) {
+    const { data: zoneItemRows } = await sb
+      .from('property_zone_items')
+      .select('property_zone_id, inspection_item_id')
+      .in(
+        'property_zone_id',
+        zones.map((z) => z.id),
+      );
+    const zoneItems = (zoneItemRows ?? []) as Array<{
+      property_zone_id: string;
+      inspection_item_id: string;
+    }>;
+
+    if (zoneItems.length > 0) {
+      // Pull the items so we can keep within-zone order stable (by
+      // template sort_order). The deck walks zones in walk_order; within
+      // each zone, items are ordered by their template sort_order.
+      const itemIds = Array.from(new Set(zoneItems.map((zi) => zi.inspection_item_id)));
+      const { data: itemRows } = await sb
+        .from('inspection_items')
+        .select('id, sort_order')
+        .in('id', itemIds);
+      const sortByItem = new Map<string, number>(
+        ((itemRows ?? []) as Array<{ id: string; sort_order: number }>).map((r) => [
+          r.id,
+          r.sort_order,
+        ]),
+      );
+
+      const byZone = new Map<string, string[]>();
+      for (const zi of zoneItems) {
+        const list = byZone.get(zi.property_zone_id) ?? [];
+        list.push(zi.inspection_item_id);
+        byZone.set(zi.property_zone_id, list);
+      }
+      for (const [zoneId, items] of byZone) {
+        items.sort((a, b) => (sortByItem.get(a) ?? 0) - (sortByItem.get(b) ?? 0));
+        byZone.set(zoneId, items);
+      }
+
+      const cards: OrderedCard[] = [];
+      for (const zone of zones) {
+        const items = byZone.get(zone.id) ?? [];
+        for (const itemId of items) {
+          cards.push({ itemId, zoneId: zone.id });
+        }
+      }
+
+      return {
+        cards,
+        itemIds: cards.map((c) => c.itemId),
+        composition: {
+          mode: 'zone-driven',
+          cardCount: cards.length,
+          zoneCount: zones.length,
+        },
+      };
+    }
+  }
+
+  // ─── Fallback: Helm Core 12 deck ────────────────────────────────────
   const [{ data: items }, { data: property }, { data: history }] = await Promise.all([
     sb
       .from('inspection_items')
-      .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
+      .select(
+        'id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint',
+      )
       .eq('template_id', args.templateId)
       .order('sort_order'),
     sb
@@ -73,13 +157,14 @@ export async function generateDeck(args: {
   }
 
   const seasonMode: SeasonMode = (property?.season_mode as SeasonMode) || 'ACTIVE';
-  const inspectionsSinceLastIntermittent: number = property?.inspections_since_last_intermittent ?? 999;
+  const inspectionsSinceLastIntermittent: number =
+    property?.inspections_since_last_intermittent ?? 999;
 
   const historyMap = new Map<string, Date>();
   for (const h of history ?? []) {
     historyMap.set(
       (h as { inspection_item_id: string }).inspection_item_id,
-      new Date((h as { last_completed_at: string }).last_completed_at)
+      new Date((h as { last_completed_at: string }).last_completed_at),
     );
   }
 
@@ -155,15 +240,24 @@ export async function generateDeck(args: {
     if (add(intermittentSlot)) intermittentCount = 1;
   }
 
+  const cards: OrderedCard[] = deck.map((it) => ({ itemId: it.id, zoneId: null }));
+
   return {
-    itemIds: deck.map((i) => i.id),
-    items: deck,
-    composition: { everyTimeCount, niceToHaveCount, intermittentCount },
+    cards,
+    itemIds: cards.map((c) => c.itemId),
+    composition: {
+      mode: 'fallback',
+      cardCount: cards.length,
+      everyTimeCount,
+      niceToHaveCount,
+      intermittentCount,
+    },
   };
 }
 
 function defaultClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
   return createClient(url, key);
 }

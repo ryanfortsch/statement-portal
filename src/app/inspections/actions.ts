@@ -40,6 +40,7 @@ export async function startInspection(formData: FormData) {
       inspector_email: session.user.email,
       inspector_name: inspectorName,
       ordered_item_ids: deck.itemIds,
+      ordered_cards: deck.cards,
     })
     .select('id')
     .single();
@@ -58,6 +59,7 @@ export async function startInspection(formData: FormData) {
 export async function saveResult(args: {
   inspectionId: string;
   itemId: string;
+  zoneId: string | null;
   status: InspectionStatus;
   notes: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -74,10 +76,11 @@ export async function saveResult(args: {
       {
         inspection_id: args.inspectionId,
         item_id: args.itemId,
+        property_zone_id: args.zoneId,
         status: args.status,
         notes: args.notes || null,
       },
-      { onConflict: 'inspection_id,item_id' }
+      { onConflict: 'inspection_id,item_id,property_zone_id' }
     );
 
   if (error) return { ok: false, error: error.message };
