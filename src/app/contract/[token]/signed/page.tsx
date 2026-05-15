@@ -22,10 +22,20 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
 
   const greeting = prospect.prospect_first_names || prospect.prospect_first_name || 'there';
   const signedAt = prospect.contract_signed_at
-    ? new Date(prospect.contract_signed_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })
+    ? new Date(prospect.contract_signed_at).toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'America/New_York',
+      })
     : null;
   const signedName = prospect.contract_signed_name;
   const onboardingDone = !!prospect.onboarding_submitted_at;
+  // Download link to the signed contract PDF. Uses the same public
+  // API route Helm staff use internally (/api/projection-pdf), which
+  // renders on demand reflecting whatever signature state is in the DB
+  // right now (owner-signed state at this moment; will become fully
+  // executed once Allie countersigns).
+  const downloadHref = `/api/projection-pdf?id=${encodeURIComponent(prospect.id)}&type=contract`;
 
   return (
     <>
@@ -52,8 +62,14 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
           <div className="rt-th-rule" />
 
           <p>
-            Allie will email you a signed copy for your records within one business day. The contract is now on file with Rising Tide.
+            A signed copy has been emailed to you for your records. Allie will countersign within one business day and send back the fully executed version.
           </p>
+
+          <div className="rt-th-actions">
+            <a href={downloadHref} className="rt-th-download" download>
+              Download a copy &rarr;
+            </a>
+          </div>
 
           {!onboardingDone && (
             <div className="rt-th-next">
@@ -112,16 +128,40 @@ const thanksCss = `
   .rt-th-card h1 {
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 56px;
-    line-height: 1.05;
+    line-height: 1.1;
     font-weight: 300;
     letter-spacing: -0.025em;
     color: var(--ink);
-    margin: 14px 0 0;
+    /* Bottom margin (28px) gives the audit stamp room to clear the
+       descenders on "Thank you, [Name]," — 14px was too tight and the
+       comma's descender visually touched the next line. */
+    margin: 14px 0 28px;
   }
-  .rt-th-stamp { margin: 14px 0 0; font-size: 12px; color: var(--ink-4); letter-spacing: 0.04em; line-height: 1.5; }
+  .rt-th-stamp { margin: 0; font-size: 12px; color: var(--ink-4); letter-spacing: 0.04em; line-height: 1.5; }
   .rt-th-stamp strong { color: var(--ink); }
   .rt-th-rule { width: 56px; height: 2px; background: var(--signal); margin: 36px 0 28px; }
   .rt-th-card p { margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: var(--ink); max-width: 560px; }
+
+  /* Download a copy of the signed PDF. Same visual treatment as the
+     "Complete the onboarding form" button so the two CTAs read as a
+     coherent set on this confirmation page. */
+  .rt-th-actions {
+    margin: 8px 0 28px;
+  }
+  .rt-th-download {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 12px 22px;
+    text-decoration: none;
+  }
+  .rt-th-download:hover {
+    background: var(--signal);
+  }
 
   .rt-th-next {
     margin: 28px 0;
