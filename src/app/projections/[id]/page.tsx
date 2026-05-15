@@ -7,6 +7,7 @@ import { ContractRedlinesPanel } from '@/components/projections/ContractRedlines
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
+import { CopyLinkButton, CountersignButton } from '@/components/projections/SigningButtons';
 import {
   Pipeline,
   Stage,
@@ -523,6 +524,34 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
         </p>
       )}
       <LinkRow link={link} />
+      {/* Once the owner has signed, surface a download for the signed
+          PDF directly here (otherwise staff have to dig through the
+          onboarding@ inbox to get a fresh copy). The DOWNLOAD CONTRACT
+          button in stage 02 also works — same /api/projection-pdf
+          endpoint — but having it inline with the signed state is more
+          discoverable. */}
+      {signedAt && (
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            href={`/api/projection-pdf?id=${projection.id}&type=contract`}
+            target="_blank"
+            style={{
+              background: 'transparent',
+              color: 'var(--ink)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              padding: '9px 16px',
+              border: '1px solid var(--ink)',
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ↓ Download {countersignedAt ? 'fully executed' : 'signed'} PDF
+          </Link>
+        </div>
+      )}
     </>
   );
 }
@@ -548,25 +577,9 @@ function CountersignRow({ projectionId }: { projectionId: string }) {
         background: 'var(--paper-2)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 460 }}>
-          The owner has signed. Click to add Allie&rsquo;s countersignature and email the owner the fully executed contract (you&rsquo;ll be CC&rsquo;d).
+          The owner has signed. Click to add Allie&rsquo;s countersignature and email the owner the fully executed contract (you&rsquo;ll be CC&rsquo;d). The send takes ~10 seconds while the PDF re-renders with both signatures.
         </div>
-        <button
-          type="submit"
-          style={{
-            background: 'var(--ink)',
-            color: 'var(--paper)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            padding: '12px 18px',
-            border: 'none',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Countersign &amp; send
-        </button>
+        <CountersignButton />
       </div>
     </form>
   );
@@ -830,6 +843,13 @@ function DeliverableActions({
 
 /** Public-link row used by Signed + Onboarding stages — code box + Open ↗. */
 function LinkRow({ link }: { link: string }) {
+  // The link is an absolute path (e.g. /contract/<token>). For the
+  // Copy button we want the FULL URL with protocol+host so paste-into-
+  // email yields a clickable link. resolve at server-render time via
+  // the public site domain — falls back to the relative path if the
+  // env var isn't set (dev / local).
+  const base = process.env.NEXT_PUBLIC_HELM_ORIGIN || 'https://statements.risingtidestr.com';
+  const fullUrl = link.startsWith('http') ? link : `${base}${link}`;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
       <code
@@ -847,6 +867,7 @@ function LinkRow({ link }: { link: string }) {
       >
         {link}
       </code>
+      <CopyLinkButton text={fullUrl} />
       <Link
         href={link}
         target="_blank"
