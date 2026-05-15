@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';
+import { SignSubmitButton } from '@/components/projections/SigningButtons';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +64,7 @@ function SignForm({ token, prefillName }: { token: string; prefillName: string }
           <span className="rt-sign-hint">Your typed name serves as your legally binding signature.</span>
         </label>
 
-        <button type="submit" className="rt-sign-btn">Sign and submit</button>
+        <SignSubmitButton />
 
         <p className="rt-sign-foot">
           Questions before signing? Email <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or call (978) 865-2387.
