@@ -416,6 +416,12 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </span>
           )}
         </div>
+        {/* Guest + channel + optional gap context. Gap is folded into this
+            line (rather than its own row) so it stays understated and so
+            narrow middle columns — where the right side stacks Plan +
+            Start Inspection buttons — don't wrap the gap text across
+            multiple lines. Same-day turnovers skip the inline gap and
+            use the signal-colored banner below instead. */}
         <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.4 }}>
           {t.guestName || 'Unnamed guest'}
           {t.channel && (
@@ -424,13 +430,20 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
               <span style={{ color: 'var(--ink-3)' }}>{t.channel}</span>
             </>
           )}
+          {!t.isSameDayTurnover && gapDays != null && gapDays >= 1 && t.previousCheckout && (
+            <span
+              style={{ color: 'var(--ink-4)' }}
+              title={`Last guest checked out ${t.previousCheckout}`}
+            >
+              {' · '}
+              {gapDays}d clear since {formatDateShort(t.previousCheckout)}
+            </span>
+          )}
         </div>
-        {/* Same-day turnover gets a visible signal-colored banner. The
-            non-same-day case gets a quiet grey gap line so the operator
-            can tell at a glance whether the property is a tight turn or
-            has been sitting clean for days — without making every row
-            shout. Both share the same slot below the guest line. */}
-        {t.isSameDayTurnover ? (
+        {/* Same-day turnover keeps its loud signal banner — it's a real
+            urgency signal worth its own line. Non-same-day gap context
+            lives inline (above) so it never adds row height. */}
+        {t.isSameDayTurnover && (
           <div
             className="rt-turnover-prev rt-turnover-prev-sameday"
             style={{
@@ -442,20 +455,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           >
             Tight turnaround · previous guest checks out today
           </div>
-        ) : gapDays != null && gapDays >= 1 && t.previousCheckout ? (
-          <div
-            className="rt-turnover-prev"
-            style={{
-              marginTop: 2,
-              fontSize: 11,
-              color: 'var(--ink-4)',
-              fontWeight: 400,
-            }}
-            title={`Last guest checked out ${t.previousCheckout}`}
-          >
-            Last guest {formatDateShort(t.previousCheckout)} · {gapDays}-day gap
-          </div>
-        ) : null}
+        )}
       </div>
 
       {/* Status chips: work slips + cleaning + inspection on a single
