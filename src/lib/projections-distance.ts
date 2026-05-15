@@ -20,7 +20,7 @@
 
 const HQ_LAT = 42.6209;
 const HQ_LNG = -70.6450;
-const USER_AGENT = 'Helm-Projections/1.0 (https://statements.risingtidestr.com)';
+const USER_AGENT = 'Helm-Projections/1.0 (https://helm.risingtidestr.com)';
 
 type Coords = { lat: number; lng: number };
 

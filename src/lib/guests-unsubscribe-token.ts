@@ -86,7 +86,7 @@ export function unsubscribeUrl(
   const base =
     process.env.NEXT_PUBLIC_HELM_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
-    'https://statements.risingtidestr.com';
+    'https://helm.risingtidestr.com';
   const t = createUnsubscribeToken(contactId, campaignId);
   return `${base}/api/guests/unsubscribe?t=${encodeURIComponent(t)}`;
 }
