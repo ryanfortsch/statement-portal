@@ -58,6 +58,17 @@ export type BriefInspection = {
   startedAt: string | null;
 };
 
+export type BriefEmail = {
+  id: string;
+  threadId: string;
+  fromName: string | null;
+  fromEmail: string | null;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  ageHours: number;
+};
+
 export type BriefProspect = {
   id: string;
   prospectName: string;
@@ -78,15 +89,18 @@ export type DailyBrief = {
   ownerActionSlips: WorkSlipRow[];
   dueTasks: TaskRow[];
   inboundWaiting: BriefInboundTouch[];
+  unreadEmails: BriefEmail[];
   unresolvedDataGaps: BriefDataGap[];
   pendingApprovals: Approval[];
   activeProspects: BriefProspect[];
   stayConciergeConfigured: boolean;
   lastGmailSyncAt: string | null;
+  gmailConfigured: boolean;
   totals: {
     activeSlips: number;
     activeTasks: number;
     waitingReplies: number;
+    unread: number;
     dataGaps: number;
     approvals: number;
     inspectionsToday: number;
@@ -102,6 +116,98 @@ function daysBetween(fromIso: string, toIso: string): number {
   const a = new Date(`${fromIso.slice(0, 10)}T00:00:00Z`).getTime();
   const b = new Date(`${toIso.slice(0, 10)}T00:00:00Z`).getTime();
   return Math.round((b - a) / 86_400_000);
+}
+
+function gmailConfigured(): boolean {
+  return Boolean(
+    process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN,
+  );
+}
+
+async function getGmailAccessToken(): Promise<string | null> {
+  if (!gmailConfigured()) return null;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GMAIL_CLIENT_ID!,
+      client_secret: process.env.GMAIL_CLIENT_SECRET!,
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN!,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { access_token?: string };
+  return data.access_token ?? null;
+}
+
+type GmailHeader = { name: string; value: string };
+
+function parseFrom(header: string | null): { name: string | null; email: string | null } {
+  if (!header) return { name: null, email: null };
+  const match = header.match(/^(.*?)\s*<([^>]+)>\s*$/);
+  if (match) {
+    const name = match[1].replace(/^"|"$/g, '').trim() || null;
+    return { name, email: match[2].trim().toLowerCase() };
+  }
+  const bare = header.trim();
+  if (bare.includes('@')) return { name: null, email: bare.toLowerCase() };
+  return { name: bare || null, email: null };
+}
+
+// Top unread inbox messages from Gmail, surfaced directly so the brief
+// shows actual emails — not just inbound from CRM-known contacts.
+// Filters out promotional / social tabs by query, since those bury the
+// signal the operator cares about.
+async function loadUnreadEmails(): Promise<BriefEmail[]> {
+  const token = await getGmailAccessToken();
+  if (!token) return [];
+
+  const q = 'is:unread in:inbox -category:promotions -category:social -category:updates newer_than:14d';
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(q)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!listRes.ok) return [];
+  const listData = (await listRes.json()) as { messages?: Array<{ id: string; threadId: string }> };
+  const stubs = listData.messages ?? [];
+  if (!stubs.length) return [];
+
+  const detailed = await Promise.all(
+    stubs.map(async stub => {
+      const detailRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${stub.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!detailRes.ok) return null;
+      const data = (await detailRes.json()) as {
+        id: string;
+        threadId: string;
+        internalDate?: string;
+        snippet?: string;
+        payload?: { headers?: GmailHeader[] };
+      };
+      const headers = data.payload?.headers ?? [];
+      const get = (n: string) => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value ?? null;
+      const { name, email } = parseFrom(get('from'));
+      const receivedMs = Number(data.internalDate ?? '0');
+      const receivedAt = new Date(receivedMs || Date.now()).toISOString();
+      const ageHours = Math.max(0, Math.round((Date.now() - (receivedMs || Date.now())) / 3_600_000));
+      return {
+        id: data.id,
+        threadId: data.threadId,
+        fromName: name,
+        fromEmail: email,
+        subject: get('subject') ?? '(no subject)',
+        snippet: (data.snippet ?? '').slice(0, 200),
+        receivedAt,
+        ageHours,
+      } as BriefEmail;
+    }),
+  );
+  const emails: BriefEmail[] = detailed.filter((e): e is BriefEmail => e !== null);
+  emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
+  return emails;
 }
 
 export async function loadDailyBrief(): Promise<DailyBrief> {
@@ -165,6 +271,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { data: inspectionsToday },
     { data: prospects },
     { data: syncRows },
+    unreadEmails,
   ] = await Promise.all([
     supabase.from('properties').select('id, name').eq('is_active', true),
     supabase
@@ -221,6 +328,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
       .order('created_at', { ascending: false }),
     supabase.from('sync_status').select('source, last_synced_at'),
+    loadUnreadEmails().catch(() => [] as BriefEmail[]),
   ]);
 
   const propertyById = new Map<string, string>();
@@ -368,15 +476,18 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     ownerActionSlips,
     dueTasks,
     inboundWaiting,
+    unreadEmails,
     unresolvedDataGaps,
     pendingApprovals,
     activeProspects,
     stayConciergeConfigured: scConfigured,
     lastGmailSyncAt,
+    gmailConfigured: gmailConfigured(),
     totals: {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
       waitingReplies: inboundWaiting.length,
+      unread: unreadEmails.length,
       dataGaps: unresolvedDataGaps.length,
       approvals: pendingApprovals.length,
       inspectionsToday: inspectionsCompletedToday.length,
@@ -388,10 +499,10 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
 export function briefHeadline(brief: DailyBrief): string {
   const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
   const bits: string[] = [];
-  if (brief.totals.waitingReplies) bits.push(`${brief.totals.waitingReplies} reply needed`);
+  if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
+  if (brief.totals.unread) bits.push(`${brief.totals.unread} unread email${brief.totals.unread === 1 ? '' : 's'}`);
   if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);
   if (brief.checkoutsToday.length) bits.push(`${brief.checkoutsToday.length} checkout${brief.checkoutsToday.length === 1 ? '' : 's'}`);
-  if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
   if (draftProspects) bits.push(`${draftProspects} prospect draft${draftProspects === 1 ? '' : 's'}`);
   if (!bits.length) return 'Clear deck. Have a great day.';
   return bits.join(', ');
