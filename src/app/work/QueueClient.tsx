@@ -618,12 +618,10 @@ function PropertyGroup({
           flexWrap: 'wrap',
         }}
       >
-        <span
-          className="font-mono"
-          style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em', width: 24 }}
-        >
-          {String(slips.length).padStart(2, '0')}
-        </span>
+        {/* The leading mono "07" used to render here as the slip count
+            padded to two digits. It looked like a stable property rank
+            but was actually duplicating the count that already appears
+            on the right side of the row (next to + SLIP). Dropped. */}
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
