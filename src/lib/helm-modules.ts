@@ -73,7 +73,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Properties',
     description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'projections',
@@ -82,7 +82,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Prospects',
     description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract — all from the same shared inputs.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'crm',
@@ -100,7 +100,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Messaging',
     description: 'Guest message drafts awaiting approval. Approve, reject, or coach the AI right from Helm. Backed by the Stay Concierge service.',
     status: 'active',
-    primary: true,
+    primary: false,
   },
   {
     id: 'guest-intel',
@@ -188,10 +188,14 @@ export const HELM_MODULES: HelmModule[] = [
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
  * array order so the master list can stay in module-number order while
- * the nav shows the four daily-flow tabs in the order Dotti reads them
- * left-to-right.
+ * the nav shows the three daily-flow tabs in the order Dotti reads them
+ * left-to-right: Today (the morning launchpad), Turnovers (the ops
+ * pipeline), Work (the persistent backlog board). Messaging /
+ * Properties / Prospects / Inspections all sit one click away in More
+ * because they're either push-driven (Messaging notifies you) or
+ * lookup-driven (you go there knowing what you want).
  */
-const PRIMARY_ORDER: string[] = ['work', 'operations', 'messaging', 'properties', 'projections'];
+const PRIMARY_ORDER: string[] = ['today', 'operations', 'work'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
