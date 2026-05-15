@@ -50,23 +50,47 @@ export type BriefDataGap = {
   severity: string | null;
 };
 
+export type BriefInspection = {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  completedAt: string | null;
+  startedAt: string | null;
+};
+
+export type BriefProspect = {
+  id: string;
+  prospectName: string;
+  propertyAddress: string;
+  propertyCity: string | null;
+  status: 'draft' | 'sent';
+  sentAt: string | null;
+  closeLikelihoodPct: number | null;
+  daysSinceSent: number | null;
+};
+
 export type DailyBrief = {
   date: string;
   checkoutsToday: BriefStay[];
   checkinsToday: BriefStay[];
+  inspectionsCompletedToday: BriefInspection[];
   highPrioritySlips: WorkSlipRow[];
   ownerActionSlips: WorkSlipRow[];
   dueTasks: TaskRow[];
   inboundWaiting: BriefInboundTouch[];
   unresolvedDataGaps: BriefDataGap[];
   pendingApprovals: Approval[];
+  activeProspects: BriefProspect[];
   stayConciergeConfigured: boolean;
+  lastGmailSyncAt: string | null;
   totals: {
     activeSlips: number;
     activeTasks: number;
     waitingReplies: number;
     dataGaps: number;
     approvals: number;
+    inspectionsToday: number;
+    activeProspects: number;
   };
 };
 
@@ -113,6 +137,22 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     property_statements: StatementJoin | StatementJoin[] | null;
   };
 
+  type InspectionPick = { id: string; property_id: string; started_at: string | null; completed_at: string | null };
+  type ProspectPick = {
+    id: string;
+    prospect_name: string;
+    property_address: string;
+    property_city: string | null;
+    status: 'draft' | 'sent';
+    sent_at: string | null;
+    close_likelihood_pct: number | null;
+    created_at: string;
+  };
+  type SyncStatusPick = { source: string; last_synced_at: string | null };
+
+  // 30-day cutoff for "recently sent" prospects still awaiting response.
+  const prospectCutoffIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
+
   const [
     { data: properties },
     { data: slips },
@@ -122,6 +162,9 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { data: touches },
     { data: contacts },
     { data: gaps },
+    { data: inspectionsToday },
+    { data: prospects },
+    { data: syncRows },
   ] = await Promise.all([
     supabase.from('properties').select('id, name').eq('is_active', true),
     supabase
@@ -163,6 +206,21 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .eq('resolved', false)
       .order('id', { ascending: false })
       .limit(50),
+    supabase
+      .from('inspections')
+      .select('id, property_id, started_at, completed_at')
+      .gte('completed_at', `${todayIso}T00:00:00`)
+      .lte('completed_at', `${todayIso}T23:59:59.999`)
+      .order('completed_at', { ascending: false }),
+    // Drafts (need-to-send) + recently-sent (awaiting response). Older
+    // sent prospects are still in the funnel but don't surface in the
+    // morning brief.
+    supabase
+      .from('projections')
+      .select('id, prospect_name, property_address, property_city, status, sent_at, close_likelihood_pct, created_at')
+      .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
+      .order('created_at', { ascending: false }),
+    supabase.from('sync_status').select('source, last_synced_at'),
   ]);
 
   const propertyById = new Map<string, string>();
@@ -264,34 +322,78 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     }
   }
 
+  const inspectionsCompletedToday: BriefInspection[] = ((inspectionsToday ?? []) as InspectionPick[]).map(i => ({
+    id: i.id,
+    propertyId: i.property_id,
+    propertyName: propertyById.get(i.property_id) ?? i.property_id,
+    completedAt: i.completed_at,
+    startedAt: i.started_at,
+  }));
+
+  const activeProspects: BriefProspect[] = ((prospects ?? []) as ProspectPick[]).map(p => {
+    const daysSinceSent = p.sent_at
+      ? daysBetween(p.sent_at, new Date().toISOString())
+      : null;
+    return {
+      id: p.id,
+      prospectName: p.prospect_name,
+      propertyAddress: p.property_address,
+      propertyCity: p.property_city,
+      status: p.status,
+      sentAt: p.sent_at,
+      closeLikelihoodPct: p.close_likelihood_pct,
+      daysSinceSent,
+    };
+  });
+  // Drafts first (most actionable), then most-recently-sent.
+  activeProspects.sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'draft' ? -1 : 1;
+    const aKey = a.sentAt ?? '';
+    const bKey = b.sentAt ?? '';
+    return aKey < bKey ? 1 : -1;
+  });
+
+  const syncBySource = new Map<string, string | null>();
+  for (const r of (syncRows ?? []) as SyncStatusPick[]) {
+    syncBySource.set(r.source, r.last_synced_at);
+  }
+  const lastGmailSyncAt = syncBySource.get('gmail-replies') ?? null;
+
   return {
     date: todayIso,
     checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
     checkinsToday: ((checkins ?? []) as ReservationPick[]).map(toStay),
+    inspectionsCompletedToday,
     highPrioritySlips,
     ownerActionSlips,
     dueTasks,
     inboundWaiting,
     unresolvedDataGaps,
     pendingApprovals,
+    activeProspects,
     stayConciergeConfigured: scConfigured,
+    lastGmailSyncAt,
     totals: {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
       waitingReplies: inboundWaiting.length,
       dataGaps: unresolvedDataGaps.length,
       approvals: pendingApprovals.length,
+      inspectionsToday: inspectionsCompletedToday.length,
+      activeProspects: activeProspects.length,
     },
   };
 }
 
 export function briefHeadline(brief: DailyBrief): string {
+  const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
   const bits: string[] = [];
   if (brief.checkoutsToday.length) bits.push(`${brief.checkoutsToday.length} checkout${brief.checkoutsToday.length === 1 ? '' : 's'}`);
   if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
   if (brief.totals.waitingReplies) bits.push(`${brief.totals.waitingReplies} reply needed`);
   if (brief.totals.approvals) bits.push(`${brief.totals.approvals} approval${brief.totals.approvals === 1 ? '' : 's'}`);
   if (brief.highPrioritySlips.length) bits.push(`${brief.highPrioritySlips.length} hot slip${brief.highPrioritySlips.length === 1 ? '' : 's'}`);
+  if (draftProspects) bits.push(`${draftProspects} prospect draft${draftProspects === 1 ? '' : 's'}`);
   if (brief.totals.dataGaps) bits.push(`${brief.totals.dataGaps} data gap${brief.totals.dataGaps === 1 ? '' : 's'}`);
   if (!bits.length) return 'Clear deck. Have a great day.';
   return bits.join(', ');

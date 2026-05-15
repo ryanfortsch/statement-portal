@@ -314,6 +314,9 @@ async function handle(request: NextRequest) {
 
   try {
     const result = await syncReplies({ hoursBack });
+    await getSupabase()
+      .from('sync_status')
+      .upsert({ source: 'gmail-replies', last_synced_at: new Date().toISOString() }, { onConflict: 'source' });
     return NextResponse.json({ ok: true, hoursBack, ...result });
   } catch (err) {
     console.error('[cron/sync-gmail-replies]', err);
