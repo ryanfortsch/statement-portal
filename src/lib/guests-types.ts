@@ -35,6 +35,8 @@ export type GuestContact = {
   marketing_consent: boolean;
   source: GuestSource | null;
   source_detail: string | null;
+  /** Guesty guest_id, when the contact is also a past or upcoming Guesty guest. */
+  guesty_guest_id: string | null;
   tags: string[];
   resend_contact_id: string | null;
   resend_synced_at: string | null;
