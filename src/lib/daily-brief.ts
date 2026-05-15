@@ -173,10 +173,12 @@ async function loadUnreadEmails(): Promise<BriefEmail[]> {
   // LLM call on known automated forwards. The AI still catches anything
   // else we missed.
   const excludeSenders = [
-    'no-reply@openphone.com',
-    'noreply@openphone.com',
+    // Quo (formerly OpenPhone) sends SMS forwards from quo@quo.com.
+    'quo@quo.com',
     'no-reply@quo.com',
     'noreply@quo.com',
+    'no-reply@openphone.com',
+    'noreply@openphone.com',
     'notifications@vercel.com',
     'notify@vercel.com',
     'no-reply@vercel.com',
@@ -508,6 +510,13 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   }
   const lastGmailSyncAt = syncBySource.get('gmail-replies') ?? null;
 
+  // Tally triage outcomes from the raw set, then drop notifications
+  // from what the page sees. The page never re-implements this filter.
+  const needsReplyCount = unreadEmails.filter(e => e.triage === 'needs_reply').length;
+  const fyiCount = unreadEmails.filter(e => e.triage === 'fyi').length;
+  const notificationCount = unreadEmails.filter(e => e.triage === 'notification').length;
+  const visibleUnreadEmails = unreadEmails.filter(e => e.triage !== 'notification');
+
   return {
     date: todayIso,
     checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
@@ -517,7 +526,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     ownerActionSlips,
     dueTasks,
     inboundWaiting,
-    unreadEmails,
+    unreadEmails: visibleUnreadEmails,
     unresolvedDataGaps,
     pendingApprovals,
     activeProspects,
@@ -529,9 +538,9 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       activeTasks: allTasks.length,
       waitingReplies: inboundWaiting.length,
       unread: unreadEmails.length,
-      needsReply: unreadEmails.filter(e => e.triage === 'needs_reply').length,
-      fyi: unreadEmails.filter(e => e.triage === 'fyi').length,
-      notifications: unreadEmails.filter(e => e.triage === 'notification').length,
+      needsReply: needsReplyCount,
+      fyi: fyiCount,
+      notifications: notificationCount,
       dataGaps: unresolvedDataGaps.length,
       approvals: pendingApprovals.length,
       inspectionsToday: inspectionsCompletedToday.length,
