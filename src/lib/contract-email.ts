@@ -63,6 +63,16 @@ const FROM_NAME = 'Rising Tide';
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'allie@risingtidestr.com';
 const ALLIE_CC = 'allie@risingtidestr.com';
 
+// Internal staff who get the "owner just signed, countersign now"
+// alert. Both run the business and both need eyes on the next-step
+// queue (otherwise a countersign sits for a day before anyone
+// notices). Override via STAFF_NOTIFY_EMAILS env var if the roster
+// changes.
+const STAFF_NOTIFY = (process.env.STAFF_NOTIFY_EMAILS || 'allie@risingtidestr.com,dotti@risingtidestr.com')
+  .split(',')
+  .map((e) => e.trim())
+  .filter(Boolean);
+
 function firstName(name: string | null | undefined): string {
   if (!name) return 'there';
   return name.trim().split(/[, ]/)[0] || 'there';
@@ -114,7 +124,7 @@ export async function sendOwnerSignedEmail(args: {
     cc: ALLIE_CC,
     fromName: FROM_NAME,
     fromEmail: FROM_EMAIL,
-    subject: `Your signed management contract — ${projection.property_address}`,
+    subject: `Your signed management contract for ${projection.property_address}`,
     html,
     text,
     attachments: [{ filename, content: pdf.toString('base64') }],
@@ -152,7 +162,7 @@ export async function sendExecutedEmail(args: {
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; font-size: 15px; line-height: 1.6; color: #1e2e34; max-width: 560px;">
       <p>Hi ${greeting},</p>
       <p>The management contract is now fully executed. Attached is the final signed copy for your records.</p>
-      <p>Welcome aboard — we're glad to be working together on ${projection.property_address}.</p>
+      <p>Welcome aboard. We're glad to be working together on ${projection.property_address}.</p>
       <p>Questions? Reply to this email or call (978) 865-2387.</p>
       <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Rising Tide</p>
     </div>
@@ -160,7 +170,7 @@ export async function sendExecutedEmail(args: {
   const text =
     `Hi ${greeting},\n\n` +
     `The management contract is now fully executed. Attached is the final signed copy for your records.\n\n` +
-    `Welcome aboard — we're glad to be working together on ${projection.property_address}.\n\n` +
+    `Welcome aboard. We're glad to be working together on ${projection.property_address}.\n\n` +
     `Questions? Reply to this email or call (978) 865-2387.\n\n` +
     `Allie O'Brien\nRising Tide\n`;
 
@@ -169,11 +179,77 @@ export async function sendExecutedEmail(args: {
     cc: ALLIE_CC,
     fromName: FROM_NAME,
     fromEmail: FROM_EMAIL,
-    subject: `Fully executed: management contract — ${projection.property_address}`,
+    subject: `Fully executed: management contract for ${projection.property_address}`,
     html,
     text,
     attachments: [{ filename, content: pdf.toString('base64') }],
   });
 
   return ok ? { ok: true } : { ok: false, reason: 'resend send failed' };
+}
+
+/**
+ * Internal staff alert: an owner just signed and a countersign is
+ * pending. Plain email, no PDF attached (staff can pull the signed
+ * copy from Helm), goes to allie@ + dotti@ by default (configurable
+ * via STAFF_NOTIFY_EMAILS). The CTA is the projection detail page in
+ * Helm where countersigning happens.
+ *
+ * This closes the loop that was previously invisible: the owner
+ * confirmation email CC'd Allie on a message addressed to the
+ * client, but that's not a clear "you have work to do" prompt, so
+ * countersigns were sitting unsigned until a manual check.
+ */
+export async function sendCountersignNotification(args: {
+  projection: ProjectionRow;
+  origin: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const { projection, origin } = args;
+  if (STAFF_NOTIFY.length === 0) {
+    return { ok: false, reason: 'no staff recipients configured' };
+  }
+  const helmUrl = `${origin}/projections/${projection.id}`;
+  const signerName = projection.contract_signed_name || projection.prospect_name || 'the owner';
+  const signedAtPretty = projection.contract_signed_at
+    ? new Date(projection.contract_signed_at).toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'America/New_York',
+      })
+    : 'just now';
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; font-size: 15px; line-height: 1.6; color: #1e2e34; max-width: 560px;">
+      <p><strong>${signerName}</strong> signed the management contract for <strong>${projection.property_address}</strong>.</p>
+      <p>Signed ${signedAtPretty}.</p>
+      <p>Open the prospect in Helm to countersign:</p>
+      <p><a href="${helmUrl}" style="color: #c85a3a; font-weight: 600;">${helmUrl}</a></p>
+      <p style="margin-top: 28px; color: #506068; font-size: 13px;">A copy of the partially-signed PDF was emailed to the owner; the fully-executed PDF will go out once you countersign.</p>
+    </div>
+  `;
+  const text =
+    `${signerName} signed the management contract for ${projection.property_address}.\n` +
+    `Signed ${signedAtPretty}.\n\n` +
+    `Open the prospect in Helm to countersign:\n${helmUrl}\n\n` +
+    `A copy of the partially-signed PDF was emailed to the owner; the fully-executed PDF will go out once you countersign.\n`;
+
+  // Send to each staff member as TO (not CC) so the email reads as
+  // "this is for you." Resend handles the parallel sends; we
+  // aggregate any failure into a single ok/reason.
+  const results = await Promise.all(
+    STAFF_NOTIFY.map((to) =>
+      sendTransactionalViaResend({
+        to,
+        fromName: FROM_NAME,
+        fromEmail: FROM_EMAIL,
+        subject: `${signerName} signed: ${projection.property_address}`,
+        html,
+        text,
+      }),
+    ),
+  );
+  const anyFailed = results.some((r) => !r);
+  return anyFailed
+    ? { ok: false, reason: 'one or more staff notifications failed' }
+    : { ok: true };
 }
