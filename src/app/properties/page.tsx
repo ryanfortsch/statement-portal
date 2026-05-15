@@ -101,7 +101,13 @@ export default async function PropertiesPage() {
           <EmptyBlock />
         ) : (
           <>
-            <div style={{ borderTop: '1px solid var(--ink)' }}>
+            <div
+              className="grid grid-cols-1 md:grid-cols-2"
+              style={{
+                borderTop: '1px solid var(--ink)',
+                columnGap: 40,
+              }}
+            >
               {active.map((p, i) => (
                 <PropertyRow
                   key={p.id}
@@ -115,7 +121,13 @@ export default async function PropertiesPage() {
             {inactive.length > 0 && (
               <div style={{ marginTop: 56 }}>
                 <div className="eyebrow" style={{ marginBottom: 18 }}>Inactive</div>
-                <div style={{ borderTop: '1px solid var(--rule)' }}>
+                <div
+                  className="grid grid-cols-1 md:grid-cols-2"
+                  style={{
+                    borderTop: '1px solid var(--rule)',
+                    columnGap: 40,
+                  }}
+                >
                   {inactive.map((p, i) => (
                     <PropertyRow
                       key={p.id}
