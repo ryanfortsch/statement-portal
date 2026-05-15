@@ -11,6 +11,7 @@ import {
   type BriefProspect,
 } from '@/lib/daily-brief';
 import type { Approval } from '@/lib/stay-concierge';
+import { MarkHandledButton } from './MarkHandledButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -210,9 +211,12 @@ function EmailRow({ e }: { e: BriefEmail }) {
               </span>
             ) : null}
           </div>
-          <span className="text-[11px]" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
-            {formatAge(e.ageHours)}
-          </span>
+          <div className="flex items-baseline gap-3" style={{ flexShrink: 0 }}>
+            <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
+              {formatAge(e.ageHours)}
+            </span>
+            <MarkHandledButton messageId={e.id} />
+          </div>
         </div>
         <div
           className="mt-1"
