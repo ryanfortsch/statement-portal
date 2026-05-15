@@ -40,6 +40,13 @@ async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: b
   return { lastSyncedAt, isStale };
 }
 
+/** "2026-05" -> "May 2026". For the pacing context line. */
+function formatPacingMonth(ym: string): string {
+  const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 function formatRelative(date: Date | null): string {
   if (!date) return 'never';
   const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
@@ -147,11 +154,12 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                   lineHeight: 1.5,
                 }}
               >
-                Pacing {pacing.pacingPct.toFixed(0)}% so far this month. Gloucester
-                historical average for this month is {pacing.historicalAvgPct.toFixed(0)}%.
+                Pacing {pacing.pacingPct.toFixed(0)}% so far in {formatPacingMonth(pacing.month)}.
+                Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
+                {pacing.historicalAvgPct.toFixed(0)}%.
                 {view === 'pacing'
-                  ? ` Revenue below projects booked × ${pacing.multiplier.toFixed(2)}.`
-                  : ' Revenue below shows booked-so-far actuals only.'}
+                  ? ` Revenue projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range.`
+                  : ' Revenue shows booked-so-far actuals only.'}
               </p>
             )}
           </>
