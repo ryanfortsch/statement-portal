@@ -2,7 +2,7 @@
  * One-click unsubscribe tokens.
  *
  * Each campaign send embeds a per-contact URL like:
- *   https://statements.risingtidestr.com/api/guests/unsubscribe?t=<token>
+ *   https://helm.risingtidestr.com/api/guests/unsubscribe?t=<token>
  *
  * The token is a base64url-encoded JSON payload + HMAC-SHA256 signature.
  * Payload: { contact_id, campaign_id?, exp }. Signature scoped by
