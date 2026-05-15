@@ -256,28 +256,73 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   const emails = detailed.filter((e): e is FetchedEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
 
-  // Recent outbound recipients (single query) covers fresh-compose
-  // replies that land in a different threadId than the inbound.
+  // Three reply-detection passes, each a different surface area:
+  //   1. Same Gmail thread has a Rising Tide sent message after the inbound
+  //   2. Any Gmail sent message after the inbound addressed to this sender (fresh-compose)
+  //   3. Any outbound contact_touches row (Quo SMS, phone, manual log) to a
+  //      contact whose emails array includes this sender, after the inbound
+  // If any of these hit, the email is considered already-handled and drops
+  // before it ever reaches triage classification or /today.
   const recentSentTo = await loadRecentSentRecipients(token);
+  const recentTouchTo = await loadRecentOutboundTouchByEmail();
 
-  // Thread-state pass + cross-thread pass: Gmail leaves the original
-  // inbound marked unread even when the operator already replied
-  // (mobile quick-reply, scheduled send, fresh-compose to the same
-  // sender, third-party client). Drop the email if EITHER:
-  //   - the same thread has a Rising Tide sent message after the inbound, OR
-  //   - any sent message after the inbound was addressed to this sender.
   const filtered = await Promise.all(
     emails.map(async e => {
       const inboundMs = new Date(e.receivedAt).getTime();
       if (e.fromEmail) {
-        const lastSent = recentSentTo.get(e.fromEmail.toLowerCase());
+        const lower = e.fromEmail.toLowerCase();
+        const lastSent = recentSentTo.get(lower);
         if (lastSent && lastSent > inboundMs) return null;
+        const lastTouch = recentTouchTo.get(lower);
+        if (lastTouch && lastTouch > inboundMs) return null;
       }
       const inThread = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
       return inThread ? null : e;
     }),
   );
   return filtered.filter((e): e is FetchedEmail => e !== null);
+}
+
+// Cross-channel reply detection: Dotti often handles a Bethany or owner
+// thread via Quo SMS / phone / a manual contact-log note instead of
+// email. Pull the most recent outbound touch per contact, then map back
+// through contacts.emails to the sender address. Anything with a touch
+// newer than the inbound is treated as handled.
+async function loadRecentOutboundTouchByEmail(): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  try {
+    const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const { data: touches } = await supabase
+      .from('contact_touches')
+      .select('contact_id, touched_at')
+      .eq('direction', 'outbound')
+      .gte('touched_at', since);
+    if (!touches?.length) return out;
+    const latestByContact = new Map<string, number>();
+    for (const row of touches as Array<{ contact_id: string; touched_at: string }>) {
+      const ms = new Date(row.touched_at).getTime();
+      const prev = latestByContact.get(row.contact_id);
+      if (!prev || ms > prev) latestByContact.set(row.contact_id, ms);
+    }
+    const contactIds = Array.from(latestByContact.keys());
+    if (!contactIds.length) return out;
+    const { data: contacts } = await supabase
+      .from('contacts')
+      .select('id, emails')
+      .in('id', contactIds);
+    for (const c of (contacts ?? []) as Array<{ id: string; emails: string[] | null }>) {
+      const ms = latestByContact.get(c.id);
+      if (!ms) continue;
+      for (const email of c.emails ?? []) {
+        const lower = email.toLowerCase();
+        const prev = out.get(lower);
+        if (!prev || ms > prev) out.set(lower, ms);
+      }
+    }
+  } catch {
+    // best-effort; brief still renders without it
+  }
+  return out;
 }
 
 // One query → recipient_email → latest sent timestamp, used for
@@ -383,7 +428,6 @@ type EmailTriageRow = {
   is_unread: boolean;
 };
 
-const DOTTI_EMAIL = 'dotti@risingtidestr.com';
 
 export type SyncEmailsSummary = {
   fetched: number;
@@ -430,19 +474,14 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   const nowIso = new Date().toISOString();
 
   // INSERT-only for new emails so we never overwrite existing
-  // triage data with empty defaults. Apply a deterministic
-  // "Dotti not on To: => fyi" downgrade after the LLM speaks: the
-  // model occasionally insists a clear ask must be needs_reply
-  // even when the email is addressed to Ryan or Allie. Hard rule
-  // wins.
+  // triage data with empty defaults. AI's classification stands —
+  // the prompt now does the role-aware judgment rather than a
+  // To-line hard rule (Dotti rarely receives email directly, so the
+  // old rule downgraded everything).
   const newRows: EmailTriageRow[] = fetched
     .filter(e => !existing.has(e.id))
     .map(e => {
       const t = triageById.get(e.id);
-      const onTo = e.toEmails.map(x => x.toLowerCase()).includes(DOTTI_EMAIL);
-      const rawCategory = t?.category ?? 'fyi';
-      const category =
-        rawCategory === 'needs_reply' && !onTo ? 'fyi' : rawCategory;
       return {
         gmail_message_id: e.id,
         thread_id: e.threadId,
@@ -453,7 +492,7 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
         subject: e.subject,
         snippet: e.snippet,
         received_at: e.receivedAt,
-        triage: category,
+        triage: t?.category ?? 'fyi',
         triage_summary: t?.summary ?? '',
         is_unread: true,
       };
