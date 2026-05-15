@@ -169,66 +169,66 @@ function formatAge(ageHours: number): string {
   return `${Math.round(ageHours / 24)}d ago`;
 }
 
-function NeedsReplyRow({ e }: { e: BriefEmail }) {
+function EmailRow({ e }: { e: BriefEmail }) {
   const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
   const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
+  const needsReply = e.triage === 'needs_reply';
   return (
     <li
-      className="py-3 border-b last:border-b-0"
+      className="py-3 border-b last:border-b-0 flex gap-3"
       style={{ borderColor: 'var(--rule-soft)' }}
     >
-      <div className="flex justify-between items-baseline gap-4">
-        <a
-          href={gmailUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-sm font-medium hover:underline underline-offset-2"
-          style={{ color: 'var(--ink)' }}
-        >
-          {fromLabel}
-        </a>
-        <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
-          {formatAge(e.ageHours)}
-        </span>
-      </div>
-      {e.triageSummary ? (
-        <div className="text-sm mt-1" style={{ color: 'var(--ink)' }}>
-          {e.triageSummary}
+      <span
+        aria-hidden="true"
+        style={{
+          flexShrink: 0,
+          width: 6,
+          height: 6,
+          marginTop: 8,
+          borderRadius: 999,
+          background: needsReply ? 'var(--signal)' : 'var(--rule)',
+        }}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-baseline gap-4">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <a
+              href={gmailUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium hover:underline underline-offset-2 truncate"
+              style={{ color: 'var(--ink)' }}
+            >
+              {fromLabel}
+            </a>
+            {needsReply ? (
+              <span
+                className="text-[9px] uppercase tracking-[0.14em] px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--signal)', color: 'var(--paper)', flexShrink: 0 }}
+              >
+                Reply
+              </span>
+            ) : null}
+          </div>
+          <span className="text-[11px]" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+            {formatAge(e.ageHours)}
+          </span>
         </div>
-      ) : null}
-      <div className="text-[11px] mt-1 italic" style={{ color: 'var(--ink-3)' }}>
-        {e.subject}
-      </div>
-    </li>
-  );
-}
-
-function FyiRow({ e }: { e: BriefEmail }) {
-  const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
-  const summary = e.triageSummary || e.subject;
-  return (
-    <li
-      className="py-1.5 border-b last:border-b-0 text-sm flex justify-between items-baseline gap-4"
-      style={{ borderColor: 'var(--rule-soft)' }}
-    >
-      <span>
-        <a
-          href={gmailUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="hover:underline underline-offset-2"
-          style={{ color: 'var(--ink)' }}
+        <div
+          className="mt-1"
+          style={{
+            color: needsReply ? 'var(--ink)' : 'var(--ink-3)',
+            fontSize: needsReply ? 14 : 13,
+          }}
         >
-          {fromLabel}
-        </a>
-        <span className="ml-2" style={{ color: 'var(--ink-3)' }}>
-          · {summary.length > 90 ? `${summary.slice(0, 90)}…` : summary}
-        </span>
-      </span>
-      <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
-        {formatAge(e.ageHours)}
-      </span>
+          {e.triageSummary || e.subject}
+        </div>
+        {needsReply ? (
+          <div className="text-[11px] mt-1 italic" style={{ color: 'var(--ink-4)' }}>
+            {e.subject}
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -384,39 +384,43 @@ export default async function TodayPage() {
     );
   }
 
-  const needsReplyEmails = brief.unreadEmails.filter(e => e.triage === 'needs_reply');
-  const fyiEmails = brief.unreadEmails.filter(e => e.triage === 'fyi');
+  // Needs-reply emails first, then FYI. Notifications are filtered
+  // out earlier in the loader so they never surface here.
+  const visibleEmails = [...brief.unreadEmails].sort((a, b) => {
+    if (a.triage !== b.triage) return a.triage === 'needs_reply' ? -1 : 1;
+    return a.receivedAt < b.receivedAt ? 1 : -1;
+  });
 
-  if (needsReplyEmails.length) {
+  if (visibleEmails.length) {
+    const transparencyBits: string[] = [];
+    if (brief.totals.needsReply) {
+      transparencyBits.push(
+        `${brief.totals.needsReply} flagged for your reply`,
+      );
+    }
+    if (brief.totals.notifications) {
+      transparencyBits.push(`${brief.totals.notifications} automated noise hidden`);
+    }
     sections.push(
-      <section key="needs-reply" className="mb-12">
+      <section key="emails" className="mb-12">
         <SectionHead
           number={num()}
-          title="Needs your reply"
-          count={needsReplyEmails.length}
+          title="Emails"
+          count={visibleEmails.length}
           href="https://mail.google.com/mail/u/0/#inbox"
         />
+        {transparencyBits.length ? (
+          <p className="text-[11px] mb-3" style={{ color: 'var(--ink-4)' }}>
+            All unread. AI sorted: {transparencyBits.join(' · ')}.
+          </p>
+        ) : (
+          <p className="text-[11px] mb-3" style={{ color: 'var(--ink-4)' }}>
+            All unread.
+          </p>
+        )}
         <ul>
-          {needsReplyEmails.slice(0, 12).map(e => (
-            <NeedsReplyRow key={e.id} e={e} />
-          ))}
-        </ul>
-      </section>,
-    );
-  }
-
-  if (fyiEmails.length) {
-    sections.push(
-      <section key="fyi" className="mb-12">
-        <SectionHead
-          number={num()}
-          title="FYI"
-          count={fyiEmails.length}
-          href="https://mail.google.com/mail/u/0/#inbox"
-        />
-        <ul>
-          {fyiEmails.slice(0, 12).map(e => (
-            <FyiRow key={e.id} e={e} />
+          {visibleEmails.slice(0, 16).map(e => (
+            <EmailRow key={e.id} e={e} />
           ))}
         </ul>
       </section>,
@@ -529,7 +533,7 @@ export default async function TodayPage() {
         >
           <span>
             {brief.gmailConfigured
-              ? `Gmail · ${brief.totals.notifications} notification${brief.totals.notifications === 1 ? '' : 's'} hidden`
+              ? `Gmail · live ${relativeTime(brief.lastGmailSyncAt)}`
               : 'Gmail not connected'}
           </span>
           <span>{brief.totals.activeProspects} prospects in funnel</span>
