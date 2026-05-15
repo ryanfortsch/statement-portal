@@ -1033,12 +1033,21 @@ const contractCss = `
 
   /* Certificate of Completion — appended after signatures once the
      contract is signed. Distinct visual identity from the contract
-     body so it reads as an audit document, not more contract text. */
+     body so it reads as an audit document, not more contract text.
+
+     Explicit display: block on both screen and print: overrides the
+     base .rt-doc-page rules (display:flex on screen, display:contents
+     in print). Without the print-mode override, the cert page was
+     dissolving into the prior sheet's flow and losing both its
+     padding and its page-break, which made it look "missing" in the
+     downloaded PDF. */
   .rt-c-cert-page {
+    display: block;
     padding: 96px 80px 80px;
   }
   @media print {
     .rt-c-cert-page {
+      display: block;
       page-break-before: always;
       break-before: page;
       page: body-page;
