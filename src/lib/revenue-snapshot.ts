@@ -59,7 +59,7 @@ export type PropertyRevenueMetrics = {
  *                 non-month-aligned ranges, future months, or months
  *                 without a Statement yet).
  */
-export type SnapshotSource = 'statement' | 'pacing' | 'computed';
+export type SnapshotSource = 'statement' | 'pacing' | 'booked' | 'computed';
 
 export type PacingInfo = {
   /** Portfolio pacing (booked nights / nights possible) as 0-100. */
@@ -180,10 +180,23 @@ function isAllowed(status: string | null): boolean {
   );
 }
 
+export type SnapshotOptions = {
+  /**
+   * Whether to apply the pacing multiplier to the current month's revenue.
+   * Defaults to true (projects toward historical occupancy benchmark). Set
+   * false when the user explicitly wants to see booked-so-far actuals.
+   * Has no effect on closed months (Statement override always applies) or
+   * non-month-aligned ranges (multiplier isn't computed at all).
+   */
+  applyPacing?: boolean;
+};
+
 export async function computeRevenueSnapshot(
   rangeStart: string,
   rangeEnd: string,
+  options: SnapshotOptions = {},
 ): Promise<SnapshotsResponse> {
+  const applyPacing = options.applyPacing !== false;
   // 1. Properties (active only, with the fields we need for the math).
   const { data: propsData, error: propsErr } = await supabase
     .from('properties')
@@ -351,6 +364,7 @@ export async function computeRevenueSnapshot(
     rangeStart,
     rangeEnd,
     properties,
+    applyPacing,
   );
 
   // 6. Portfolio totals.
@@ -410,6 +424,7 @@ async function applyStatementsAndPacing(
   rangeStart: string,
   rangeEnd: string,
   properties: PropertyRow[],
+  applyPacing: boolean,
 ): Promise<{ snapshots: PropertySnapshot[]; pacing: PacingInfo | null }> {
   const cal = exactCalendarMonth({ rangeStart, rangeEnd });
   if (!cal) return { snapshots: base, pacing: null };
@@ -480,10 +495,10 @@ async function applyStatementsAndPacing(
       };
     }
 
-    // (2) Current month -> apply pacing multiplier to revenue/mgmt/payout.
-    //     Keep stays/nights/occupancy/ADR as booked-so-far (those are honest
-    //     actuals; revenue gets projected forward).
-    if (isCurrentMonth && pacing && pacing.multiplier > 1) {
+    // (2) Current month with pacing requested -> apply pacing multiplier to
+    //     revenue/mgmt/payout. Stays/nights/occupancy/ADR stay as booked-so-
+    //     far (those are honest actuals; revenue gets projected forward).
+    if (isCurrentMonth && pacing && pacing.multiplier > 1 && applyPacing) {
       const m = s.metrics;
       if (m.totalRevenue == null) return { ...s, source: 'pacing' };
       const prop = properties.find((p) => p.id === s.propertyId);
@@ -503,6 +518,12 @@ async function applyStatementsAndPacing(
           projectedOwnerPayout: projectedPayout > 0 ? round2(projectedPayout) : null,
         },
       };
+    }
+
+    // (3) Current month, pacing disabled -> show booked-so-far actuals
+    //     (no multiplier). Tag source so the UI can label honestly.
+    if (isCurrentMonth) {
+      return { ...s, source: 'booked' };
     }
 
     return s;
