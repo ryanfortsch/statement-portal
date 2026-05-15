@@ -301,6 +301,6 @@ export function helmBaseUrl(): string {
   return (
     process.env.NEXT_PUBLIC_HELM_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
-    'https://helm.risingtidestr.com'
+    'https://statements.risingtidestr.com'
   );
 }
