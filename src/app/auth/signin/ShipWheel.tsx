@@ -43,11 +43,15 @@ export function ShipWheel({ size = 112 }: { size?: number }) {
       role="img"
       aria-label="Helm"
       style={{
+        // Rising Tide brand colors: tide-deep (#2e5c6e) for the wheel
+        // body via currentColor inheritance, signal-red center pin
+        // for the warm "brass rivet" accent at the hub. Drop shadow
+        // tinted to match so the wheel grounds itself naturally.
         display: 'block',
         margin: '0 auto',
-        color: 'var(--ink)',
+        color: 'var(--tide-deep)',
         overflow: 'visible',
-        filter: 'drop-shadow(0 8px 20px rgba(30, 46, 52, 0.22))',
+        filter: 'drop-shadow(0 8px 20px rgba(46, 92, 110, 0.28))',
       }}
     >
       <defs>
@@ -132,9 +136,11 @@ export function ShipWheel({ size = 112 }: { size?: number }) {
             />
           ))}
 
-          {/* Hub assembly: ink disc, decorative paper ring inside it
-              (reads as a turned groove), smaller ink pin at the very
-              center. Three concentric pieces instead of one flat dot. */}
+          {/* Hub assembly: tide-deep disc, decorative paper ring
+              inside it (reads as a turned groove), then a warm
+              signal-red center pin - the small brass-rivet accent at
+              the heart of the wheel. Three concentric pieces instead
+              of one flat dot. */}
           <circle cx="100" cy="100" r="18" fill="currentColor" />
           <circle
             cx="100"
@@ -144,7 +150,7 @@ export function ShipWheel({ size = 112 }: { size?: number }) {
             stroke="var(--paper)"
             strokeWidth="1.2"
           />
-          <circle cx="100" cy="100" r="4.5" fill="currentColor" />
+          <circle cx="100" cy="100" r="4.5" fill="var(--signal)" />
         </g>
 
         {/* Half-viewport clip rectangles. The 1px overlap on either
