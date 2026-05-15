@@ -180,6 +180,70 @@ function isAllowed(status: string | null): boolean {
   );
 }
 
+function ymd(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function monthKey(year: number, monthZeroIndexed: number): string {
+  return `${year}-${String(monthZeroIndexed + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Per-property month-segmented contributions, accumulated during the base
+ * pro-rated loop. Used by applyStatementsAndPacing to replace closed-month
+ * portions with Statement values and apply per-month pacing multipliers.
+ */
+type PropertyMonthBuckets = {
+  revenueByMonth: Map<string, number>;
+  nightsByMonth: Map<string, number>;
+  staysByMonth: Map<string, number>;
+  cleaningByMonth: Map<string, number>;
+};
+
+/**
+ * Iterate the YYYY-MM month keys touched by [rangeStart, rangeEndInclusive].
+ * Returns each month with its in-range segment (segStart/segEnd) and whether
+ * that segment fully covers the calendar month.
+ */
+function monthSegments(rangeStart: string, rangeEndInclusive: string): Array<{
+  monthKey: string;
+  year: number;
+  month: number; // 0-indexed
+  segStart: string;
+  segEndExclusive: string;
+  fullMonth: boolean;
+}> {
+  const out: Array<{
+    monthKey: string;
+    year: number;
+    month: number;
+    segStart: string;
+    segEndExclusive: string;
+    fullMonth: boolean;
+  }> = [];
+  const periodEndExclusive = dayAfter(rangeEndInclusive);
+  let cursor = rangeStart;
+  while (cursor < periodEndExclusive) {
+    const cy = parseInt(cursor.slice(0, 4), 10);
+    const cm = parseInt(cursor.slice(5, 7), 10) - 1;
+    const monthStart = ymd(new Date(Date.UTC(cy, cm, 1)));
+    const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
+    const segStart = cursor;
+    const segEndExclusive =
+      periodEndExclusive < monthEndExclusive ? periodEndExclusive : monthEndExclusive;
+    out.push({
+      monthKey: monthKey(cy, cm),
+      year: cy,
+      month: cm,
+      segStart,
+      segEndExclusive,
+      fullMonth: segStart === monthStart && segEndExclusive === monthEndExclusive,
+    });
+    cursor = monthEndExclusive;
+  }
+  return out;
+}
+
 export type SnapshotOptions = {
   /**
    * Whether to apply the pacing multiplier to the current month's revenue.
@@ -256,8 +320,12 @@ export async function computeRevenueSnapshot(
     resByProperty.set(r.property_id, arr);
   }
 
-  // 5. Per-property pro-rated math.
+  // 5. Per-property pro-rated math. Each property also accumulates per-month
+  //    buckets (revenue/nights/stays/cleaning) so the post-pass layer can
+  //    override closed months with Statement values and apply per-month
+  //    pacing multipliers for current/future months.
   const totalNightsInPeriod = nightsBetween(rangeStart, periodEndExclusive);
+  const monthBucketsByProperty = new Map<string, PropertyMonthBuckets>();
 
   const baseSnapshots: PropertySnapshot[] = properties.map((prop) => {
     const propStart = effectiveStart(rangeStart, prop.activated_at);
@@ -297,6 +365,14 @@ export async function computeRevenueSnapshot(
     // properties.management_fee_pct stored as percent (e.g. 25 = 25%).
     const mgmtFeeFraction = prop.is_rising_tide_owned ? 0 : Number(prop.management_fee_pct) / 100;
 
+    // Per-month accounting (used by applyStatementsAndPacing to layer
+    // Statement overrides + per-month pacing multipliers on top of the
+    // base pro-rated math).
+    const revenueByMonth = new Map<string, number>();
+    const nightsByMonth = new Map<string, number>();
+    const staysByMonth = new Map<string, number>();
+    const cleaningByMonth = new Map<string, number>();
+
     for (const r of propReservations) {
       const checkIn = r.check_in!;
       const checkOut = r.check_out!;
@@ -315,16 +391,46 @@ export async function computeRevenueSnapshot(
       // stays/nights/occupancy either.
       if (fullPayout <= 0) continue;
 
+      const perNight = fullPayout / totalNights;
       nightsSold += nightsInPeriod;
-      totalRevenue += fullPayout * (nightsInPeriod / totalNights);
+      totalRevenue += perNight * nightsInPeriod;
+
+      // Walk the months this overlap touches and bucket per-month for the
+      // multi-month Statement + pacing layer.
+      let cursor = overlapStart;
+      while (cursor < overlapEnd) {
+        const cy = parseInt(cursor.slice(0, 4), 10);
+        const cm = parseInt(cursor.slice(5, 7), 10) - 1; // 0-indexed
+        const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
+        const segEnd = monthEndExclusive < overlapEnd ? monthEndExclusive : overlapEnd;
+        const nightsInSegment = nightsBetween(cursor, segEnd);
+        if (nightsInSegment > 0) {
+          const key = monthKey(cy, cm);
+          revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) + perNight * nightsInSegment);
+          nightsByMonth.set(key, (nightsByMonth.get(key) ?? 0) + nightsInSegment);
+        }
+        cursor = monthEndExclusive;
+      }
 
       // Cleaning attributed at checkout (so it doesn't double-count for stays
       // that overlap multiple periods).
       if (checkOut > rangeStart && checkOut <= periodEndExclusive) {
         staysCount += 1;
         cleaningCost += cleaningPerStay;
+        const coKey = checkOut.slice(0, 7); // YYYY-MM
+        staysByMonth.set(coKey, (staysByMonth.get(coKey) ?? 0) + 1);
+        cleaningByMonth.set(coKey, (cleaningByMonth.get(coKey) ?? 0) + cleaningPerStay);
       }
     }
+
+    // Stash the per-month buckets on the snapshot so the post-pass layer can
+    // do per-month Statement and pacing adjustments.
+    monthBucketsByProperty.set(prop.id, {
+      revenueByMonth,
+      nightsByMonth,
+      staysByMonth,
+      cleaningByMonth,
+    });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
     const ownerPayout = totalRevenue - cleaningCost - managementFee;
@@ -353,18 +459,20 @@ export async function computeRevenueSnapshot(
     };
   });
 
-  // 5b. Per-property overrides for calendar-month ranges.
-  //   - Closed month with a Statement -> use Statement values exactly (matches
-  //     what the owner received in their monthly statement).
-  //   - Current month -> apply the smart-forecast pacing multiplier on top of
-  //     booked-so-far revenue, so the dashboard projects toward the historical
-  //     Gloucester occupancy benchmark for this month-of-year.
+  // 5b. Per-month layer.
+  //   - Closed month FULLY inside range with a Statement -> swap that month's
+  //     contribution for the Statement values (matches the owner statement).
+  //   - Current / future month FULLY inside range, Pacing mode on -> apply
+  //     that month's portfolio pacing multiplier to its revenue contribution.
+  //   - Partial months at the edge of a range keep their pro-rated values
+  //     (Statement doesn't divide cleanly across days).
   const { snapshots, pacing } = await applyStatementsAndPacing(
     baseSnapshots,
     rangeStart,
     rangeEnd,
     properties,
     applyPacing,
+    monthBucketsByProperty,
   );
 
   // 6. Portfolio totals.
@@ -414,10 +522,23 @@ export async function computeRevenueSnapshot(
 }
 
 /**
- * For a single-calendar-month range, overlay Statement data on closed months
- * and a portfolio pacing multiplier on the current month. Returns the
- * possibly-mutated snapshots plus the pacing inputs (so the UI can show
- * "pacing toward X% based on booked-so-far Y%").
+ * Walk each calendar month touched by the range and apply two kinds of
+ * overrides per-month, per-property:
+ *
+ *   - Closed month FULLY inside range with a Statement -> swap in the
+ *     Statement values (canonical for the owner statement).
+ *   - Current/future month FULLY inside range, Pacing mode on -> multiply
+ *     the property's revenue contribution by that month's portfolio
+ *     pacing multiplier (booked nights / nights possible vs. historical
+ *     Gloucester occupancy for the month-of-year).
+ *
+ * Partial months (range starts or ends mid-month) keep their pro-rated
+ * contribution unchanged — Statements don't split cleanly across days
+ * and applying pacing to a half-month is misleading.
+ *
+ * Also returns the headline pacing info (the month whose multiplier is
+ * highest) so the UI can render the "Pacing X% so far this month" hero
+ * line. For a multi-month range, that's the most-relevant month.
  */
 async function applyStatementsAndPacing(
   base: PropertySnapshot[],
@@ -425,122 +546,187 @@ async function applyStatementsAndPacing(
   rangeEnd: string,
   properties: PropertyRow[],
   applyPacing: boolean,
+  monthBucketsByProperty: Map<string, PropertyMonthBuckets>,
 ): Promise<{ snapshots: PropertySnapshot[]; pacing: PacingInfo | null }> {
-  const cal = exactCalendarMonth({ rangeStart, rangeEnd });
-  if (!cal) return { snapshots: base, pacing: null };
+  const segments = monthSegments(rangeStart, rangeEnd);
+  if (segments.length === 0) return { snapshots: base, pacing: null };
 
-  const monthKey = `${cal.year}-${String(cal.month + 1).padStart(2, '0')}`;
-  const daysThisMonth = daysInMonth(cal.year, cal.month + 1);
-
-  // Statements for this month, keyed by property_id.
-  const { data: stmtData } = await supabase
-    .from('property_statements')
-    .select('property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
-    .eq('month', monthKey);
-
-  const stmtByProperty = new Map<string, StatementRow>();
-  for (const row of (stmtData ?? []) as StatementRow[]) {
-    stmtByProperty.set(row.property_id, row);
-  }
-
-  // Classify the month: closed (in the past), current, or future.
   const now = new Date();
   const todayYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const isCurrentMonth = now.getFullYear() === cal.year && now.getMonth() === cal.month;
-  const isCurrentOrFuture = monthKey >= todayYM;
+  const propById = new Map(properties.map((p) => [p.id, p]));
 
-  // Pacing multiplier (portfolio-level). Computed for any current-or-future
-  // month: the math is the same (booked nights vs. days × props, compared to
-  // historical Gloucester occupancy). For closed months we already use
-  // Statement values, so pacing is moot — skip the compute.
-  let pacing: PacingInfo | null = null;
-  if (isCurrentOrFuture) {
+  // Fetch all Statements for months touched by the range in one query.
+  const monthKeys = segments.map((s) => s.monthKey);
+  const { data: stmtData } = await supabase
+    .from('property_statements')
+    .select('property_id, month, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
+    .in('month', monthKeys);
+
+  // (month, property_id) -> Statement row.
+  const stmtByMonthAndProperty = new Map<string, StatementRow>();
+  for (const row of (stmtData ?? []) as Array<StatementRow & { month: string }>) {
+    stmtByMonthAndProperty.set(`${row.month}|${row.property_id}`, row);
+  }
+
+  // Per-month pacing multipliers, keyed by monthKey. Only computed for
+  // current/future months that are FULLY inside the range — partial months
+  // don't get multipliers (the headline number on the card is mostly
+  // computed-from-guesty for those edges).
+  type MonthPacing = { pacingPct: number; historicalAvgPct: number; multiplier: number };
+  const pacingByMonth = new Map<string, MonthPacing>();
+  for (const seg of segments) {
+    const isCurrentOrFuture = seg.monthKey >= todayYM;
+    if (!seg.fullMonth || !isCurrentOrFuture) continue;
+
     const mgmtProps = properties.filter(
       (p) =>
         !p.is_rising_tide_owned &&
-        (!p.activated_at || p.activated_at.slice(0, 10) <= `${monthKey}-01`),
+        (!p.activated_at || p.activated_at.slice(0, 10) <= `${seg.monthKey}-01`),
     );
     let portfolioNightsBooked = 0;
     const mgmtIds = new Set(mgmtProps.map((p) => p.id));
-    for (const s of base) {
-      if (mgmtIds.has(s.propertyId)) portfolioNightsBooked += s.metrics.nightsSold;
+    for (const [propId, buckets] of monthBucketsByProperty.entries()) {
+      if (!mgmtIds.has(propId)) continue;
+      portfolioNightsBooked += buckets.nightsByMonth.get(seg.monthKey) ?? 0;
     }
+    const daysThisMonth = daysInMonth(seg.year, seg.month + 1);
     const portfolioNightsPossible = daysThisMonth * mgmtProps.length;
-    // For a current month, pacing% = nights-booked-so-far / nights-possible.
-    // For a future month, this still reads the same way (it's just "what's
-    // been booked vs. what could be filled"), and the multiplier scales
-    // toward the seasonal historical average.
     const pacingPct =
       portfolioNightsPossible > 0
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
         : 0;
-    const historicalAvgPct = HISTORICAL_AVG_RECENT[cal.month] ?? 0;
+    const historicalAvgPct = HISTORICAL_AVG_RECENT[seg.month] ?? 0;
     const multiplier =
       pacingPct > 0 && historicalAvgPct > pacingPct ? historicalAvgPct / pacingPct : 1;
-    pacing = { pacingPct: round1(pacingPct), historicalAvgPct: round1(historicalAvgPct), multiplier, month: monthKey };
+    pacingByMonth.set(seg.monthKey, { pacingPct, historicalAvgPct, multiplier });
   }
-  void isCurrentMonth;
+
+  // Headline pacing for the UI: pick the month with the largest multiplier
+  // (the one driving the biggest projection). Falls back to the latest month
+  // if no month has a multiplier > 1.
+  let headline: PacingInfo | null = null;
+  for (const seg of segments) {
+    const mp = pacingByMonth.get(seg.monthKey);
+    if (!mp) continue;
+    if (!headline || mp.multiplier > headline.multiplier) {
+      headline = {
+        pacingPct: round1(mp.pacingPct),
+        historicalAvgPct: round1(mp.historicalAvgPct),
+        multiplier: mp.multiplier,
+        month: seg.monthKey,
+      };
+    }
+  }
 
   const snapshots = base.map((s): PropertySnapshot => {
-    // (1) Closed month with a Statement -> use Statement values exactly.
-    const stmt = stmtByProperty.get(s.propertyId);
-    if (stmt) {
-      const nights = Number(stmt.nights_booked) || 0;
-      const revenue = Number(stmt.rental_revenue) || 0;
-      const ADR = nights > 0 && revenue > 0 ? revenue / nights : null;
-      const occupancy = daysThisMonth > 0 ? (nights / daysThisMonth) * 100 : null;
-      return {
-        ...s,
-        source: 'statement',
-        metrics: {
-          staysCount: Number(stmt.num_stays) || 0,
-          nightsSold: nights,
-          totalRevenue: revenue > 0 ? round2(revenue) : null,
-          ADR: ADR !== null ? round2(ADR) : null,
-          occupancyPct: occupancy !== null ? round1(occupancy) : null,
-          managementFee: Number(stmt.management_fee) > 0 ? round2(Number(stmt.management_fee)) : 0,
-          cleaningCost: Number(stmt.cleaning_total) > 0 ? round2(Number(stmt.cleaning_total)) : null,
-          projectedOwnerPayout: Number(stmt.owner_payout) > 0 ? round2(Number(stmt.owner_payout)) : null,
-        },
-      };
+    const buckets = monthBucketsByProperty.get(s.propertyId);
+    if (!buckets) return s;
+    const prop = propById.get(s.propertyId);
+    const mgmtFraction = prop?.is_rising_tide_owned
+      ? 0
+      : Number(prop?.management_fee_pct ?? 0) / 100;
+
+    let revenueDelta = 0;
+    let nightsDelta = 0;
+    let staysDelta = 0;
+    let cleaningDelta = 0;
+    let usedStatement = false;
+    let usedPacing = false;
+    let usedBooked = false;
+
+    for (const seg of segments) {
+      const isClosed = seg.monthKey < todayYM;
+      const isCurrentOrFuture = seg.monthKey >= todayYM;
+
+      // (a) Full closed month with Statement -> swap in Statement values.
+      if (seg.fullMonth && isClosed) {
+        const stmt = stmtByMonthAndProperty.get(`${seg.monthKey}|${s.propertyId}`);
+        if (stmt) {
+          revenueDelta += (Number(stmt.rental_revenue) || 0) - (buckets.revenueByMonth.get(seg.monthKey) ?? 0);
+          nightsDelta += (Number(stmt.nights_booked) || 0) - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
+          staysDelta += (Number(stmt.num_stays) || 0) - (buckets.staysByMonth.get(seg.monthKey) ?? 0);
+          cleaningDelta += (Number(stmt.cleaning_total) || 0) - (buckets.cleaningByMonth.get(seg.monthKey) ?? 0);
+          usedStatement = true;
+          continue;
+        }
+      }
+
+      // (b) Full current/future month with Pacing mode on -> multiply this
+      //     month's contribution by the pacing multiplier.
+      const mp = pacingByMonth.get(seg.monthKey);
+      if (seg.fullMonth && isCurrentOrFuture && applyPacing && mp && mp.multiplier > 1) {
+        const monthRevenue = buckets.revenueByMonth.get(seg.monthKey) ?? 0;
+        revenueDelta += monthRevenue * (mp.multiplier - 1);
+        usedPacing = true;
+        continue;
+      }
+
+      // (c) Otherwise: keep the booked/pro-rated contribution as-is.
+      if (isCurrentOrFuture) usedBooked = true;
     }
 
-    // (2) Current-or-future month with pacing requested -> apply pacing
-    //     multiplier to revenue/mgmt/payout. Stays/nights/occupancy/ADR stay
-    //     as booked-so-far (those are honest actuals; revenue gets projected
-    //     toward the historical Gloucester occupancy benchmark).
-    if (isCurrentOrFuture && pacing && pacing.multiplier > 1 && applyPacing) {
-      const m = s.metrics;
-      if (m.totalRevenue == null) return { ...s, source: 'pacing' };
-      const prop = properties.find((p) => p.id === s.propertyId);
-      const mgmtFraction = prop?.is_rising_tide_owned
-        ? 0
-        : Number(prop?.management_fee_pct ?? 0) / 100;
-      const projectedRevenue = m.totalRevenue * pacing.multiplier;
-      const projectedMgmtFee = projectedRevenue * mgmtFraction;
-      const projectedPayout = projectedRevenue - projectedMgmtFee - (m.cleaningCost ?? 0);
-      return {
-        ...s,
-        source: 'pacing',
-        metrics: {
-          ...m,
-          totalRevenue: round2(projectedRevenue),
-          managementFee: round2(projectedMgmtFee),
-          projectedOwnerPayout: projectedPayout > 0 ? round2(projectedPayout) : null,
-        },
-      };
-    }
+    const baseM = s.metrics;
+    const newRevenue =
+      baseM.totalRevenue != null ? Math.max(0, baseM.totalRevenue + revenueDelta) : null;
+    const newNights = Math.max(0, baseM.nightsSold + nightsDelta);
+    const newStays = Math.max(0, baseM.staysCount + staysDelta);
+    const newCleaning =
+      baseM.cleaningCost != null
+        ? Math.max(0, baseM.cleaningCost + cleaningDelta)
+        : cleaningDelta > 0
+        ? cleaningDelta
+        : null;
 
-    // (3) Current-or-future month, pacing disabled -> show booked-so-far
-    //     actuals (no multiplier). Tag source so the UI can label honestly.
-    if (isCurrentOrFuture) {
-      return { ...s, source: 'booked' };
-    }
+    const newMgmtFee = newRevenue != null ? newRevenue * mgmtFraction : null;
+    const newPayout =
+      newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) : null;
+    const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
+    const newOccupancy =
+      totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null) > 0
+        ? (newNights / totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null)) * 100
+        : null;
 
-    return s;
+    const source: SnapshotSource =
+      // Multi-month with at least one Statement-overridden month: prefer the
+      // Statement label if it dominates. Pacing wins over Booked. Computed
+      // when nothing overrode (e.g. fully past range with no Statements).
+      usedStatement && !usedPacing
+        ? 'statement'
+        : usedPacing
+        ? 'pacing'
+        : usedBooked
+        ? 'booked'
+        : 'computed';
+
+    return {
+      ...s,
+      source,
+      metrics: {
+        staysCount: newStays,
+        nightsSold: newNights,
+        totalRevenue: newRevenue != null && newRevenue > 0 ? round2(newRevenue) : null,
+        ADR: newADR !== null ? round2(newADR) : null,
+        occupancyPct: newOccupancy !== null ? round1(newOccupancy) : null,
+        managementFee: newMgmtFee && newMgmtFee > 0 ? round2(newMgmtFee) : (newRevenue ? 0 : null),
+        cleaningCost: newCleaning && newCleaning > 0 ? round2(newCleaning) : null,
+        projectedOwnerPayout: newPayout && newPayout > 0 ? round2(newPayout) : null,
+      },
+    };
   });
 
-  return { snapshots, pacing };
+  return { snapshots, pacing: headline };
+}
+
+/**
+ * Nights between rangeStart and rangeEnd, clipped to a property's activation
+ * date. Used as the denominator for per-property occupancy% when the range
+ * may straddle a property's go-live date.
+ */
+function totalNightsForOccupancy(rangeStart: string, rangeEnd: string, activatedAt: string | null): number {
+  const start = activatedAt
+    ? (activatedAt.slice(0, 10) > rangeStart ? activatedAt.slice(0, 10) : rangeStart)
+    : rangeStart;
+  return nightsBetween(start, dayAfter(rangeEnd));
 }
 
 type StatementRow = {
