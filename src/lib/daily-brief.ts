@@ -10,6 +10,7 @@
  * handful of unindexed selects is fine.
  */
 
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import {
   isStayConciergeConfigured,
@@ -22,6 +23,16 @@ import {
   ACTIVE_WORK_SLIP_STATUSES,
 } from '@/lib/work-types';
 import { triageEmails } from '@/lib/ai/triage-emails';
+
+let _serviceSupabase: SupabaseClient | null = null;
+function serviceSupabase(): SupabaseClient {
+  if (_serviceSupabase) return _serviceSupabase;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('Supabase service role not configured for email triage');
+  _serviceSupabase = createClient(url, key);
+  return _serviceSupabase;
+}
 
 export type BriefStay = {
   propertyId: string;
@@ -161,17 +172,17 @@ function parseFrom(header: string | null): { name: string | null; email: string 
   return { name: bare || null, email: null };
 }
 
-// Top unread inbox messages from Gmail, surfaced directly so the brief
-// shows actual emails — not just inbound from CRM-known contacts.
-// Filters out promotional / social tabs by query, since those bury the
-// signal the operator cares about.
-async function loadUnreadEmails(): Promise<BriefEmail[]> {
+type FetchedEmail = Omit<BriefEmail, 'triage' | 'triageSummary'>;
+
+// Fetch the current unread inbox from Gmail (metadata only). Used by
+// the cron to decide which messages need (re)classification.
+async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   const token = await getGmailAccessToken();
   if (!token) return [];
 
-  // Deterministic noise filter at the query level so we never spend an
-  // LLM call on known automated forwards. The AI still catches anything
-  // else we missed.
+  // Deterministic noise filter at the query level so we never spend
+  // an LLM call on known automated forwards. The AI still catches
+  // anything else we missed.
   const excludeSenders = [
     // Quo (formerly OpenPhone) sends SMS forwards from quo@quo.com.
     'quo@quo.com',
@@ -226,31 +237,151 @@ async function loadUnreadEmails(): Promise<BriefEmail[]> {
         snippet: (data.snippet ?? '').slice(0, 200),
         receivedAt,
         ageHours,
-        triage: 'fyi' as const,
-        triageSummary: '',
-      } as BriefEmail;
+      } as FetchedEmail;
     }),
   );
-  const emails: BriefEmail[] = detailed.filter((e): e is BriefEmail => e !== null);
+  const emails = detailed.filter((e): e is FetchedEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
+  return emails;
+}
 
-  // Single batched LLM call. Cheap with Haiku; ~1-3s for 20 emails.
-  // On failure the helper returns fyi for everything so the brief
-  // still renders.
-  const triaged = await triageEmails(
-    emails.map(e => ({
-      id: e.id,
-      fromName: e.fromName,
-      fromEmail: e.fromEmail,
+type EmailTriageRow = {
+  gmail_message_id: string;
+  thread_id: string;
+  from_name: string | null;
+  from_email: string | null;
+  subject: string;
+  snippet: string;
+  received_at: string;
+  triage: 'needs_reply' | 'fyi' | 'notification';
+  triage_summary: string;
+  is_unread: boolean;
+};
+
+export type SyncEmailsSummary = {
+  fetched: number;
+  classifiedNew: number;
+  alreadyCached: number;
+  markedRead: number;
+};
+
+// Cron-side. Pulls the current unread inbox, classifies any messages
+// we haven't seen before with a single batched Haiku call, and folds
+// the result into the email_triage cache. /today reads from the cache
+// and never calls Gmail or the LLM itself.
+export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
+  if (!gmailConfigured()) {
+    return { fetched: 0, classifiedNew: 0, alreadyCached: 0, markedRead: 0 };
+  }
+  const sb = serviceSupabase();
+  const fetched = await fetchUnreadInbox();
+  const ids = fetched.map(e => e.id);
+
+  // Look up which ids we've already classified.
+  const { data: existingRows } = await sb
+    .from('email_triage')
+    .select('gmail_message_id')
+    .in('gmail_message_id', ids.length ? ids : ['__none__']);
+  const existing = new Set(((existingRows ?? []) as Array<{ gmail_message_id: string }>).map(r => r.gmail_message_id));
+
+  const toClassify = fetched.filter(e => !existing.has(e.id));
+  const triaged = toClassify.length
+    ? await triageEmails(
+        toClassify.map(e => ({
+          id: e.id,
+          fromName: e.fromName,
+          fromEmail: e.fromEmail,
+          subject: e.subject,
+          snippet: e.snippet,
+        })),
+      )
+    : [];
+  const triageById = new Map(triaged.map(t => [t.id, t]));
+
+  const nowIso = new Date().toISOString();
+  const upserts: EmailTriageRow[] = fetched.map(e => {
+    const t = triageById.get(e.id);
+    return {
+      gmail_message_id: e.id,
+      thread_id: e.threadId,
+      from_name: e.fromName,
+      from_email: e.fromEmail,
       subject: e.subject,
       snippet: e.snippet,
-    })),
-  );
-  const triageById = new Map(triaged.map(t => [t.id, t]));
-  return emails.map(e => {
-    const t = triageById.get(e.id);
-    return t ? { ...e, triage: t.category, triageSummary: t.summary } : e;
+      received_at: e.receivedAt,
+      triage: t?.category ?? 'fyi',
+      triage_summary: t?.summary ?? '',
+      is_unread: true,
+    };
   });
+
+  if (upserts.length) {
+    await sb.from('email_triage').upsert(upserts, { onConflict: 'gmail_message_id' });
+  }
+
+  // Anything previously marked unread but NOT in the current inbox
+  // has been read or archived in Gmail. Flip its flag so /today drops
+  // it. Re-arriving unread (rare) will be re-flagged on the next sync.
+  const stillUnreadIds = new Set(ids);
+  const { data: previouslyUnread } = await sb
+    .from('email_triage')
+    .select('gmail_message_id')
+    .eq('is_unread', true);
+  const toMarkRead = ((previouslyUnread ?? []) as Array<{ gmail_message_id: string }>)
+    .map(r => r.gmail_message_id)
+    .filter(id => !stillUnreadIds.has(id));
+  if (toMarkRead.length) {
+    await sb
+      .from('email_triage')
+      .update({ is_unread: false, last_seen_at: nowIso })
+      .in('gmail_message_id', toMarkRead);
+  }
+
+  return {
+    fetched: fetched.length,
+    classifiedNew: triaged.length,
+    alreadyCached: fetched.length - triaged.length,
+    markedRead: toMarkRead.length,
+  };
+}
+
+// Page-side. Pure read from the cache; one Supabase round-trip.
+async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
+  const { data } = await supabase
+    .from('email_triage')
+    .select('gmail_message_id, thread_id, from_name, from_email, subject, snippet, received_at, triage, triage_summary')
+    .eq('is_unread', true)
+    .neq('triage', 'notification')
+    .order('received_at', { ascending: false })
+    .limit(40);
+  type RowPick = Pick<EmailTriageRow, 'gmail_message_id' | 'thread_id' | 'from_name' | 'from_email' | 'subject' | 'snippet' | 'received_at' | 'triage' | 'triage_summary'>;
+  return ((data ?? []) as RowPick[]).map(r => ({
+    id: r.gmail_message_id,
+    threadId: r.thread_id,
+    fromName: r.from_name,
+    fromEmail: r.from_email,
+    subject: r.subject,
+    snippet: r.snippet,
+    receivedAt: r.received_at,
+    ageHours: Math.max(0, Math.round((Date.now() - new Date(r.received_at).getTime()) / 3_600_000)),
+    triage: r.triage,
+    triageSummary: r.triage_summary,
+  }));
+}
+
+async function loadEmailTriageTotals(): Promise<{ needsReply: number; fyi: number; notifications: number; unread: number }> {
+  const { data } = await supabase
+    .from('email_triage')
+    .select('triage')
+    .eq('is_unread', true);
+  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification' };
+  const rows = (data ?? []) as RowPick[];
+  return {
+    needsReply: rows.filter(r => r.triage === 'needs_reply').length,
+    fyi: rows.filter(r => r.triage === 'fyi').length,
+    notifications: rows.filter(r => r.triage === 'notification').length,
+    unread: rows.length,
+  };
 }
 
 export async function loadDailyBrief(): Promise<DailyBrief> {
@@ -315,6 +446,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { data: prospects },
     { data: syncRows },
     unreadEmails,
+    emailTotals,
   ] = await Promise.all([
     supabase.from('properties').select('id, name').eq('is_active', true),
     supabase
@@ -371,7 +503,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
       .order('created_at', { ascending: false }),
     supabase.from('sync_status').select('source, last_synced_at'),
-    loadUnreadEmails().catch(() => [] as BriefEmail[]),
+    loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),
+    loadEmailTriageTotals().catch(() => ({ needsReply: 0, fyi: 0, notifications: 0, unread: 0 })),
   ]);
 
   const propertyById = new Map<string, string>();
@@ -510,12 +643,10 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   }
   const lastGmailSyncAt = syncBySource.get('gmail-replies') ?? null;
 
-  // Tally triage outcomes from the raw set, then drop notifications
-  // from what the page sees. The page never re-implements this filter.
-  const needsReplyCount = unreadEmails.filter(e => e.triage === 'needs_reply').length;
-  const fyiCount = unreadEmails.filter(e => e.triage === 'fyi').length;
-  const notificationCount = unreadEmails.filter(e => e.triage === 'notification').length;
-  const visibleUnreadEmails = unreadEmails.filter(e => e.triage !== 'notification');
+  // Triage tallies come from the cache (loadEmailTriageTotals counts
+  // every unread row, including notifications). The page-visible list
+  // already excluded notifications at SELECT time.
+  const visibleUnreadEmails = unreadEmails;
 
   return {
     date: todayIso,
@@ -537,10 +668,10 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
       waitingReplies: inboundWaiting.length,
-      unread: unreadEmails.length,
-      needsReply: needsReplyCount,
-      fyi: fyiCount,
-      notifications: notificationCount,
+      unread: emailTotals.unread,
+      needsReply: emailTotals.needsReply,
+      fyi: emailTotals.fyi,
+      notifications: emailTotals.notifications,
       dataGaps: unresolvedDataGaps.length,
       approvals: pendingApprovals.length,
       inspectionsToday: inspectionsCompletedToday.length,
