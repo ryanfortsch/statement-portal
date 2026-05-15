@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { DownloadCopyButton } from './DownloadCopyButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,9 +67,7 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
           </p>
 
           <div className="rt-th-actions">
-            <a href={downloadHref} className="rt-th-download" download>
-              Download a copy &rarr;
-            </a>
+            <DownloadCopyButton href={downloadHref} label="Download a copy" />
           </div>
 
           {!onboardingDone && (
@@ -149,7 +148,8 @@ const thanksCss = `
     margin: 8px 0 28px;
   }
   .rt-th-download {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     background: var(--ink);
     color: var(--paper);
     font-size: 11px;
@@ -161,6 +161,27 @@ const thanksCss = `
   }
   .rt-th-download:hover {
     background: var(--signal);
+  }
+  /* Preparing state: button accepts the click and shifts to a
+     spinner + "Preparing PDF…" label so the owner knows the request
+     is in flight (the PDF endpoint takes 5-10s to respond). */
+  .rt-th-download.is-preparing {
+    opacity: 0.78;
+    cursor: progress;
+    pointer-events: none;
+  }
+  .rt-th-spinner {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    margin-right: 9px;
+    animation: rt-th-spin 0.7s linear infinite;
+  }
+  @keyframes rt-th-spin {
+    to { transform: rotate(360deg); }
   }
 
   .rt-th-next {
