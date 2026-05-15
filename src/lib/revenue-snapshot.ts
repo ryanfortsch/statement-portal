@@ -443,13 +443,18 @@ async function applyStatementsAndPacing(
     stmtByProperty.set(row.property_id, row);
   }
 
-  // Is the requested month the calendar month we're currently in?
+  // Classify the month: closed (in the past), current, or future.
   const now = new Date();
+  const todayYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const isCurrentMonth = now.getFullYear() === cal.year && now.getMonth() === cal.month;
+  const isCurrentOrFuture = monthKey >= todayYM;
 
-  // Pacing multiplier (portfolio-level) — only computed when current month.
+  // Pacing multiplier (portfolio-level). Computed for any current-or-future
+  // month: the math is the same (booked nights vs. days × props, compared to
+  // historical Gloucester occupancy). For closed months we already use
+  // Statement values, so pacing is moot — skip the compute.
   let pacing: PacingInfo | null = null;
-  if (isCurrentMonth) {
+  if (isCurrentOrFuture) {
     const mgmtProps = properties.filter(
       (p) =>
         !p.is_rising_tide_owned &&
@@ -461,6 +466,10 @@ async function applyStatementsAndPacing(
       if (mgmtIds.has(s.propertyId)) portfolioNightsBooked += s.metrics.nightsSold;
     }
     const portfolioNightsPossible = daysThisMonth * mgmtProps.length;
+    // For a current month, pacing% = nights-booked-so-far / nights-possible.
+    // For a future month, this still reads the same way (it's just "what's
+    // been booked vs. what could be filled"), and the multiplier scales
+    // toward the seasonal historical average.
     const pacingPct =
       portfolioNightsPossible > 0
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
@@ -470,6 +479,7 @@ async function applyStatementsAndPacing(
       pacingPct > 0 && historicalAvgPct > pacingPct ? historicalAvgPct / pacingPct : 1;
     pacing = { pacingPct: round1(pacingPct), historicalAvgPct: round1(historicalAvgPct), multiplier, month: monthKey };
   }
+  void isCurrentMonth;
 
   const snapshots = base.map((s): PropertySnapshot => {
     // (1) Closed month with a Statement -> use Statement values exactly.
@@ -495,10 +505,11 @@ async function applyStatementsAndPacing(
       };
     }
 
-    // (2) Current month with pacing requested -> apply pacing multiplier to
-    //     revenue/mgmt/payout. Stays/nights/occupancy/ADR stay as booked-so-
-    //     far (those are honest actuals; revenue gets projected forward).
-    if (isCurrentMonth && pacing && pacing.multiplier > 1 && applyPacing) {
+    // (2) Current-or-future month with pacing requested -> apply pacing
+    //     multiplier to revenue/mgmt/payout. Stays/nights/occupancy/ADR stay
+    //     as booked-so-far (those are honest actuals; revenue gets projected
+    //     toward the historical Gloucester occupancy benchmark).
+    if (isCurrentOrFuture && pacing && pacing.multiplier > 1 && applyPacing) {
       const m = s.metrics;
       if (m.totalRevenue == null) return { ...s, source: 'pacing' };
       const prop = properties.find((p) => p.id === s.propertyId);
@@ -520,9 +531,9 @@ async function applyStatementsAndPacing(
       };
     }
 
-    // (3) Current month, pacing disabled -> show booked-so-far actuals
-    //     (no multiplier). Tag source so the UI can label honestly.
-    if (isCurrentMonth) {
+    // (3) Current-or-future month, pacing disabled -> show booked-so-far
+    //     actuals (no multiplier). Tag source so the UI can label honestly.
+    if (isCurrentOrFuture) {
       return { ...s, source: 'booked' };
     }
 
