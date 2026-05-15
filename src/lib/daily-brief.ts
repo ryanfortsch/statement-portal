@@ -243,18 +243,74 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   const emails = detailed.filter((e): e is FetchedEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
 
-  // Thread-state pass: Gmail leaves the original inbound marked unread
-  // even when the operator has already replied (mobile quick-reply,
-  // scheduled send, third-party client, etc.). For each inbound, pull
-  // its thread metadata and drop the email if there's a SENT message
-  // newer than the unread one.
+  // Recent outbound recipients (single query) covers fresh-compose
+  // replies that land in a different threadId than the inbound.
+  const recentSentTo = await loadRecentSentRecipients(token);
+
+  // Thread-state pass + cross-thread pass: Gmail leaves the original
+  // inbound marked unread even when the operator already replied
+  // (mobile quick-reply, scheduled send, fresh-compose to the same
+  // sender, third-party client). Drop the email if EITHER:
+  //   - the same thread has a Rising Tide sent message after the inbound, OR
+  //   - any sent message after the inbound was addressed to this sender.
   const filtered = await Promise.all(
     emails.map(async e => {
-      const replied = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
-      return replied ? null : e;
+      const inboundMs = new Date(e.receivedAt).getTime();
+      if (e.fromEmail) {
+        const lastSent = recentSentTo.get(e.fromEmail.toLowerCase());
+        if (lastSent && lastSent > inboundMs) return null;
+      }
+      const inThread = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
+      return inThread ? null : e;
     }),
   );
   return filtered.filter((e): e is FetchedEmail => e !== null);
+}
+
+// One query → recipient_email → latest sent timestamp, used for
+// cross-thread reply detection.
+async function loadRecentSentRecipients(token: string): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  try {
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent('in:sent newer_than:14d')}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!listRes.ok) return out;
+    const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
+    const stubs = listData.messages ?? [];
+    if (!stubs.length) return out;
+
+    await Promise.all(
+      stubs.map(async stub => {
+        const detailRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${stub.id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!detailRes.ok) return;
+        const data = (await detailRes.json()) as {
+          internalDate?: string;
+          payload?: { headers?: GmailHeader[] };
+        };
+        const ms = Number(data.internalDate ?? '0');
+        if (!ms) return;
+        const headers = data.payload?.headers ?? [];
+        for (const h of headers) {
+          if (h.name.toLowerCase() !== 'to' && h.name.toLowerCase() !== 'cc') continue;
+          // Header value may be "Foo <a@x.com>, Bar <b@y.com>".
+          for (const part of h.value.split(',')) {
+            const { email } = parseFrom(part);
+            if (!email) continue;
+            const prev = out.get(email);
+            if (!prev || ms > prev) out.set(email, ms);
+          }
+        }
+      }),
+    );
+  } catch {
+    // best-effort; thread check still runs as backstop
+  }
+  return out;
 }
 
 type GmailThreadMessage = {
