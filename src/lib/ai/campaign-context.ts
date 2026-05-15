@@ -45,19 +45,28 @@ const NEIGHBORHOOD: Record<string, string> = {
 };
 
 export async function loadDraftContext(args: { segmentId?: string | null }): Promise<CampaignDraftContext> {
-  // Marketing titles live in Helm DB (e.g. "Stay at Rocky Neck") so fetch
-  // them once and merge with the local PROPERTIES map. We also pull
-  // guesty_listing_id off the same row because staycapeann.com's
-  // /stays/[id] route uses the Guesty listing ID as the slug.
-  const { data: dbProps } = await supabase
-    .from('properties')
-    .select('id, title, guesty_listing_id')
-    .eq('is_active', true);
+  // Marketing titles live in Helm DB (e.g. "Stay at Rocky Neck"). The
+  // Guesty listing ID (used as the slug on staycapeann.com's /stays/[id]
+  // route) is the source-of-truth in the `guesty_listings` table,
+  // populated by /api/sync-guesty. That's more reliable than
+  // properties.guesty_listing_id which is a denormalized snapshot that
+  // can be null for properties that haven't had it set manually.
+  const [propsResult, listingsResult] = await Promise.all([
+    supabase.from('properties').select('id, title').eq('is_active', true),
+    supabase.from('guesty_listings').select('property_id, listing_id'),
+  ]);
+
   const titleById = new Map<string, string | null>();
-  const guestyIdById = new Map<string, string | null>();
-  for (const row of (dbProps ?? []) as Array<{ id: string; title: string | null; guesty_listing_id: string | null }>) {
+  for (const row of (propsResult.data ?? []) as Array<{ id: string; title: string | null }>) {
     titleById.set(row.id, row.title);
-    guestyIdById.set(row.id, row.guesty_listing_id);
+  }
+
+  const guestyIdById = new Map<string, string>();
+  for (const row of (listingsResult.data ?? []) as Array<{ property_id: string; listing_id: string }>) {
+    // Multiple listings per property is rare; first one wins.
+    if (!guestyIdById.has(row.property_id)) {
+      guestyIdById.set(row.property_id, row.listing_id);
+    }
   }
 
   const properties = Object.values(PROPERTIES)
