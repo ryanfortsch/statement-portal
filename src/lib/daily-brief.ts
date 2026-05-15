@@ -388,13 +388,11 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
 export function briefHeadline(brief: DailyBrief): string {
   const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
   const bits: string[] = [];
+  if (brief.totals.waitingReplies) bits.push(`${brief.totals.waitingReplies} reply needed`);
+  if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);
   if (brief.checkoutsToday.length) bits.push(`${brief.checkoutsToday.length} checkout${brief.checkoutsToday.length === 1 ? '' : 's'}`);
   if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
-  if (brief.totals.waitingReplies) bits.push(`${brief.totals.waitingReplies} reply needed`);
-  if (brief.totals.approvals) bits.push(`${brief.totals.approvals} approval${brief.totals.approvals === 1 ? '' : 's'}`);
-  if (brief.highPrioritySlips.length) bits.push(`${brief.highPrioritySlips.length} hot slip${brief.highPrioritySlips.length === 1 ? '' : 's'}`);
   if (draftProspects) bits.push(`${draftProspects} prospect draft${draftProspects === 1 ? '' : 's'}`);
-  if (brief.totals.dataGaps) bits.push(`${brief.totals.dataGaps} data gap${brief.totals.dataGaps === 1 ? '' : 's'}`);
   if (!bits.length) return 'Clear deck. Have a great day.';
   return bits.join(', ');
 }
