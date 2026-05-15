@@ -242,7 +242,49 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   );
   const emails = detailed.filter((e): e is FetchedEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
-  return emails;
+
+  // Thread-state pass: Gmail leaves the original inbound marked unread
+  // even when the operator has already replied (mobile quick-reply,
+  // scheduled send, third-party client, etc.). For each inbound, pull
+  // its thread metadata and drop the email if there's a SENT message
+  // newer than the unread one.
+  const filtered = await Promise.all(
+    emails.map(async e => {
+      const replied = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
+      return replied ? null : e;
+    }),
+  );
+  return filtered.filter((e): e is FetchedEmail => e !== null);
+}
+
+type GmailThreadMessage = {
+  id: string;
+  internalDate?: string;
+  labelIds?: string[];
+};
+
+async function hasOutboundReplyAfter(
+  token: string,
+  threadId: string,
+  inboundReceivedAt: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=minimal`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return false;
+    const data = (await res.json()) as { messages?: GmailThreadMessage[] };
+    const inboundMs = new Date(inboundReceivedAt).getTime();
+    for (const m of data.messages ?? []) {
+      if (!m.labelIds?.includes('SENT')) continue;
+      const ms = Number(m.internalDate ?? '0');
+      if (ms > inboundMs) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 type EmailTriageRow = {
