@@ -373,6 +373,8 @@ type EmailTriageRow = {
   thread_id: string;
   from_name: string | null;
   from_email: string | null;
+  to_emails: string[];
+  cc_emails: string[];
   subject: string;
   snippet: string;
   received_at: string;
@@ -380,6 +382,8 @@ type EmailTriageRow = {
   triage_summary: string;
   is_unread: boolean;
 };
+
+const DOTTI_EMAIL = 'dotti@risingtidestr.com';
 
 export type SyncEmailsSummary = {
   fetched: number;
@@ -426,20 +430,30 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   const nowIso = new Date().toISOString();
 
   // INSERT-only for new emails so we never overwrite existing
-  // triage data with empty defaults.
+  // triage data with empty defaults. Apply a deterministic
+  // "Dotti not on To: => fyi" downgrade after the LLM speaks: the
+  // model occasionally insists a clear ask must be needs_reply
+  // even when the email is addressed to Ryan or Allie. Hard rule
+  // wins.
   const newRows: EmailTriageRow[] = fetched
     .filter(e => !existing.has(e.id))
     .map(e => {
       const t = triageById.get(e.id);
+      const onTo = e.toEmails.map(x => x.toLowerCase()).includes(DOTTI_EMAIL);
+      const rawCategory = t?.category ?? 'fyi';
+      const category =
+        rawCategory === 'needs_reply' && !onTo ? 'fyi' : rawCategory;
       return {
         gmail_message_id: e.id,
         thread_id: e.threadId,
         from_name: e.fromName,
         from_email: e.fromEmail,
+        to_emails: e.toEmails,
+        cc_emails: e.ccEmails,
         subject: e.subject,
         snippet: e.snippet,
         received_at: e.receivedAt,
-        triage: t?.category ?? 'fyi',
+        triage: category,
         triage_summary: t?.summary ?? '',
         is_unread: true,
       };
