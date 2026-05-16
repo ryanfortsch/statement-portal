@@ -23,6 +23,7 @@ import {
   ACTIVE_WORK_SLIP_STATUSES,
 } from '@/lib/work-types';
 import { triageEmails } from '@/lib/ai/triage-emails';
+import { draftReply } from '@/lib/ai/draft-reply';
 
 let _serviceSupabase: SupabaseClient | null = null;
 function serviceSupabase(): SupabaseClient {
@@ -83,6 +84,7 @@ export type BriefEmail = {
   ageHours: number;
   triage: 'needs_reply' | 'fyi' | 'notification';
   triageSummary: string;
+  draftId: string | null;
 };
 
 export type BriefProspect = {
@@ -417,6 +419,116 @@ async function hasOutboundReplyAfter(
   }
 }
 
+// ── Reply drafting ─────────────────────────────────────────────────
+
+type GmailPart = {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPart[];
+};
+
+function decodeB64Url(s: string): string {
+  try {
+    return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+  } catch {
+    return '';
+  }
+}
+
+// Walk the MIME tree for the first text/plain part; fall back to a
+// crude tag-strip of the first text/html part.
+function extractPlainText(part: GmailPart | undefined): string {
+  if (!part) return '';
+  if (part.mimeType === 'text/plain' && part.body?.data) return decodeB64Url(part.body.data);
+  for (const child of part.parts ?? []) {
+    const found = extractPlainText(child);
+    if (found) return found;
+  }
+  if (part.mimeType === 'text/html' && part.body?.data) {
+    return decodeB64Url(part.body.data).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+async function fetchEmailBody(
+  token: string,
+  messageId: string,
+): Promise<{ body: string; messageIdHeader: string | null } | null> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    payload?: GmailPart & { headers?: GmailHeader[] };
+  };
+  const body = extractPlainText(data.payload).slice(0, 6000);
+  const messageIdHeader =
+    data.payload?.headers?.find(h => h.name.toLowerCase() === 'message-id')?.value ?? null;
+  return { body, messageIdHeader };
+}
+
+function base64UrlEncode(s: string): string {
+  return Buffer.from(s, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function encodeMimeHeader(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, 'utf-8').toString('base64')}?=`;
+}
+
+// Build an RFC 2822 reply and POST it to Gmail as a draft on the
+// original thread. Returns the new draft id, or null on failure.
+async function createReplyDraft(
+  token: string,
+  args: {
+    threadId: string;
+    to: string;
+    subject: string;
+    inReplyTo: string | null;
+    body: string;
+  },
+): Promise<string | null> {
+  const subject = args.subject.toLowerCase().startsWith('re:') ? args.subject : `Re: ${args.subject}`;
+  const headers = [
+    `To: ${args.to}`,
+    `Subject: ${encodeMimeHeader(subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+  ];
+  if (args.inReplyTo) {
+    headers.push(`In-Reply-To: ${args.inReplyTo}`);
+    headers.push(`References: ${args.inReplyTo}`);
+  }
+  const mime = `${headers.join('\r\n')}\r\n\r\n${args.body}`;
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: { raw: base64UrlEncode(mime), threadId: args.threadId } }),
+  });
+  if (!res.ok) {
+    console.error('[createReplyDraft]', res.status, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { id?: string };
+  return data.id ?? null;
+}
+
+export async function deleteDraft(draftId: string): Promise<void> {
+  try {
+    const token = await getGmailAccessToken();
+    if (!token) return;
+    await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    console.error('[deleteDraft]', err);
+  }
+}
+
 type EmailTriageRow = {
   gmail_message_id: string;
   thread_id: string;
@@ -430,6 +542,8 @@ type EmailTriageRow = {
   triage: 'needs_reply' | 'fyi' | 'notification';
   triage_summary: string;
   is_unread: boolean;
+  draft_id?: string | null;
+  draft_created_at?: string | null;
 };
 
 
@@ -438,6 +552,7 @@ export type SyncEmailsSummary = {
   classifiedNew: number;
   alreadyCached: number;
   markedRead: number;
+  draftsCreated: number;
 };
 
 // Cron-side. Pulls the current unread inbox, classifies any messages
@@ -446,7 +561,7 @@ export type SyncEmailsSummary = {
 // and never calls Gmail or the LLM itself.
 export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   if (!gmailConfigured()) {
-    return { fetched: 0, classifiedNew: 0, alreadyCached: 0, markedRead: 0 };
+    return { fetched: 0, classifiedNew: 0, alreadyCached: 0, markedRead: 0, draftsCreated: 0 };
   }
   const sb = serviceSupabase();
   const fetched = await fetchUnreadInbox();
@@ -476,31 +591,73 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   const triageById = new Map(triaged.map(t => [t.id, t]));
 
   const nowIso = new Date().toISOString();
+  const newEmails = fetched.filter(e => !existing.has(e.id));
+
+  // Queue a Gmail draft reply for every newly-classified needs_reply
+  // email. Pull the full body, draft in Dotti's voice, create the
+  // draft on the original thread. Only a handful of emails per sync,
+  // so the extra Gmail + LLM calls are cheap. Best-effort: a failed
+  // draft just leaves draft_id null and /today still shows the email.
+  const token = await getGmailAccessToken();
+  const draftByMessageId = new Map<string, string>();
+  let draftsCreated = 0;
+  if (token) {
+    const needReply = newEmails.filter(e => triageById.get(e.id)?.category === 'needs_reply');
+    await Promise.all(
+      needReply.map(async e => {
+        try {
+          const full = await fetchEmailBody(token, e.id);
+          if (!full) return;
+          const reply = await draftReply({
+            fromName: e.fromName,
+            fromEmail: e.fromEmail,
+            subject: e.subject,
+            body: full.body || e.snippet,
+          });
+          if (!reply) return;
+          const draftId = await createReplyDraft(token, {
+            threadId: e.threadId,
+            to: e.fromEmail ?? '',
+            subject: e.subject,
+            inReplyTo: full.messageIdHeader,
+            body: reply.body,
+          });
+          if (draftId) {
+            draftByMessageId.set(e.id, draftId);
+            draftsCreated++;
+          }
+        } catch (err) {
+          console.error('[syncUnreadEmails] draft failed', e.id, err);
+        }
+      }),
+    );
+  }
 
   // INSERT-only for new emails so we never overwrite existing
   // triage data with empty defaults. AI's classification stands —
   // the prompt now does the role-aware judgment rather than a
   // To-line hard rule (Dotti rarely receives email directly, so the
   // old rule downgraded everything).
-  const newRows: EmailTriageRow[] = fetched
-    .filter(e => !existing.has(e.id))
-    .map(e => {
-      const t = triageById.get(e.id);
-      return {
-        gmail_message_id: e.id,
-        thread_id: e.threadId,
-        from_name: e.fromName,
-        from_email: e.fromEmail,
-        to_emails: e.toEmails,
-        cc_emails: e.ccEmails,
-        subject: e.subject,
-        snippet: e.snippet,
-        received_at: e.receivedAt,
-        triage: t?.category ?? 'fyi',
-        triage_summary: t?.summary ?? '',
-        is_unread: true,
-      };
-    });
+  const newRows: EmailTriageRow[] = newEmails.map(e => {
+    const t = triageById.get(e.id);
+    const draftId = draftByMessageId.get(e.id) ?? null;
+    return {
+      gmail_message_id: e.id,
+      thread_id: e.threadId,
+      from_name: e.fromName,
+      from_email: e.fromEmail,
+      to_emails: e.toEmails,
+      cc_emails: e.ccEmails,
+      subject: e.subject,
+      snippet: e.snippet,
+      received_at: e.receivedAt,
+      triage: t?.category ?? 'fyi',
+      triage_summary: t?.summary ?? '',
+      is_unread: true,
+      draft_id: draftId,
+      draft_created_at: draftId ? nowIso : null,
+    };
+  });
   if (newRows.length) {
     await sb.from('email_triage').insert(newRows);
   }
@@ -538,6 +695,7 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
     classifiedNew: triaged.length,
     alreadyCached: fetched.length - triaged.length,
     markedRead: toMarkRead.length,
+    draftsCreated,
   };
 }
 
@@ -545,12 +703,15 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
 async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
   const { data } = await supabase
     .from('email_triage')
-    .select('gmail_message_id, thread_id, from_name, from_email, subject, snippet, received_at, triage, triage_summary')
+    .select('gmail_message_id, thread_id, from_name, from_email, subject, snippet, received_at, triage, triage_summary, draft_id')
     .eq('is_unread', true)
     .neq('triage', 'notification')
     .order('received_at', { ascending: false })
     .limit(40);
-  type RowPick = Pick<EmailTriageRow, 'gmail_message_id' | 'thread_id' | 'from_name' | 'from_email' | 'subject' | 'snippet' | 'received_at' | 'triage' | 'triage_summary'>;
+  type RowPick = Pick<
+    EmailTriageRow,
+    'gmail_message_id' | 'thread_id' | 'from_name' | 'from_email' | 'subject' | 'snippet' | 'received_at' | 'triage' | 'triage_summary' | 'draft_id'
+  >;
   return ((data ?? []) as RowPick[]).map(r => ({
     id: r.gmail_message_id,
     threadId: r.thread_id,
@@ -564,6 +725,7 @@ async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
     ageHours: Math.max(0, Math.round((Date.now() - new Date(r.received_at).getTime()) / 3_600_000)),
     triage: r.triage,
     triageSummary: r.triage_summary,
+    draftId: r.draft_id ?? null,
   }));
 }
 
