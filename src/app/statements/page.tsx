@@ -110,6 +110,9 @@ type CloseTask = {
   owner_transfer_done_at: string | null;
   mgmt_sweep_done_at: string | null;
   notes: string | null;
+  // Drive webViewLink for the archived statement PDF. Stamped by
+  // /api/archive-statement after "Statement sent" is ticked.
+  statement_drive_url: string | null;
 };
 
 /* ─── Formatters ─── */
@@ -1740,6 +1743,7 @@ function DashboardContent() {
               owner_transfer_done_at: existing?.owner_transfer_done_at || null,
               mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
               notes: existing?.notes || null,
+              statement_drive_url: existing?.statement_drive_url || null,
             },
           };
         });
@@ -1764,10 +1768,53 @@ function DashboardContent() {
       owner_transfer_done_at: existing?.owner_transfer_done_at || null,
       mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
       notes: existing?.notes || null,
+      statement_drive_url: existing?.statement_drive_url || null,
       ...patch,
     };
     setCloseTasks(prev => ({ ...prev, [propertyId]: merged }));
     await supabase.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });
+  }
+
+  /**
+   * "Statement sent" toggle. Persists the email_sent_at stamp like any
+   * other close-task field, then — when ticking ON — fires the Drive
+   * archive in the background. The archive renders the statement PDF
+   * server-side (~10s) and uploads it to Helm Records / Statements /
+   * <year>/<month>/. The checkbox itself flips instantly; the Drive
+   * link appears on the row when the archive resolves. Best-effort —
+   * an archive failure leaves the checkbox ticked and is logged
+   * server-side, never surfaced as a blocking error.
+   */
+  async function markStatementSent(p: PropertyStatement, next: boolean) {
+    await saveCloseTaskField(p.property_id, {
+      email_sent_at: next ? new Date().toISOString() : null,
+    });
+    if (!next || !period) return;
+    try {
+      const res = await fetch('/api/archive-statement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          statementId: p.id,
+          month: period.month,
+          periodId: period.id,
+          propertyId: p.property_id,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { ok: boolean; url?: string };
+        if (data.ok && data.url) {
+          const driveUrl = data.url;
+          setCloseTasks(prev => {
+            const existing = prev[p.property_id];
+            if (!existing) return prev;
+            return { ...prev, [p.property_id]: { ...existing, statement_drive_url: driveUrl } };
+          });
+        }
+      }
+    } catch {
+      // Archive is best-effort; the checkbox is already saved.
+    }
   }
 
   useEffect(() => {
@@ -2060,6 +2107,7 @@ function DashboardContent() {
                 owner_transfer_done_at: existing?.owner_transfer_done_at || null,
                 mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
                 notes: existing?.notes || null,
+                statement_drive_url: existing?.statement_drive_url || null,
               },
             };
           });
@@ -2686,12 +2734,33 @@ function DashboardContent() {
                         manually after the operator hits send in Gmail
                         (Helm only creates the draft, never sends). This is
                         the document becoming a matter of record; the
-                        workflow status strip's "sent" count reads off it. */}
-                    <CheckTask
-                      label="Statement sent"
-                      done={!!task?.email_sent_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_sent_at: next ? new Date().toISOString() : null })}
-                    />
+                        workflow status strip's "sent" count reads off it.
+                        Ticking it also fires the Drive archive — the
+                        statement PDF lands in Helm Records / Statements /
+                        and a Drive link surfaces below the checkbox. */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+                      <CheckTask
+                        label="Statement sent"
+                        done={!!task?.email_sent_at}
+                        onToggle={(next) => markStatementSent(p, next)}
+                      />
+                      {task?.statement_drive_url && (
+                        <a
+                          href={task.statement_drive_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            fontSize: 9,
+                            color: 'var(--ink-4)',
+                            textDecoration: 'none',
+                            letterSpacing: '.1em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          ↗ Drive
+                        </a>
+                      )}
+                    </div>
                     <CheckTask
                       label="Owner paid"
                       done={!!task?.owner_transfer_done_at}

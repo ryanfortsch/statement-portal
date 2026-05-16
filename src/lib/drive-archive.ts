@@ -127,16 +127,59 @@ async function uploadPdf(
 }
 
 /**
- * Archive a fully-executed contract PDF to:
- *   Helm Records / Contracts / <year> / <filename>
+ * Archive a PDF to a nested folder path under the Helm Records root:
+ *   Helm Records / <folderPath[0]> / <folderPath[1]> / ... / <filename>
+ *
+ * Each segment of folderPath is found-or-created in order, so the first
+ * artifact of a new year/month creates that folder and the rest land
+ * beside it. Examples:
+ *   folderPath: ['Contracts', '2026']
+ *   folderPath: ['Statements', '2026', '04 April']
+ *   folderPath: ['Inspections', '2026', '21 Horton']
  *
  * The Helm Records root folder id comes from DRIVE_HELM_RECORDS_FOLDER_ID.
- * Contracts and the year sub-folder are found-or-created on the fly, so
- * the first contract of a new year creates that year's folder and the
- * rest land beside it.
  *
  * Returns { ok: true, url } on success. Best-effort — any failure
  * returns { ok: false, reason } and is logged, never thrown.
+ */
+export async function archiveToDrive(args: {
+  pdf: Buffer;
+  filename: string;
+  folderPath: string[];
+}): Promise<{ ok: boolean; url?: string; reason?: string }> {
+  const rootId = process.env.DRIVE_HELM_RECORDS_FOLDER_ID;
+  if (!rootId) return { ok: false, reason: 'DRIVE_HELM_RECORDS_FOLDER_ID not set' };
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    return { ok: false, reason: 'GOOGLE_SERVICE_ACCOUNT_KEY not set' };
+  }
+  if (args.folderPath.length === 0) {
+    return { ok: false, reason: 'folderPath is empty' };
+  }
+
+  try {
+    const token = await getGoogleAccessToken([DRIVE_SCOPE]);
+    // Walk the folder path, find-or-creating each segment under its parent.
+    let parentId = rootId;
+    for (const segment of args.folderPath) {
+      parentId = await findOrCreateFolder(token, segment, parentId);
+    }
+    const url = await uploadPdf(token, {
+      filename: args.filename,
+      pdf: args.pdf,
+      parentId,
+    });
+    return { ok: true, url };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error('[drive-archive] archive failed:', reason);
+    return { ok: false, reason };
+  }
+}
+
+/**
+ * Archive a fully-executed contract PDF to Helm Records / Contracts /
+ * <year>/. Thin wrapper over archiveToDrive — kept so the call site in
+ * countersignContract doesn't need to know the folder convention.
  */
 export async function archiveContractToDrive(args: {
   pdf: Buffer;
@@ -144,25 +187,9 @@ export async function archiveContractToDrive(args: {
   /** Calendar year for the sub-folder, e.g. "2026". */
   year: string;
 }): Promise<{ ok: boolean; url?: string; reason?: string }> {
-  const rootId = process.env.DRIVE_HELM_RECORDS_FOLDER_ID;
-  if (!rootId) return { ok: false, reason: 'DRIVE_HELM_RECORDS_FOLDER_ID not set' };
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-    return { ok: false, reason: 'GOOGLE_SERVICE_ACCOUNT_KEY not set' };
-  }
-
-  try {
-    const token = await getGoogleAccessToken([DRIVE_SCOPE]);
-    const contractsId = await findOrCreateFolder(token, 'Contracts', rootId);
-    const yearId = await findOrCreateFolder(token, args.year, contractsId);
-    const url = await uploadPdf(token, {
-      filename: args.filename,
-      pdf: args.pdf,
-      parentId: yearId,
-    });
-    return { ok: true, url };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error('[drive-archive] contract archive failed:', reason);
-    return { ok: false, reason };
-  }
+  return archiveToDrive({
+    pdf: args.pdf,
+    filename: args.filename,
+    folderPath: ['Contracts', args.year],
+  });
 }
