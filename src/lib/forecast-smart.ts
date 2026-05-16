@@ -164,36 +164,24 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
 }
 
 /**
- * Turn a property's trailing-12-month gross into a full-year baseline.
- * A property managed for the whole window: the trailing sum already is a
- * year. A property activated mid-window only earned during the months
- * since activation, so divide its partial sum by the share of annual
- * revenue those months-of-year represent (Gloucester seasonality).
+ * Turn a property's trailing-12-month gross — bucketed by checkout
+ * month-of-year — into a full-year baseline. Sum the months that
+ * actually saw revenue and divide by the share of annual revenue those
+ * months-of-year represent (Gloucester seasonality). A property live the
+ * whole year sums to ~1.0 share, so its annual ≈ the trailing sum; a
+ * property with only a few months of history is scaled up correctly.
  */
-function annualizeTrailing(
-  trailingGross: number,
-  activatedAt: string | null,
-  today: Date,
-): number {
-  if (trailingGross <= 0) return 0;
-  // Trailing window = the 12 complete months before the current month.
-  const windowStart = new Date(today.getFullYear() - 1, today.getMonth(), 1);
-  const activated = activatedAt ? new Date(activatedAt) : null;
-  if (!activated || activated <= windowStart) {
-    return trailingGross; // managed the whole window — trailing sum is the annual
-  }
-  // Activated mid-window: divide the partial sum by the revenue-seasonality
-  // share of the months-of-year the property has actually been live.
-  const lastCompleteMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const seenMonthsOfYear = new Set<number>();
-  const cursor = new Date(activated.getFullYear(), activated.getMonth(), 1);
-  while (cursor <= lastCompleteMonth) {
-    seenMonthsOfYear.add(cursor.getMonth());
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
+function annualizeTrailing(monthlyGross: number[]): number {
+  let observedSum = 0;
   let observedShare = 0;
-  for (const moy of seenMonthsOfYear) observedShare += GLOUCESTER_REVENUE_SEASONALITY[moy];
-  return observedShare > 0 ? trailingGross / observedShare : trailingGross;
+  for (let i = 0; i < 12; i++) {
+    if ((monthlyGross[i] ?? 0) > 0) {
+      observedSum += monthlyGross[i];
+      observedShare += GLOUCESTER_REVENUE_SEASONALITY[i];
+    }
+  }
+  if (observedSum <= 0) return 0;
+  return observedShare > 0 ? observedSum / observedShare : observedSum;
 }
 
 /**
@@ -347,8 +335,9 @@ export async function getBookedByPropertyByMonth(
 
   // ── Part B input — trailing-12-month gross per property ──────────────
   // A stay is recognized in full in its checkout month (Statements
-  // methodology), so every trailing-window stay counts its whole payout.
-  const trailingGrossByProp = new Map<string, number>();
+  // methodology). Bucket by checkout month-of-year so a property with
+  // only partial history can be annualized against the seasonality curve.
+  const trailingByProp = new Map<string, number[]>();
   for (const r of (trailingRes.data ?? []) as ReservationRow[]) {
     if (!r.property_id || !r.check_in || !r.check_out) continue;
     if (!isActiveBooking(r.status)) continue;
@@ -361,10 +350,14 @@ export async function getBookedByPropertyByMonth(
     const fullPayout = resolveGrossPayout(r, mgmtFraction);
     if (fullPayout <= 0) continue;
 
-    trailingGrossByProp.set(
-      r.property_id,
-      (trailingGrossByProp.get(r.property_id) ?? 0) + fullPayout,
-    );
+    const moy = parseInt(r.check_out.slice(5, 7), 10) - 1; // 0..11
+    if (moy < 0 || moy > 11) continue;
+    let arr = trailingByProp.get(r.property_id);
+    if (!arr) {
+      arr = Array(12).fill(0);
+      trailingByProp.set(r.property_id, arr);
+    }
+    arr[moy] += fullPayout;
   }
 
   // Per-property annual-gross baselines, annualized for partial history.
@@ -374,11 +367,7 @@ export async function getBookedByPropertyByMonth(
   };
   for (const p of properties) {
     if (p.isRtOwned) continue;
-    const annualGross = annualizeTrailing(
-      trailingGrossByProp.get(p.id) ?? 0,
-      p.activatedAt,
-      today,
-    );
+    const annualGross = annualizeTrailing(trailingByProp.get(p.id) ?? []);
     baselines.byProperty.set(p.id, { annualGross });
   }
 
