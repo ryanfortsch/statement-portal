@@ -426,6 +426,11 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               {p.monthly.map((m) => (
                 <td
                   key={m.month}
+                  title={
+                    m.operating === false
+                      ? `${p.property.name} is not operating this month`
+                      : undefined
+                  }
                   style={cellStyle({
                     color: m.projectedMgmtFee === 0 ? 'var(--ink-4)' : 'var(--positive)',
                     opacity: m.projectedMgmtFee === 0 ? 0.4 : 1,

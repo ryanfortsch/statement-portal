@@ -57,6 +57,34 @@ function isActiveBooking(status: string | null): boolean {
   );
 }
 
+/**
+ * Properties that don't operate every month of the forecast horizon —
+ * business facts the properties table doesn't capture.
+ *   seasonMonths — months-of-year (1-12) the property is open.
+ *   offlineFrom  — first YYYY-MM the property is permanently offline
+ *                  (e.g. being decommissioned).
+ * Keyed by properties.id. Edit here when a property's window changes.
+ */
+type OperatingWindow = { seasonMonths?: number[]; offlineFrom?: string };
+
+const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
+  // 4 Brier Neck is a summer-only rental — open June through September.
+  '4_brier_neck': { seasonMonths: [6, 7, 8, 9] },
+  // 73 Rocky Neck is being decommissioned; last operating month Aug 2026.
+  '73_rocky_neck': { offlineFrom: '2026-09' },
+};
+
+/** Whether a property is open for business in the given YYYY-MM. */
+function isOperating(propertyId: string, ym: string): boolean {
+  const w = OPERATING_WINDOWS[propertyId];
+  if (!w) return true;
+  if (w.offlineFrom && ym >= w.offlineFrom) return false;
+  if (w.seasonMonths && !w.seasonMonths.includes(parseInt(ym.slice(5, 7), 10))) {
+    return false;
+  }
+  return true;
+}
+
 function nightsBetween(startStr: string, endStr: string): number {
   const ms = new Date(endStr).getTime() - new Date(startStr).getTime();
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
@@ -96,6 +124,8 @@ export type SmartPropertyMonth = {
   bookedRevenue: number;
   projectedGross: number;
   projectedMgmtFee: number;
+  /** False when the property is closed or decommissioned that month. */
+  operating: boolean;
 };
 
 export type SmartPropertyForecast = {
@@ -292,9 +322,10 @@ export function computeSmartForecast(
     let portfolioNightsBooked = 0;
     let activePropsThisMonth = 0;
     for (const p of mgmtProps) {
-      // Only count properties active in this month
+      // Only count properties active and operating in this month
       const monthStart = `${ym}-01`;
       if (p.activatedAt && p.activatedAt.slice(0, 10) > monthStart) continue;
+      if (!isOperating(p.id, ym)) continue;
       activePropsThisMonth += 1;
       const cell = bookedByPropMonth.get(p.id)?.get(ym);
       if (cell) portfolioNightsBooked += cell.nights;
@@ -329,6 +360,7 @@ export function computeSmartForecast(
     let paceSum = 0;
     let shareSum = 0;
     for (const ym of forwardMonthList) {
+      if (!isOperating(p.id, ym)) continue;
       const cell = propBooked.get(ym);
       if (!cell || cell.revenue <= 0 || cell.nights <= 0) continue;
       const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
@@ -363,6 +395,17 @@ export function computeSmartForecast(
     const feeFraction = (p.mgmtFeePct ?? 0) / 100;
 
     const monthly: SmartPropertyMonth[] = forwardMonthList.map((ym) => {
+      if (!isOperating(p.id, ym)) {
+        // Closed for the season or decommissioned — no projection.
+        return {
+          month: ym,
+          bookedNights: 0,
+          bookedRevenue: 0,
+          projectedGross: 0,
+          projectedMgmtFee: 0,
+          operating: false,
+        };
+      }
       const cell = propBooked.get(ym) ?? { nights: 0, revenue: 0 };
       const monthIdx = parseInt(ym.slice(5, 7), 10) - 1;
 
@@ -377,6 +420,7 @@ export function computeSmartForecast(
         bookedRevenue: cell.revenue,
         projectedGross,
         projectedMgmtFee: projectedGross * feeFraction,
+        operating: true,
       };
     });
     const totals = monthly.reduce(
