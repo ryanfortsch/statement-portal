@@ -15,11 +15,11 @@ const PRESETS: { value: string; label: string }[] = [
   { value: 'next_90', label: 'Next 90 Days' },
 ];
 
-/** YYYY-MM keys for the specific-month list: 15 months back through 4 ahead. */
+/** YYYY-MM keys for the specific-month list: 12 months back through 12 ahead. */
 function buildMonthOptions(): { value: string; label: string }[] {
   const now = new Date();
   const out: { value: string; label: string }[] = [];
-  for (let offset = 4; offset >= -15; offset--) {
+  for (let offset = 12; offset >= -12; offset--) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     out.push({
       value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
