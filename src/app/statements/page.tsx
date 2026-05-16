@@ -2623,7 +2623,7 @@ function DashboardContent() {
                 return (
                   <div key={p.id} className="rt-closeout-row" style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto',
+                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto',
                     gap: 16,
                     alignItems: 'center',
                     padding: '10px 0',
@@ -2682,8 +2682,18 @@ function DashboardContent() {
                       done={!!task?.email_drafted_at}
                       onToggle={(next) => saveCloseTaskField(p.property_id, { email_drafted_at: next ? new Date().toISOString() : null })}
                     />
+                    {/* Statement sent -- the moment of finality. Stamped
+                        manually after the operator hits send in Gmail
+                        (Helm only creates the draft, never sends). This is
+                        the document becoming a matter of record; the
+                        workflow status strip's "sent" count reads off it. */}
                     <CheckTask
-                      label="Owner sent"
+                      label="Statement sent"
+                      done={!!task?.email_sent_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_sent_at: next ? new Date().toISOString() : null })}
+                    />
+                    <CheckTask
+                      label="Owner paid"
                       done={!!task?.owner_transfer_done_at}
                       onToggle={(next) => saveCloseTaskField(p.property_id, { owner_transfer_done_at: next ? new Date().toISOString() : null })}
                     />
