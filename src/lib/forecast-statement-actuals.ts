@@ -73,26 +73,28 @@ export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMo
 }
 
 /**
- * Per-property baseline for the smart-forecast fallback. Two layers:
+ * Per-property baseline for the smart forecast.
  *
- *   monthlyHistory[m] — actual Guesty revenue per month-of-year from
- *     the trailing 365 days, pro-rated by nights for stays that cross
- *     month boundaries. Self-corrects to each property's real
- *     seasonality (ADR + occupancy already baked in).
+ *   annualGross    — the property's expected annual rental revenue,
+ *     derived from reconciled property_statements. Partial-year history
+ *     is extrapolated to a full year via Gloucester seasonality.
  *
- *   annualGross — sum of all trailing revenue, annualized by the days
- *     of history actually covered. Used as a secondary fallback for
- *     months where the property had no bookings last year (e.g. new
- *     onboards). Distributed by Gloucester occupancy share at the
- *     consumer site.
- *
- * The smart forecast takes max(monthlyHistory[m], annualGross × Gloucester
- * share[m]) as the floor, then max'es that against (bookedRevenue ×
- * portfolio pacing multiplier) for the final projection.
+ *   monthlyHistory — avg rental_revenue per month-of-year from statements
+ *     (kept for diagnostics; the forecast math uses annualGross).
  */
 export type PropertyBaseline = {
   annualGross: number;
   monthlyHistory: number[]; // 12 entries, Jan..Dec
+};
+
+/**
+ * Bundle returned by getPropertyAnnualBaselines: per-property baselines
+ * plus a portfolio-wide revenue seasonality curve (share of annual
+ * revenue per month-of-year, sums to 1) used by Part B of the forecast.
+ */
+export type ForecastBaselines = {
+  byProperty: Map<string, PropertyBaseline>;
+  revenueSeasonality: number[]; // 12 entries, sums to 1
 };
 
 // Gloucester seasonality (occupancy share by month-of-year). Pulled
@@ -106,8 +108,14 @@ const GLOUCESTER_SEASONALITY = [
 ];
 const GLOUCESTER_SUM = GLOUCESTER_SEASONALITY.reduce((s, v) => s + v, 0);
 
-export async function getPropertyAnnualBaselines(): Promise<Map<string, PropertyBaseline>> {
-  if (!isConfigured) return new Map();
+function fallbackRevenueSeasonality(): number[] {
+  return GLOUCESTER_SEASONALITY.map((v) => v / GLOUCESTER_SUM);
+}
+
+export async function getPropertyAnnualBaselines(): Promise<ForecastBaselines> {
+  if (!isConfigured) {
+    return { byProperty: new Map(), revenueSeasonality: fallbackRevenueSeasonality() };
+  }
   try {
     // property_statements is RT's authoritative reconciled monthly record.
     // Month comes from statement_periods via period_id.
@@ -118,7 +126,7 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
       .select('property_id, period_id, rental_revenue');
     if (error) {
       console.error('[property-baselines] statements query failed:', error.message);
-      return new Map();
+      return { byProperty: new Map(), revenueSeasonality: fallbackRevenueSeasonality() };
     }
 
     type Bucket = {
@@ -127,6 +135,10 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
       observedMonths: Set<string>;   // YYYY-MM strings seen for this property
     };
     const byProp = new Map<string, Bucket>();
+
+    // Portfolio-level accumulation for the revenue-seasonality curve.
+    const portfolioMonthly = Array(12).fill(0);
+    const portfolioMonthlyCount = Array(12).fill(0);
 
     for (const row of (data ?? []) as Array<{
       property_id: string | null;
@@ -150,7 +162,22 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
       bucket.monthlyHistoryCount[monthOfYear] += 1;
       bucket.observedMonths.add(month);
       byProp.set(row.property_id, bucket);
+
+      portfolioMonthly[monthOfYear] += rev;
+      portfolioMonthlyCount[monthOfYear] += 1;
     }
+
+    // Portfolio revenue seasonality: avg rental_revenue per month-of-year
+    // across all properties / years, normalized to sum 1. This is the
+    // "% of revenue that typically comes in month X" for Part B.
+    const portfolioAvg = portfolioMonthly.map((s, i) =>
+      portfolioMonthlyCount[i] > 0 ? s / portfolioMonthlyCount[i] : 0,
+    );
+    const portfolioAvgSum = portfolioAvg.reduce((a, b) => a + b, 0);
+    const revenueSeasonality =
+      portfolioAvgSum > 0
+        ? portfolioAvg.map((v) => v / portfolioAvgSum)
+        : fallbackRevenueSeasonality();
 
     const baselines = new Map<string, PropertyBaseline>();
     for (const [propId, { monthlyHistory, monthlyHistoryCount, observedMonths }] of byProp) {
@@ -181,9 +208,9 @@ export async function getPropertyAnnualBaselines(): Promise<Map<string, Property
 
       baselines.set(propId, { annualGross, monthlyHistory: avgMonthly });
     }
-    return baselines;
+    return { byProperty: baselines, revenueSeasonality };
   } catch (err) {
     console.error('[property-baselines] threw:', err);
-    return new Map();
+    return { byProperty: new Map(), revenueSeasonality: fallbackRevenueSeasonality() };
   }
 }

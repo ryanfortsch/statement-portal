@@ -25,7 +25,7 @@ import {
   HISTORICAL_AVG_RECENT,
   daysInMonth,
 } from './forecast-occupancy';
-import type { PropertyBaseline } from './forecast-statement-actuals';
+import type { ForecastBaselines } from './forecast-statement-actuals';
 
 // Reservation statuses we count as "real bookings" for forward pacing.
 const ACTIVE_STATUSES = new Set([
@@ -277,24 +277,21 @@ export function computeSmartForecast(
   properties: SmartProperty[],
   historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
   /**
-   * Per-property history for fallback projection. Each entry has the
-   * property's actual monthly revenue from the trailing 365 days (so
-   * Nov 2026 falls back to whatever Nov last year did) and an annualized
-   * total used as a deeper fallback for months with no last-year
-   * activity. See getPropertyAnnualBaselines().
+   * Per-property baselines + the portfolio revenue-seasonality curve.
+   * See getPropertyAnnualBaselines() / ForecastBaselines.
    */
-  propertyAnnualBaselines: Map<string, PropertyBaseline> = new Map(),
+  baselineData: ForecastBaselines = {
+    byProperty: new Map(),
+    revenueSeasonality: HISTORICAL_AVG_RECENT.map(
+      (v) => v / HISTORICAL_AVG_RECENT.reduce((s, x) => s + x, 0),
+    ),
+  },
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
   const mgmtProps = properties.filter((p) => !p.isRtOwned);
 
-  // Normalized Gloucester seasonality: HISTORICAL_AVG_RECENT divided by
-  // sum gives each month's share of annual revenue (the same shape
-  // applies to all properties as a first-cut proxy).
-  const seasonalitySum = historicalAvgByMonthOfYear.reduce((s, v) => s + v, 0);
-  const seasonalityShare = historicalAvgByMonthOfYear.map((v) =>
-    seasonalitySum > 0 ? v / seasonalitySum : 1 / 12
-  );
+  // Part B seasonality: share of annual revenue per month-of-year.
+  const revenueShare = baselineData.revenueSeasonality;
 
   // Per-month inputs: portfolio-level pacing computation.
   const monthInputs: SmartMonthInputs[] = forwardMonthList.map((ym) => {
@@ -334,24 +331,40 @@ export function computeSmartForecast(
 
   const inputsByMonth = new Map(monthInputs.map((mi) => [mi.month, mi]));
 
-  // Per-property projection.
+  // Per-property projection — two-part blend.
   const propsForecast: SmartPropertyForecast[] = mgmtProps.map((p) => {
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
-    const baseline = propertyAnnualBaselines.get(p.id);
+    const baseline = baselineData.byProperty.get(p.id);
     const monthly: SmartPropertyMonth[] = forwardMonthList.map((ym) => {
       const cell = propBooked.get(ym) ?? { nights: 0, revenue: 0 };
-      const mi = inputsByMonth.get(ym)!;
-      // Pacing-up: scale booked Guesty revenue by portfolio multiplier.
-      const scaledFromBookings = cell.revenue * mi.multiplier;
-      const monthIdx = parseInt(ym.split('-')[1], 10) - 1;
-      // Methodology baseline: property's annual gross (from statements)
-      // × that month's share of the Gloucester seasonality curve. Clean
-      // and consistent — assumes the property fills to its annual pace
-      // following the market's monthly distribution.
-      const expectedFromMethodology =
-        (baseline?.annualGross ?? 0) * seasonalityShare[monthIdx];
-      // Take the larger of pacing-scaled bookings vs methodology.
-      const projectedGross = Math.max(scaledFromBookings, expectedFromMethodology);
+      const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+      const monthIdx = m - 1;
+      const days = daysInMonth(y, m);
+
+      // ── Part A — pacing scale-up ──────────────────────────────────────
+      // Take what's booked for this month, and scale by how full the
+      // market typically gets vs how full this property currently is.
+      // $5K booked at 30% property occupancy, 60% market → $5K × 2 = $10K.
+      // Only exists when the property has bookings for the month.
+      let partA: number | null = null;
+      if (cell.revenue > 0 && cell.nights > 0 && days > 0) {
+        const propertyOcc = cell.nights / days;
+        const marketOcc = (historicalAvgByMonthOfYear[monthIdx] ?? 0) / 100;
+        // Floor at 1× — never project below what's already on the books.
+        const ratio = propertyOcc > 0 ? Math.max(1, marketOcc / propertyOcc) : 1;
+        partA = cell.revenue * ratio;
+      }
+
+      // ── Part B — annual revenue × month's revenue share ──────────────
+      // The property's expected annual gross × the % of annual revenue
+      // that typically lands in this month.
+      const partB = (baseline?.annualGross ?? 0) * revenueShare[monthIdx];
+
+      // ── Blend ─────────────────────────────────────────────────────────
+      // 50/50 when Part A exists; 100% Part B when there are no bookings
+      // for the month yet.
+      const projectedGross = partA != null ? 0.5 * partA + 0.5 * partB : partB;
+
       const feeFraction = (p.mgmtFeePct ?? 0) / 100;
       return {
         month: ym,
