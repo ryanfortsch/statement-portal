@@ -204,9 +204,8 @@ async function getSmartForecast(endYear: number): Promise<SmartForecast | null> 
     const today = new Date();
     const months = forwardMonths(today, endYear);
     if (months.length === 0) return null;
-    const { bookedByPropMonth, properties, baselines } =
-      await getBookedByPropertyByMonth(months);
-    return computeSmartForecast(months, bookedByPropMonth, properties, undefined, baselines);
+    const { bookedByPropMonth, properties } = await getBookedByPropertyByMonth(months);
+    return computeSmartForecast(months, bookedByPropMonth, properties);
   } catch (err) {
     console.error('[forecast] smart forecast failed:', err);
     return null;

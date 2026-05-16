@@ -513,12 +513,13 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
         parts. <em>Part A — pacing</em>: revenue on the books for that month,
         scaled by typical market fill — \$5K booked at 30% property occupancy
         with 60% market occupancy projects \$10K. <em>Part B — annual ×
-        seasonality</em>: the property&apos;s expected annual gross (from
-        reconciled <code>property_statements</code>, extrapolated to a full
-        year if fewer than 12 closed months exist) × the share of annual
-        revenue that typically lands in that month. When a month has no
-        bookings yet, Part A drops out and Part B carries 100%. The mgmt fee
-        column is the blended gross × that property&apos;s fee %.
+        seasonality</em>: the property&apos;s expected annual gross × the
+        share of annual revenue that typically lands in that month. That
+        annual gross is the property&apos;s own forward bookings, pace-corrected
+        and annualized, since Helm has no full year of per-property booking
+        history to draw on. When a month has no bookings yet, Part A drops out
+        and Part B carries 100%. The mgmt fee column is the blended gross ×
+        that property&apos;s fee %.
       </div>
     </div>
   );
