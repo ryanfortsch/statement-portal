@@ -51,6 +51,22 @@ function isActiveBooking(status: string | null): boolean {
   );
 }
 
+/**
+ * A stay that really happened and earned revenue — used for the
+ * trailing-12-month annual baseline. Broader than isActiveBooking: it
+ * also counts `closed` stays, matching the Revenue module's filter.
+ */
+function isRealizedStay(status: string | null): boolean {
+  const n = normalizeStatus(status);
+  if (EXCLUDED_STATUSES.has(n) || n.includes('cancel') || n.includes('declin')) return false;
+  return (
+    n.includes('confirmed') ||
+    n.includes('checked') ||
+    n.includes('closed') ||
+    n.includes('reserved')
+  );
+}
+
 function nightsBetween(startStr: string, endStr: string): number {
   const ms = new Date(endStr).getTime() - new Date(startStr).getTime();
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
@@ -340,7 +356,7 @@ export async function getBookedByPropertyByMonth(
   const trailingByProp = new Map<string, number[]>();
   for (const r of (trailingRes.data ?? []) as ReservationRow[]) {
     if (!r.property_id || !r.check_in || !r.check_out) continue;
-    if (!isActiveBooking(r.status)) continue;
+    if (!isRealizedStay(r.status)) continue;
     const prop = propById.get(r.property_id);
     if (!prop || prop.isRtOwned) continue;
 
