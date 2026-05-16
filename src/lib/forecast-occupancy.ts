@@ -15,6 +15,8 @@
  * Numbers are 0-100 (percentage), not 0-1.
  */
 
+import { GLOUCESTER_AIRDNA } from './projections-airdna';
+
 export type MonthlyOccupancy = { date: string; occupancy: number };
 
 export const HISTORICAL_OCCUPANCY: MonthlyOccupancy[] = [
@@ -115,3 +117,47 @@ export const ACTUAL_2026_OCCUPANCY: Record<number, number | null> = {
 export function daysInMonth(year: number, monthOneBased: number): number {
   return new Date(year, monthOneBased, 0).getDate();
 }
+
+/**
+ * Gloucester REVENUE seasonality — the share of a property's annual
+ * revenue that typically lands in each month-of-year (Jan..Dec, sums
+ * to 1).
+ *
+ * This is distinct from the occupancy curves above. Occupancy and
+ * revenue do not move together: August runs ~78% occupied vs January's
+ * ~28%, but August nightly rates are roughly triple January's, so
+ * August earns a far larger share of annual revenue than its occupancy
+ * ratio alone implies. Part B of the smart forecast needs the REVENUE
+ * shape, not occupancy.
+ *
+ * Derived from AirDNA Gloucester monthly market revenue, averaging the
+ * 2-, 3-, and 4-bedroom tiers (the bulk of the RT portfolio) across the
+ * four most recent complete non-pandemic years (2022-2025).
+ */
+function computeGloucesterRevenueSeasonality(): number[] {
+  const monthSums = Array(12).fill(0);
+  const monthCounts = Array(12).fill(0);
+  for (const row of GLOUCESTER_AIRDNA) {
+    const [yyyy, mm] = row.date.split('-');
+    const year = parseInt(yyyy, 10);
+    if (year < 2022 || year > 2025) continue; // recent, complete, non-pandemic
+    const tiers = [row.br2, row.br3, row.br4].filter(
+      (v): v is number => v != null && v > 0,
+    );
+    if (tiers.length === 0) continue;
+    const idx = parseInt(mm, 10) - 1;
+    monthSums[idx] += tiers.reduce((a, b) => a + b, 0) / tiers.length;
+    monthCounts[idx] += 1;
+  }
+  const monthAvg = monthSums.map((s, i) => (monthCounts[i] > 0 ? s / monthCounts[i] : 0));
+  const total = monthAvg.reduce((a, b) => a + b, 0);
+  return total > 0 ? monthAvg.map((v) => v / total) : Array(12).fill(1 / 12);
+}
+
+/**
+ * Twelve revenue-share values (Jan..Dec, sums to 1). A property's
+ * expected annual gross × this curve = its expected revenue per month —
+ * the basis for Part B of the smart forecast, and for annualizing
+ * partial-year statement history into a full-year baseline.
+ */
+export const GLOUCESTER_REVENUE_SEASONALITY: number[] = computeGloucesterRevenueSeasonality();

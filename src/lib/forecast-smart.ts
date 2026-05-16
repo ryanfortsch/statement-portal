@@ -23,6 +23,7 @@
 import { supabase } from './supabase';
 import {
   HISTORICAL_AVG_RECENT,
+  GLOUCESTER_REVENUE_SEASONALITY,
   daysInMonth,
 } from './forecast-occupancy';
 import type { ForecastBaselines } from './forecast-statement-actuals';
@@ -282,9 +283,7 @@ export function computeSmartForecast(
    */
   baselineData: ForecastBaselines = {
     byProperty: new Map(),
-    revenueSeasonality: HISTORICAL_AVG_RECENT.map(
-      (v) => v / HISTORICAL_AVG_RECENT.reduce((s, x) => s + x, 0),
-    ),
+    revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY,
   },
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
