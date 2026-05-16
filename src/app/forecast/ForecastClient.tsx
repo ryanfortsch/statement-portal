@@ -9,7 +9,10 @@ import {
   MONTH_LABELS,
   CC_OPERATING_BREAKDOWN,
   CC_BASELINE_MONTHLY,
+  CC_MARKETING_MONTHLY,
+  isMarketingActive,
   type ForecastYear,
+  type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
 import {
@@ -827,21 +830,21 @@ const sections2026: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
     ],
   },
   {
     heading: 'Step changes & triggers',
     items: [
       { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
-      { label: 'May 2026', value: 'Pre-signed onboardings: 2 contracts × $4K = $8K spike. Bookkeeper final wrap-up payment $1,800 (above the regular $1K).' },
-      { label: 'Jun 2026', value: 'Pre-signed onboardings: 3 contracts × $4K = $12K spike. Bookkeeper drops to $0 (engagement ends).' },
+      { label: 'May 2026', value: 'Pre-signed onboardings: 2 contracts × $4K = $8K spike. Bookkeeper final wrap-up payment $1,800 (above the regular $1K). Software subscriptions trimmed ~$400 (to $1,287/mo).' },
+      { label: 'Jun 2026', value: 'Pre-signed onboardings: 3 contracts × $4K = $12K spike. Bookkeeper drops to $0 (engagement ends). Marketing & advertising cut to $0; software subscriptions trimmed a further $100 (to $1,187/mo).' },
       { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
       { label: 'Each new month', value: '$4K onboarding charged. Property starts contributing revenue from that month forward.' },
-      { label: 'CC scaling per month', value: 'CC = $4,976 × (1 + 0.5 × (active_count − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
+      { label: 'CC scaling per month', value: 'CC = $4,573 × (1 + 0.5 × (active_count − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
@@ -871,9 +874,9 @@ const sections2027: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
-      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
     ],
   },
@@ -882,7 +885,7 @@ const sections2027: AssumptionSection[] = [
     items: [
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
       { label: 'Each new month', value: '$4K onboarding charged. Adds to active count and bumps CC line.' },
-      { label: 'CC scaling per month', value: '$4,976 × (1 + 0.5 × (active − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
+      { label: 'CC scaling per month', value: '$4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
@@ -913,9 +916,9 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
     ],
   },
@@ -923,7 +926,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'Each new month', value: '$4K onboarding charged.' },
-      { label: 'CC scaling per month', value: 'Continuous: $4,976 × (1 + 0.5 × (active − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
+      { label: 'CC scaling per month', value: 'Continuous: $4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
@@ -1404,15 +1407,29 @@ function ForecastTable({
         <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
 
         <SubsectionRow label="Recurring monthly" />
-        {CC_OPERATING_BREAKDOWN.map((cat) => (
-          <DataRow
-            key={cat.label}
-            label={cat.label}
-            info={cat.info}
-            values={monthly.map((r) => (r.exp_cc_ops * cat.monthly) / CC_BASELINE_MONTHLY)}
-            fy={monthly.reduce((a, r) => a + (r.exp_cc_ops * cat.monthly) / CC_BASELINE_MONTHLY, 0)}
-          />
-        ))}
+        {CC_OPERATING_BREAKDOWN.map((cat) => {
+          const isMarketing = cat.label === 'Marketing & advertising';
+          // The categories are a proportional split of exp_cc_ops. Once
+          // marketing is cut the split runs over the four remaining
+          // categories (reduced denominator) and marketing shows $0.
+          const catValue = (r: MonthRow) => {
+            const mktgActive = isMarketingActive(yearKey, r.month);
+            if (isMarketing && !mktgActive) return 0;
+            const denom = mktgActive
+              ? CC_BASELINE_MONTHLY
+              : CC_BASELINE_MONTHLY - CC_MARKETING_MONTHLY;
+            return (r.exp_cc_ops * cat.monthly) / denom;
+          };
+          return (
+            <DataRow
+              key={cat.label}
+              label={cat.label}
+              info={cat.info}
+              values={monthly.map(catValue)}
+              fy={monthly.reduce((a, r) => a + catValue(r), 0)}
+            />
+          );
+        })}
         <DataRow
           label="Office"
           info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
@@ -1421,7 +1438,7 @@ function ForecastTable({
         />
         <DataRow
           label="Software"
-          info="$1,687/mo — software subscriptions consolidated from the corporate card: Guesty, PriceLabs, Squarespace, QuickBooks, Adobe, AirDNA, AI tools and more. $20,244 over the trailing 12 months."
+          info="Software subscriptions on the corporate card — Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools. The $1,687/mo trailing baseline was trimmed by subscription cuts: $1,287/mo in May 2026, $1,187/mo from June onward."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />

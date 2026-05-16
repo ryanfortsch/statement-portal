@@ -122,11 +122,21 @@ export const OFFICE_START_MONTH = 3;
 
 /**
  * Software subscriptions, consolidated from the corporate card (...3878).
- * Trailing 12 months: Guesty $10,387, PriceLabs $1,956, Squarespace
- * $1,485, QuickBooks $1,449, Adobe $817, AirDNA $771, AI tools ~$1,940,
- * plus Quo, Zoom, Dropbox, DocuSign — $20,244/yr.
+ * Trailing-12-month baseline $1,687/mo (Guesty, PriceLabs, Squarespace,
+ * QuickBooks, Adobe, AirDNA, AI tools, Quo, Zoom, Dropbox, DocuSign).
+ * Subscription cuts: ~$400 trimmed effective May 2026, a further ~$100
+ * from June 2026 — software lands at $1,187/mo.
  */
 export const SOFTWARE_MONTHLY = 1687;
+
+export function softwareCost(year: number, month: number): number {
+  if (year === 2026) {
+    if (month <= 4) return SOFTWARE_MONTHLY;        // pre-cut (actuals override)
+    if (month === 5) return SOFTWARE_MONTHLY - 400; // first cut → $1,287
+    return SOFTWARE_MONTHLY - 500;                  // June onward → $1,187
+  }
+  return SOFTWARE_MONTHLY - 500; // 2027+ — both cuts in effect
+}
 
 /**
  * MH Partners — RT's outside bookkeeper. Steady ~$1,000/mo retainer
@@ -179,10 +189,28 @@ export const CC_BASELINE_MONTHLY = 4976;
 export const CC_BASELINE_PROP_COUNT = 9;
 export const CC_ELASTICITY = 0.5;
 
-export function ccOperatingCost(activePropCount: number): number {
-  if (activePropCount <= CC_BASELINE_PROP_COUNT) return CC_BASELINE_MONTHLY;
+/**
+ * Marketing & advertising portion of the operating-CC baseline (the
+ * Facebook/Meta ad spend). Cut to $0 effective June 2026 — from then on
+ * the CC baseline drops to CC_BASELINE_MONTHLY − CC_MARKETING_MONTHLY.
+ */
+export const CC_MARKETING_MONTHLY = 403;
+
+/** Marketing & advertising spend runs only through May 2026, then $0. */
+export function isMarketingActive(year: number, month: number): boolean {
+  return year === 2026 && month <= 5;
+}
+
+export function ccOperatingCost(
+  activePropCount: number,
+  year: number,
+  month: number,
+): number {
+  let base = CC_BASELINE_MONTHLY;
+  if (!isMarketingActive(year, month)) base -= CC_MARKETING_MONTHLY;
+  if (activePropCount <= CC_BASELINE_PROP_COUNT) return base;
   const propIncrease = (activePropCount - CC_BASELINE_PROP_COUNT) / CC_BASELINE_PROP_COUNT;
-  return CC_BASELINE_MONTHLY * (1 + propIncrease * CC_ELASTICITY);
+  return base * (1 + propIncrease * CC_ELASTICITY);
 }
 
 /**
@@ -207,7 +235,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   {
     label: 'Marketing & advertising',
     monthly: 403,
-    info: 'Facebook/Meta ads plus graphics and printed materials — $4,832 trailing 12 months.',
+    info: 'Facebook/Meta ads. Cut to $0 effective June 2026 — ran $4,832 over the trailing 12 months before the cut.',
   },
   {
     label: 'Repairs & upkeep',
@@ -605,12 +633,12 @@ export function calcYear(
     for (const start of newStartMonths) if (m >= start) activeCount += 1;
 
     const exp_office = officeCost(m, config.officeStartMonth);
-    const exp_software = SOFTWARE_MONTHLY;
+    const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = insuranceCost(m);
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
-    const exp_cc_ops = ccOperatingCost(activeCount);
+    const exp_cc_ops = ccOperatingCost(activeCount, year, m);
     const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;
