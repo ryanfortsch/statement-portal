@@ -228,8 +228,21 @@ function EmailRow({ e }: { e: BriefEmail }) {
           {e.triageSummary || e.subject}
         </div>
         {needsReply ? (
-          <div className="text-[11px] mt-1 italic" style={{ color: 'var(--ink-4)' }}>
-            {e.subject}
+          <div className="flex items-baseline gap-3 mt-1">
+            <span className="text-[11px] italic" style={{ color: 'var(--ink-4)' }}>
+              {e.subject}
+            </span>
+            {e.draftId ? (
+              <a
+                href={`https://mail.google.com/mail/u/0/#drafts/${e.draftId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] uppercase tracking-[0.14em] hover:underline"
+                style={{ color: 'var(--signal)', flexShrink: 0 }}
+              >
+                Reply drafted →
+              </a>
+            ) : null}
           </div>
         ) : null}
       </div>

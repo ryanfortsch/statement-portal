@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
+import { deleteDraft } from '@/lib/daily-brief';
 
 /**
  * Dismiss an email from the daily brief.
@@ -14,6 +15,10 @@ import { createClient } from '@supabase/supabase-js';
  * attention; if Gmail still has it marked unread for a real reason, it
  * stays).
  *
+ * If we'd queued an AI reply draft for this email, delete that draft
+ * too — the operator is saying "handled", so the unsent draft is just
+ * clutter in their Gmail.
+ *
  * No row deletion: keep the classification so we don't pay the LLM
  * again if Gmail re-flags it.
  */
@@ -23,9 +28,20 @@ export async function markEmailHandled(gmailMessageId: string): Promise<{ ok: bo
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) return { ok: false };
   const sb = createClient(url, key);
+
+  const { data: row } = await sb
+    .from('email_triage')
+    .select('draft_id')
+    .eq('gmail_message_id', gmailMessageId)
+    .maybeSingle();
+  const draftId = (row as { draft_id: string | null } | null)?.draft_id ?? null;
+  if (draftId) {
+    await deleteDraft(draftId);
+  }
+
   await sb
     .from('email_triage')
-    .update({ is_unread: false, last_seen_at: new Date().toISOString() })
+    .update({ is_unread: false, draft_id: null, last_seen_at: new Date().toISOString() })
     .eq('gmail_message_id', gmailMessageId);
   revalidatePath('/today');
   return { ok: true };
