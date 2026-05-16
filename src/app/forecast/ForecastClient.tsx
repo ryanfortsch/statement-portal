@@ -7,6 +7,8 @@ import {
   fmtDollar,
   fmtNum,
   MONTH_LABELS,
+  CC_OPERATING_BREAKDOWN,
+  CC_BASELINE_MONTHLY,
   type ForecastYear,
   type YearResult,
 } from '@/lib/forecast-model';
@@ -825,9 +827,9 @@ const sections2026: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
+      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
       { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-      { label: 'Operating CC', value: '$5,900/mo baseline at 9 active props. Scales 0.5× elasticity to active count.' },
+      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
     ],
   },
   {
@@ -839,13 +841,13 @@ const sections2026: AssumptionSection[] = [
       { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
       { label: 'Each new month', value: '$4K onboarding charged. Property starts contributing revenue from that month forward.' },
-      { label: 'CC scaling per month', value: 'CC = $5,900 × (1 + 0.5 × (active_count − 9) / 9). Examples: 14 active = $7,539/mo, 17 active = $8,194/mo, 20 active = $9,506/mo.' },
+      { label: 'CC scaling per month', value: 'CC = $4,976 × (1 + 0.5 × (active_count − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
     ],
   },
   {
     heading: 'Periodic & one-time',
     items: [
-      { label: 'Mar 2026', value: 'Phillips Insurance annual lump sum: $5,263.92 paid 03/02. $0 in every other month.' },
+      { label: 'Mar 2026', value: 'Phillips CGL insurance annual lump sum: $5,263.92 paid 03/02. GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
       { label: 'Apr 2026', value: 'MS Consultants one-time accounting engagement: $4,442.96 paid 04/15. Not recurring; $0 going forward.' },
     ],
   },
@@ -869,9 +871,9 @@ const sections2027: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
-      { label: 'Software', value: '$200/mo' },
+      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count.' },
+      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
     ],
   },
@@ -880,13 +882,13 @@ const sections2027: AssumptionSection[] = [
     items: [
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
       { label: 'Each new month', value: '$4K onboarding charged. Adds to active count and bumps CC line.' },
-      { label: 'CC scaling per month', value: '$5,900 × (1 + 0.5 × (active − 9) / 9). With 17-20+ active properties most of the year, CC runs $8K-$10K/mo.' },
+      { label: 'CC scaling per month', value: '$4,976 × (1 + 0.5 × (active − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
     ],
   },
   {
     heading: 'Periodic & wind-down',
     items: [
-      { label: 'Mar 2027', value: 'Phillips Insurance lump renewal (~$5,264, same as 2026 assumption).' },
+      { label: 'Mar 2027', value: 'Phillips CGL insurance lump renewal (~$5,264, same as 2026 assumption). GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
       { label: 'Bookkeeper', value: '$0 — engagement ended May 2026.' },
       { label: 'Accounting', value: '$0 — MS Consultants was a one-time engagement.' },
     ],
@@ -911,9 +913,9 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$200/mo' },
+      { label: 'Software', value: '$1,687/mo — software consolidated from the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools, etc.).' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count. Likely $9K-$11K/mo at this portfolio size.' },
+      { label: 'Operating CC', value: '$4,976/mo baseline at 9 active props, itemized into guest supplies, listing platforms, marketing, repairs, and travel. Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
     ],
   },
@@ -921,13 +923,13 @@ const sections2028: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'Each new month', value: '$4K onboarding charged.' },
-      { label: 'CC scaling per month', value: 'Continuous: $5,900 × (1 + 0.5 × (active − 9) / 9).' },
+      { label: 'CC scaling per month', value: 'Continuous: $4,976 × (1 + 0.5 × (active − 9) / 9). Examples: 14 active = $6,358/mo, 17 active = $7,188/mo, 20 active = $8,017/mo.' },
     ],
   },
   {
     heading: 'Periodic',
     items: [
-      { label: 'Mar 2028', value: 'Phillips Insurance lump renewal (~$5,264).' },
+      { label: 'Mar 2028', value: 'Phillips CGL insurance lump renewal (~$5,264). GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
       { label: 'Bookkeeper / Accounting', value: '$0' },
     ],
   },
@@ -1402,12 +1404,15 @@ function ForecastTable({
         <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
 
         <SubsectionRow label="Recurring monthly" />
-        <DataRow
-          label="Operating CC"
-          info="Monthly Chase ...3878 credit-card payment. Baseline $5,900/mo at 9 active properties (the 2025 portfolio). Scales at 0.5× elasticity to active property count: doubling the portfolio adds +50%, not +100%. Covers software, supplies, marketing, and some property-level pass-through."
-          values={monthly.map((r) => r.exp_cc_ops)}
-          fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
-        />
+        {CC_OPERATING_BREAKDOWN.map((cat) => (
+          <DataRow
+            key={cat.label}
+            label={cat.label}
+            info={cat.info}
+            values={monthly.map((r) => (r.exp_cc_ops * cat.monthly) / CC_BASELINE_MONTHLY)}
+            fy={monthly.reduce((a, r) => a + (r.exp_cc_ops * cat.monthly) / CC_BASELINE_MONTHLY, 0)}
+          />
+        ))}
         <DataRow
           label="Office"
           info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
@@ -1416,7 +1421,7 @@ function ForecastTable({
         />
         <DataRow
           label="Software"
-          info="$200/mo — Gusto payroll fee plus a buffer for AppFolio/Hospitable/other SaaS that lives on the operating CC."
+          info="$1,687/mo — software subscriptions consolidated from the corporate card: Guesty, PriceLabs, Squarespace, QuickBooks, Adobe, AirDNA, AI tools and more. $20,244 over the trailing 12 months."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />
@@ -1457,7 +1462,7 @@ function ForecastTable({
         />
         <DataRow
           label="Insurance"
-          info="Phillips Insurance annual policy paid as one lump sum in March. $5,263.92 in 2026; same renewal assumed for 2027."
+          info="Three policies: GEICO auto (~$518/mo, every month), Phillips CGL annual lump in March ($5,264), Arbella property annual lump in April ($3,189). About $14,669/yr."
           values={monthly.map((r) => r.exp_insurance)}
           fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
         />

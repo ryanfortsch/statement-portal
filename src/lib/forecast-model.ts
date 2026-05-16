@@ -120,8 +120,13 @@ export const DUMPSTER_MONTHLY = 50;
 /** Office costs only kick in from March (when the lease begins). */
 export const OFFICE_START_MONTH = 3;
 
-/** Software subs (Gusto + Allie's CC + buffer for AppFolio/PMS). */
-export const SOFTWARE_MONTHLY = 200;
+/**
+ * Software subscriptions, consolidated from the corporate card (...3878).
+ * Trailing 12 months: Guesty $10,387, PriceLabs $1,956, Squarespace
+ * $1,485, QuickBooks $1,449, Adobe $817, AirDNA $771, AI tools ~$1,940,
+ * plus Quo, Zoom, Dropbox, DocuSign — $20,244/yr.
+ */
+export const SOFTWARE_MONTHLY = 1687;
 
 /**
  * MH Partners — RT's outside bookkeeper. Steady ~$1,000/mo retainer
@@ -135,12 +140,24 @@ export const BOOKKEEPER_LAST_MONTH = 5;
 export const BOOKKEEPER_FINAL_AMOUNT = 1800;
 
 /**
- * Insurance (Phillips). Annual policy paid as a single lump sum in March.
- * 2026: $5,263.92 was paid 03/02/2026 (already in the actuals).
- * 2027: model assumes the same March renewal at the same amount.
+ * Insurance — three policies:
+ *   CGL (commercial general liability), Phillips — annual lump in March
+ *     ($5,263.92 paid 03/02/2026; same March renewal assumed forward).
+ *   Property/business, Arbella — annual lump in April ($3,188.57).
+ *   Auto, GEICO — charged every month, ~$518.
  */
-export const INSURANCE_ANNUAL = 5264;
-export const INSURANCE_MONTH = 3;
+export const INSURANCE_CGL_ANNUAL = 5264;
+export const INSURANCE_CGL_MONTH = 3;
+export const INSURANCE_PROPERTY_ANNUAL = 3189;
+export const INSURANCE_PROPERTY_MONTH = 4;
+export const INSURANCE_AUTO_MONTHLY = 518;
+
+export function insuranceCost(month: number): number {
+  let cost = INSURANCE_AUTO_MONTHLY;
+  if (month === INSURANCE_CGL_MONTH) cost += INSURANCE_CGL_ANNUAL;
+  if (month === INSURANCE_PROPERTY_MONTH) cost += INSURANCE_PROPERTY_ANNUAL;
+  return cost;
+}
 
 /**
  * Accounting — historically MS Consultants. The $4,442.96 paid 4/15/2026
@@ -152,13 +169,13 @@ export const ACCOUNTING_MONTHLY = 0;
 export const BANK_FEES_MONTHLY = 100;
 
 /**
- * Operating CC pass-through. Calibrated to the trailing 12 months
- * (median $5,900/mo) when ~9 properties were active. Scales with the
- * portfolio at 0.5× elasticity — so doubling property count adds
- * +50% to the CC line, not +100%, since fixed software/marketing
- * doesn't grow linearly with each new contract.
+ * Operating CC pass-through — the corporate card (...3878) with software
+ * and insurance carved out to their own lines and out-of-scope personal
+ * charges removed. Trailing 12 months at ~9 properties: $4,976/mo,
+ * itemized in CC_OPERATING_BREAKDOWN below. Scales with the portfolio at
+ * 0.5x elasticity — doubling property count adds +50%, not +100%.
  */
-export const CC_BASELINE_MONTHLY = 5900;
+export const CC_BASELINE_MONTHLY = 4976;
 export const CC_BASELINE_PROP_COUNT = 9;
 export const CC_ELASTICITY = 0.5;
 
@@ -167,6 +184,42 @@ export function ccOperatingCost(activePropCount: number): number {
   const propIncrease = (activePropCount - CC_BASELINE_PROP_COUNT) / CC_BASELINE_PROP_COUNT;
   return CC_BASELINE_MONTHLY * (1 + propIncrease * CC_ELASTICITY);
 }
+
+/**
+ * The operating-CC baseline itemized into categories — trailing-12-month
+ * monthly averages from the ...3878 card. Sums to CC_BASELINE_MONTHLY.
+ */
+export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
+  label: string;
+  monthly: number;
+  info: string;
+}> = [
+  {
+    label: 'Guest supplies & inventory',
+    monthly: 2924,
+    info: 'Amazon, Fix Linens, amenities and consumables — $35,092 over the trailing 12 months, the largest slice of card spend.',
+  },
+  {
+    label: 'Listing platforms',
+    monthly: 714,
+    info: 'VRBO and Furnished Finder host/listing fees — $8,570 trailing 12 months.',
+  },
+  {
+    label: 'Marketing & advertising',
+    monthly: 403,
+    info: 'Facebook/Meta ads plus graphics and printed materials — $4,832 trailing 12 months.',
+  },
+  {
+    label: 'Repairs & upkeep',
+    monthly: 285,
+    info: 'Hardware stores and small contractor charges on the card — $3,415 trailing 12 months.',
+  },
+  {
+    label: 'Travel & other',
+    monthly: 650,
+    info: 'Flights, car rental, fuel, meals and miscellaneous office spend — $7,797 trailing 12 months.',
+  },
+];
 
 /**
  * Hire economics. First hire ($5K/mo) joins August 2026. A second hire
@@ -554,7 +607,7 @@ export function calcYear(
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = SOFTWARE_MONTHLY;
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
-    const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
+    const exp_insurance = insuranceCost(m);
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = ccOperatingCost(activeCount);
