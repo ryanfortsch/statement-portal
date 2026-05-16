@@ -12,6 +12,7 @@ import {
   previousRange,
   deltaPct,
   type RangePreset,
+  type CustomMonth,
 } from '@/lib/revenue-date-range';
 import {
   computeRevenueSnapshot,
@@ -67,16 +68,32 @@ type PageProps = {
 
 export default async function RevenuePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const presetParam = params?.range;
-  const preset: RangePreset =
-    presetParam && (VALID_PRESETS as string[]).includes(presetParam)
-      ? (presetParam as RangePreset)
-      : 'this_month';
-  const view: RevenueView = params?.view === 'actuals' ? 'actuals' : 'pacing';
+  const rangeParam = params?.range;
 
-  const { rangeStart, rangeEnd } = computeDateRange(preset);
+  // The range param is either a preset keyword (this_month, last_30, ...) or
+  // a YYYY-MM string for a specific calendar month picked from the dropdown.
+  let preset: RangePreset = 'this_month';
+  let customMonth: CustomMonth | undefined;
+  if (rangeParam) {
+    const monthMatch = /^(\d{4})-(\d{2})$/.exec(rangeParam);
+    if (monthMatch) {
+      preset = 'custom_month';
+      customMonth = {
+        year: parseInt(monthMatch[1], 10),
+        month: parseInt(monthMatch[2], 10) - 1, // 0-indexed
+      };
+    } else if ((VALID_PRESETS as string[]).includes(rangeParam)) {
+      preset = rangeParam as RangePreset;
+    }
+  }
+
+  // Pacing is a projection; default to plain booked Actuals so the page
+  // opens on what's actually committed. The toggle opts into projection.
+  const view: RevenueView = params?.view === 'pacing' ? 'pacing' : 'actuals';
+
+  const { rangeStart, rangeEnd } = computeDateRange(preset, customMonth);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
-  const presetTitle = presetLabel(preset);
+  const presetTitle = presetLabel(preset, customMonth);
 
   if (!isHelmConfigured) {
     return (
@@ -91,9 +108,20 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   }
 
   // Forward-looking presets compare vs the future, which has no actuals
-  // yet. Skip the prior-period fetch (and deltas) for those.
-  const isForwardLooking = preset === 'next_month' || preset === 'next_90';
+  // yet. Skip the prior-period fetch (and deltas) for those. A custom month
+  // set to a future month counts as forward-looking too.
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const customMonthIsFuture =
+    preset === 'custom_month' && rangeStart.slice(0, 7) > todayYM;
+  const isForwardLooking =
+    preset === 'next_month' || preset === 'next_90' || customMonthIsFuture;
   const prior = isForwardLooking ? null : previousRange({ rangeStart, rangeEnd });
+
+  // Raw range value handed to the picker: a preset keyword, or YYYY-MM when
+  // a specific month is selected.
+  const rangeValue = customMonth
+    ? `${customMonth.year}-${String(customMonth.month + 1).padStart(2, '0')}`
+    : preset;
 
   const [{ lastSyncedAt, isStale }, current, priorFull] = await Promise.all([
     readSyncStatus(),
@@ -140,7 +168,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               }}
             >
               <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
-                <TimeRangePicker value={preset} />
+                <TimeRangePicker value={rangeValue} />
                 {pacing && pacing.multiplier > 1 && <ViewToggle value={view} />}
               </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
