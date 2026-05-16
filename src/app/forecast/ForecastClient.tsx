@@ -839,11 +839,11 @@ const sections2026: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
-      { label: 'May 2026', value: 'Pre-signed onboardings: 2 contracts × $4K = $8K spike. Bookkeeper final wrap-up payment $1,800 (above the regular $1K). Software subscriptions trimmed ~$400 (to $1,287/mo).' },
-      { label: 'Jun 2026', value: 'Pre-signed onboardings: 3 contracts × $4K = $12K spike. Bookkeeper drops to $0 (engagement ends). Marketing & advertising cut to $0; software subscriptions trimmed a further $100 (to $1,187/mo).' },
+      { label: 'May 2026', value: 'Two pre-signed contracts go live (revenue starts). Bookkeeper final wrap-up payment $1,800 (above the regular $1K). Software subscriptions trimmed ~$400 (to $1,287/mo).' },
+      { label: 'Jun 2026', value: 'Three pre-signed contracts go live (revenue starts). Bookkeeper drops to $0 (engagement ends). Marketing & advertising cut to $0; software subscriptions trimmed a further $100 (to $1,187/mo).' },
       { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
-      { label: 'Each new month', value: '$4K onboarding charged. Property starts contributing revenue from that month forward.' },
+      { label: 'Each new month', value: 'Property starts contributing revenue from its start month. No separate onboarding charge — setup supplies are already in the Guest supplies & inventory line.' },
       { label: 'CC scaling per month', value: 'CC = $4,573 × (1 + 0.5 × (active_count − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
@@ -884,7 +884,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
-      { label: 'Each new month', value: '$4K onboarding charged. Adds to active count and bumps CC line.' },
+      { label: 'Each new month', value: 'Property is added to the active count and bumps the CC line. No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
       { label: 'CC scaling per month', value: '$4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
@@ -925,7 +925,7 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Step changes & triggers',
     items: [
-      { label: 'Each new month', value: '$4K onboarding charged.' },
+      { label: 'Each new month', value: 'No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
       { label: 'CC scaling per month', value: 'Continuous: $4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
@@ -1257,7 +1257,7 @@ function KpiStrip({
       <KpiCell
         label="Total expenses"
         value={fmtDollar(totals.exp_total)}
-        sub="Corp + office + hire + onboarding"
+        sub="Corp + office + hire"
         last
       />
       <KpiCell
@@ -1397,7 +1397,7 @@ function ForecastTable({
         <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow
           label="New"
-          info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption. Each onboarding triggers a $3K cost in its start month."
+          info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption."
           values={monthly.map((r) => r.rev_new)}
           fy={totals.rev_new}
           highlight
@@ -1449,25 +1449,12 @@ function ForecastTable({
           fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
         />
 
-        <SubsectionRow label="People & onboarding" />
+        <SubsectionRow label="Hiring" />
         <DataRow
           label="New hire"
           info="First hire at $5,000/mo joins August 2026. A second hire ($5K/mo more) is automatically added once active property count reaches 20 — a step function based on the portfolio size each month."
           values={monthly.map((r) => r.exp_hire)}
           fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
-        />
-        <DataRow
-          label="Onboarding · presigned"
-          info="$4,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $20K total. Zero in 2027 — those properties are already onboarded."
-          values={monthly.map((r) => r.exp_onboard_presigned)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
-        />
-        <DataRow
-          label="Onboarding · new"
-          info="$4,000 one-time per new contract added via the slider, paid its start month."
-          values={monthly.map((r) => r.exp_onboard_new)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
-          highlight
         />
 
         <SubsectionRow label="Periodic & wind-down" />

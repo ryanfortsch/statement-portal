@@ -105,8 +105,14 @@ export const SEASON: Record<SeasonType, number[]> = {
   LS: normalize(LS_RAW),
 };
 
-/** Onboarding cost per contract, paid the month it goes live. */
-export const ONBOARDING_COST = 4000;
+/**
+ * Onboarding cost per contract. Set to $0: the supplies and inventory
+ * bought to set up a new unit are already captured in the Guest supplies
+ * & inventory line — that trailing-12-month figure includes onboarding
+ * purchases, and the extrapolation carries them forward. Charging a
+ * separate per-contract amount would double-count.
+ */
+export const ONBOARDING_COST = 0;
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -391,9 +397,9 @@ export type MonthRow = {
   exp_cc_ops: number;
   /** New hire from Oct. */
   exp_hire: number;
-  /** $3K onboarding for the 3 pre-signed contracts (Apr/Jun/Jul). */
+  /** Onboarding cost for pre-signed contracts — $0 (folded into supplies). */
   exp_onboard_presigned: number;
-  /** $3K onboarding for each new property added via the slider. */
+  /** Onboarding cost for slider-added properties — $0 (folded into supplies). */
   exp_onboard_new: number;
   /** Sum of all the above. */
   exp_total: number;
