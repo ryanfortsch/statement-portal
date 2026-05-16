@@ -560,6 +560,29 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
           >
             ↓ Download {countersignedAt ? 'fully executed' : 'signed'} PDF
           </Link>
+          {/* Drive archive link — present once the executed contract has
+              been uploaded to the Rising Tide shared drive at countersign.
+              Gives a one-click jump to the durable off-platform copy. */}
+          {projection.contract_drive_url && (
+            <Link
+              href={projection.contract_drive_url}
+              target="_blank"
+              style={{
+                background: 'transparent',
+                color: 'var(--ink-3)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                padding: '9px 16px',
+                border: '1px solid var(--rule)',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ↗ View in Drive archive
+            </Link>
+          )}
         </div>
       )}
     </>

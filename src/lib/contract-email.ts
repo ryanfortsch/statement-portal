@@ -37,7 +37,7 @@ import type { ProjectionRow } from '@/lib/projections-types';
  * preview deployments are reachable when this is called from inside a
  * server action (same pattern the inline renderProjectionPdf uses).
  */
-async function fetchContractPdf(args: {
+export async function fetchContractPdf(args: {
   projectionId: string;
   origin: string;
 }): Promise<Buffer> {
@@ -140,20 +140,28 @@ export async function sendOwnerSignedEmail(args: {
 export async function sendExecutedEmail(args: {
   projection: ProjectionRow;
   origin: string;
+  /** Pre-fetched executed PDF. When provided, the internal render is
+   *  skipped — countersignContract fetches the PDF once and reuses the
+   *  same buffer for both this email and the Drive archive. */
+  pdf?: Buffer;
 }): Promise<{ ok: boolean; reason?: string }> {
   const { projection, origin } = args;
   const to = projection.prospect_email;
   if (!to) return { ok: false, reason: 'no prospect_email on projection' };
 
   let pdf: Buffer;
-  try {
-    pdf = await fetchContractPdf({ projectionId: projection.id, origin });
-  } catch (err) {
-    console.error(
-      `[contract-email] PDF fetch failed (executed) for ${projection.id} at origin ${origin}:`,
-      err instanceof Error ? err.message : String(err),
-    );
-    return { ok: false, reason: 'pdf fetch failed' };
+  if (args.pdf) {
+    pdf = args.pdf;
+  } else {
+    try {
+      pdf = await fetchContractPdf({ projectionId: projection.id, origin });
+    } catch (err) {
+      console.error(
+        `[contract-email] PDF fetch failed (executed) for ${projection.id} at origin ${origin}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      return { ok: false, reason: 'pdf fetch failed' };
+    }
   }
 
   const filename = projectionPdfFilename(projection.property_address, 'contract');

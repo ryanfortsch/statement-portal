@@ -109,6 +109,10 @@ export type ProjectionRow = {
   // goes out so the action is idempotent (no double-send on refresh).
   contract_owner_email_sent_at: string | null;
   contract_executed_email_sent_at: string | null;
+  // Google Drive archive link for the fully-executed contract PDF.
+  // Set after countersign uploads the PDF to the Rising Tide shared
+  // drive (Helm Records / Contracts / <year>/). Null until archived.
+  contract_drive_url: string | null;
   // Onboarding-submitted notification idempotency. Stamped once after
   // the staff-alert email fires; skipped on re-submissions of the
   // same form.

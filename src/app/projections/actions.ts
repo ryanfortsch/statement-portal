@@ -21,7 +21,13 @@ import {
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
-import { sendOwnerSignedEmail, sendExecutedEmail, sendCountersignNotification } from '@/lib/contract-email';
+import {
+  sendOwnerSignedEmail,
+  sendExecutedEmail,
+  sendCountersignNotification,
+  fetchContractPdf,
+} from '@/lib/contract-email';
+import { archiveContractToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
 
@@ -703,28 +709,65 @@ export async function countersignContract(formData: FormData): Promise<void> {
     .eq('id', id);
   if (updateErr) throw new Error(updateErr.message);
 
-  // Send the "fully executed" email with the doubly-signed PDF attached.
-  // Failures are logged but non-fatal — the countersign timestamp is
-  // already persisted. Allie can re-trigger the email manually if needed.
+  // Post-countersign side effects: email the executed PDF to the owner
+  // AND archive it to the Rising Tide Drive. Both are best-effort —
+  // failures are logged, never thrown; the countersign timestamp is
+  // already persisted so a Resend / Drive outage doesn't lose the
+  // execution. The PDF is rendered ONCE here and the same buffer feeds
+  // both the email attachment and the Drive upload (the render is the
+  // slow ~10s step — doing it twice would double the countersign wait).
   const { data: fullProjection } = await supabase
     .from('projections')
     .select('*')
     .eq('id', id)
     .maybeSingle();
   if (fullProjection) {
+    const projectionRow = fullProjection as ProjectionRow;
     const origin = await getRequestOrigin();
     if (origin) {
-      const result = await sendExecutedEmail({
-        projection: fullProjection as ProjectionRow,
+      let pdf: Buffer | null = null;
+      try {
+        pdf = await fetchContractPdf({ projectionId: id, origin });
+      } catch (err) {
+        console.error(
+          '[countersignContract] executed PDF render failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // 1. Email the executed contract to the owner (CC Allie).
+      const emailResult = await sendExecutedEmail({
+        projection: projectionRow,
         origin,
+        pdf: pdf ?? undefined,
       });
-      if (result.ok) {
+      if (emailResult.ok) {
         await supabase
           .from('projections')
           .update({ contract_executed_email_sent_at: new Date().toISOString() })
           .eq('id', id);
       } else {
-        console.warn('[countersignContract] executed email skipped:', result.reason);
+        console.warn('[countersignContract] executed email skipped:', emailResult.reason);
+      }
+
+      // 2. Archive the executed PDF to the Rising Tide shared Drive
+      //    (Helm Records / Contracts / <year>/). Stamp the resulting
+      //    Drive link on the projection so the page links straight to it.
+      if (pdf && isDriveArchiveConfigured()) {
+        const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const year = dateStr.slice(0, 4);
+        const archiveName = `${projectionRow.property_address} - ${projectionRow.prospect_name} - Executed ${dateStr}.pdf`
+          .replace(/[\\/:*?"<>|]/g, '')
+          .trim();
+        const archive = await archiveContractToDrive({ pdf, filename: archiveName, year });
+        if (archive.ok && archive.url) {
+          await supabase
+            .from('projections')
+            .update({ contract_drive_url: archive.url })
+            .eq('id', id);
+        } else {
+          console.warn('[countersignContract] Drive archive skipped:', archive.reason);
+        }
       }
     }
   }
