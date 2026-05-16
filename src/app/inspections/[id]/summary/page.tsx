@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
+import { ArchiveTrigger } from './ArchiveTrigger';
 import { supabase } from '@/lib/supabase';
 import type {
   InspectionRow,
@@ -218,6 +219,11 @@ export default async function InspectionSummaryPage({
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
           {property.city} &middot; {inspection.inspector_name} &middot; Completed {formatDateTime(inspection.completed_at)}
         </p>
+        {/* Drive archive — fires on mount if this completed inspection
+            isn't archived yet, then shows the link to the Drive copy. */}
+        <div style={{ marginTop: 10 }}>
+          <ArchiveTrigger inspectionId={inspection.id} initialDriveUrl={inspection.drive_url} />
+        </div>
       </section>
 
       {/* STAT GRID */}

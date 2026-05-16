@@ -17,6 +17,9 @@ export type InspectionRow = {
   na_count: number;
   ordered_item_ids: string[] | null;
   ordered_cards: OrderedCard[] | null;
+  // Google Drive archive link for the completed inspection report PDF.
+  // Stamped by /api/archive-inspection after the inspection completes.
+  drive_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
