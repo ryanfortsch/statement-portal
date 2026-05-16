@@ -10,10 +10,14 @@
  *   - Jan-Apr 2026 → bank actuals (full row incl. expenses)
  *   - May+ → statement actuals override revenue, expenses stay projected
  *     until we wire a live expense source
+ *
+ * The per-property annual-gross baselines for the smart forecast's Part B
+ * are NOT built here — they come from trailing-12-month Guesty actuals in
+ * forecast-smart.ts (property_statements is too sparse to baseline the
+ * whole portfolio).
  */
 
 import { supabase, isConfigured } from './supabase';
-import { GLOUCESTER_REVENUE_SEASONALITY } from './forecast-occupancy';
 
 export type StatementRevenueByMonth = Record<string, number>;
 
@@ -70,120 +74,5 @@ export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMo
   } catch (err) {
     console.error('[forecast-statement-actuals] threw:', err);
     return {};
-  }
-}
-
-/**
- * Per-property baseline for the smart forecast.
- *
- *   annualGross    — the property's expected annual rental revenue,
- *     derived from reconciled property_statements. Partial-year history
- *     is extrapolated to a full year via Gloucester revenue seasonality.
- *
- *   monthlyHistory — avg rental_revenue per month-of-year from statements
- *     (kept for diagnostics; the forecast math uses annualGross).
- */
-export type PropertyBaseline = {
-  annualGross: number;
-  monthlyHistory: number[]; // 12 entries, Jan..Dec
-};
-
-/**
- * Bundle returned by getPropertyAnnualBaselines: per-property baselines
- * plus the Gloucester revenue-seasonality curve (share of annual revenue
- * per month-of-year, sums to 1) used by Part B of the forecast.
- */
-export type ForecastBaselines = {
-  byProperty: Map<string, PropertyBaseline>;
-  revenueSeasonality: number[]; // 12 entries, sums to 1
-};
-
-export async function getPropertyAnnualBaselines(): Promise<ForecastBaselines> {
-  if (!isConfigured) {
-    return { byProperty: new Map(), revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY };
-  }
-  try {
-    // property_statements is RT's authoritative reconciled monthly record.
-    // Month comes from statement_periods via period_id.
-    const monthByPeriod = await getPeriodMonthMap();
-
-    const { data, error } = await supabase
-      .from('property_statements')
-      .select('property_id, period_id, rental_revenue');
-    if (error) {
-      console.error('[property-baselines] statements query failed:', error.message);
-      return { byProperty: new Map(), revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY };
-    }
-
-    type Bucket = {
-      monthlyHistory: number[];      // index 0..11 = Jan..Dec; accumulates across years if multiple years of statements
-      monthlyHistoryCount: number[]; // how many statements contributed to each month
-      observedMonths: Set<string>;   // YYYY-MM strings seen for this property
-    };
-    const byProp = new Map<string, Bucket>();
-
-    for (const row of (data ?? []) as Array<{
-      property_id: string | null;
-      period_id: string | null;
-      rental_revenue: number | null;
-    }>) {
-      if (!row.property_id || !row.period_id) continue;
-      const month = monthByPeriod.get(row.period_id);
-      if (!month) continue;
-      const rev = Number(row.rental_revenue ?? 0);
-      if (rev <= 0) continue;
-      const monthOfYear = parseInt(month.slice(5, 7), 10) - 1; // 0..11
-      if (Number.isNaN(monthOfYear) || monthOfYear < 0 || monthOfYear > 11) continue;
-
-      const bucket = byProp.get(row.property_id) ?? {
-        monthlyHistory: Array(12).fill(0),
-        monthlyHistoryCount: Array(12).fill(0),
-        observedMonths: new Set<string>(),
-      };
-      bucket.monthlyHistory[monthOfYear] += rev;
-      bucket.monthlyHistoryCount[monthOfYear] += 1;
-      bucket.observedMonths.add(month);
-      byProp.set(row.property_id, bucket);
-    }
-
-    console.log(
-      `[property-baselines] ${data?.length ?? 0} statement rows → ${byProp.size} properties with rental revenue`,
-    );
-
-    const baselines = new Map<string, PropertyBaseline>();
-    for (const [propId, { monthlyHistory, monthlyHistoryCount, observedMonths }] of byProp) {
-      // Average across multiple statement years for a given month-of-year
-      // (e.g. Nov 2025 + Nov 2024 → averaged) so the projection isn't
-      // skewed by a single hot month.
-      const avgMonthly = monthlyHistory.map((sum, i) =>
-        monthlyHistoryCount[i] > 0 ? sum / monthlyHistoryCount[i] : 0,
-      );
-
-      // Annualize the observed data. Sum the avg-monthly revenue for the
-      // months we have statements for, then divide by the share of ANNUAL
-      // REVENUE those months represent. Winter months are a small revenue
-      // share, so four Jan-Apr statements scale up to a much larger full
-      // year than a naive multiply-by-three would give.
-      const monthsObservedSet = new Set<number>();
-      for (const ym of observedMonths) {
-        const moy = parseInt(ym.slice(5, 7), 10) - 1;
-        if (!Number.isNaN(moy)) monthsObservedSet.add(moy);
-      }
-      const observedSum = Array.from(monthsObservedSet).reduce(
-        (s, i) => s + avgMonthly[i],
-        0,
-      );
-      const observedShare = Array.from(monthsObservedSet).reduce(
-        (s, i) => s + GLOUCESTER_REVENUE_SEASONALITY[i],
-        0,
-      );
-      const annualGross = observedShare > 0 ? observedSum / observedShare : observedSum;
-
-      baselines.set(propId, { annualGross, monthlyHistory: avgMonthly });
-    }
-    return { byProperty: baselines, revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY };
-  } catch (err) {
-    console.error('[property-baselines] threw:', err);
-    return { byProperty: new Map(), revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY };
   }
 }

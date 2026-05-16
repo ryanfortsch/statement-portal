@@ -26,7 +26,6 @@ import {
   GLOUCESTER_REVENUE_SEASONALITY,
   daysInMonth,
 } from './forecast-occupancy';
-import type { ForecastBaselines } from './forecast-statement-actuals';
 
 // Reservation statuses we count as "real bookings" for forward pacing.
 const ACTIVE_STATUSES = new Set([
@@ -122,6 +121,25 @@ export type SmartForecast = {
   };
 };
 
+/** Per-property annual-gross baseline — the base for Part B of the forecast. */
+export type PropertyBaseline = {
+  /**
+   * Expected annual gross rental revenue, derived from trailing-12-month
+   * Guesty reservation actuals. Partial-history properties are annualized
+   * via the Gloucester revenue-seasonality curve.
+   */
+  annualGross: number;
+};
+
+/**
+ * Per-property baselines plus the portfolio revenue-seasonality curve —
+ * the two inputs Part B of computeSmartForecast needs.
+ */
+export type ForecastBaselines = {
+  byProperty: Map<string, PropertyBaseline>;
+  revenueSeasonality: number[]; // 12 entries, Jan..Dec, sums to 1
+};
+
 type ReservationRow = {
   property_id: string | null;
   check_in: string | null;
@@ -146,6 +164,39 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
 }
 
 /**
+ * Turn a property's trailing-12-month gross into a full-year baseline.
+ * A property managed for the whole window: the trailing sum already is a
+ * year. A property activated mid-window only earned during the months
+ * since activation, so divide its partial sum by the share of annual
+ * revenue those months-of-year represent (Gloucester seasonality).
+ */
+function annualizeTrailing(
+  trailingGross: number,
+  activatedAt: string | null,
+  today: Date,
+): number {
+  if (trailingGross <= 0) return 0;
+  // Trailing window = the 12 complete months before the current month.
+  const windowStart = new Date(today.getFullYear() - 1, today.getMonth(), 1);
+  const activated = activatedAt ? new Date(activatedAt) : null;
+  if (!activated || activated <= windowStart) {
+    return trailingGross; // managed the whole window — trailing sum is the annual
+  }
+  // Activated mid-window: divide the partial sum by the revenue-seasonality
+  // share of the months-of-year the property has actually been live.
+  const lastCompleteMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const seenMonthsOfYear = new Set<number>();
+  const cursor = new Date(activated.getFullYear(), activated.getMonth(), 1);
+  while (cursor <= lastCompleteMonth) {
+    seenMonthsOfYear.add(cursor.getMonth());
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  let observedShare = 0;
+  for (const moy of seenMonthsOfYear) observedShare += GLOUCESTER_REVENUE_SEASONALITY[moy];
+  return observedShare > 0 ? trailingGross / observedShare : trailingGross;
+}
+
+/**
  * Compute the forward-month list given a starting "today". Always returns
  * the months from the start of next month through the end of `endYear`.
  * Past months in the same year are skipped because actuals already cover
@@ -163,22 +214,30 @@ export function forwardMonths(today: Date, endYear: number): string[] {
 }
 
 /**
- * Pull every reservation that overlaps our forward window, bucket by
- * property × YYYY-MM, and return booked nights + booked revenue.
- *
- * A stay that straddles two months is pro-rated by nights into each.
+ * Pull reservations from Guesty and return three things:
+ *   - bookedByPropMonth — booked nights + revenue per property × forward
+ *     YYYY-MM (Part A pacing input). A stay straddling two months is
+ *     pro-rated by nights into each.
+ *   - properties — the active managed portfolio.
+ *   - baselines — per-property annual gross from trailing-12-month Guesty
+ *     actuals, plus the Gloucester revenue-seasonality curve (Part B).
  */
 export async function getBookedByPropertyByMonth(
   forwardMonthList: string[]
 ): Promise<{
   bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>;
   properties: SmartProperty[];
+  baselines: ForecastBaselines;
 }> {
+  const emptyBaselines: ForecastBaselines = {
+    byProperty: new Map(),
+    revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY,
+  };
   if (forwardMonthList.length === 0) {
-    return { bookedByPropMonth: new Map(), properties: [] };
+    return { bookedByPropMonth: new Map(), properties: [], baselines: emptyBaselines };
   }
 
-  // Window: from start of first forward month to end of last forward month.
+  // Forward window: from start of first forward month to end of last.
   const firstMonth = forwardMonthList[0];
   const lastMonth = forwardMonthList[forwardMonthList.length - 1];
   const [fy, fm] = firstMonth.split('-').map((s) => parseInt(s, 10));
@@ -186,6 +245,12 @@ export async function getBookedByPropertyByMonth(
   const windowStart = ymd(new Date(fy, fm - 1, 1));
   // exclusive upper bound = first day of month-after-last
   const windowEndExclusive = ymd(new Date(ly, lm, 1));
+
+  // Trailing window: the 12 complete months before the current month.
+  // Drives each property's annual-gross baseline (Part B).
+  const today = new Date();
+  const trailingStart = ymd(new Date(today.getFullYear() - 1, today.getMonth(), 1));
+  const trailingEndExclusive = ymd(new Date(today.getFullYear(), today.getMonth(), 1));
 
   // Active properties (with management fee + ownership flag).
   const { data: propsData, error: propsErr } = await supabase
@@ -210,19 +275,34 @@ export async function getBookedByPropertyByMonth(
     activatedAt: p.activated_at,
   }));
 
-  // Reservations that overlap any forward month.
-  const { data: resData, error: resErr } = await supabase
-    .from('guesty_reservations')
-    .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
-    .lt('check_in', windowEndExclusive)
-    .gte('check_out', windowStart);
-  if (resErr) throw new Error(`Failed to load reservations: ${resErr.message}`);
-
-  const bookedByPropMonth = new Map<string, Map<string, { nights: number; revenue: number }>>();
+  // Two reservation queries, parallel: forward bookings overlapping any
+  // forward month (Part A) and stays that checked out in the trailing 12
+  // months (Part B annual baseline). Kept separate so each result stays
+  // well under PostgREST's default row cap.
+  const resCols =
+    'property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid';
+  const [fwdRes, trailingRes] = await Promise.all([
+    supabase
+      .from('guesty_reservations')
+      .select(resCols)
+      .lt('check_in', windowEndExclusive)
+      .gte('check_out', windowStart),
+    supabase
+      .from('guesty_reservations')
+      .select(resCols)
+      .gte('check_out', trailingStart)
+      .lt('check_out', trailingEndExclusive),
+  ]);
+  if (fwdRes.error) throw new Error(`Failed to load reservations: ${fwdRes.error.message}`);
+  if (trailingRes.error) {
+    throw new Error(`Failed to load trailing reservations: ${trailingRes.error.message}`);
+  }
 
   const propById = new Map(properties.map((p) => [p.id, p]));
 
-  for (const r of (resData ?? []) as ReservationRow[]) {
+  // ── Part A input — booked nights + revenue per property × forward month ──
+  const bookedByPropMonth = new Map<string, Map<string, { nights: number; revenue: number }>>();
+  for (const r of (fwdRes.data ?? []) as ReservationRow[]) {
     if (!r.property_id || !r.check_in || !r.check_out) continue;
     if (!isActiveBooking(r.status)) continue;
     const prop = propById.get(r.property_id);
@@ -265,7 +345,52 @@ export async function getBookedByPropertyByMonth(
     }
   }
 
-  return { bookedByPropMonth, properties };
+  // ── Part B input — trailing-12-month gross per property ──────────────
+  // A stay is recognized in full in its checkout month (Statements
+  // methodology), so every trailing-window stay counts its whole payout.
+  const trailingGrossByProp = new Map<string, number>();
+  for (const r of (trailingRes.data ?? []) as ReservationRow[]) {
+    if (!r.property_id || !r.check_in || !r.check_out) continue;
+    if (!isActiveBooking(r.status)) continue;
+    const prop = propById.get(r.property_id);
+    if (!prop || prop.isRtOwned) continue;
+
+    const totalNights = nightsBetween(r.check_in, r.check_out);
+    if (totalNights <= 0) continue;
+    const mgmtFraction = (prop.mgmtFeePct ?? 0) / 100;
+    const fullPayout = resolveGrossPayout(r, mgmtFraction);
+    if (fullPayout <= 0) continue;
+
+    trailingGrossByProp.set(
+      r.property_id,
+      (trailingGrossByProp.get(r.property_id) ?? 0) + fullPayout,
+    );
+  }
+
+  // Per-property annual-gross baselines, annualized for partial history.
+  const baselines: ForecastBaselines = {
+    byProperty: new Map(),
+    revenueSeasonality: GLOUCESTER_REVENUE_SEASONALITY,
+  };
+  for (const p of properties) {
+    if (p.isRtOwned) continue;
+    const annualGross = annualizeTrailing(
+      trailingGrossByProp.get(p.id) ?? 0,
+      p.activatedAt,
+      today,
+    );
+    baselines.byProperty.set(p.id, { annualGross });
+  }
+
+  console.log(
+    '[smart-baseline] trailing-12mo annual gross — ' +
+      properties
+        .filter((p) => !p.isRtOwned)
+        .map((p) => `${p.name} $${Math.round(baselines.byProperty.get(p.id)?.annualGross ?? 0)}`)
+        .join(', '),
+  );
+
+  return { bookedByPropMonth, properties, baselines };
 }
 
 /**
@@ -278,8 +403,8 @@ export function computeSmartForecast(
   properties: SmartProperty[],
   historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
   /**
-   * Per-property baselines + the portfolio revenue-seasonality curve.
-   * See getPropertyAnnualBaselines() / ForecastBaselines.
+   * Per-property annual-gross baselines + the revenue-seasonality curve.
+   * Normally supplied by getBookedByPropertyByMonth.
    */
   baselineData: ForecastBaselines = {
     byProperty: new Map(),
