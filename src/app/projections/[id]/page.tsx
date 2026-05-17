@@ -4,6 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
+import { RedlinesDisclosure } from '@/components/projections/RedlinesDisclosure';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
@@ -425,27 +426,9 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
           {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
         </div>
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
-        <details style={{ marginTop: 14 }}>
-          <summary
-            style={{
-              listStyle: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 10,
-              userSelect: 'none',
-            }}
-          >
-            <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
-            <span className="eyebrow">Apply owner redlines</span>
-            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              paste their email / call notes, Claude maps to contract edits
-            </span>
-          </summary>
-          <div style={{ paddingTop: 14 }}>
-            <ContractRedlinesPanel projection={projection} />
-          </div>
-        </details>
+        <RedlinesDisclosure>
+          <ContractRedlinesPanel projection={projection} />
+        </RedlinesDisclosure>
       </SubDeliverable>
 
       {/* Signing sub-deliverable - folded in from what used to be a
