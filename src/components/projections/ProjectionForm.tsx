@@ -2,6 +2,7 @@ import type { Owner, ProjectionRow } from '@/lib/projections-types';
 import { CustomClausesField } from './CustomClausesField';
 import { OwnersSection } from './OwnersSection';
 import { MoneyInput } from './MoneyInput';
+import { FormSubmitButton } from './FormSubmitButton';
 
 /**
  * Shared input form for new + edit projections. Submits to a server action
@@ -382,22 +383,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
       
 
       <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          type="submit"
-          style={{
-            background: 'var(--ink)',
-            color: 'var(--paper)',
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            padding: '14px 28px',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          {submitLabel} →
-        </button>
+        <FormSubmitButton label={submitLabel} />
         {lastSavedAt ? (
           <span
             style={{
