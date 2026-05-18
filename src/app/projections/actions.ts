@@ -302,6 +302,46 @@ export async function markSent(id: string) {
 }
 
 /**
+ * Manually complete the Onboarding pipeline stage. Used when the owner's
+ * operational info was collected outside the public intake form (a phone
+ * call, an in-person walkthrough), so the pipeline can advance to Promote
+ * without waiting on a form submission. `unmarkOnboardingDone` reverts it.
+ *
+ * Stamps onboarding_marked_done_at rather than onboarding_submitted_at so
+ * the activity log + stage status can still distinguish "owner submitted
+ * the form" from "staff marked it complete".
+ */
+export async function markOnboardingDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ onboarding_marked_done_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+export async function unmarkOnboardingDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ onboarding_marked_done_at: null })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
  * Set the analyst's confidence that this prospect will close, 0–100.
  *
  * Called from the inline widget on the identity strip and from the prospect

@@ -46,7 +46,8 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
       })
     : null;
   const signedName = prospect.contract_signed_name;
-  const onboardingDone = !!prospect.onboarding_submitted_at;
+  const onboardingDone =
+    !!prospect.onboarding_submitted_at || !!prospect.onboarding_marked_done_at;
   // Download link to the signed contract PDF. The PDF endpoint
   // requires either Helm staff auth OR a token matching this
   // projection's onboarding_token — without the token, anyone with

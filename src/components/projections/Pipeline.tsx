@@ -120,7 +120,11 @@ export function gmailStatus(touch: GmailTouchEntry | undefined, fallback?: { sen
 export function lockedReason(p: ProjectionRow): React.ReactNode {
   const missing: string[] = [];
   if (!p.contract_signed_at) missing.push('signed contract');
-  if (!p.onboarding_submitted_at) missing.push('onboarding submission');
+  // Onboarding counts as done if the owner submitted the form OR a staff
+  // member manually marked it complete.
+  if (!p.onboarding_submitted_at && !p.onboarding_marked_done_at) {
+    missing.push('onboarding');
+  }
   if (missing.length === 0) return null;
   return <>Awaiting {missing.join(' + ')}</>;
 }
