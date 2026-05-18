@@ -91,6 +91,11 @@ export type ProjectionRow = {
   onboarding_token: string;
   onboarding_submitted_at: string | null;
   onboarding_data: OnboardingData | null;
+  // Staff-side manual completion of the Onboarding stage — set when the
+  // info was collected outside the public form (phone call, walkthrough)
+  // so the pipeline can still advance to Promote. The stage is "done"
+  // when this OR onboarding_submitted_at is set.
+  onboarding_marked_done_at: string | null;
 
   // Funnel handoff: once promoted, the id of the public.properties row this
   // prospect became.

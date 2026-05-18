@@ -26,7 +26,14 @@ import {
   fmtPercent,
   roundToThousand,
 } from '@/lib/projections-model';
-import { updateProjection, markSent, promoteToProperty, countersignContract } from '../actions';
+import {
+  updateProjection,
+  markSent,
+  promoteToProperty,
+  countersignContract,
+  markOnboardingDone,
+  unmarkOnboardingDone,
+} from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +52,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const update = updateProjection.bind(null, id);
   const send = markSent.bind(null, id);
   const promote = promoteToProperty.bind(null, id);
+  const markOnboarding = markOnboardingDone.bind(null, id);
+  const unmarkOnboarding = unmarkOnboardingDone.bind(null, id);
 
   // For the Danger zone delete confirmation: prefer the structured
   // owner's last name when populated; otherwise fall back to the last
@@ -68,7 +77,12 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const guideSent = !!guideTouch;
   const contractSent = !!contractTouch;
   const signed = !!projection.contract_signed_at;
-  const onboardingDone = !!projection.onboarding_submitted_at;
+  // Onboarding completes two ways: the owner submits the public intake
+  // form, OR a staff member taps "Mark complete" (info gathered another
+  // way). Either advances the pipeline.
+  const onboardingSubmitted = !!projection.onboarding_submitted_at;
+  const onboardingMarkedDone = !!projection.onboarding_marked_done_at;
+  const onboardingDone = onboardingSubmitted || onboardingMarkedDone;
   const promoted = !!projection.property_id;
   const promoteUnlocked = signed && onboardingDone;
 
@@ -230,12 +244,20 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             title="Onboarding"
             state={onboardingDone ? 'done' : 'active'}
             status={
-              onboardingDone
+              onboardingSubmitted
                 ? <>Submitted {fmtTouchDate(projection.onboarding_submitted_at!)}</>
-                : 'Awaiting submission'
+                : onboardingMarkedDone
+                  ? <>Marked complete {fmtTouchDate(projection.onboarding_marked_done_at!)}</>
+                  : 'Awaiting submission'
             }
           >
-            <OnboardingStageBody projection={projection} projectionId={id} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
+            <OnboardingStageBody
+              projection={projection}
+              projectionId={id}
+              onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null}
+              markOnboardingDone={markOnboarding}
+              unmarkOnboardingDone={unmarkOnboarding}
+            />
           </Stage>
 
           {/* 04 — Promote to managed property (was 05) */}
@@ -605,12 +627,17 @@ function OnboardingStageBody({
   projection,
   projectionId,
   onboardingTouch,
+  markOnboardingDone,
+  unmarkOnboardingDone,
 }: {
   projection: ProjectionRow;
   projectionId: string;
   onboardingTouch: React.ReactNode | null;
+  markOnboardingDone: () => Promise<void>;
+  unmarkOnboardingDone: () => Promise<void>;
 }) {
   const submitted = projection.onboarding_submitted_at;
+  const markedDone = projection.onboarding_marked_done_at;
   const data = projection.onboarding_data;
   const link = `/onboarding/${projection.onboarding_token}`;
 
@@ -640,6 +667,41 @@ function OnboardingStageBody({
         </p>
       )}
       <LinkRow link={link} />
+
+      {/* Manual completion — only when the owner hasn't submitted the
+          public form. Lets staff advance the pipeline to Promote when
+          the property info was gathered another way (call, walkthrough,
+          emailed PDF). */}
+      {!submitted && (
+        <div style={{ marginTop: 14 }}>
+          {markedDone ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--positive)', fontWeight: 500 }}>
+                ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
+              </span>
+              <form action={unmarkOnboardingDone} style={{ display: 'inline-block' }}>
+                <button
+                  type="submit"
+                  style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
+                >
+                  Undo
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <form action={markOnboardingDone} style={{ display: 'inline-block' }}>
+                <button type="submit" style={ghostButtonStyle}>
+                  Mark onboarding complete
+                </button>
+              </form>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                Use when you&rsquo;ve gathered the property info another way.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Readiness checklist — sub-deliverable that lives inside the
           Onboarding stage rather than its own pipeline step. Always
@@ -759,6 +821,9 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
   }
   if (projection.onboarding_submitted_at) {
     events.push({ at: projection.onboarding_submitted_at, label: 'Onboarding form submitted' });
+  }
+  if (projection.onboarding_marked_done_at) {
+    events.push({ at: projection.onboarding_marked_done_at, label: 'Onboarding marked complete by staff' });
   }
   if (projection.property_id && projection.updated_at) {
     events.push({ at: projection.updated_at, label: 'Promoted to managed property' });
