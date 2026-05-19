@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -41,6 +42,25 @@ async function getRequestOrigin(): Promise<string> {
   const host = h.get('x-forwarded-host') || h.get('host') || '';
   const proto = h.get('x-forwarded-proto') || 'https';
   return host ? `${proto}://${host}` : '';
+}
+
+/**
+ * Service-role Supabase client for writes to RLS-protected tables.
+ *
+ * The module-level `supabase` uses the public anon key — fine for the
+ * `projections` table (permissive RLS), but `properties` has row-level
+ * security that rejects anon inserts ("new row violates row-level
+ * security policy"). promoteToProperty writes a new `properties` row, so
+ * it needs the service role. Server-action code only — the service key
+ * must never reach the browser.
+ */
+function getServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  }
+  return createClient(url, key);
 }
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
@@ -495,8 +515,12 @@ export async function promoteToProperty(projectionId: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  // Service-role client: this action inserts a new `properties` row, and
+  // that table's row-level security rejects the public anon key.
+  const sb = getServiceClient();
+
   // Pull the prospect record
-  const { data: projRow, error: projErr } = await supabase
+  const { data: projRow, error: projErr } = await sb
     .from('projections')
     .select('*')
     .eq('id', projectionId)
@@ -510,7 +534,7 @@ export async function promoteToProperty(projectionId: string) {
   }
 
   const ob = (projRow.onboarding_data ?? {}) as OnboardingData;
-  const propertyId = await pickPropertyId(projRow.property_address as string);
+  const propertyId = await pickPropertyId(projRow.property_address as string, sb);
 
   const ownerFull = projRow.prospect_full_legal || projRow.prospect_name;
   const ownerGreeting = projRow.prospect_first_names || projRow.prospect_first_name || ownerFull;
@@ -559,11 +583,11 @@ export async function promoteToProperty(projectionId: string) {
     projection_id: projectionId,
   };
 
-  const { error: insertErr } = await supabase.from('properties').insert(propertyPayload);
+  const { error: insertErr } = await sb.from('properties').insert(propertyPayload);
   if (insertErr) throw new Error(insertErr.message);
 
   // Wire the back-reference on the prospect side so the link is bidirectional.
-  const { error: linkErr } = await supabase
+  const { error: linkErr } = await sb
     .from('projections')
     .update({ property_id: propertyId })
     .eq('id', projectionId);
@@ -580,12 +604,13 @@ export async function promoteToProperty(projectionId: string) {
  * existing convention (e.g. "21 Horton St" → "21_horton"). Drops common
  * street suffixes; if the slug collides, suffixes _2, _3, etc.
  */
-async function pickPropertyId(address: string): Promise<string> {
+async function pickPropertyId(address: string, sb: SupabaseClient): Promise<string> {
   const base = slugifyAddress(address);
   if (!base) throw new Error('Could not derive a property id from the address');
 
-  // Probe for collisions; cheap because the table is small.
-  const { data: existing } = await supabase
+  // Probe for collisions; cheap because the table is small. Uses the
+  // passed-in service client so the read isn't filtered by RLS.
+  const { data: existing } = await sb
     .from('properties')
     .select('id')
     .ilike('id', `${base}%`);
@@ -887,7 +912,14 @@ export async function submitOnboarding(formData: FormData) {
     redirect(`/onboarding/${token}/thanks`);
   }
 
-  const { data: propHit } = await supabase
+  // Property path: the onboarding form was opened for an already-managed
+  // property. `properties` is RLS-protected (no anon INSERT/UPDATE
+  // policy), so writes here must go through the service-role client —
+  // an anon UPDATE silently affects zero rows and the owner's answers
+  // would vanish without an error.
+  const sb = getServiceClient();
+
+  const { data: propHit } = await sb
     .from('properties')
     .select('id, owner_emails')
     .eq('onboarding_token', token)
@@ -914,7 +946,7 @@ export async function submitOnboarding(formData: FormData) {
     }
   }
 
-  const { error } = await supabase
+  const { error } = await sb
     .from('properties')
     .update(updatePayload)
     .eq('onboarding_token', token);
@@ -924,7 +956,7 @@ export async function submitOnboarding(formData: FormData) {
   // Staff notification — same idempotent pattern as the projection
   // branch above. Looks up the property to get address + notification
   // flag, sends the email if not already sent, then stamps.
-  const { data: fullProp } = await supabase
+  const { data: fullProp } = await sb
     .from('properties')
     .select('id, address, name, onboarding_notification_sent_at')
     .eq('onboarding_token', token)
@@ -939,7 +971,7 @@ export async function submitOnboarding(formData: FormData) {
         helmUrl: `${origin}/properties/${(fullProp as { id: string }).id}`,
       });
       if (result.ok) {
-        await supabase
+        await sb
           .from('properties')
           .update({ onboarding_notification_sent_at: new Date().toISOString() })
           .eq('onboarding_token', token);
@@ -964,7 +996,12 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const { data: existing, error: lookupErr } = await supabase
+  // `properties` is RLS-protected — an anon UPDATE silently no-ops, which
+  // would persist no token and hand back a dead onboarding link. Use the
+  // service-role client for the write.
+  const sb = getServiceClient();
+
+  const { data: existing, error: lookupErr } = await sb
     .from('properties')
     .select('onboarding_token')
     .eq('id', propertyId)
@@ -977,7 +1014,7 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   }
 
   const token = newOnboardingToken();
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await sb
     .from('properties')
     .update({ onboarding_token: token })
     .eq('id', propertyId);
