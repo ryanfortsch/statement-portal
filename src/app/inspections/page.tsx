@@ -87,7 +87,7 @@ export default async function InspectionsPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="inspections" />
+      <HelmMasthead current="operations" />
 
       <HelmHero
         eyebrow="Helm · Inspections"
