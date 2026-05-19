@@ -8,8 +8,10 @@
  *
  * Combined with the bank-derived ACTUALS_2026 baseline:
  *   - Jan-Apr 2026 → bank actuals (full row incl. expenses)
- *   - May+ → statement actuals override revenue, expenses stay projected
- *     until we wire a live expense source
+ *   - Any fully-closed later month with a reconciled statement →
+ *     statement actuals override revenue (expenses stay projected).
+ *   - The current, in-progress month is never treated as an actual —
+ *     it stays projected until it closes.
  *
  * The per-property annual-gross baselines for the smart forecast's Part B
  * are NOT built here — they come from trailing-12-month Guesty actuals in
@@ -43,8 +45,13 @@ async function getPeriodMonthMap(): Promise<Map<string, string>> {
 
 /**
  * Sum `management_fee` per month across all property_statements. Returns
- * { 'YYYY-MM': totalMgmtFee, … } for every month that has at least one
- * reconciled statement. Month is resolved via statement_periods.
+ * { 'YYYY-MM': totalMgmtFee, … } for every fully-closed past month that
+ * has at least one reconciled statement. Month is resolved via
+ * statement_periods.
+ *
+ * The current, in-progress month is deliberately excluded: a partial or
+ * early-drafted statement for it would otherwise freeze the forecast at
+ * a mid-month number. That month stays projected until it closes.
  *
  * Empty map when Supabase isn't configured or the query fails — the
  * forecast falls back to model projection automatically.
@@ -62,10 +69,17 @@ export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMo
       return {};
     }
 
+    // Only months strictly before the current calendar month count as
+    // actuals — the in-progress month is still earning and must stay
+    // projected, even if a partial statement already exists for it.
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
     const byMonth: StatementRevenueByMonth = {};
     for (const row of (data ?? []) as Array<{ period_id: string | null; management_fee: number | null }>) {
       const month = row.period_id ? monthByPeriod.get(row.period_id) : undefined;
       if (!month) continue;
+      if (month >= currentMonthKey) continue;
       const fee = Number(row.management_fee ?? 0);
       if (!fee) continue;
       byMonth[month] = (byMonth[month] ?? 0) + fee;
