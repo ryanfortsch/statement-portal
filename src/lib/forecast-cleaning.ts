@@ -154,7 +154,14 @@ type GmailMessageRef = { id: string };
  * fetched separately (and batched) afterwards.
  */
 async function listAllMessageIds(accessToken: string): Promise<string[]> {
-  const query = 'from:quickbooks@notification.intuit.com subject:"Cape Ann Elite" newer_than:13m';
+  // Explicit after: date (YYYY/MM/DD). `newer_than:13m` proved unreliable
+  // through the API — it returned only a couple weeks of mail — so we
+  // filter on an explicit date: the first of the month 13 months back,
+  // matching how the sync-invoices route scopes its Gmail search.
+  const now = new Date();
+  const since = new Date(now.getFullYear(), now.getMonth() - 13, 1);
+  const after = `${since.getFullYear()}/${String(since.getMonth() + 1).padStart(2, '0')}/01`;
+  const query = `from:quickbooks@notification.intuit.com subject:"Cape Ann Elite" after:${after}`;
   const ids: string[] = [];
   let pageToken: string | undefined;
 
@@ -341,6 +348,6 @@ async function pullCleaningCosts(): Promise<CleaningCosts> {
  */
 export const getCleaningCosts: () => Promise<CleaningCosts> = unstable_cache(
   pullCleaningCosts,
-  ['forecast-cleaning-costs'],
+  ['forecast-cleaning-costs-v2'],
   { revalidate: 60 * 60 * 6 } // 6 hours
 );
