@@ -377,28 +377,27 @@ export default async function HelmHome() {
           />
           <Stat
             label="Five-Star Reviews"
-            value={(() => {
-              // Ratio is over rated reviews only. Guesty often syncs a
-              // placeholder row before the guest leaves a rating (no stars,
-              // no text); folding those into "below five" would lie about
-              // the property's review health.
-              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
-              return rated > 0 ? `${stats.reviews30dFiveStar}/${rated}` : '—';
-            })()}
+            value={
+              // Denominator is total reservations in the window, not just
+              // rated reviews. A stay that didn't yield a review is a
+              // missed five-star, so it counts against the rate. Same
+              // basis as the FIVE-STAR cell on /reviews.
+              stats.reviews30dTotal > 0
+                ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
+                : '—'
+            }
             sub={(() => {
-              // Unrated rows (Guesty placeholders without stars or text) are
-              // intentionally hidden from the sub. They're noise on a home
-              // dashboard, and they don't represent a guest action.
-              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
-              if (rated === 0) return 'no reviews in last 30 days';
-              if (stats.reviews30dBelowFive === 0) return 'clean 5★ run · last 30 days';
-              return `${stats.reviews30dBelowFive} below five · last 30 days`;
+              if (stats.reviews30dTotal === 0) return 'no reviews in last 30 days';
+              const rate = Math.round(
+                (stats.reviews30dFiveStar / stats.reviews30dTotal) * 100,
+              );
+              return `${rate}% five-star · last 30 days`;
             })()}
             href="/reviews"
             size="hero"
             accent={
-              (stats.reviews30dFiveStar + stats.reviews30dBelowFive) > 0 &&
-              stats.reviews30dBelowFive === 0
+              stats.reviews30dTotal > 0 &&
+              stats.reviews30dFiveStar === stats.reviews30dTotal
             }
           />
           <Stat
