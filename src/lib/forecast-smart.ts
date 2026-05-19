@@ -176,13 +176,15 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
 }
 
 /**
- * Compute the forward-month list given a starting "today". Always returns
- * the months from the start of next month through the end of `endYear`.
- * Past months in the same year are skipped because actuals already cover
- * them in the Monthly Detail table.
+ * Compute the forward-month list given a starting "today". Returns the
+ * months from the start of the CURRENT month through the end of
+ * `endYear`. The current month is included: bank actuals lag a month
+ * behind, so the in-progress month still needs a live Guesty-based
+ * projection rather than the seasonality fallback. Fully-closed past
+ * months are skipped — actuals cover them in the Monthly Detail table.
  */
 export function forwardMonths(today: Date, endYear: number): string[] {
-  const start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
   const out: string[] = [];
   const cursor = new Date(start);
   while (cursor.getFullYear() <= endYear) {
