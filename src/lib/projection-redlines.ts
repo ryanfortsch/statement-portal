@@ -1,8 +1,8 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { ProjectionRow } from '@/lib/projections-types';
-import { listContractIds } from '@/lib/contract-base';
-import type { ContractOverride, OverrideMeta } from '@/lib/contract-overrides';
+import { listContractIds, CONTRACT_BASE, type ContractPage } from '@/lib/contract-base';
+import { applyContractOverrides, type ContractOverride, type OverrideMeta } from '@/lib/contract-overrides';
 
 /**
  * AI-driven contract redline engine for the Prospects module.
@@ -214,7 +214,15 @@ export async function interpretContractRedlines(args: {
     '(unfilled)';
 
   const currentTerms = formatCurrentTerms(projection);
-  const inventory = formatClauseInventory();
+  // Build the clause inventory from the CURRENT contract — base plus any
+  // overrides already applied to this projection — so Claude can see and
+  // target clauses that previous redlines added (to delete, modify, or
+  // anchor to them). applyContractOverrides is fail-soft, so a bad
+  // existing override won't break the inventory; the tree reflects what's
+  // actually rendered today.
+  const existingOverrides = (projection.contract_overrides ?? []) as ContractOverride[];
+  const { pages: currentTree } = applyContractOverrides(existingOverrides, CONTRACT_BASE);
+  const inventory = formatClauseInventory(currentTree);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -437,8 +445,30 @@ export function applyEditsToProjection(args: {
 
   return {
     fieldUpdates,
-    newContractOverrides: [...existingOverrides, ...newOverrides],
+    newContractOverrides: dedupeAddOverrides([...existingOverrides, ...newOverrides]),
   };
+}
+
+/**
+ * Collapse duplicate `add` overrides so the same clause can't be inserted
+ * twice. Each apply APPENDS to the stored overrides array, so re-running
+ * interpret+apply for an overlapping edit used to stack two `add`s with
+ * the same newId — the renderer then inserted the clause twice AND any
+ * `add` anchored "after" that newId matched both copies, cascading the
+ * duplication (the 16 Waterman Rd Net Income / Cleaning Fees bug).
+ *
+ * Rule: for `add` overrides, keep only the LAST occurrence of each newId
+ * (a re-run supersedes the earlier insert with the more-refined wording).
+ * All non-add overrides are kept in order. Order is otherwise preserved.
+ */
+function dedupeAddOverrides(overrides: ContractOverride[]): ContractOverride[] {
+  const lastIndexByNewId = new Map<string, number>();
+  overrides.forEach((o, i) => {
+    if (o.action === 'add') lastIndexByNewId.set(o.newId, i);
+  });
+  return overrides.filter((o, i) =>
+    o.action !== 'add' ? true : lastIndexByNewId.get(o.newId) === i,
+  );
 }
 
 /**
@@ -523,8 +553,8 @@ function formatCurrentTerms(p: ProjectionRow): string {
   return lines.join('\n');
 }
 
-function formatClauseInventory(): string {
-  const inv = listContractIds();
+function formatClauseInventory(pages?: ContractPage[]): string {
+  const inv = listContractIds(pages);
   const sectionsBlock = inv.sections
     .map((s) => `  [section] ${s.id}  →  "${s.title}"`)
     .join('\n');
