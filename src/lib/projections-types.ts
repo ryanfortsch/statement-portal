@@ -35,12 +35,18 @@ export type ProjectionRow = {
   // Contract term dates + standard terms (editable per deal)
   term_start: string | null;               // ISO date YYYY-MM-DD
   term_end: string | null;                 // ISO date YYYY-MM-DD
-  initial_deposit: number;
-  min_account_balance: number;
-  min_availability_days: number;
-  sale_notification_days: number;
-  reputation_fee: number;
+  // Nullable: a redline can negotiate any of these terms away entirely
+  // (waive the deposit, drop the min balance, swap the availability
+  // day-count for a seasonal window, etc.). Null renders as "—" in the
+  // contract and "no deposit"/etc. on the projection page.
+  initial_deposit: number | null;
+  min_account_balance: number | null;
+  min_availability_days: number | null;
+  sale_notification_days: number | null;
+  reputation_fee: number | null;
 
+  // Core economic term — stays non-null (a redline changes it, never
+  // removes it; it drives the projection financial model).
   mgmt_fee_pct: number;
   base_cleaning: number;
   addl_cleaning_per_br: number;

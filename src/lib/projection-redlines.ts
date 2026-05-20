@@ -420,7 +420,14 @@ export function applyEditsToProjection(args: {
 
   const fieldUpdates: Partial<Record<EditableField, string | number | null>> = {};
   for (const change of edits.field_changes) {
-    fieldUpdates[change.field] = coerceFieldValue(change.field, change.new_value);
+    const value = coerceFieldValue(change.field, change.new_value);
+    // mgmt_fee_pct is the one editable term column that stays NOT NULL
+    // (it's the core economic term and drives the projection model). A
+    // redline should change it, never remove it — defensively skip a
+    // null so a pathological LLM output can't crash the apply with a
+    // not-null violation; the existing fee is preserved.
+    if (change.field === 'mgmt_fee_pct' && value == null) continue;
+    fieldUpdates[change.field] = value;
   }
 
   const existingOverrides = (projection.contract_overrides ?? []) as ContractOverride[];
