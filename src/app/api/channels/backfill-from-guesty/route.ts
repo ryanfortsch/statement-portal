@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { BookingChannel, BookingStatus } from '@/lib/channels-types';
+import { dedupeAllBookings } from '@/lib/ical-sync';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -114,6 +115,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // The guesty_legacy rows just inserted are duplicates of any iCal-imported
+  // rows for the same stays. Reconcile so each physical stay counts once.
+  let deduped = 0;
+  try {
+    const d = await dedupeAllBookings();
+    deduped = d.duplicates;
+  } catch (err) {
+    console.error('[backfill-from-guesty] dedupe failed:', err);
+  }
+
   if (isHtmlForm) {
     return NextResponse.redirect(new URL(`/channels?backfilled=${inserted}`, request.url), 303);
   }
@@ -124,6 +135,7 @@ export async function POST(request: NextRequest) {
     already_backfilled: skippedExisting,
     skipped_invalid: skippedInvalid,
     inserted,
+    deduped,
   });
 }
 

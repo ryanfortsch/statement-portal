@@ -11,7 +11,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { parseIcal, isBookingEvent, guessGuestNameFromIcal } from '@/lib/ical';
-import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
+import { CHANNEL_LABELS, type BookingChannel, type BookingSource } from '@/lib/channels-types';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -200,15 +200,23 @@ export async function syncListing(opts: {
   return result;
 }
 
+export type DedupResult = {
+  clusters: number;
+  duplicates: number;
+  changed: number;
+};
+
 /**
- * Run sync for every active listing that has a feed URL configured. The
- * cron entrypoint calls this with no args.
+ * Run sync for every active listing that has a feed URL configured, then
+ * run a portfolio-wide dedup pass. The cron entrypoint calls this with no
+ * args.
  */
 export async function syncAllListings(opts: { onlyListingId?: string } = {}): Promise<{
   total: number;
   succeeded: number;
   failed: number;
   results: SyncListingResult[];
+  dedup: DedupResult | null;
 }> {
   const sb = getServiceClient();
   let q = sb
@@ -235,12 +243,209 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     results.push(r);
   }
 
+  // A stay can land in `bookings` more than once -- e.g. the same Airbnb
+  // reservation arriving via the iCal feed AND via the guesty_legacy
+  // backfill. Reconcile after every sync so downstream counts, the
+  // calendar, and conflict detection treat each physical stay once.
+  // A dedup failure must not fail the sync itself.
+  let dedup: DedupResult | null = null;
+  try {
+    dedup = await dedupeAllBookings();
+  } catch (err) {
+    console.error('[ical-sync] dedupe failed:', err);
+  }
+
   return {
     total: results.length,
     succeeded: results.filter((r) => r.success).length,
     failed: results.filter((r) => !r.success).length,
     results,
+    dedup,
   };
+}
+
+// ── Cross-source dedup ────────────────────────────────────────────────
+
+/**
+ * Canonical-source priority. When the same physical stay appears in
+ * `bookings` from more than one source, the highest-priority row is kept
+ * canonical and the rest get `duplicate_of` pointed at it.
+ *
+ * direct_booking / manual are Helm-native and authoritative. ical_import is
+ * the live channel truth. guesty_legacy is the frozen historical backfill
+ * and always loses.
+ */
+const SOURCE_PRIORITY: Record<BookingSource, number> = {
+  direct_booking: 5,
+  manual: 4,
+  ical_import: 3,
+  email_parse: 2,
+  guesty_legacy: 1,
+};
+
+type DedupRow = {
+  id: string;
+  property_id: string;
+  source: BookingSource;
+  status: string;
+  check_in: string;
+  check_out: string;
+  duplicate_of: string | null;
+  created_at: string;
+};
+
+/** Whole days between two YYYY-MM-DD dates, absolute. */
+function dayGap(d1: string, d2: string): number {
+  const a = Date.parse(`${d1}T00:00:00Z`);
+  const b = Date.parse(`${d2}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Infinity;
+  return Math.abs(a - b) / 86400_000;
+}
+
+/**
+ * Two bookings represent the same physical stay if their date ranges
+ * overlap AND both endpoints sit within one day of each other.
+ *
+ * The overlap requirement is what stops two *consecutive* stays (one
+ * guest's checkout day is the next guest's checkin day) from being merged.
+ * The one-day endpoint tolerance absorbs the off-by-one that iCal's
+ * exclusive-DTEND semantics occasionally produce across channels.
+ */
+function sameStay(a: DedupRow, b: DedupRow): boolean {
+  const overlaps = a.check_in < b.check_out && b.check_in < a.check_out;
+  if (!overlaps) return false;
+  return dayGap(a.check_in, b.check_in) <= 1 && dayGap(a.check_out, b.check_out) <= 1;
+}
+
+/**
+ * Pick the canonical row of a same-stay cluster: a real booking beats a
+ * block, then higher source priority wins, then the earliest-created row.
+ */
+function pickCanonical(cluster: DedupRow[]): DedupRow {
+  return [...cluster].sort((a, b) => {
+    const aBlock = a.status === 'block' ? 1 : 0;
+    const bBlock = b.status === 'block' ? 1 : 0;
+    if (aBlock !== bBlock) return aBlock - bBlock;            // non-block first
+    const ap = SOURCE_PRIORITY[a.source] ?? 0;
+    const bp = SOURCE_PRIORITY[b.source] ?? 0;
+    if (ap !== bp) return bp - ap;                           // higher priority first
+    return a.created_at.localeCompare(b.created_at);         // earliest first
+  })[0];
+}
+
+/**
+ * Portfolio-wide cross-source dedup. Loads every non-cancelled booking,
+ * clusters same-stay rows per property with union-find, and writes
+ * `duplicate_of` so each physical stay is counted once downstream.
+ *
+ * Idempotent: only rows whose `duplicate_of` actually changes are written,
+ * so a steady-state re-run is a near no-op.
+ */
+export async function dedupeAllBookings(): Promise<DedupResult> {
+  const sb = getServiceClient();
+  const { data, error } = await sb
+    .from('bookings')
+    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at')
+    .neq('status', 'cancelled');
+  if (error) throw new Error(`dedupe load: ${error.message}`);
+
+  const rows = (data ?? []) as DedupRow[];
+  const byProperty = new Map<string, DedupRow[]>();
+  for (const r of rows) {
+    const list = byProperty.get(r.property_id);
+    if (list) list.push(r);
+    else byProperty.set(r.property_id, [r]);
+  }
+
+  const desired = new Map<string, string | null>();
+  let clusterCount = 0;
+  let dupCount = 0;
+
+  for (const list of byProperty.values()) {
+    // Union-find over same-stay pairs within the property.
+    const parent = new Map<string, string>(list.map((r) => [r.id, r.id]));
+    const find = (x: string): string => {
+      let root = x;
+      while (parent.get(root) !== root) root = parent.get(root)!;
+      let cur = x;
+      while (parent.get(cur) !== root) {
+        const next = parent.get(cur)!;
+        parent.set(cur, root);
+        cur = next;
+      }
+      return root;
+    };
+    const union = (x: string, y: string) => {
+      const rx = find(x);
+      const ry = find(y);
+      if (rx !== ry) parent.set(rx, ry);
+    };
+
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        if (sameStay(list[i], list[j])) union(list[i].id, list[j].id);
+      }
+    }
+
+    const clusters = new Map<string, DedupRow[]>();
+    for (const r of list) {
+      const root = find(r.id);
+      const c = clusters.get(root);
+      if (c) c.push(r);
+      else clusters.set(root, [r]);
+    }
+
+    for (const cluster of clusters.values()) {
+      if (cluster.length === 1) {
+        desired.set(cluster[0].id, null);
+        continue;
+      }
+      clusterCount += 1;
+      const canonical = pickCanonical(cluster);
+      for (const r of cluster) {
+        if (r.id === canonical.id) {
+          desired.set(r.id, null);
+        } else {
+          desired.set(r.id, canonical.id);
+          dupCount += 1;
+        }
+      }
+    }
+  }
+
+  // Write only changed rows, batched by target value to minimize round trips.
+  const toNull: string[] = [];
+  const toCanonical = new Map<string, string[]>();
+  let changed = 0;
+  for (const r of rows) {
+    const want = desired.get(r.id) ?? null;
+    if ((r.duplicate_of ?? null) === want) continue;
+    changed += 1;
+    if (want === null) {
+      toNull.push(r.id);
+    } else {
+      const arr = toCanonical.get(want);
+      if (arr) arr.push(r.id);
+      else toCanonical.set(want, [r.id]);
+    }
+  }
+
+  if (toNull.length > 0) {
+    const { error: nullErr } = await sb
+      .from('bookings')
+      .update({ duplicate_of: null })
+      .in('id', toNull);
+    if (nullErr) throw new Error(`dedupe clear: ${nullErr.message}`);
+  }
+  for (const [canonicalId, ids] of toCanonical) {
+    const { error: setErr } = await sb
+      .from('bookings')
+      .update({ duplicate_of: canonicalId })
+      .in('id', ids);
+    if (setErr) throw new Error(`dedupe set: ${setErr.message}`);
+  }
+
+  return { clusters: clusterCount, duplicates: dupCount, changed };
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number | null {

@@ -76,6 +76,8 @@ export async function listBookings(opts: {
   if (opts.channel) q = q.eq('channel', opts.channel);
   if (opts.fromDate) q = q.gte('check_in', opts.fromDate);
   if (opts.toDate) q = q.lte('check_in', opts.toDate);
+  // Canonical rows only -- a stay deduped against another source is hidden.
+  q = q.is('duplicate_of', null);
   q = q.limit(opts.limit ?? 500);
 
   const { data, error } = await q;
@@ -93,6 +95,7 @@ export async function listUpcomingBookings(daysAhead = 14): Promise<Booking[]> {
     .gte('check_in', today)
     .lte('check_in', end)
     .neq('status', 'cancelled')
+    .is('duplicate_of', null)
     .order('check_in', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as Booking[];
@@ -115,6 +118,7 @@ export async function listOpenInquiries(): Promise<Booking[]> {
     .from('bookings')
     .select('*')
     .eq('status', 'inquiry')
+    .is('duplicate_of', null)
     .order('created_at', { ascending: false });
   if (error) return [];
   return (data ?? []) as Booking[];
@@ -145,6 +149,9 @@ export async function findBookingConflicts(daysAhead = 365): Promise<BookingConf
     .gte('check_out', today)
     .lte('check_in', end)
     .neq('status', 'cancelled')
+    // Duplicates are the same physical stay, not a double-booking -- exclude
+    // them so the dedup pass and the conflict detector never disagree.
+    .is('duplicate_of', null)
     .order('property_id')
     .order('check_in');
   if (error) return [];
@@ -206,8 +213,8 @@ export async function getChannelStats(): Promise<ChannelStats> {
 
   const [listingsRes, upcomingRes, monthRes] = await Promise.all([
     supabase.from('channel_listings').select('id, is_active, ical_import_url, last_import_status, last_imported_at'),
-    supabase.from('bookings').select('id', { count: 'exact', head: true }).gte('check_in', todayIso).neq('status', 'cancelled'),
-    supabase.from('bookings').select('id', { count: 'exact', head: true }).gte('check_in', monthStart).lt('check_in', nextMonth).neq('status', 'cancelled'),
+    supabase.from('bookings').select('id', { count: 'exact', head: true }).gte('check_in', todayIso).neq('status', 'cancelled').is('duplicate_of', null),
+    supabase.from('bookings').select('id', { count: 'exact', head: true }).gte('check_in', monthStart).lt('check_in', nextMonth).neq('status', 'cancelled').is('duplicate_of', null),
   ]);
 
   const listings = (listingsRes.data ?? []) as Array<{

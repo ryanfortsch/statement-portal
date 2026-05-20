@@ -85,6 +85,13 @@ export type Booking = {
   raw_description: string | null;
   raw_url: string | null;
   notes: string | null;
+  /**
+   * Set by the dedup pass in lib/ical-sync.ts. null = canonical row.
+   * Non-null = this row is a duplicate of the referenced booking (same
+   * physical stay from another source) and should be excluded from counts,
+   * the calendar, and conflict detection.
+   */
+  duplicate_of: string | null;
   first_seen_at: string;
   last_seen_at: string;
   cancelled_at: string | null;
