@@ -48,6 +48,17 @@ export async function POST(request: NextRequest) {
   }
   const haveIds = new Set((existing ?? []).map((r) => r.external_booking_id as string));
 
+  // Pull every property_id that actually exists in `properties`. Guesty's
+  // mirror can legitimately reference properties Helm doesn't manage (Ryan's
+  // personal listings are in guesty_reservations but intentionally excluded
+  // from the properties table), and the FK on bookings would otherwise
+  // reject the entire chunk. Filter to known properties up front.
+  const { data: propRows, error: propErr } = await sb.from('properties').select('id');
+  if (propErr) {
+    return NextResponse.json({ error: `read properties: ${propErr.message}` }, { status: 500 });
+  }
+  const knownPropertyIds = new Set((propRows ?? []).map((r) => r.id as string));
+
   type Row = {
     property_id: string;
     channel: BookingChannel;
@@ -65,12 +76,14 @@ export async function POST(request: NextRequest) {
   const rows: Row[] = [];
   let skippedExisting = 0;
   let skippedInvalid = 0;
+  let skippedUnknownProperty = 0;
 
   for (const r of (gr ?? [])) {
     const id = r.guesty_reservation_id as string | null;
     if (!id) { skippedInvalid++; continue; }
     if (haveIds.has(id)) { skippedExisting++; continue; }
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
+    if (!knownPropertyIds.has(r.property_id as string)) { skippedUnknownProperty++; continue; }
 
     const channel = mapChannel(r.channel as string | null);
     rows.push({
@@ -95,6 +108,7 @@ export async function POST(request: NextRequest) {
       total_guesty_reservations: gr?.length ?? 0,
       already_backfilled: skippedExisting,
       skipped_invalid: skippedInvalid,
+      skipped_unknown_property: skippedUnknownProperty,
       to_insert: rows.length,
     });
   }
@@ -134,6 +148,7 @@ export async function POST(request: NextRequest) {
     total_guesty_reservations: gr?.length ?? 0,
     already_backfilled: skippedExisting,
     skipped_invalid: skippedInvalid,
+    skipped_unknown_property: skippedUnknownProperty,
     inserted,
     deduped,
   });
