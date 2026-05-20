@@ -89,7 +89,7 @@ export default async function ProjectionsPage() {
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: archived.length > 0 ? 48 : 80, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Recent Prospects
+            Active Prospects
           </h2>
           <span className="eyebrow">{active.length} active</span>
         </div>
