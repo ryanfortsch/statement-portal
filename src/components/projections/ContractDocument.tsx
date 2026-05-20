@@ -484,12 +484,16 @@ function buildTemplateVars(p: ProjectionRow) {
     ownerName,
     propertyAddress,
     propertyType: p.property_type || 'House',
-    mgmtPct: fmtPct(p.mgmt_fee_pct),
-    deposit: fmtMoney(p.initial_deposit),
-    minBalance: fmtMoney(p.min_account_balance),
-    minDays: `${p.min_availability_days} days`,
-    saleDays: `${p.sale_notification_days} days`,
-    repFee: fmtMoney(p.reputation_fee),
+    // Null-guarded: a redline can remove any of these terms. Null
+    // becomes null here so interpolate() renders "—" instead of
+    // "null days" / "$NaN". mgmtPct is guarded defensively even though
+    // mgmt_fee_pct stays non-null.
+    mgmtPct: p.mgmt_fee_pct != null ? fmtPct(p.mgmt_fee_pct) : null,
+    deposit: p.initial_deposit != null ? fmtMoney(p.initial_deposit) : null,
+    minBalance: p.min_account_balance != null ? fmtMoney(p.min_account_balance) : null,
+    minDays: p.min_availability_days != null ? `${p.min_availability_days} days` : null,
+    saleDays: p.sale_notification_days != null ? `${p.sale_notification_days} days` : null,
+    repFee: p.reputation_fee != null ? fmtMoney(p.reputation_fee) : null,
     termStartShort: p.term_start ? formatDateShort(p.term_start) : null,
     termEndShort: p.term_end ? formatDateShort(p.term_end) : null,
     termStartLong: p.term_start ? formatDateNarrative(p.term_start) : null,
