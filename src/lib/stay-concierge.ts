@@ -156,13 +156,27 @@ export type TimeseriesPoint = {
   rolling_first_pass_clean: number;
 };
 
-export type TimeseriesResponse = {
-  days: number;
-  series: TimeseriesPoint[];
+export type TopicRollup = {
+  topic: string;
+  engaged: number;
+  first_pass_clean: number;
+  approved: number;
+  escalated: number;
+  rate: number | null;
 };
 
-export async function getStatsTimeseries(days = 30) {
-  return request<TimeseriesResponse>(`/api/stats/timeseries?days=${days}`);
+export type TimeseriesResponse = {
+  days: number;
+  topic: string | null;
+  series: TimeseriesPoint[];
+  available_topics: TopicRollup[];
+};
+
+export async function getStatsTimeseries(days = 30, topic?: string) {
+  const q = topic
+    ? `?days=${days}&topic=${encodeURIComponent(topic)}`
+    : `?days=${days}`;
+  return request<TimeseriesResponse>(`/api/stats/timeseries${q}`);
 }
 
 export type LearningEntry = {
