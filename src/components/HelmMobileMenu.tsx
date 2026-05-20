@@ -131,7 +131,10 @@ function ModuleItem({
   active: boolean;
   onPick: () => void;
 }) {
-  const reachable = m.status === 'active' || m.status === 'external';
+  // 'parked' modules are real routes that just render dimmer and sort
+  // to the bottom of the list. Only true 'soon' (no page) is inert.
+  const reachable = m.status === 'active' || m.status === 'external' || m.status === 'parked';
+  const dim = m.status === 'soon' || m.status === 'parked';
 
   // Numbers (and the 08a sub-module quirk) were dropped from this menu to
   // match the desktop More dropdown - the canonical module numbers only
@@ -142,7 +145,7 @@ function ModuleItem({
       className="rt-mobile-menu-row"
       style={{
         background: active ? 'var(--paper-2)' : 'transparent',
-        opacity: reachable ? 1 : 0.45,
+        opacity: dim ? 0.45 : 1,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -212,7 +215,7 @@ function ModuleItem({
     );
   }
 
-  if (m.status === 'active') {
+  if (m.status === 'active' || m.status === 'parked') {
     return (
       <Link
         href={m.href}

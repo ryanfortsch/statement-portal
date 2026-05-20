@@ -64,6 +64,20 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
     );
   }
 
+  // Parked: built but de-prioritized. Renders dimmer than 'active' so
+  // it reads as bottom-tier, but stays a real Link.
+  if (m.status === 'parked') {
+    return (
+      <Link
+        href={m.href}
+        style={{ color: 'var(--ink-4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+      >
+        {m.title}
+        {badge}
+      </Link>
+    );
+  }
+
   return (
     <Link href={m.href} style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
       {m.title}

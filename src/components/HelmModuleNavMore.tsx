@@ -106,7 +106,11 @@ function ModuleItem({
   active: boolean;
   onPick: () => void;
 }) {
-  const reachable = m.status === 'active' || m.status === 'external';
+  // 'parked' is a real route just like 'active' — it just renders
+  // dimmer and sorts to the bottom of the dropdown. Only true 'soon'
+  // (no page built yet) is unreachable.
+  const reachable = m.status === 'active' || m.status === 'external' || m.status === 'parked';
+  const dim = m.status === 'soon' || m.status === 'parked';
 
   // Numbers were dropped from the More dropdown - the canonical module
   // numbers live in helm-modules.ts and read fine on the home page where
@@ -117,7 +121,7 @@ function ModuleItem({
     <div
       style={{
         padding: '10px 18px',
-        opacity: reachable ? 1 : 0.5,
+        opacity: dim ? 0.5 : 1,
         background: active ? 'var(--paper-2)' : 'transparent',
       }}
     >
@@ -158,7 +162,7 @@ function ModuleItem({
     );
   }
 
-  if (m.status === 'active') {
+  if (m.status === 'active' || m.status === 'parked') {
     return (
       <Link
         href={m.href}
