@@ -6,7 +6,11 @@
  * used modules are reachable without going home.
  *
  * `status: 'active'`   - module is built; clicks to `href`
- * `status: 'soon'`     - placeholder; clicks do nothing (or anchor)
+ * `status: 'parked'`   - built but de-prioritized; clicks to `href`,
+ *                        renders greyed and sorted to the bottom of
+ *                        the menu (no "Soon" badge — it's not coming
+ *                        soon, it's just demoted)
+ * `status: 'soon'`     - not built yet; placeholder, clicks do nothing
  * `status: 'external'` - lives outside Helm (e.g. Lovable); opens in new tab
  */
 export type HelmModule = {
@@ -16,7 +20,7 @@ export type HelmModule = {
   number: string;
   title: string;
   description: string;
-  status: 'active' | 'soon' | 'external';
+  status: 'active' | 'parked' | 'soon' | 'external';
   primary: boolean;
 };
 
@@ -146,7 +150,7 @@ export const HELM_MODULES: HelmModule[] = [
     number: '00',
     title: 'Today',
     description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
-    status: 'soon',
+    status: 'parked',
     primary: false,
   },
   {
@@ -155,7 +159,7 @@ export const HELM_MODULES: HelmModule[] = [
     number: '07',
     title: 'CRM',
     description: 'Owners, vendors, leads. Every touch logged in one place.',
-    status: 'soon',
+    status: 'parked',
     primary: false,
   },
   {
@@ -164,7 +168,7 @@ export const HELM_MODULES: HelmModule[] = [
     number: '16',
     title: 'Channels',
     description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings.',
-    status: 'soon',
+    status: 'parked',
     primary: false,
   },
   // ── Not built yet ──────────────────────────────────────────────────
@@ -243,10 +247,11 @@ export const MOBILE_MODULES = [...HELM_MODULES].sort((a, b) => {
   if (ai !== -1) return -1;
   if (bi !== -1) return 1;
 
-  // Neither ranked. Push 'soon' to the bottom; otherwise keep canonical
+  // Neither ranked. Push parked + soon to the bottom (both are
+  // greyed bottom-tier in the menu UI); otherwise keep canonical
   // module-number order from HELM_MODULES.
-  const aSoon = a.status === 'soon';
-  const bSoon = b.status === 'soon';
-  if (aSoon !== bSoon) return aSoon ? 1 : -1;
+  const aBottom = a.status === 'soon' || a.status === 'parked';
+  const bBottom = b.status === 'soon' || b.status === 'parked';
+  if (aBottom !== bBottom) return aBottom ? 1 : -1;
   return HELM_MODULES.indexOf(a) - HELM_MODULES.indexOf(b);
 });
