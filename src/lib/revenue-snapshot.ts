@@ -308,9 +308,14 @@ export async function computeRevenueSnapshot(
   thirty.setDate(thirty.getDate() + 30);
   const thirtyEnd = thirty.toISOString().split('T')[0];
 
+  // Forward turnover count reads from the Helm-native bookings table (dates
+  // only -- the money-bearing query above still reads guesty_reservations
+  // until the accounting cutover). Canonical confirmed/completed stays only.
   const { data: fwdData } = await supabase
-    .from('guesty_reservations')
-    .select('property_id, listing_id, check_in, check_out, status')
+    .from('bookings')
+    .select('property_id, check_in, check_out, status')
+    .in('status', ['confirmed', 'completed'])
+    .is('duplicate_of', null)
     .lt('check_in', dayAfter(thirtyEnd))
     .gt('check_out', today);
 

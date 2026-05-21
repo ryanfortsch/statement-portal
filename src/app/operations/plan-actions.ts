@@ -5,8 +5,11 @@ import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 
 /**
- * Create or update an inspection plan for a Guesty reservation. There's
- * a unique constraint on guesty_reservation_id so we upsert.
+ * Create or update an inspection plan for a stay. Post-Guesty-cutover the stay
+ * key is a `bookings.id` (passed in as `guestyReservationId` to keep the call
+ * sites stable). We write it to both `guesty_reservation_id` (the unique key we
+ * upsert on) and `booking_id` (the proper FK, for the eventual cleanup that
+ * drops the legacy column).
  */
 export async function setInspectionPlan(args: {
   guestyReservationId: string;
@@ -27,6 +30,7 @@ export async function setInspectionPlan(args: {
     .upsert(
       {
         guesty_reservation_id: args.guestyReservationId,
+        booking_id: args.guestyReservationId,
         property_id: args.propertyId,
         checkin_date: args.checkinDate,
         checkout_date: args.checkoutDate,
