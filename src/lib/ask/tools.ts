@@ -178,6 +178,99 @@ export function createAskTools() {
         };
       },
     }),
+
+    get_contact_history: tool({
+      description:
+        'Conversation / communication history with a person (owner, vendor, lead, or other contact): every logged email, text, and call between Rising Tide and that contact. Use for ANY question about what was said, when someone was last contacted, what a person asked for, or "what conversations have we had with X". Search by contact name (partial is fine, e.g. "Jane Armstrong" or "Armstrong") or by a property id to get everyone linked to that property. Touches come from Gmail (email), Quo (text/call), and manual logs.',
+      inputSchema: z.object({
+        name: z
+          .string()
+          .optional()
+          .describe('Full or partial contact name, e.g. "Jane Armstrong".'),
+        propertyId: z
+          .string()
+          .optional()
+          .describe('Property id like "4_brier_neck" to get every contact linked to it. Resolve names via list_properties first if needed.'),
+      }),
+      execute: async ({ name, propertyId }: { name?: string; propertyId?: string }) => {
+        if (!name && !propertyId) {
+          return { error: 'Provide a contact name or a property id.' };
+        }
+        let cq = supabase
+          .from('contacts')
+          .select('id, type, name, emails, phone, organization, linked_property_ids');
+        if (name) cq = cq.ilike('name', `%${name}%`);
+        if (propertyId) cq = cq.contains('linked_property_ids', [propertyId]);
+        const { data: contactRows, error: contactErr } = await cq.limit(8);
+        if (contactErr) return { error: contactErr.message };
+        const contacts = (contactRows ?? []) as Array<{
+          id: string;
+          type: string;
+          name: string;
+          emails: string[] | null;
+          phone: string | null;
+          organization: string | null;
+        }>;
+        if (contacts.length === 0) {
+          return { contacts: [], note: 'No matching contact found in the CRM.' };
+        }
+
+        // Pull recent touches for the matched contacts in one query, then
+        // group by contact. Newest first; cap so a chatty contact doesn't
+        // blow the context.
+        const ids = contacts.map((c) => c.id);
+        const { data: touchRows, error: touchErr } = await supabase
+          .from('contact_touches')
+          .select('contact_id, touched_at, channel, direction, summary, by_email, gmail_message_id, quo_message_id, quo_call_id')
+          .in('contact_id', ids)
+          .order('touched_at', { ascending: false })
+          .limit(80);
+        if (touchErr) return { error: touchErr.message };
+
+        type TouchRow = {
+          contact_id: string;
+          touched_at: string;
+          channel: string;
+          direction: string;
+          summary: string;
+          by_email: string;
+          gmail_message_id: string | null;
+          quo_message_id: string | null;
+          quo_call_id: string | null;
+        };
+        const byContact = new Map<string, Array<Record<string, unknown>>>();
+        for (const t of (touchRows ?? []) as TouchRow[]) {
+          const source = t.quo_message_id || t.quo_call_id ? 'quo' : t.gmail_message_id ? 'gmail' : 'manual';
+          const list = byContact.get(t.contact_id) ?? [];
+          // Keep up to 20 most recent per contact.
+          if (list.length < 20) {
+            list.push({
+              date: t.touched_at,
+              channel: t.channel,
+              direction: t.direction,
+              summary: t.summary,
+              by: t.by_email,
+              source,
+            });
+          }
+          byContact.set(t.contact_id, list);
+        }
+
+        for (const c of contacts) addSource(c.name, `/crm/${c.id}`);
+        return {
+          contacts: contacts.map((c) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            emails: c.emails,
+            phone: c.phone,
+            organization: c.organization,
+            touches: byContact.get(c.id) ?? [],
+            touchCount: (byContact.get(c.id) ?? []).length,
+          })),
+        };
+      },
+    }),
   };
 
   return { tools, getSources: () => sources };
