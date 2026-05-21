@@ -3,6 +3,7 @@
     { "path": "/api/cron/marketing-sync", "schedule": "0 5 * * *" },
     { "path": "/api/cron/sync-gmail-replies", "schedule": "0 * * * *" },
     { "path": "/api/cron/sync-guesty", "schedule": "30 4 * * *" },
+    { "path": "/api/cron/channels-backfill", "schedule": "45 4 * * *" },
     { "path": "/api/cron/channels-sync", "schedule": "*/30 * * * *" },
     { "path": "/api/cron/sync-competitors", "schedule": "0 8 * * 0" },
     { "path": "/api/cron/guests-guesty-sync", "schedule": "0 13 * * *" },
