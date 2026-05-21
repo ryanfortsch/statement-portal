@@ -257,9 +257,11 @@ type Classification = {
  * item, missing supply, comfort/temperature problem, listing-accuracy
  * gap, etc.). Pure gratitude or vague praise is not actionable.
  *
- * Degrades safely: if the gateway call fails, fall back to below-five
- * ratings only (the unambiguous signal) with a generic summary, and
- * treat private-feedback-only reviews as not actionable.
+ * The model occasionally drops a row from a batch response. Rather than
+ * let those fall straight to the generic below-five fallback (a slip
+ * with no specific action summary), we re-query the dropped rows once
+ * in a smaller batch. Only rows still missing after the retry, or a
+ * total gateway failure, hit the fallback.
  */
 async function classifyReviews(
   reviews: ActionableReviewRow[],
@@ -268,50 +270,20 @@ async function classifyReviews(
   if (reviews.length === 0) return out;
 
   try {
-    const { object } = await generateObject({
-      model: 'anthropic/claude-sonnet-4.5',
-      schema: z.object({
-        classifications: z.array(
-          z.object({
-            review_id: z.string(),
-            actionable: z.boolean(),
-            action_summary: z
-              .string()
-              .describe('Imperative one-liner, e.g. "Replace uncomfortable master bedroom mattress". Empty string when not actionable.'),
-            priority: z.enum(['low', 'normal', 'high']),
-          }),
-        ),
-      }),
-      system: `You triage guest reviews for a vacation-rental manager (Rising Tide STR, Cape Ann MA). For each review decide whether it contains a SPECIFIC, ACTIONABLE issue or improvement the operations team could act on at the property.
+    // Pass 1: all eligible reviews.
+    const first = await classifyBatch(reviews);
+    for (const [id, c] of first) out.set(id, c);
 
-Actionable examples: a worn or uncomfortable furnishing, a broken or missing item, a supply that ran out, a temperature/comfort problem, a cleanliness miss, a listing-photo/description inaccuracy, mail piling up, a safety concern.
-
-NOT actionable: pure gratitude ("Thank you so much!"), generic praise ("Loved it, beautiful place!"), or comments with no concrete thing to do.
-
-A 5-star rating does NOT mean not-actionable: guests often rate 5 and still note a fix in private feedback. Judge the text, not the stars.
-
-When actionable, write action_summary as a short imperative the team can drop straight onto a work slip. Set priority high for safety issues or anything affecting the next stay, normal for routine fixes/restocks, low for nice-to-haves. When not actionable, set actionable=false, action_summary="", priority="low".`,
-      prompt: `Classify each review. Return one entry per review_id.\n\n${reviews
-        .map((r) =>
-          [
-            `review_id: ${r.id}`,
-            `rating: ${r.overall_rating ?? 'none'}`,
-            `public_review: ${(r.public_review || '').trim() || '(none)'}`,
-            `private_feedback: ${(r.private_feedback || '').trim() || '(none)'}`,
-          ].join('\n'),
-        )
-        .join('\n\n---\n\n')}`,
-    });
-
-    for (const c of object.classifications) {
-      out.set(c.review_id, {
-        actionable: c.actionable,
-        actionSummary: c.action_summary.trim(),
-        priority: c.priority,
-      });
+    // Pass 2: re-query any the model dropped. A smaller batch usually
+    // comes back complete; this recovers the specific action summary
+    // instead of settling for the generic fallback.
+    const missing = reviews.filter((r) => !out.has(r.id));
+    if (missing.length > 0) {
+      const retry = await classifyBatch(missing);
+      for (const [id, c] of retry) out.set(id, c);
     }
-    // Any review the model didn't return for: treat below-five as a
-    // conservative actionable fallback, everything else as not.
+
+    // Anything still absent after the retry: conservative fallback.
     for (const r of reviews) {
       if (!out.has(r.id)) out.set(r.id, fallbackClassification(r));
     }
@@ -321,6 +293,61 @@ When actionable, write action_summary as a short imperative the team can drop st
     for (const r of reviews) out.set(r.id, fallbackClassification(r));
     return out;
   }
+}
+
+/** One generateObject call. Returns only the rows the model returned. */
+async function classifyBatch(
+  reviews: ActionableReviewRow[],
+): Promise<Map<string, Classification>> {
+  const out = new Map<string, Classification>();
+  if (reviews.length === 0) return out;
+
+  const { object } = await generateObject({
+    model: 'anthropic/claude-sonnet-4.5',
+    schema: z.object({
+      classifications: z.array(
+        z.object({
+          review_id: z.string(),
+          actionable: z.boolean(),
+          action_summary: z
+            .string()
+            .describe('Imperative one-liner, e.g. "Replace uncomfortable master bedroom mattress". Empty string when not actionable.'),
+          priority: z.enum(['low', 'normal', 'high']),
+        }),
+      ),
+    }),
+    system: `You triage guest reviews for a vacation-rental manager (Rising Tide STR, Cape Ann MA). For each review decide whether it contains a SPECIFIC, ACTIONABLE issue or improvement the operations team could act on at the property.
+
+Actionable examples: a worn or uncomfortable furnishing, a broken or missing item, a supply that ran out, a temperature/comfort problem, a cleanliness miss, a listing-photo/description inaccuracy, mail piling up, a safety concern.
+
+NOT actionable: pure gratitude ("Thank you so much!"), generic praise ("Loved it, beautiful place!"), or comments with no concrete thing to do.
+
+A 5-star rating does NOT mean not-actionable: guests often rate 5 and still note a fix in private feedback. Judge the text, not the stars.
+
+You MUST return exactly one entry for every review_id given, even when not actionable. When actionable, write action_summary as a short imperative the team can drop straight onto a work slip. Set priority high for safety issues or anything affecting the next stay, normal for routine fixes/restocks, low for nice-to-haves. When not actionable, set actionable=false, action_summary="", priority="low".`,
+    prompt: `Classify each review. Return one entry per review_id, no more, no fewer.\n\n${reviews
+      .map((r) =>
+        [
+          `review_id: ${r.id}`,
+          `rating: ${r.overall_rating ?? 'none'}`,
+          `public_review: ${(r.public_review || '').trim() || '(none)'}`,
+          `private_feedback: ${(r.private_feedback || '').trim() || '(none)'}`,
+        ].join('\n'),
+      )
+      .join('\n\n---\n\n')}`,
+  });
+
+  const valid = new Set(reviews.map((r) => r.id));
+  for (const c of object.classifications) {
+    // Guard against the model echoing an id that wasn't in this batch.
+    if (!valid.has(c.review_id)) continue;
+    out.set(c.review_id, {
+      actionable: c.actionable,
+      actionSummary: c.action_summary.trim(),
+      priority: c.priority,
+    });
+  }
+  return out;
 }
 
 /** No-LLM fallback: below-five ratings are actionable, nothing else. */
