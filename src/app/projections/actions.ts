@@ -792,7 +792,7 @@ export async function countersignContract(formData: FormData): Promise<void> {
     if (origin) {
       let pdf: Buffer | null = null;
       try {
-        pdf = await fetchContractPdf({ projectionId: id, origin });
+        pdf = await fetchContractPdf({ projectionId: id, origin, token: projectionRow.onboarding_token });
       } catch (err) {
         console.error(
           '[countersignContract] executed PDF render failed:',

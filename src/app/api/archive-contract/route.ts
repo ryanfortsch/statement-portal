@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const sb = getSupabase();
     const { data: proj } = await sb
       .from('projections')
-      .select('id, property_address, prospect_name, contract_signed_at, contract_countersigned_at, contract_drive_url')
+      .select('id, property_address, prospect_name, onboarding_token, contract_signed_at, contract_countersigned_at, contract_drive_url')
       .eq('id', projectionId)
       .maybeSingle();
     if (!proj) {
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
     const projection = proj as {
       property_address: string | null;
       prospect_name: string | null;
+      onboarding_token: string | null;
       contract_signed_at: string | null;
       contract_countersigned_at: string | null;
       contract_drive_url: string | null;
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
       .trim();
 
     const origin = request.nextUrl.origin;
-    const pdf = await fetchContractPdf({ projectionId, origin });
+    const pdf = await fetchContractPdf({ projectionId, origin, token: projection.onboarding_token });
 
     const archive = await archiveContractToDrive({ pdf, filename, year });
     if (!archive.ok || !archive.url) {

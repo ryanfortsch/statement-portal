@@ -36,12 +36,23 @@ import type { ProjectionRow } from '@/lib/projections-types';
  * Passes the Vercel Deployment Protection bypass header so production
  * preview deployments are reachable when this is called from inside a
  * server action (same pattern the inline renderProjectionPdf uses).
+ *
+ * Also passes the projection's onboarding_token. /api/projection-pdf
+ * authorizes an anonymous request for type=contract ONLY when it carries
+ * a matching token — and a NextAuth session cookie does NOT propagate
+ * through this server-to-server fetch (countersign / executed-email /
+ * Drive-archive all call this from the server with no cookie). Without
+ * the token the call 401s, which silently broke the executed-email
+ * attachment and the Drive archive. The token is the same one the public
+ * /contract/<token> signing flow uses, so it's the right credential here.
  */
 export async function fetchContractPdf(args: {
   projectionId: string;
   origin: string;
+  token?: string | null;
 }): Promise<Buffer> {
-  const url = `${args.origin}/api/projection-pdf?id=${encodeURIComponent(args.projectionId)}&type=contract`;
+  const tokenParam = args.token ? `&token=${encodeURIComponent(args.token)}` : '';
+  const url = `${args.origin}/api/projection-pdf?id=${encodeURIComponent(args.projectionId)}&type=contract${tokenParam}`;
   const headers: Record<string, string> = {};
   const bypass = process.env.VERCEL_PROTECTION_BYPASS;
   if (bypass) {
@@ -92,7 +103,7 @@ export async function sendOwnerSignedEmail(args: {
 
   let pdf: Buffer;
   try {
-    pdf = await fetchContractPdf({ projectionId: projection.id, origin });
+    pdf = await fetchContractPdf({ projectionId: projection.id, origin, token: projection.onboarding_token });
   } catch (err) {
     console.error(
       `[contract-email] PDF fetch failed (owner-signed) for ${projection.id} at origin ${origin}:`,
@@ -154,7 +165,7 @@ export async function sendExecutedEmail(args: {
     pdf = args.pdf;
   } else {
     try {
-      pdf = await fetchContractPdf({ projectionId: projection.id, origin });
+      pdf = await fetchContractPdf({ projectionId: projection.id, origin, token: projection.onboarding_token });
     } catch (err) {
       console.error(
         `[contract-email] PDF fetch failed (executed) for ${projection.id} at origin ${origin}:`,
