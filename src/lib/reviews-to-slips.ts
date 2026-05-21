@@ -28,6 +28,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/** System sentinel for the NOT NULL created_by_email on auto-generated slips. */
+const REVIEWS_BOT_EMAIL = 'reviews@helm.system';
+
 export type ActionableReviewRow = {
   id: string;
   property_id: string | null;
@@ -134,6 +137,7 @@ export async function createSlipsFromActionableReviews(
     priority: 'low' | 'normal' | 'high';
     status: 'open';
     from_review_id: string;
+    created_by_email: string;
   };
   const toInsert: SlipInsert[] = [];
   for (const r of actionable) {
@@ -154,6 +158,11 @@ export async function createSlipsFromActionableReviews(
       priority: priorityForRating(r.overall_rating),
       status: 'open',
       from_review_id: r.id,
+      // work_slips.created_by_email is NOT NULL. These slips have no human
+      // author — they're auto-generated from review feedback. Use a system
+      // sentinel, matching the existing 'imported@perfection.legacy'
+      // convention so they're filterable/identifiable.
+      created_by_email: REVIEWS_BOT_EMAIL,
     });
   }
 
