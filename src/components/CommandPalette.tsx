@@ -20,9 +20,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { UniversalSearch } from './UniversalSearch';
+import { AskHelm } from './AskHelm';
+
+type Mode = 'search' | 'ask';
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>('search');
   const pathname = usePathname();
   const lastPath = useRef(pathname);
 
@@ -41,6 +45,8 @@ export function CommandPalette() {
       const isModK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
       if (isModK) {
         e.preventDefault();
+        // Always open into Search (fast nav). The user toggles to Ask.
+        if (!open) setMode('search');
         setOpen((o) => !o);
         return;
       }
@@ -54,9 +60,14 @@ export function CommandPalette() {
   }, [open]);
 
   // Custom event so a button anywhere in the app (e.g., a search icon
-  // in the masthead) can open the palette without prop drilling.
+  // in the masthead) can open the palette without prop drilling. An
+  // optional detail.mode lets a caller open straight into Ask.
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ mode?: Mode }>).detail;
+      setMode(detail?.mode === 'ask' ? 'ask' : 'search');
+      setOpen(true);
+    };
     window.addEventListener('helm:open-command-palette', onOpen);
     return () => window.removeEventListener('helm:open-command-palette', onOpen);
   }, []);
@@ -107,11 +118,45 @@ export function CommandPalette() {
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <UniversalSearch
-          autoFocus
-          placeholder="Search Helm or jump to a page…"
-        />
+        {/* Mode toggle: Search (instant keyword nav) vs Ask (Claude Q&A
+            over the data). Search is the default; Ask is the "I have a
+            question" escape hatch. */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          <ModeTab label="Search" active={mode === 'search'} onClick={() => setMode('search')} />
+          <ModeTab label="Ask Helm" active={mode === 'ask'} onClick={() => setMode('ask')} />
+        </div>
+
+        {mode === 'search' ? (
+          <UniversalSearch
+            autoFocus
+            placeholder="Search Helm or jump to a page…"
+          />
+        ) : (
+          <AskHelm autoFocus />
+        )}
       </div>
     </div>
+  );
+}
+
+function ModeTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? 'var(--ink)' : 'transparent',
+        color: active ? 'var(--paper)' : 'var(--ink-3)',
+        border: '1px solid var(--ink)',
+        padding: '6px 14px',
+        fontSize: 10,
+        letterSpacing: '.16em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
   );
 }
