@@ -445,7 +445,9 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
       {/* Contract sub-deliverable */}
       <SubDeliverable label="Contract">
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
-          {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
+          {termRange} · {fee} · {projection.initial_deposit != null
+            ? `$${projection.initial_deposit.toLocaleString()} deposit`
+            : 'no deposit'}
         </div>
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
         <RedlinesDisclosure>

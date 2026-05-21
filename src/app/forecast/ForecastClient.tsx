@@ -850,7 +850,7 @@ const sections2026: AssumptionSection[] = [
   {
     heading: 'Periodic & one-time',
     items: [
-      { label: 'Mar 2026', value: 'Phillips CGL insurance annual lump sum: $5,263.92 paid 03/02. GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
+      { label: 'Mar 2026', value: 'Phillips insurance annual premium: $5,263.92 paid 03/02. One lump sum; $0 every other month.' },
       { label: 'Apr 2026', value: 'MS Consultants one-time accounting engagement: $4,442.96 paid 04/15. Not recurring; $0 going forward.' },
     ],
   },
@@ -891,7 +891,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Periodic & wind-down',
     items: [
-      { label: 'Mar 2027', value: 'Phillips CGL insurance lump renewal (~$5,264, same as 2026 assumption). GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
+      { label: 'Mar 2027', value: 'Phillips insurance lump renewal (~$5,264, same as the 2026 assumption). One lump sum; $0 every other month.' },
       { label: 'Bookkeeper', value: '$0 — engagement ended May 2026.' },
       { label: 'Accounting', value: '$0 — MS Consultants was a one-time engagement.' },
     ],
@@ -932,7 +932,7 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Periodic',
     items: [
-      { label: 'Mar 2028', value: 'Phillips CGL insurance lump renewal (~$5,264). GEICO auto runs ~$518/mo every month; Arbella property insurance is a ~$3,189 lump in April.' },
+      { label: 'Mar 2028', value: 'Phillips insurance lump renewal (~$5,264). One lump sum; $0 every other month.' },
       { label: 'Bookkeeper / Accounting', value: '$0' },
     ],
   },
@@ -1466,7 +1466,7 @@ function ForecastTable({
         />
         <DataRow
           label="Insurance"
-          info="Three policies: GEICO auto (~$518/mo, every month), Phillips CGL annual lump in March ($5,264), Arbella property annual lump in April ($3,189). About $14,669/yr."
+          info="A single annual insurance premium (Phillips) paid as one lump sum in March. $5,263.92 in 2026; same March renewal assumed forward. $0 every other month."
           values={monthly.map((r) => r.exp_insurance)}
           fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
         />

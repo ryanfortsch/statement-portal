@@ -212,15 +212,39 @@ export default async function OperationsPage({ searchParams }: PageProps) {
           </nav>
         </div>
         <div
+          className="flex items-center justify-between"
           style={{
-            marginTop: 6,
+            marginTop: 8,
             fontSize: 10,
             color: 'var(--ink-4)',
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            textAlign: 'right',
+            gap: 12,
+            flexWrap: 'wrap',
           }}
         >
+          {/* Inspections has no menu module of its own — this is the
+              entry point. Links to /inspections, the start form (pick a
+              property, begin) + recent-inspections list. Per-turnover
+              "Start Inspection" buttons in the list below cover the
+              scoped case; this covers ad-hoc walks and re-inspections. */}
+          <Link
+            href="/inspections"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '5px 11px',
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+            Start inspection
+          </Link>
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>

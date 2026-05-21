@@ -512,11 +512,9 @@ export async function computeRevenueSnapshot(
   let totalPayout = 0;
   let totalMgmtFee = 0;
   let totalPortfolioRevenue = 0;
-  let propertiesWithData = 0;
 
   for (const s of snapshots) {
     if (s.metrics.totalRevenue == null) continue;
-    propertiesWithData += 1;
     totalStays += s.metrics.staysCount;
     totalNights += s.metrics.nightsSold;
     totalRevenueP += s.metrics.totalRevenue;
@@ -529,7 +527,20 @@ export async function computeRevenueSnapshot(
   }
 
   const avgADR = totalNights > 0 ? totalRevenueP / totalNights : null;
-  const totalPossibleNights = propertiesWithData * totalNightsInPeriod;
+
+  // Occupancy denominator = every active property's available nights in the
+  // period (respecting activation date), whether or not it has bookings.
+  // Empty units count as 0% so portfolio occupancy is honest and reconciles
+  // with the pacing% line (which uses the same all-active basis). Using
+  // propertiesWithData here would exclude empty units and inflate the number
+  // for future months that aren't fully booked yet.
+  let totalPossibleNights = 0;
+  for (const prop of properties) {
+    const propStart = effectiveStart(rangeStart, prop.activated_at);
+    if (propStart < periodEndExclusive) {
+      totalPossibleNights += nightsBetween(propStart, periodEndExclusive);
+    }
+  }
   const avgOccupancy = totalPossibleNights > 0 ? (totalNights / totalPossibleNights) * 100 : null;
 
   return {

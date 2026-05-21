@@ -6,7 +6,11 @@
  * used modules are reachable without going home.
  *
  * `status: 'active'`   - module is built; clicks to `href`
- * `status: 'soon'`     - placeholder; clicks do nothing (or anchor)
+ * `status: 'parked'`   - built but de-prioritized; clicks to `href`,
+ *                        renders greyed and sorted to the bottom of
+ *                        the menu (no "Soon" badge — it's not coming
+ *                        soon, it's just demoted)
+ * `status: 'soon'`     - not built yet; placeholder, clicks do nothing
  * `status: 'external'` - lives outside Helm (e.g. Lovable); opens in new tab
  */
 export type HelmModule = {
@@ -16,20 +20,17 @@ export type HelmModule = {
   number: string;
   title: string;
   description: string;
-  status: 'active' | 'soon' | 'external';
+  status: 'active' | 'parked' | 'soon' | 'external';
   primary: boolean;
 };
 
 export const HELM_MODULES: HelmModule[] = [
-  {
-    id: 'today',
-    href: '/today',
-    number: '00',
-    title: 'Today',
-    description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
-    status: 'active',
-    primary: true,
-  },
+  // ── Active modules, in canonical number order ──────────────────────
+  // Inspections (was 03) is intentionally not a module: it has no
+  // standalone landing in the menu. An inspection is started from a
+  // button on the Turnovers page, and the run flow lives at
+  // /inspections/[id]. The /inspections route still exists as the
+  // start form + recent list, just not as a nav item.
   {
     id: 'statements',
     href: '/statements',
@@ -44,18 +45,9 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/operations',
     number: '02',
     title: 'Turnovers',
-    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty.',
+    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
     status: 'active',
     primary: true,
-  },
-  {
-    id: 'inspections',
-    href: '/inspections',
-    number: '03',
-    title: 'Inspections',
-    description: 'Walk a property, run the standard 50-item checklist, mark Pass / Issue / N/A, and produce a summary. Helm-native.',
-    status: 'active',
-    primary: false,
   },
   {
     id: 'work',
@@ -80,16 +72,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/projections',
     number: '06',
     title: 'Prospects',
-    description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract — all from the same shared inputs.',
-    status: 'active',
-    primary: false,
-  },
-  {
-    id: 'crm',
-    href: '/crm',
-    number: '07',
-    title: 'CRM',
-    description: 'Owners, vendors, leads. Every touch logged in one place.',
+    description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract, all from the same shared inputs.',
     status: 'active',
     primary: false,
   },
@@ -101,24 +84,6 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Guest message drafts awaiting approval. Approve, reject, or coach the AI right from Helm. Backed by the Stay Concierge service.',
     status: 'active',
     primary: true,
-  },
-  {
-    id: 'guest-intel',
-    href: '#',
-    number: '08a',
-    title: 'Guest Intel',
-    description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
-    status: 'soon',
-    primary: false,
-  },
-  {
-    id: 'admin',
-    href: '#',
-    number: '09',
-    title: 'Admin',
-    description: 'Settings, inspection templates, automation rules, team, roles.',
-    status: 'soon',
-    primary: false,
   },
   {
     id: 'revenue',
@@ -143,7 +108,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/forecast',
     number: '12',
     title: 'Forecast',
-    description: 'The 2026 business plan as an interactive model. Slide the lever to see how new contracts move the year — revenue, expenses, spring crunch, cash-positive months.',
+    description: 'The 2026 business plan as an interactive model. Slide the lever to see how new contracts move the year.',
     status: 'active',
     primary: false,
   },
@@ -152,7 +117,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/guests',
     number: '13',
     title: 'Guests',
-    description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts. Distinct from CRM (which is owners + prospects).',
+    description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
     status: 'active',
     primary: false,
   },
@@ -174,13 +139,55 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  // ── Parked: built but de-prioritized. Greyed + sorted to the bottom,
+  //    non-clickable in the nav. The routes still resolve by direct URL
+  //    (the Today daily brief is texted to Dotti with a direct link, so
+  //    parking it from the menu doesn't break the morning send). Flip
+  //    `status` back to 'active' to un-park. ──────────────────────────
+  {
+    id: 'today',
+    href: '/today',
+    number: '00',
+    title: 'Today',
+    description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
+    status: 'parked',
+    primary: false,
+  },
+  {
+    id: 'crm',
+    href: '/crm',
+    number: '07',
+    title: 'CRM',
+    description: 'Owners, vendors, leads. Every touch logged in one place.',
+    status: 'parked',
+    primary: false,
+  },
   {
     id: 'channels',
     href: '/channels',
     number: '16',
     title: 'Channels',
-    description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings, and direct-stay foundations. Phase 1: read-only iCal import from Airbnb / VRBO / Booking.com.',
-    status: 'active',
+    description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings.',
+    status: 'parked',
+    primary: false,
+  },
+  // ── Not built yet ──────────────────────────────────────────────────
+  {
+    id: 'guest-intel',
+    href: '#',
+    number: '08a',
+    title: 'Guest Intel',
+    description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
+    status: 'soon',
+    primary: false,
+  },
+  {
+    id: 'admin',
+    href: '#',
+    number: '09',
+    title: 'Admin',
+    description: 'Settings, inspection templates, automation rules, team, roles.',
+    status: 'soon',
     primary: false,
   },
 ];
@@ -188,13 +195,13 @@ export const HELM_MODULES: HelmModule[] = [
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
  * array order so the master list can stay in module-number order while
- * the nav shows the four daily-flow tabs in the order Dotti reads them
- * left-to-right: Today (the morning launchpad), Turnovers (the ops
- * pipeline), Work (the persistent backlog board), and Messaging (the
- * guest-reply queue, which carries a pending-count badge so she can
- * see at a glance whether anything's waiting).
+ * the nav shows the daily-flow tabs in the order Dotti reads them
+ * left-to-right: Turnovers (the ops pipeline), Work (the persistent
+ * backlog board), and Messaging (the guest-reply queue, which carries a
+ * pending-count badge so she can see at a glance whether anything's
+ * waiting).
  */
-const PRIMARY_ORDER: string[] = ['today', 'operations', 'work', 'messaging'];
+const PRIMARY_ORDER: string[] = ['operations', 'work', 'messaging'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
@@ -225,7 +232,6 @@ export const PRIMARY_MODULES = HELM_MODULES
 const MOBILE_ORDER: string[] = [
   'messaging',
   'operations',
-  'inspections',
   'work',
   'properties',
   'projections',
@@ -241,10 +247,11 @@ export const MOBILE_MODULES = [...HELM_MODULES].sort((a, b) => {
   if (ai !== -1) return -1;
   if (bi !== -1) return 1;
 
-  // Neither ranked. Push 'soon' to the bottom; otherwise keep canonical
+  // Neither ranked. Push parked + soon to the bottom (both are
+  // greyed bottom-tier in the menu UI); otherwise keep canonical
   // module-number order from HELM_MODULES.
-  const aSoon = a.status === 'soon';
-  const bSoon = b.status === 'soon';
-  if (aSoon !== bSoon) return aSoon ? 1 : -1;
+  const aBottom = a.status === 'soon' || a.status === 'parked';
+  const bBottom = b.status === 'soon' || b.status === 'parked';
+  if (aBottom !== bBottom) return aBottom ? 1 : -1;
   return HELM_MODULES.indexOf(a) - HELM_MODULES.indexOf(b);
 });

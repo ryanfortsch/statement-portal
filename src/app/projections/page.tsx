@@ -14,13 +14,21 @@ async function getProjections(): Promise<ProjectionRow[]> {
     .from('projections')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(200);
   return (data ?? []) as ProjectionRow[];
 }
 
 export default async function ProjectionsPage() {
   const session = await auth();
   const projections = await getProjections();
+
+  // Split active prospects (still in the funnel) from promoted ones
+  // (already became managed properties). Promoted records stay accessible
+  // for revisiting the original deck / contract / walkthrough, but they
+  // shouldn't clutter the active scan — Dotti wants them in a separate
+  // archive section below.
+  const active = projections.filter((p) => !p.property_id);
+  const archived = projections.filter((p) => !!p.property_id);
 
   const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || '';
 
@@ -77,30 +85,60 @@ export default async function ProjectionsPage() {
         </div>
       </section>
 
-      {/* LIST */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+      {/* ACTIVE LIST */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: archived.length > 0 ? 48 : 80, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Recent Prospects
+            Active Prospects
           </h2>
-          <span className="eyebrow">last {projections.length}</span>
+          <span className="eyebrow">{active.length} active</span>
         </div>
 
-        {projections.length === 0 ? (
+        {active.length === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '32px 0', textAlign: 'center' }}>
-            <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>No prospects yet.</p>
+            <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>
+              {projections.length === 0 ? 'No prospects yet.' : 'No active prospects.'}
+            </p>
             <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>
-              Click &ldquo;New Prospect&rdquo; above to get started.
+              {projections.length === 0
+                ? <>Click &ldquo;New Prospect&rdquo; above to get started.</>
+                : <>Everything in the funnel has been promoted to a managed property.</>}
             </p>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {projections.map((p, i) => (
+            {active.map((p, i) => (
               <ProjectionRowItem key={p.id} projection={p} number={String(i + 1).padStart(2, '0')} />
             ))}
           </div>
         )}
       </section>
+
+      {/* ARCHIVE — promoted prospects. Hidden entirely when empty so a
+          first-time user doesn't see a phantom section. Same row layout as
+          active, but the row's status badge reads "Promoted" and the
+          close-likelihood chip is hidden (irrelevant on a closed deal). */}
+      {archived.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink-3)', margin: 0 }}>
+              Promoted
+            </h2>
+            <span className="eyebrow">
+              {archived.length} archived
+            </span>
+          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 580 }}>
+            These prospects became managed properties. Click any row to revisit the original projection,
+            contract, and walkthrough.
+          </p>
+          <div style={{ borderTop: '1px solid var(--ink-3)' }}>
+            {archived.map((p, i) => (
+              <ProjectionRowItem key={p.id} projection={p} number={String(i + 1).padStart(2, '0')} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* FOOTER */}
       <HelmFooter module="Prospects" right="Source: Helm" />
@@ -111,6 +149,7 @@ export default async function ProjectionsPage() {
 function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRow; number: string }) {
   const computed = computeProjection(p);
   const range = fmtMoneyRange(computed.heroLow, computed.heroHigh);
+  const promoted = !!p.property_id;
   const sent = p.status === 'sent';
   const touches = p.gmail_touches || {};
   const touchTypes: GmailTouchType[] = ['projection', 'guide', 'contract', 'onboarding'];
@@ -118,6 +157,25 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   const latestTouch = seen
     .map((t) => ({ type: t, at: touches[t]!.sent_at }))
     .sort((a, b) => b.at.localeCompare(a.at))[0];
+
+  // Status badge text + color. Promoted wins over everything (it's the
+  // terminal state); otherwise the existing last-touch / marked-sent /
+  // draft ladder applies.
+  let statusText: string;
+  let statusColor: string;
+  if (promoted) {
+    statusText = 'Promoted';
+    statusColor = 'var(--positive)';
+  } else if (latestTouch) {
+    statusText = `Last touch ${shortDate(latestTouch.at)}`;
+    statusColor = 'var(--positive)';
+  } else if (sent) {
+    statusText = 'Marked sent';
+    statusColor = 'var(--positive)';
+  } else {
+    statusText = 'Draft';
+    statusColor = 'var(--ink-4)';
+  }
 
   return (
     <Link href={`/projections/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
@@ -130,6 +188,9 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           alignItems: 'baseline',
           padding: '20px 0 18px',
           borderBottom: '1px solid var(--rule)',
+          // Promoted rows render a touch softer so the eye lands on
+          // active prospects first without the archive looking broken.
+          opacity: promoted ? 0.78 : 1,
         }}
       >
         <span className="font-mono rt-projections-row-num" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
@@ -140,7 +201,9 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             <h3 className="font-serif rt-projections-row-title" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
               {p.property_address}
             </h3>
-            <LikelihoodChip pct={p.close_likelihood_pct} />
+            {/* Close-likelihood is an active-funnel metric — hide on
+                promoted rows since the deal already closed. */}
+            {!promoted && <LikelihoodChip pct={p.close_likelihood_pct} />}
           </div>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {p.prospect_name}
@@ -165,16 +228,12 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             letterSpacing: '.22em',
             textTransform: 'uppercase',
             fontWeight: 500,
-            color: latestTouch ? 'var(--positive)' : sent ? 'var(--positive)' : 'var(--ink-4)',
+            color: statusColor,
             whiteSpace: 'nowrap',
             textAlign: 'right',
           }}
         >
-          {latestTouch
-            ? `Last touch ${shortDate(latestTouch.at)}`
-            : sent
-              ? 'Marked sent'
-              : 'Draft'}
+          {statusText}
         </span>
       </div>
     </Link>

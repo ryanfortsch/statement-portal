@@ -14,6 +14,7 @@ import {
   type MessagingStats,
   type Fact,
   type TimeseriesPoint,
+  type TopicRollup,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
@@ -32,6 +33,7 @@ type LoadResult =
       facts: Fact[];
       totalFacts: number;
       timeseries: TimeseriesPoint[];
+      availableTopics: TopicRollup[];
     }
   | { ok: false; error: string };
 
@@ -63,6 +65,7 @@ async function loadData(): Promise<LoadResult> {
     facts: facts.ok ? facts.data.facts : [],
     totalFacts: facts.ok ? facts.data.total_facts : 0,
     timeseries: ts.ok ? ts.data.series : [],
+    availableTopics: ts.ok ? ts.data.available_topics : [],
   };
 }
 
@@ -110,6 +113,7 @@ export default async function MessagingPage() {
             initialFacts={data.facts}
             totalFacts={data.totalFacts}
             initialTimeseries={data.timeseries}
+            initialAvailableTopics={data.availableTopics}
           />
         </>
       )}

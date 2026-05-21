@@ -176,13 +176,15 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
 }
 
 /**
- * Compute the forward-month list given a starting "today". Always returns
- * the months from the start of next month through the end of `endYear`.
- * Past months in the same year are skipped because actuals already cover
- * them in the Monthly Detail table.
+ * Compute the forward-month list given a starting "today". Returns the
+ * months from the start of the CURRENT month through the end of
+ * `endYear`. The current month is included: bank actuals lag a month
+ * behind, so the in-progress month still needs a live Guesty-based
+ * projection rather than the seasonality fallback. Fully-closed past
+ * months are skipped — actuals cover them in the Monthly Detail table.
  */
 export function forwardMonths(today: Date, endYear: number): string[] {
-  const start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
   const out: string[] = [];
   const cursor = new Date(start);
   while (cursor.getFullYear() <= endYear) {
@@ -394,9 +396,17 @@ export function computeSmartForecast(
     const annualGross = ownAnnual > 0 ? ownAnnual : fallbackAnnual;
     const feeFraction = (p.mgmtFeePct ?? 0) / 100;
 
+    const activated = p.activatedAt ? new Date(p.activatedAt) : null;
+    const activatedYM = activated
+      ? `${activated.getFullYear()}-${String(activated.getMonth() + 1).padStart(2, '0')}`
+      : null;
+
     const monthly: SmartPropertyMonth[] = forwardMonthList.map((ym) => {
-      if (!isOperating(p.id, ym)) {
-        // Closed for the season or decommissioned — no projection.
+      const preActivation = activatedYM != null && ym < activatedYM;
+
+      if (!isOperating(p.id, ym) || preActivation) {
+        // Closed for the season, decommissioned, or not yet activated —
+        // no projection.
         return {
           month: ym,
           bookedNights: 0,
@@ -407,12 +417,21 @@ export function computeSmartForecast(
         };
       }
       const cell = propBooked.get(ym) ?? { nights: 0, revenue: 0 };
-      const monthIdx = parseInt(ym.slice(5, 7), 10) - 1;
+      const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+      const monthIdx = m - 1;
 
       const a = partA.get(ym) ?? null;
       const partB = annualGross * (revenueShare[monthIdx] ?? 0);
       // 50/50 when the month has bookings; 100% Part B when it doesn't.
-      const projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
+      let projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
+
+      // Activation month: a mid-month activation only earns from the
+      // activation day onward, so pro-rate by the days remaining.
+      if (activated && activatedYM != null && ym === activatedYM) {
+        const dim = daysInMonth(y, m);
+        const factor = Math.max(0, (dim - activated.getDate() + 1) / dim);
+        projectedGross *= factor;
+      }
 
       return {
         month: ym,

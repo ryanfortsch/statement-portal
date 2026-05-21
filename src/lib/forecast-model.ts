@@ -156,24 +156,13 @@ export const BOOKKEEPER_LAST_MONTH = 5;
 export const BOOKKEEPER_FINAL_AMOUNT = 1800;
 
 /**
- * Insurance — three policies:
- *   CGL (commercial general liability), Phillips — annual lump in March
- *     ($5,263.92 paid 03/02/2026; same March renewal assumed forward).
- *   Property/business, Arbella — annual lump in April ($3,188.57).
- *   Auto, GEICO — charged every month, ~$518.
+ * Insurance. A single annual premium (Phillips, commercial general
+ * liability) paid as one lump sum in March — $5,263.92 on 03/02/2026,
+ * same March renewal assumed forward. Nothing else is modeled: there is
+ * no recurring monthly premium.
  */
-export const INSURANCE_CGL_ANNUAL = 5264;
-export const INSURANCE_CGL_MONTH = 3;
-export const INSURANCE_PROPERTY_ANNUAL = 3189;
-export const INSURANCE_PROPERTY_MONTH = 4;
-export const INSURANCE_AUTO_MONTHLY = 518;
-
-export function insuranceCost(month: number): number {
-  let cost = INSURANCE_AUTO_MONTHLY;
-  if (month === INSURANCE_CGL_MONTH) cost += INSURANCE_CGL_ANNUAL;
-  if (month === INSURANCE_PROPERTY_MONTH) cost += INSURANCE_PROPERTY_ANNUAL;
-  return cost;
-}
+export const INSURANCE_ANNUAL = 5264;
+export const INSURANCE_MONTH = 3;
 
 /**
  * Accounting — historically MS Consultants. The $4,442.96 paid 4/15/2026
@@ -186,7 +175,7 @@ export const BANK_FEES_MONTHLY = 100;
 
 /**
  * Operating CC pass-through — the corporate card (...3878) with software
- * and insurance carved out to their own lines and out-of-scope personal
+ * carved out to its own line and insurance and out-of-scope personal
  * charges removed. Trailing 12 months at ~9 properties: $4,976/mo,
  * itemized in CC_OPERATING_BREAKDOWN below. Scales with the portfolio at
  * 0.5x elasticity — doubling property count adds +50%, not +100%.
@@ -387,7 +376,7 @@ export type MonthRow = {
   exp_software: number;
   /** MH Partners debt service. */
   exp_debt: number;
-  /** Insurance (Phillips), smoothed monthly. */
+  /** Insurance (Phillips) — annual premium, lump sum in March. */
   exp_insurance: number;
   /** Accounting (MS Consultants), smoothed monthly. */
   exp_accounting: number;
@@ -641,7 +630,7 @@ export function calcYear(
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
-    const exp_insurance = insuranceCost(m);
+    const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
     const exp_accounting = ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = ccOperatingCost(activeCount, year, m);
