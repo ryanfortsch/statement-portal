@@ -11,6 +11,7 @@
  */
 import { supabase } from './supabase';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
+import { isLowBattery, type SeamBatteryStatus } from './seam';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -126,6 +127,14 @@ export type CleaningCompletion = {
   sourcePhone: string | null;
 };
 
+export type LockBattery = {
+  /** 0-100, or null when Seam reported a status but no numeric level. */
+  pct: number | null;
+  /** Seam's battery_status enum (full | good | low | critical | unknown). */
+  status: string;
+  isLow: boolean;
+};
+
 export type Turnover = {
   reservationId: string;
   propertyId: string;
@@ -147,6 +156,10 @@ export type Turnover = {
    *  surface a "N work slips · Print" affordance on the turnover row so
    *  the operator can grab the checklist on their way out the door. */
   openWorkSlipsCount: number;
+  /** Lowest low-battery lock reading on this property (via Seam), or
+   *  null when every lock is healthy or unmonitored. Drives the "bring
+   *  batteries" chip so the team member packs spares before they drive. */
+  lockBattery: LockBattery | null;
 };
 
 export type CalendarCell = {
@@ -348,7 +361,8 @@ export async function loadOperationsData(
   // Pull active work-slip counts in parallel so each turnover row can
   // show "N work slips · Print" without an N+1 fan-out.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [{ data: cleaningData }, { data: openSlipsData }] = await Promise.all([
+  const propertyIdList = properties.map((p) => p.id);
+  const [{ data: cleaningData }, { data: openSlipsData }, { data: batteryData }] = await Promise.all([
     supabase
       .from('cleaning_completions')
       .select('property_id, checkout_date, completed_at, source, source_phone')
@@ -358,13 +372,44 @@ export async function loadOperationsData(
       .from('work_slips')
       .select('property_id, snoozed_until')
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
-      .in('property_id', properties.map((p) => p.id)),
+      .in('property_id', propertyIdList),
+    supabase
+      .from('lock_battery_status')
+      .select('property_id, battery_pct, battery_status')
+      .in('property_id', propertyIdList),
   ]);
 
   const openWorkSlipsByProperty = new Map<string, number>();
   for (const row of (openSlipsData ?? []) as Array<{ property_id: string; snoozed_until: string | null }>) {
     if (row.snoozed_until && row.snoozed_until > todayIso) continue;
     openWorkSlipsByProperty.set(row.property_id, (openWorkSlipsByProperty.get(row.property_id) ?? 0) + 1);
+  }
+
+  // Lowest low-battery lock per property. A property can have more than
+  // one lock; we surface the worst so a single weak lock isn't masked by
+  // a healthy one. Only low readings make it into the map, so any hit is
+  // chip-worthy. A numeric percent beats a status-only ('low'/'critical')
+  // reading when picking the worst.
+  const lowBatteryByProperty = new Map<string, LockBattery>();
+  for (const row of (batteryData ?? []) as Array<{
+    property_id: string | null;
+    battery_pct: number | null;
+    battery_status: string | null;
+  }>) {
+    if (!row.property_id) continue;
+    const status = row.battery_status ?? 'unknown';
+    if (!isLowBattery(row.battery_pct, status as SeamBatteryStatus)) continue;
+    const prev = lowBatteryByProperty.get(row.property_id);
+    const better =
+      !prev ||
+      (row.battery_pct != null && (prev.pct == null || row.battery_pct < prev.pct));
+    if (better) {
+      lowBatteryByProperty.set(row.property_id, {
+        pct: row.battery_pct,
+        status,
+        isLow: true,
+      });
+    }
   }
 
   const cleaningByKey = new Map<string, CleaningCompletion>();
@@ -443,6 +488,7 @@ export async function loadOperationsData(
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
+      lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
     });
   }
 

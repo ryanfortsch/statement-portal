@@ -214,6 +214,25 @@ Key tables (migration `20260507_quo_integration.sql`):
 
 Cleaner-phone seeding is manual: insert rows into `cleaner_phones` with the cleaner's E.164 (or any format, normalization is permissive) plus the properties they handle.
 
+## Smart lock battery (Seam) integration
+
+Schlage Encode locks connect through [Seam](https://seam.co), a universal lock API that reports per-device battery level and fires low-battery webhooks. The pipeline warns a team member to pack batteries before a turnover and drops a maintenance work slip on the property.
+
+Two persistence layers, same shape as Quo:
+
+1. **Live path**: `POST /api/webhooks/seam` verifies the Svix signature (`svix-id` / `svix-timestamp` / `svix-signature`, secret `whsec_...`), records every event into `lock_events` (raw audit + dedupe by Seam `event_id`), and on a battery/connection event reads the device fresh and runs the shared ingest.
+2. **Backfill**: `POST /api/sync-seam` lists every Seam device through the same ingest. Use it for cold start, a missed webhook, or a daily cron poll. Its response lists each device id + battery + property mapping so you can finish seeding.
+
+Shared ingest (`src/lib/seam.ts` > `ingestDeviceBattery`): auto-registers the device in `lock_devices`, upserts latest-wins battery into `lock_battery_status`, and when a mapped lock is at or below 20% opens one high-priority maintenance slip ("Replace smart lock batteries", linked via `from_lock_device_id`). The slip's partial unique index is scoped to active statuses, so a fresh slip can open after the previous one is closed and a recurring low battery is never permanently suppressed. Slips are not auto-closed on recovery; whoever swaps the batteries closes the slip.
+
+Key tables (migration `20260520_seam_lock_integration.sql`):
+
+- `lock_events`: raw event audit log, `seam_event_id` unique for idempotency
+- `lock_devices`: Seam device to property registry. The sync auto-registers every device with `property_id` null; map it by hand (same manual-seed pattern as `cleaner_phones`)
+- `lock_battery_status`: latest battery per device, latest-wins, read by the Operations turnover pipeline for the "bring batteries" chip
+
+Device-to-property mapping is manual: run `/api/sync-seam` once so devices register, then set `lock_devices.property_id` for each. The turnover chip + auto-slip only fire for mapped, active devices, so the feature stays dark until both the API key is set and at least one lock is mapped.
+
 ## Environment Variables (set in Vercel)
 
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -222,8 +241,12 @@ Cleaner-phone seeding is manual: insert rows into `cleaner_phones` with the clea
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` (for Gmail invoice sync)
 - `QUO_API_KEY` (Quo dashboard, Settings, API; used by `/api/sync-quo` and any future REST calls)
 - `QUO_WEBHOOK_SECRET` (set when registering the webhook in Quo; base64 signing key)
+- `SEAM_API_KEY` (Seam dashboard, Developer, API Keys; used by `/api/sync-seam` and the webhook's fresh-device reads)
+- `SEAM_WEBHOOK_SECRET` (Svix signing secret shown when you create the webhook in Seam; starts `whsec_`)
 
 Webhook setup in Quo: register `https://<helm-domain>/api/webhooks/quo` and subscribe to at minimum `message.received`, `message.delivered`, and `call.summary.completed`. `call.completed` works as a fallback when the AI summary isn't available.
+
+Webhook setup in Seam: connect your Schlage account via a Seam Connect Webview first so the locks appear under `/devices/list`, then register `https://<helm-domain>/api/webhooks/seam` and subscribe to at minimum `device.low_battery` and `device.battery_status_changed` (`device.connected` is a useful catch-up).
 
 ## Known Issues / Watch-outs
 
