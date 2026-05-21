@@ -1,9 +1,26 @@
-import Link from 'next/link';
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { DownloadCopyButton } from './DownloadCopyButton';
+import { CompleteOnboardingButton } from './CompleteOnboardingButton';
 
 export const dynamic = 'force-dynamic';
+
+// The signed page reveals the owner's name and links to a downloadable
+// copy of the signed contract. Belt-and-suspenders: tell crawlers never
+// to index this URL even though the token-gated path makes it
+// effectively private. (Search engines should never have crawled a
+// token-protected URL in the first place, but if a URL ever leaks into
+// a public context — a status page, a forum post, a shared screenshot
+// the OCR-able URL of — this header keeps it out of search results.)
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
@@ -22,10 +39,24 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
 
   const greeting = prospect.prospect_first_names || prospect.prospect_first_name || 'there';
   const signedAt = prospect.contract_signed_at
-    ? new Date(prospect.contract_signed_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })
+    ? new Date(prospect.contract_signed_at).toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'America/New_York',
+      })
     : null;
   const signedName = prospect.contract_signed_name;
-  const onboardingDone = !!prospect.onboarding_submitted_at;
+  const onboardingDone =
+    !!prospect.onboarding_submitted_at || !!prospect.onboarding_marked_done_at;
+  // Download link to the signed contract PDF. The PDF endpoint
+  // requires either Helm staff auth OR a token matching this
+  // projection's onboarding_token — without the token, anyone with
+  // the projection UUID could re-pull the signed contract on
+  // demand. Pass the token through so the owner's session-less
+  // browser can download the PDF, but a leaked UUID alone can't.
+  const downloadHref =
+    `/api/projection-pdf?id=${encodeURIComponent(prospect.id)}` +
+    `&type=contract&token=${encodeURIComponent(token)}`;
 
   return (
     <>
@@ -52,18 +83,20 @@ export default async function ContractSignedPage({ params }: { params: Promise<{
           <div className="rt-th-rule" />
 
           <p>
-            Allie will email you a signed copy for your records within one business day. The contract is now on file with Rising Tide.
+            A signed copy has been emailed to you for your records. Allie will countersign within one business day and send back the fully executed version.
           </p>
+
+          <div className="rt-th-actions">
+            <DownloadCopyButton href={downloadHref} label="Download a copy" />
+          </div>
 
           {!onboardingDone && (
             <div className="rt-th-next">
               <div className="rt-th-next-label">Next step</div>
               <p className="rt-th-next-body">
-                We still need a few details about your home — utilities, access, an emergency contact. It takes about five minutes.
+                We still need a few details about your home: utilities, access, an emergency contact. It takes about five minutes.
               </p>
-              <Link href={`/onboarding/${token}`} className="rt-th-next-btn">
-                Complete the onboarding form &rarr;
-              </Link>
+              <CompleteOnboardingButton href={`/onboarding/${token}`} />
             </div>
           )}
 
@@ -112,16 +145,62 @@ const thanksCss = `
   .rt-th-card h1 {
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 56px;
-    line-height: 1.05;
+    line-height: 1.1;
     font-weight: 300;
     letter-spacing: -0.025em;
     color: var(--ink);
-    margin: 14px 0 0;
+    /* Bottom margin (28px) gives the audit stamp room to clear the
+       descenders on "Thank you, [Name]," — 14px was too tight and the
+       comma's descender visually touched the next line. */
+    margin: 14px 0 28px;
   }
-  .rt-th-stamp { margin: 14px 0 0; font-size: 12px; color: var(--ink-4); letter-spacing: 0.04em; line-height: 1.5; }
+  .rt-th-stamp { margin: 0; font-size: 12px; color: var(--ink-4); letter-spacing: 0.04em; line-height: 1.5; }
   .rt-th-stamp strong { color: var(--ink); }
   .rt-th-rule { width: 56px; height: 2px; background: var(--signal); margin: 36px 0 28px; }
   .rt-th-card p { margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: var(--ink); max-width: 560px; }
+
+  /* Download a copy of the signed PDF. Same visual treatment as the
+     "Complete the onboarding form" button so the two CTAs read as a
+     coherent set on this confirmation page. */
+  .rt-th-actions {
+    margin: 8px 0 28px;
+  }
+  .rt-th-download {
+    display: inline-flex;
+    align-items: center;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 12px 22px;
+    text-decoration: none;
+  }
+  .rt-th-download:hover {
+    background: var(--signal);
+  }
+  /* Preparing state: button accepts the click and shifts to a
+     spinner + "Preparing PDF…" label so the owner knows the request
+     is in flight (the PDF endpoint takes 5-10s to respond). */
+  .rt-th-download.is-preparing {
+    opacity: 0.78;
+    cursor: progress;
+    pointer-events: none;
+  }
+  .rt-th-spinner {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    margin-right: 9px;
+    animation: rt-th-spin 0.7s linear infinite;
+  }
+  @keyframes rt-th-spin {
+    to { transform: rotate(360deg); }
+  }
 
   .rt-th-next {
     margin: 28px 0;
@@ -144,7 +223,8 @@ const thanksCss = `
     line-height: 1.55 !important;
   }
   .rt-th-next-btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     background: var(--ink);
     color: var(--paper);
     font-size: 11px;
@@ -153,6 +233,13 @@ const thanksCss = `
     text-transform: uppercase;
     padding: 12px 22px;
     text-decoration: none;
+  }
+  /* Preparing state - same treatment as the download button so the
+     two CTAs on this page share a coherent busy treatment. */
+  .rt-th-next-btn.is-preparing {
+    opacity: 0.78;
+    cursor: progress;
+    pointer-events: none;
   }
 
   .rt-th-contact {

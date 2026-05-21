@@ -4,6 +4,7 @@ import type {
   InspectionRow,
   InspectionItemRow,
   InspectionResultRow,
+  PropertyZoneRow,
 } from '@/lib/inspections-types';
 import { PrintButton } from './PrintButton';
 
@@ -21,6 +22,7 @@ type PropertyShape = {
 type ResultWithItem = {
   result: InspectionResultRow;
   item: InspectionItemRow;
+  zone: PropertyZoneRow | null;
 };
 
 type RenderNote = {
@@ -62,32 +64,43 @@ async function getData(id: string): Promise<{
 
   const insp = inspection as InspectionRow;
 
-  const [{ data: property }, { data: results }, { data: items }, { data: notesData }, { data: workSlipsData }] =
-    await Promise.all([
-      supabase
-        .from('properties')
-        .select('id, name, title, address, city, owner_last')
-        .eq('id', insp.property_id)
-        .maybeSingle(),
-      supabase
-        .from('inspection_results')
-        .select('id, inspection_id, item_id, status, notes, photo_urls, created_at')
-        .eq('inspection_id', id),
-      supabase
-        .from('inspection_items')
-        .select('id, template_id, category, title, description, sort_order')
-        .eq('template_id', insp.template_id),
-      supabase
-        .from('inspection_notes')
-        .select('id, inspection_item_id, note_text, note_type, author_email, created_at, photo_urls')
-        .eq('inspection_id', id)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('work_slips')
-        .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
-        .eq('inspection_id', id)
-        .order('created_at', { ascending: true }),
-    ]);
+  const [
+    { data: property },
+    { data: results },
+    { data: items },
+    { data: notesData },
+    { data: workSlipsData },
+    { data: zoneRows },
+  ] = await Promise.all([
+    supabase
+      .from('properties')
+      .select('id, name, title, address, city, owner_last')
+      .eq('id', insp.property_id)
+      .maybeSingle(),
+    supabase
+      .from('inspection_results')
+      .select('id, inspection_id, item_id, property_zone_id, status, notes, photo_urls, created_at')
+      .eq('inspection_id', id),
+    supabase
+      .from('inspection_items')
+      .select('id, template_id, category, title, description, sort_order')
+      .eq('template_id', insp.template_id),
+    supabase
+      .from('inspection_notes')
+      .select('id, inspection_item_id, note_text, note_type, author_email, created_at, photo_urls')
+      .eq('inspection_id', id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('work_slips')
+      .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
+      .eq('inspection_id', id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('property_zones')
+      .select('*')
+      .eq('property_id', insp.property_id)
+      .order('walk_order', { ascending: true }),
+  ]);
 
   if (!property) return null;
 
@@ -96,14 +109,23 @@ async function getData(id: string): Promise<{
     itemMap.set(it.id, it);
   }
 
+  const zoneMap = new Map<string, PropertyZoneRow>();
+  for (const z of (zoneRows ?? []) as PropertyZoneRow[]) zoneMap.set(z.id, z);
+
   const merged: ResultWithItem[] = ((results ?? []) as InspectionResultRow[])
     .map((r) => {
       const item = itemMap.get(r.item_id);
       if (!item) return null;
-      return { result: r, item };
+      const zone = r.property_zone_id ? zoneMap.get(r.property_zone_id) ?? null : null;
+      return { result: r, item, zone };
     })
     .filter((x): x is ResultWithItem => x !== null)
-    .sort((a, b) => a.item.sort_order - b.item.sort_order);
+    .sort((a, b) => {
+      const aw = a.zone?.walk_order ?? Infinity;
+      const bw = b.zone?.walk_order ?? Infinity;
+      if (aw !== bw) return aw - bw;
+      return a.item.sort_order - b.item.sort_order;
+    });
 
   return {
     inspection: insp,
@@ -327,7 +349,7 @@ export default async function InspectionRenderPage({
                     padding: '14px 0',
                     borderBottom: '1px solid var(--rule)',
                     display: 'grid',
-                    gridTemplateColumns: '120px 1fr',
+                    gridTemplateColumns: '140px 1fr',
                     gap: 18,
                     alignItems: 'baseline',
                   }}
@@ -341,7 +363,12 @@ export default async function InspectionRenderPage({
                       color: 'var(--signal)',
                     }}
                   >
-                    {row.item.category}
+                    {row.zone?.name ?? row.item.category}
+                    {row.zone?.floor_label && (
+                      <span style={{ color: 'var(--ink-4)', fontWeight: 400, display: 'block', marginTop: 2 }}>
+                        {row.zone.floor_label}
+                      </span>
+                    )}
                   </span>
                   <div>
                     <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>

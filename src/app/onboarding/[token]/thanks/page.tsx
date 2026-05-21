@@ -1,8 +1,20 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { ArchiveOnboardingTrigger } from './ArchiveOnboardingTrigger';
 
 export const dynamic = 'force-dynamic';
+
+// Token-gated thank-you page: confirms onboarding submission. Never
+// index in search.
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
@@ -27,6 +39,15 @@ export default async function OnboardingThanksPage({ params }: { params: Promise
   return (
     <>
       <style>{thanksCss}</style>
+      {/* Silent: archives the submitted intake to Drive in the
+          background. Renders nothing. Only fires for submitted,
+          not-yet-archived intakes. */}
+      {prospect.onboarding_submitted_at && (
+        <ArchiveOnboardingTrigger
+          projectionId={prospect.id}
+          alreadyArchived={!!prospect.onboarding_drive_url}
+        />
+      )}
       <div className="rt-thanks-page">
         <header className="rt-th-mast">
           <div className="rt-th-brand">

@@ -1,17 +1,17 @@
 /**
- * Turnover-pipeline data loader. Reads upcoming check-ins from
- * `guesty_reservations` (already synced via /api/sync-guesty) and matches each
- * one against existing `inspections` records to figure out where each property
- * stands in its prep window.
+ * Turnover-pipeline data loader. Reads upcoming check-ins from the Helm-native
+ * `bookings` table (Channels module: iCal imports from Airbnb/VRBO/Booking plus
+ * the guesty_legacy backfill, deduped to one canonical row per stay) and
+ * matches each against existing `inspections` records to figure out where each
+ * property stands in its prep window.
  *
- * Mirrors the data assembly in Perfection's TurnoversPage / fetchGuestyTurnovers
- * Edge Function but reads the local Supabase mirror instead of hitting Guesty
- * live, and (for now) skips the bits that require tables Helm hasn't ported
- * yet: cleaning status, work slips, AI reservation intel, inspection plans,
- * assignees, skip workflow.
+ * This replaced the original `guesty_reservations` read as part of the Guesty
+ * wind-down. booking.id is the per-stay key (it stands in for the old
+ * guesty_reservation_id throughout this module and the Operations page).
  */
 import { supabase } from './supabase';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
+import { isLowBattery, type SeamBatteryStatus } from './seam';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -64,31 +64,11 @@ const NON_OPERATIONS_PROPERTY_IDS = new Set<string>([
   '3246_ne_27th',
 ]);
 
-const ALLOWED_STATUSES = new Set([
-  'confirmed',
-  'reserved',
-  'checked_in',
-  'checked-in',
-  'checkedin',
-  'checked_out',
-  'checked-out',
-  'checkedout',
-  'closed',
-]);
-
-function normalizeStatus(s: string | null): string {
-  return (s || '').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
-}
-
-function isAllowed(status: string | null): boolean {
-  const n = normalizeStatus(status);
-  return (
-    ALLOWED_STATUSES.has(n) ||
-    n.includes('confirmed') ||
-    n.includes('checked') ||
-    n.includes('closed')
-  );
-}
+// Booking statuses that represent an actual stay needing a turnover. The
+// bookings.status enum is (inquiry|pending|confirmed|cancelled|completed|block);
+// we surface confirmed + completed and exclude the rest. Blocks are owner /
+// maintenance holds, not guest turnovers.
+const TURNOVER_STATUSES = ['confirmed', 'completed'];
 
 export function todayStr(): string {
   return new Date().toISOString().split('T')[0];
@@ -112,6 +92,11 @@ export type ReservationRow = {
   check_out: string;
   nights: number | null;
   status: string | null;
+  // Surfaced on calendar-cell hover tooltips so the operator gets the
+  // booking context without bouncing to Guesty. host_payout drives the
+  // "payout" line; confirmation_code rides as a small monospaced trailer.
+  host_payout: number | null;
+  confirmation_code: string | null;
 };
 
 export type InspectionRow = {
@@ -142,6 +127,14 @@ export type CleaningCompletion = {
   sourcePhone: string | null;
 };
 
+export type LockBattery = {
+  /** 0-100, or null when Seam reported a status but no numeric level. */
+  pct: number | null;
+  /** Seam's battery_status enum (full | good | low | critical | unknown). */
+  status: string;
+  isLow: boolean;
+};
+
 export type Turnover = {
   reservationId: string;
   propertyId: string;
@@ -163,6 +156,10 @@ export type Turnover = {
    *  surface a "N work slips · Print" affordance on the turnover row so
    *  the operator can grab the checklist on their way out the door. */
   openWorkSlipsCount: number;
+  /** Lowest low-battery lock reading on this property (via Seam), or
+   *  null when every lock is healthy or unmonitored. Drives the "bring
+   *  batteries" chip so the team member packs spares before they drive. */
+  lockBattery: LockBattery | null;
 };
 
 export type CalendarCell = {
@@ -220,15 +217,18 @@ export async function loadOperationsData(
   const fetchStart = addDaysStr(rangeStart, -30);
   const fetchEnd = addDaysStr(calendarEnd, 1);
 
-  // Overlap-based query: a reservation overlaps [fetchStart, fetchEnd] iff
-  //   check_in <= fetchEnd  AND  check_out >= fetchStart.
-  // Catches stays already in progress when the window opens, which the
-  // calendar needs to show occupancy on day 0.
+  // Overlap-based query against the Helm-native bookings table: a stay
+  // overlaps [fetchStart, fetchEnd] iff check_in <= fetchEnd AND
+  // check_out >= fetchStart. Catches stays already in progress when the
+  // window opens, which the calendar needs for day-0 occupancy. Only
+  // canonical (non-duplicate) confirmed/completed stays count.
   const { data: resData, error: resErr } = await supabase
-    .from('guesty_reservations')
+    .from('bookings')
     .select(
-      'guesty_reservation_id, property_id, guest_name, channel, guesty_channel_id, check_in, check_out, nights, status'
+      'id, property_id, guest_name, channel, check_in, check_out, nights, status, payout, external_confirmation_code, external_booking_id'
     )
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
     .lte('check_in', fetchEnd)
     .gte('check_out', fetchStart)
     .order('check_in', { ascending: true });
@@ -237,15 +237,46 @@ export async function loadOperationsData(
     throw new Error(`Failed to load reservations: ${resErr.message}`);
   }
 
-  const reservations = ((resData ?? []) as ReservationRow[]).filter(
-    (r) =>
-      r.property_id &&
-      r.check_in &&
-      r.check_out &&
-      isAllowed(r.status) &&
-      !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
-      (!propertyId || r.property_id === propertyId)
-  );
+  type BookingRaw = {
+    id: string;
+    property_id: string;
+    guest_name: string | null;
+    channel: string | null;
+    check_in: string;
+    check_out: string;
+    nights: number | null;
+    status: string | null;
+    payout: number | null;
+    external_confirmation_code: string | null;
+    external_booking_id: string | null;
+  };
+
+  const rawBookings = (resData ?? []) as BookingRaw[];
+
+  // Map booking rows into the ReservationRow shape the rest of this module and
+  // the Operations page already consume. booking.id becomes the per-stay key.
+  const reservations: ReservationRow[] = rawBookings
+    .map((b) => ({
+      guesty_reservation_id: b.id,
+      property_id: b.property_id,
+      guest_name: b.guest_name,
+      channel: b.channel,
+      guesty_channel_id: null,
+      check_in: b.check_in,
+      check_out: b.check_out,
+      nights: b.nights,
+      status: b.status,
+      host_payout: b.payout,
+      confirmation_code: b.external_confirmation_code,
+    }))
+    .filter(
+      (r) =>
+        r.property_id &&
+        r.check_in &&
+        r.check_out &&
+        !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
+        (!propertyId || r.property_id === propertyId)
+    );
 
   // Pull inspections in the same window for matching.
   const { data: inspData, error: inspErr } = await supabase
@@ -260,21 +291,34 @@ export async function loadOperationsData(
 
   const inspections = (inspData ?? []) as InspectionRow[];
 
-  // Pull inspection plans for any reservations in the visible window.
-  const visibleReservationIds = ((resData ?? []) as ReservationRow[])
-    .map((r) => r.guesty_reservation_id)
-    .filter(Boolean);
+  // Pull inspection plans for the visible stays. Plans are keyed by stay:
+  // new plans store booking.id in guesty_reservation_id (and booking_id);
+  // legacy plans created before the cutover store the old Guesty reservation
+  // id, which equals a guesty_legacy booking's external_booking_id. Match on
+  // either so a scheduled inspection survives the transition. (A one-time
+  // migration repoints legacy plans onto canonical booking ids; this fallback
+  // covers anything that migration couldn't resolve.)
+  const planKeyToBookingId = new Map<string, string>();
+  for (const b of rawBookings) {
+    planKeyToBookingId.set(b.id, b.id);
+    if (b.external_booking_id) planKeyToBookingId.set(b.external_booking_id, b.id);
+  }
+  const planLookupKeys = [...planKeyToBookingId.keys()];
   const plansByReservation = new Map<string, InspectionPlanMini>();
-  if (visibleReservationIds.length > 0) {
+  if (planLookupKeys.length > 0) {
     const { data: planData, error: planErr } = await supabase
       .from('inspection_plans')
-      .select('id, guesty_reservation_id, planned_for_date, notes, planned_by_email, assigned_to_email')
-      .in('guesty_reservation_id', visibleReservationIds);
+      .select('id, guesty_reservation_id, booking_id, planned_for_date, notes, planned_by_email, assigned_to_email')
+      .in('guesty_reservation_id', planLookupKeys);
     if (planErr) {
       throw new Error(`Failed to load inspection plans: ${planErr.message}`);
     }
-    for (const p of (planData ?? []) as Array<{ guesty_reservation_id: string } & InspectionPlanMini>) {
-      plansByReservation.set(p.guesty_reservation_id, {
+    for (const p of (planData ?? []) as Array<{ guesty_reservation_id: string; booking_id: string | null } & InspectionPlanMini>) {
+      const bookingId =
+        (p.booking_id && planKeyToBookingId.get(p.booking_id)) ||
+        planKeyToBookingId.get(p.guesty_reservation_id);
+      if (!bookingId) continue;
+      plansByReservation.set(bookingId, {
         id: p.id,
         planned_for_date: p.planned_for_date,
         notes: p.notes,
@@ -317,7 +361,8 @@ export async function loadOperationsData(
   // Pull active work-slip counts in parallel so each turnover row can
   // show "N work slips · Print" without an N+1 fan-out.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [{ data: cleaningData }, { data: openSlipsData }] = await Promise.all([
+  const propertyIdList = properties.map((p) => p.id);
+  const [{ data: cleaningData }, { data: openSlipsData }, { data: batteryData }] = await Promise.all([
     supabase
       .from('cleaning_completions')
       .select('property_id, checkout_date, completed_at, source, source_phone')
@@ -327,13 +372,44 @@ export async function loadOperationsData(
       .from('work_slips')
       .select('property_id, snoozed_until')
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
-      .in('property_id', properties.map((p) => p.id)),
+      .in('property_id', propertyIdList),
+    supabase
+      .from('lock_battery_status')
+      .select('property_id, battery_pct, battery_status')
+      .in('property_id', propertyIdList),
   ]);
 
   const openWorkSlipsByProperty = new Map<string, number>();
   for (const row of (openSlipsData ?? []) as Array<{ property_id: string; snoozed_until: string | null }>) {
     if (row.snoozed_until && row.snoozed_until > todayIso) continue;
     openWorkSlipsByProperty.set(row.property_id, (openWorkSlipsByProperty.get(row.property_id) ?? 0) + 1);
+  }
+
+  // Lowest low-battery lock per property. A property can have more than
+  // one lock; we surface the worst so a single weak lock isn't masked by
+  // a healthy one. Only low readings make it into the map, so any hit is
+  // chip-worthy. A numeric percent beats a status-only ('low'/'critical')
+  // reading when picking the worst.
+  const lowBatteryByProperty = new Map<string, LockBattery>();
+  for (const row of (batteryData ?? []) as Array<{
+    property_id: string | null;
+    battery_pct: number | null;
+    battery_status: string | null;
+  }>) {
+    if (!row.property_id) continue;
+    const status = row.battery_status ?? 'unknown';
+    if (!isLowBattery(row.battery_pct, status as SeamBatteryStatus)) continue;
+    const prev = lowBatteryByProperty.get(row.property_id);
+    const better =
+      !prev ||
+      (row.battery_pct != null && (prev.pct == null || row.battery_pct < prev.pct));
+    if (better) {
+      lowBatteryByProperty.set(row.property_id, {
+        pct: row.battery_pct,
+        status,
+        isLow: true,
+      });
+    }
   }
 
   const cleaningByKey = new Map<string, CleaningCompletion>();
@@ -412,6 +488,7 @@ export async function loadOperationsData(
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
+      lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
     });
   }
 

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
 import { HelmModuleNavMore } from './HelmModuleNavMore';
+import { MessagingPendingBadge } from './MessagingPendingBadge';
 
 type Props = {
   current?: string;
@@ -29,8 +30,17 @@ export function HelmModuleNav({ current }: Props) {
 }
 
 function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean }) {
+  // The Messaging tab carries a pending-count badge so Dotti can see from
+  // any module when a draft is waiting. The badge is silent at 0.
+  const badge = m.id === 'messaging' ? <MessagingPendingBadge /> : null;
+
   if (active) {
-    return <span style={{ color: 'var(--ink)' }}>{m.title}</span>;
+    return (
+      <span style={{ color: 'var(--ink)', display: 'inline-flex', alignItems: 'center' }}>
+        {m.title}
+        {badge}
+      </span>
+    );
   }
 
   if (m.status === 'external') {
@@ -40,9 +50,10 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         target="_blank"
         rel="noopener noreferrer"
         title="Opens in a new tab"
-        style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
+        style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
         {m.title} <span style={{ fontSize: 8, opacity: 0.7 }}>↗</span>
+        {badge}
       </a>
     );
   }
@@ -53,9 +64,24 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
     );
   }
 
+  // Parked: built but de-prioritized. Renders dimmer than 'active' so
+  // it reads as bottom-tier, but stays a real Link.
+  if (m.status === 'parked') {
+    return (
+      <Link
+        href={m.href}
+        style={{ color: 'var(--ink-4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+      >
+        {m.title}
+        {badge}
+      </Link>
+    );
+  }
+
   return (
-    <Link href={m.href} style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>
+    <Link href={m.href} style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
       {m.title}
+      {badge}
     </Link>
   );
 }

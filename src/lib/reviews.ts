@@ -40,32 +40,65 @@ export type ReviewRow = {
 };
 
 export type ReviewWindowStats = {
-  /** Reviews received in the window (e.g. last 7 days). */
+  /** Rated reviews for Helm-managed properties received in the window. */
   total: number;
   /** Of those, how many were 5-star (overall_rating >= 5). */
   fiveStar: number;
-  /** Of those, how many had at least one < 5 category or overall rating. */
+  /** Of those, how many were rated below 5 (overall_rating < 5). */
   belowFive: number;
-  /** Average overall rating (1-5), null if no reviews. */
+  /** Average overall rating (1-5), null if no rated reviews. */
   avg: number | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Active Helm-managed property ids. Every review stat scopes to this set.
+ * The Guesty reviews feed includes Ryan's personal properties (65
+ * Calderwood, 3246 NE 27th) that Helm does not manage and that are absent
+ * from the properties table, so without this filter the home tile and the
+ * Reviews tab would report on rentals Helm doesn't run. There is no FK
+ * between reviews.property_id and properties.id, so we filter in app code
+ * with an in() list rather than a PostgREST embed.
+ */
+async function getActivePropertyIds(): Promise<string[]> {
+  if (!isConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('properties')
+      .select('id')
+      .eq('is_active', true);
+    if (error) throw error;
+    return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Stats for the rolling N-day window ending now. Default 7 days, matches
  * "this week" semantics for the home dashboard. We count by
- * review_created_at — the moment the review landed, not the stay date.
+ * review_created_at, the moment the review landed, not the stay date.
+ *
+ * Scoped two ways so the rate is trustworthy: only Helm-managed
+ * properties (getActivePropertyIds), and only rated reviews. Guesty emits
+ * empty placeholder rows (null rating, no text) for some VRBO stays;
+ * those are not reviews and would wrongly drag the five-star rate down if
+ * they sat in the denominator, so total excludes them.
  */
 export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats> {
   const empty: ReviewWindowStats = { total: 0, fiveStar: 0, belowFive: 0, avg: null };
   if (!isConfigured) return empty;
   try {
+    const propertyIds = await getActivePropertyIds();
+    if (propertyIds.length === 0) return empty;
     const sinceISO = new Date(Date.now() - days * DAY_MS).toISOString();
     const { data, error } = await supabase
       .from('reviews')
       .select('overall_rating')
-      .gte('review_created_at', sinceISO);
+      .gte('review_created_at', sinceISO)
+      .not('overall_rating', 'is', null)
+      .in('property_id', propertyIds);
     if (error) throw error;
     const rows = (data ?? []) as Array<{ overall_rating: number | null }>;
     if (rows.length === 0) return empty;
@@ -74,12 +107,10 @@ export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats>
     let fiveStar = 0;
     let belowFive = 0;
     let sum = 0;
-    let rated = 0;
     for (const r of rows) {
-      total += 1;
       const o = r.overall_rating;
-      if (o == null) continue;
-      rated += 1;
+      if (o == null) continue; // defensive; query already excludes nulls
+      total += 1;
       sum += o;
       if (o >= 5) fiveStar += 1;
       else belowFive += 1;
@@ -88,7 +119,7 @@ export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats>
       total,
       fiveStar,
       belowFive,
-      avg: rated > 0 ? sum / rated : null,
+      avg: total > 0 ? sum / total : null,
     };
   } catch {
     return empty;
@@ -104,6 +135,15 @@ export type ReviewListFilters = {
   channel?: string;
   /** Free-text search against guest_name + public_review. */
   search?: string;
+  /**
+   * Rolling-window scope in days. When set, only reviews whose
+   * review_created_at lands within the last N days are returned. Must
+   * match the window the page's stat strip uses (getReviewWindowStats)
+   * so the list and the stats never disagree. A 30-day stat strip
+   * sitting above an all-time list was the original "0 below five next
+   * to a 4-star review" bug. Undefined = no date floor (all-time).
+   */
+  days?: number;
   /** Page size, default 50. */
   limit?: number;
 };
@@ -117,11 +157,28 @@ export async function listReviews(filters: ReviewListFilters = {}): Promise<Revi
         'id, property_id, reservation_id, contact_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
       )
       .order('review_created_at', { ascending: false })
+      .not('overall_rating', 'is', null)
       .limit(filters.limit ?? 50);
 
+    // Scope to Helm-managed properties so personal-property reviews and
+    // empty placeholder rows never show. A selected property is already
+    // one of ours (the dropdown lists only active Helm properties), so
+    // eq() suffices; otherwise restrict to the whole active set. Same
+    // basis as getReviewWindowStats, so the list and the strip agree.
+    if (filters.propertyId) {
+      q = q.eq('property_id', filters.propertyId);
+    } else {
+      const ids = await getActivePropertyIds();
+      if (ids.length === 0) return [];
+      q = q.in('property_id', ids);
+    }
+
+    if (filters.days != null && filters.days > 0) {
+      const sinceISO = new Date(Date.now() - filters.days * DAY_MS).toISOString();
+      q = q.gte('review_created_at', sinceISO);
+    }
     if (filters.rating === '5') q = q.gte('overall_rating', 5);
     else if (filters.rating === 'below') q = q.lt('overall_rating', 5);
-    if (filters.propertyId) q = q.eq('property_id', filters.propertyId);
     if (filters.channel) q = q.eq('channel', filters.channel);
     if (filters.search) {
       const s = filters.search.trim();

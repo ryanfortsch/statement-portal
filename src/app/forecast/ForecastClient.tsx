@@ -7,7 +7,12 @@ import {
   fmtDollar,
   fmtNum,
   MONTH_LABELS,
+  CC_OPERATING_BREAKDOWN,
+  CC_BASELINE_MONTHLY,
+  CC_MARKETING_MONTHLY,
+  isMarketingActive,
   type ForecastYear,
+  type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
 import {
@@ -426,6 +431,11 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               {p.monthly.map((m) => (
                 <td
                   key={m.month}
+                  title={
+                    m.operating === false
+                      ? `${p.property.name} is not operating this month`
+                      : undefined
+                  }
                   style={cellStyle({
                     color: m.projectedMgmtFee === 0 ? 'var(--ink-4)' : 'var(--positive)',
                     opacity: m.projectedMgmtFee === 0 ? 0.4 : 1,
@@ -509,12 +519,17 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
         }}
       >
         <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong>{' '}
-        Every active reservation in <code>guesty_reservations</code> with check-in in a
-        forward month contributes its pro-rated revenue. Portfolio pacing = booked
-        nights ÷ (days × active properties). Projection multiplier = Gloucester
-        historical avg occupancy ÷ portfolio pacing (4-yr post-pandemic baseline,
-        floored at 1×). Each property&apos;s gross is then multiplied by its own
-        management fee percentage.
+        Per property × per month, the projected gross is a 50/50 blend of two
+        parts. <em>Part A — pacing</em>: revenue on the books for that month,
+        scaled by typical market fill — \$5K booked at 30% property occupancy
+        with 60% market occupancy projects \$10K. <em>Part B — annual ×
+        seasonality</em>: the property&apos;s expected annual gross × the
+        share of annual revenue that typically lands in that month. That
+        annual gross is the property&apos;s own forward bookings, pace-corrected
+        and annualized, since Helm has no full year of per-property booking
+        history to draw on. When a month has no bookings yet, Part A drops out
+        and Part B carries 100%. The mgmt fee column is the blended gross ×
+        that property&apos;s fee %.
       </div>
     </div>
   );
@@ -815,27 +830,27 @@ const sections2026: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$200/mo (Gusto + buffer for AppFolio/Hospitable on the CC)' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-      { label: 'Operating CC', value: '$5,900/mo baseline at 9 active props. Scales 0.5× elasticity to active count.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
     ],
   },
   {
     heading: 'Step changes & triggers',
     items: [
       { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
-      { label: 'May 2026', value: 'Pre-signed onboardings: 2 contracts × $4K = $8K spike. Bookkeeper final wrap-up payment $1,800 (above the regular $1K).' },
-      { label: 'Jun 2026', value: 'Pre-signed onboardings: 3 contracts × $4K = $12K spike. Bookkeeper drops to $0 (engagement ends).' },
+      { label: 'May 2026', value: 'Two pre-signed contracts go live (revenue starts). Bookkeeper final wrap-up payment $1,800 (above the regular $1K). Software subscriptions trimmed ~$400 (to $1,287/mo).' },
+      { label: 'Jun 2026', value: 'Three pre-signed contracts go live (revenue starts). Bookkeeper drops to $0 (engagement ends). Marketing & advertising cut to $0; software subscriptions trimmed a further $100 (to $1,187/mo).' },
       { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
-      { label: 'Each new month', value: '$4K onboarding charged. Property starts contributing revenue from that month forward.' },
-      { label: 'CC scaling per month', value: 'CC = $5,900 × (1 + 0.5 × (active_count − 9) / 9). Examples: 14 active = $7,539/mo, 17 active = $8,194/mo, 20 active = $9,506/mo.' },
+      { label: 'Each new month', value: 'Property starts contributing revenue from its start month. No separate onboarding charge — setup supplies are already in the Guest supplies & inventory line.' },
+      { label: 'CC scaling per month', value: 'CC = $4,573 × (1 + 0.5 × (active_count − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
     heading: 'Periodic & one-time',
     items: [
-      { label: 'Mar 2026', value: 'Phillips Insurance annual lump sum: $5,263.92 paid 03/02. $0 in every other month.' },
+      { label: 'Mar 2026', value: 'Phillips insurance annual premium: $5,263.92 paid 03/02. One lump sum; $0 every other month.' },
       { label: 'Apr 2026', value: 'MS Consultants one-time accounting engagement: $4,442.96 paid 04/15. Not recurring; $0 going forward.' },
     ],
   },
@@ -859,9 +874,9 @@ const sections2027: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
-      { label: 'Software', value: '$200/mo' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
     ],
   },
@@ -869,14 +884,14 @@ const sections2027: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
-      { label: 'Each new month', value: '$4K onboarding charged. Adds to active count and bumps CC line.' },
-      { label: 'CC scaling per month', value: '$5,900 × (1 + 0.5 × (active − 9) / 9). With 17-20+ active properties most of the year, CC runs $8K-$10K/mo.' },
+      { label: 'Each new month', value: 'Property is added to the active count and bumps the CC line. No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
+      { label: 'CC scaling per month', value: '$4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
     heading: 'Periodic & wind-down',
     items: [
-      { label: 'Mar 2027', value: 'Phillips Insurance lump renewal (~$5,264, same as 2026 assumption).' },
+      { label: 'Mar 2027', value: 'Phillips insurance lump renewal (~$5,264, same as the 2026 assumption). One lump sum; $0 every other month.' },
       { label: 'Bookkeeper', value: '$0 — engagement ended May 2026.' },
       { label: 'Accounting', value: '$0 — MS Consultants was a one-time engagement.' },
     ],
@@ -901,23 +916,23 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$200/mo' },
+      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
       { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: '$5,900/mo baseline. Scales 0.5× with active count. Likely $9K-$11K/mo at this portfolio size.' },
+      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
     ],
   },
   {
     heading: 'Step changes & triggers',
     items: [
-      { label: 'Each new month', value: '$4K onboarding charged.' },
-      { label: 'CC scaling per month', value: 'Continuous: $5,900 × (1 + 0.5 × (active − 9) / 9).' },
+      { label: 'Each new month', value: 'No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
+      { label: 'CC scaling per month', value: 'Continuous: $4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
     ],
   },
   {
     heading: 'Periodic',
     items: [
-      { label: 'Mar 2028', value: 'Phillips Insurance lump renewal (~$5,264).' },
+      { label: 'Mar 2028', value: 'Phillips insurance lump renewal (~$5,264). One lump sum; $0 every other month.' },
       { label: 'Bookkeeper / Accounting', value: '$0' },
     ],
   },
@@ -1242,7 +1257,7 @@ function KpiStrip({
       <KpiCell
         label="Total expenses"
         value={fmtDollar(totals.exp_total)}
-        sub="Corp + office + hire + onboarding"
+        sub="Corp + office + hire"
         last
       />
       <KpiCell
@@ -1382,7 +1397,7 @@ function ForecastTable({
         <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow
           label="New"
-          info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption. Each onboarding triggers a $3K cost in its start month."
+          info="Hypothetical new contracts added via the slider above. Uses Cape Ann seasonality at $25K/yr per property assumption."
           values={monthly.map((r) => r.rev_new)}
           fy={totals.rev_new}
           highlight
@@ -1392,12 +1407,29 @@ function ForecastTable({
         <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
 
         <SubsectionRow label="Recurring monthly" />
-        <DataRow
-          label="Operating CC"
-          info="Monthly Chase ...3878 credit-card payment. Baseline $5,900/mo at 9 active properties (the 2025 portfolio). Scales at 0.5× elasticity to active property count: doubling the portfolio adds +50%, not +100%. Covers software, supplies, marketing, and some property-level pass-through."
-          values={monthly.map((r) => r.exp_cc_ops)}
-          fy={monthly.reduce((a, r) => a + r.exp_cc_ops, 0)}
-        />
+        {CC_OPERATING_BREAKDOWN.map((cat) => {
+          const isMarketing = cat.label === 'Marketing & advertising';
+          // The categories are a proportional split of exp_cc_ops. Once
+          // marketing is cut the split runs over the four remaining
+          // categories (reduced denominator) and marketing shows $0.
+          const catValue = (r: MonthRow) => {
+            const mktgActive = isMarketingActive(yearKey, r.month);
+            if (isMarketing && !mktgActive) return 0;
+            const denom = mktgActive
+              ? CC_BASELINE_MONTHLY
+              : CC_BASELINE_MONTHLY - CC_MARKETING_MONTHLY;
+            return (r.exp_cc_ops * cat.monthly) / denom;
+          };
+          return (
+            <DataRow
+              key={cat.label}
+              label={cat.label}
+              info={cat.info}
+              values={monthly.map(catValue)}
+              fy={monthly.reduce((a, r) => a + catValue(r), 0)}
+            />
+          );
+        })}
         <DataRow
           label="Office"
           info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
@@ -1406,7 +1438,7 @@ function ForecastTable({
         />
         <DataRow
           label="Software"
-          info="$200/mo — Gusto payroll fee plus a buffer for AppFolio/Hospitable/other SaaS that lives on the operating CC."
+          info="Software subscriptions on the corporate card — Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools. The $1,687/mo trailing baseline was trimmed by subscription cuts: $1,287/mo in May 2026, $1,187/mo from June onward."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />
@@ -1417,25 +1449,12 @@ function ForecastTable({
           fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
         />
 
-        <SubsectionRow label="People & onboarding" />
+        <SubsectionRow label="Hiring" />
         <DataRow
           label="New hire"
           info="First hire at $5,000/mo joins August 2026. A second hire ($5K/mo more) is automatically added once active property count reaches 20 — a step function based on the portfolio size each month."
           values={monthly.map((r) => r.exp_hire)}
           fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
-        />
-        <DataRow
-          label="Onboarding · presigned"
-          info="$4,000 one-time per pre-signed contract, paid the month it goes live. Five contracts in 2026 (two in May, three in June) = $20K total. Zero in 2027 — those properties are already onboarded."
-          values={monthly.map((r) => r.exp_onboard_presigned)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned, 0)}
-        />
-        <DataRow
-          label="Onboarding · new"
-          info="$4,000 one-time per new contract added via the slider, paid its start month."
-          values={monthly.map((r) => r.exp_onboard_new)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_new, 0)}
-          highlight
         />
 
         <SubsectionRow label="Periodic & wind-down" />
@@ -1447,7 +1466,7 @@ function ForecastTable({
         />
         <DataRow
           label="Insurance"
-          info="Phillips Insurance annual policy paid as one lump sum in March. $5,263.92 in 2026; same renewal assumed for 2027."
+          info="A single annual insurance premium (Phillips) paid as one lump sum in March. $5,263.92 in 2026; same March renewal assumed forward. $0 every other month."
           values={monthly.map((r) => r.exp_insurance)}
           fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
         />

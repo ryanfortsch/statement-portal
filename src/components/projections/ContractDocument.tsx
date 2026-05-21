@@ -54,18 +54,34 @@ export function ContractDocument({
 
   const vars = buildTemplateVars(projection);
   const ownerName = vars.ownerName;
+  // Pinned to America/New_York — server renders in UTC on Vercel, and
+  // a late-night save would otherwise roll the "issued" date forward
+  // by a day for Eastern-tz users.
   const issuedDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'America/New_York',
   });
 
-  // Signature state. The "Date" field in the signature block is the contract's
-  // effective date (term_start), not the moment the owner clicked submit.
+  // Signature state. The DATE field next to each signature is the date
+  // that party SIGNED — not the contract's effective term_start date.
+  // Standard e-signature convention: date next to signature = moment
+  // the signer executed. (term_start lives in the Term section body.)
   const signedName = projection.contract_signed_name || null;
   const signedAt = projection.contract_signed_at;
-  const effectiveDate = projection.term_start ? formatDateNarrative(projection.term_start) : null;
+  const ownerSignedDate = signedAt
+    ? new Date(signedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
+  // Countersignature (Allie). The PM signature row renders her name
+  // only after she has explicitly countersigned from the projection
+  // detail page. PM signature date = countersign moment.
+  const countersignedAt = projection.contract_countersigned_at;
+  const pmSignedName = countersignedAt ? "Allie O'Brien" : null;
+  const pmSignedDate = countersignedAt
+    ? new Date(countersignedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
 
   // Legacy custom_clauses fallback: ONLY when the new overrides path is
   // unused AND there's pre-overrides clause data on the row. New work
@@ -187,21 +203,31 @@ export function ContractDocument({
                 eyebrow="Owner"
                 printedName={ownerName}
                 signedName={signedName}
-                dateValue={effectiveDate}
+                dateValue={ownerSignedDate}
               />
               <SignerBlock
                 eyebrow="Property Manager"
                 printedName="Allie O'Brien, Rising Tide STR, LLC"
-                signedName={null}
-                dateValue={effectiveDate}
+                signedName={pmSignedName}
+                dateValue={pmSignedDate}
               />
             </div>
           )}
           {signedName && signedAt && (
             <div className="rt-c-audit">
               Electronically signed by <strong>{signedName}</strong> on{' '}
-              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
-              {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+              {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}.
+              {/* IP + user-agent are persisted to contract_signed_ip and
+                  contract_signed_user_agent for the legal audit trail
+                  but kept off the visible document face — standard e-sign
+                  convention puts those on a separate Certificate of
+                  Completion, not the contract itself. */}
+              {countersignedAt && (
+                <>
+                  {' '}Countersigned by <strong>Allie O&rsquo;Brien</strong> on{' '}
+                  {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}.
+                </>
+              )}
             </div>
           )}
           <p className="rt-c-thanks">
@@ -214,9 +240,114 @@ export function ContractDocument({
             }
           />
         </section>
+
+        {/* Certificate of Completion — appended after the contract once
+            the owner has signed. This is the audit trail page that
+            travels with the executed PDF (modeled on DocuSign's
+            Certificate of Completion). Records every signature event
+            with timestamp, IP, and a parsed user-agent so the executed
+            PDF is self-contained as legal proof. Hidden until signed
+            so unsigned previews don't show empty audit data. */}
+        {signedAt && (
+          <section className="rt-doc-page rt-c-cert-page">
+            <div className="rt-c-cert-eyebrow">Audit Trail</div>
+            <h2 className="rt-c-cert-h">Certificate of Completion</h2>
+            <p className="rt-c-cert-lede">
+              This certificate documents the electronic execution of the management contract under the federal ESIGN Act (15 U.S.C. &sect;&nbsp;7001 et seq.) and the Massachusetts Uniform Electronic Transactions Act (Mass. Gen. Laws ch.&nbsp;110G).
+            </p>
+
+            <div className="rt-c-cert-block">
+              <div className="rt-c-cert-block-title">Document</div>
+              <div className="rt-c-cert-kv">
+                <div className="rt-c-cert-k">Title</div>
+                <div className="rt-c-cert-v">Management Contract &mdash; {projection.property_address}</div>
+                <div className="rt-c-cert-k">Document ID</div>
+                <div className="rt-c-cert-v rt-c-cert-mono">{projection.id}</div>
+                <div className="rt-c-cert-k">Owner</div>
+                <div className="rt-c-cert-v">{ownerName}</div>
+              </div>
+            </div>
+
+            <div className="rt-c-cert-block">
+              <div className="rt-c-cert-block-title">Signature Events</div>
+
+              {/* Owner */}
+              <div className="rt-c-cert-event">
+                <div className="rt-c-cert-event-head">
+                  <span className="rt-c-cert-event-num">01</span>
+                  <span className="rt-c-cert-event-label">Owner signed</span>
+                </div>
+                <div className="rt-c-cert-kv">
+                  <div className="rt-c-cert-k">Signed by</div>
+                  <div className="rt-c-cert-v"><strong>{signedName}</strong> (typed signature)</div>
+                  <div className="rt-c-cert-k">Timestamp</div>
+                  <div className="rt-c-cert-v">{new Date(signedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long', timeZone: 'America/New_York' })}</div>
+                  {projection.contract_signed_ip && (
+                    <>
+                      <div className="rt-c-cert-k">IP address</div>
+                      <div className="rt-c-cert-v rt-c-cert-mono">{projection.contract_signed_ip}</div>
+                    </>
+                  )}
+                  {projection.contract_signed_user_agent && (
+                    <>
+                      <div className="rt-c-cert-k">Device</div>
+                      <div className="rt-c-cert-v">{parseUserAgent(projection.contract_signed_user_agent)}</div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Property Manager countersign */}
+              {countersignedAt && (
+                <div className="rt-c-cert-event">
+                  <div className="rt-c-cert-event-head">
+                    <span className="rt-c-cert-event-num">02</span>
+                    <span className="rt-c-cert-event-label">Property Manager countersigned</span>
+                  </div>
+                  <div className="rt-c-cert-kv">
+                    <div className="rt-c-cert-k">Signed by</div>
+                    <div className="rt-c-cert-v"><strong>Allie O&rsquo;Brien</strong>, Rising Tide STR, LLC</div>
+                    <div className="rt-c-cert-k">Timestamp</div>
+                    <div className="rt-c-cert-v">{new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long', timeZone: 'America/New_York' })}</div>
+                    <div className="rt-c-cert-k">Source</div>
+                    <div className="rt-c-cert-v">Rising Tide STR (authenticated session)</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <p className="rt-c-cert-foot">
+              Certificate generated by Rising Tide STR. The full audit record (signature events, IP, user-agent, document hash) is retained in Rising Tide&rsquo;s system of record at{' '}
+              <span className="rt-c-cert-mono">risingtidestr.com</span>. This page travels with the contract PDF as proof of execution.
+            </p>
+          </section>
+        )}
       </div>
     </>
   );
+}
+
+/**
+ * Best-effort parse of a User-Agent header into a human-readable
+ * "Browser on OS" string for the audit certificate. We don't need
+ * pixel-perfect detection — the goal is "looked like Chrome on macOS"
+ * for the audit log, not feature-detection.
+ */
+function parseUserAgent(ua: string): string {
+  const browser =
+    /Edg\//.test(ua) ? 'Edge' :
+    /Firefox\//.test(ua) ? 'Firefox' :
+    /Chrome\//.test(ua) ? 'Chrome' :
+    /Safari\//.test(ua) ? 'Safari' :
+    'Browser';
+  const os =
+    /iPhone|iPad/.test(ua) ? 'iOS' :
+    /Android/.test(ua) ? 'Android' :
+    /Macintosh|Mac OS X/.test(ua) ? 'macOS' :
+    /Windows/.test(ua) ? 'Windows' :
+    /Linux/.test(ua) ? 'Linux' :
+    'unknown OS';
+  return `${browser} on ${os}`;
 }
 
 // ─── Renderers ──────────────────────────────────────────────────────────────
@@ -353,12 +484,16 @@ function buildTemplateVars(p: ProjectionRow) {
     ownerName,
     propertyAddress,
     propertyType: p.property_type || 'House',
-    mgmtPct: fmtPct(p.mgmt_fee_pct),
-    deposit: fmtMoney(p.initial_deposit),
-    minBalance: fmtMoney(p.min_account_balance),
-    minDays: `${p.min_availability_days} days`,
-    saleDays: `${p.sale_notification_days} days`,
-    repFee: fmtMoney(p.reputation_fee),
+    // Null-guarded: a redline can remove any of these terms. Null
+    // becomes null here so interpolate() renders "—" instead of
+    // "null days" / "$NaN". mgmtPct is guarded defensively even though
+    // mgmt_fee_pct stays non-null.
+    mgmtPct: p.mgmt_fee_pct != null ? fmtPct(p.mgmt_fee_pct) : null,
+    deposit: p.initial_deposit != null ? fmtMoney(p.initial_deposit) : null,
+    minBalance: p.min_account_balance != null ? fmtMoney(p.min_account_balance) : null,
+    minDays: p.min_availability_days != null ? `${p.min_availability_days} days` : null,
+    saleDays: p.sale_notification_days != null ? `${p.sale_notification_days} days` : null,
+    repFee: p.reputation_fee != null ? fmtMoney(p.reputation_fee) : null,
     termStartShort: p.term_start ? formatDateShort(p.term_start) : null,
     termEndShort: p.term_end ? formatDateShort(p.term_end) : null,
     termStartLong: p.term_start ? formatDateNarrative(p.term_start) : null,
@@ -898,6 +1033,122 @@ const contractCss = `
     max-width: 560px;
     margin-left: auto;
     margin-right: auto;
+  }
+
+  /* Certificate of Completion — appended after signatures once the
+     contract is signed. Distinct visual identity from the contract
+     body so it reads as an audit document, not more contract text.
+
+     Explicit display: block on both screen and print: overrides the
+     base .rt-doc-page rules (display:flex on screen, display:contents
+     in print). Without the print-mode override, the cert page was
+     dissolving into the prior sheet's flow and losing both its
+     padding and its page-break, which made it look "missing" in the
+     downloaded PDF. */
+  .rt-c-cert-page {
+    display: block;
+    padding: 96px 80px 80px;
+  }
+  @media print {
+    .rt-c-cert-page {
+      display: block;
+      page-break-before: always;
+      break-before: page;
+      page: body-page;
+    }
+  }
+  .rt-c-cert-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .rt-c-cert-h {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 28px;
+    line-height: 1.15;
+    font-weight: 300;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    margin: 0 0 18px;
+  }
+  .rt-c-cert-lede {
+    margin: 0 0 32px;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--ink-3);
+    max-width: 560px;
+  }
+  .rt-c-cert-block {
+    margin-bottom: 28px;
+    padding: 18px 20px;
+    background: var(--paper-2);
+    border-left: 3px solid var(--rule);
+  }
+  .rt-c-cert-block-title {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .rt-c-cert-kv {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 8px 16px;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .rt-c-cert-k {
+    color: var(--ink-3);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding-top: 2px;
+  }
+  .rt-c-cert-v {
+    color: var(--ink);
+  }
+  .rt-c-cert-mono {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+  }
+  .rt-c-cert-event {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+  }
+  .rt-c-cert-event:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+  .rt-c-cert-event-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .rt-c-cert-event-num {
+    font-family: var(--font-mono), monospace;
+    font-size: 10px;
+    color: var(--ink-4);
+    letter-spacing: 0.1em;
+  }
+  .rt-c-cert-event-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .rt-c-cert-foot {
+    margin-top: 28px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink-3);
+    max-width: 560px;
   }
 
   .rt-c-foot {

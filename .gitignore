@@ -12,3 +12,5 @@ node_modules
 supabase/.temp/
 
 .claude/worktrees/
+.vercel
+.claude/scheduled_tasks.lock

@@ -47,15 +47,14 @@ type DashboardStats = {
   // days is more stable than a calendar week and matches how Dotti
   // thinks about review trend.
   //
-  // belowFive is the actual count of rated < 5 reviews. The total/five
-  // counts include NULL-rated rows (Guesty placeholders for reservations
-  // that haven't been reviewed yet), so the home tile uses belowFive
-  // directly rather than `total - fiveStar`, which would fold those
-  // unrated rows into "below five."
+  // Scoped to Helm-managed properties and rated reviews only (see
+  // getReviewWindowStats), so total is the count of real, five-star-
+  // eligible reviews. Personal-property reviews and empty Guesty
+  // placeholder rows are excluded, and the rate is fiveStar / total
+  // over that clean set.
   reviews30dTotal: number;
   reviews30dFiveStar: number;
   reviews30dBelowFive: number;
-  reviews30dUnrated: number;
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
@@ -74,7 +73,6 @@ async function getDashboardStats(): Promise<DashboardStats> {
     reviews30dTotal: reviews.total,
     reviews30dFiveStar: reviews.fiveStar,
     reviews30dBelowFive: reviews.belowFive,
-    reviews30dUnrated: reviews.total - reviews.fiveStar - reviews.belowFive,
   };
 }
 
@@ -377,28 +375,26 @@ export default async function HelmHome() {
           />
           <Stat
             label="Five-Star Reviews"
-            value={(() => {
-              // Ratio is over rated reviews only. Guesty often syncs a
-              // placeholder row before the guest leaves a rating (no stars,
-              // no text); folding those into "below five" would lie about
-              // the property's review health.
-              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
-              return rated > 0 ? `${stats.reviews30dFiveStar}/${rated}` : '—';
-            })()}
+            value={
+              // Numerator and denominator are both Helm-managed, rated
+              // reviews (see getReviewWindowStats), so this matches the
+              // FIVE-STAR cell on the Reviews tab exactly.
+              stats.reviews30dTotal > 0
+                ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
+                : '—'
+            }
             sub={(() => {
-              // Unrated rows (Guesty placeholders without stars or text) are
-              // intentionally hidden from the sub. They're noise on a home
-              // dashboard, and they don't represent a guest action.
-              const rated = stats.reviews30dFiveStar + stats.reviews30dBelowFive;
-              if (rated === 0) return 'no reviews in last 30 days';
-              if (stats.reviews30dBelowFive === 0) return 'clean 5★ run · last 30 days';
-              return `${stats.reviews30dBelowFive} below five · last 30 days`;
+              if (stats.reviews30dTotal === 0) return 'no reviews in last 30 days';
+              const rate = Math.round(
+                (stats.reviews30dFiveStar / stats.reviews30dTotal) * 100,
+              );
+              return `${rate}% five-star · last 30 days`;
             })()}
-            href="/reviews"
+            href="/guests?days=30"
             size="hero"
             accent={
-              (stats.reviews30dFiveStar + stats.reviews30dBelowFive) > 0 &&
-              stats.reviews30dBelowFive === 0
+              stats.reviews30dTotal > 0 &&
+              stats.reviews30dFiveStar === stats.reviews30dTotal
             }
           />
           <Stat

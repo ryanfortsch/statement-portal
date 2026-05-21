@@ -13,6 +13,7 @@ import type {
   InspectionRow,
   InspectionItemRow,
   InspectionResultRow,
+  PropertyZoneRow,
 } from '@/lib/inspections-types';
 
 type PropertyShape = {
@@ -89,6 +90,7 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
     { data: items },
     { data: notes },
     { data: workSlips },
+    { data: zoneRows },
   ] = await Promise.all([
     supabase
       .from('properties')
@@ -97,7 +99,7 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
       .maybeSingle(),
     supabase
       .from('inspection_results')
-      .select('id, inspection_id, item_id, status, notes, photo_urls, created_at')
+      .select('id, inspection_id, item_id, property_zone_id, status, notes, photo_urls, created_at')
       .eq('inspection_id', inspectionId),
     supabase
       .from('inspection_items')
@@ -113,6 +115,11 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
       .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
       .eq('inspection_id', inspectionId)
       .order('created_at', { ascending: true }),
+    supabase
+      .from('property_zones')
+      .select('*')
+      .eq('property_id', insp.property_id)
+      .order('walk_order', { ascending: true }),
   ]);
 
   if (!property) return;
@@ -122,12 +129,27 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
   const itemMap = new Map<string, InspectionItemRow>();
   for (const it of allItems) itemMap.set(it.id, it);
 
+  const zoneMap = new Map<string, PropertyZoneRow>();
+  for (const z of (zoneRows ?? []) as PropertyZoneRow[]) zoneMap.set(z.id, z);
+
   const allResults = (results ?? []) as InspectionResultRow[];
   const issues = allResults
     .filter((r) => r.status === 'issue')
-    .map((r) => ({ result: r, item: itemMap.get(r.item_id) }))
-    .filter((x): x is { result: InspectionResultRow; item: InspectionItemRow } => !!x.item)
-    .sort((a, b) => a.item.sort_order - b.item.sort_order);
+    .map((r) => ({
+      result: r,
+      item: itemMap.get(r.item_id),
+      zone: r.property_zone_id ? zoneMap.get(r.property_zone_id) ?? null : null,
+    }))
+    .filter(
+      (x): x is { result: InspectionResultRow; item: InspectionItemRow; zone: PropertyZoneRow | null } =>
+        !!x.item,
+    )
+    .sort((a, b) => {
+      const aw = a.zone?.walk_order ?? Infinity;
+      const bw = b.zone?.walk_order ?? Infinity;
+      if (aw !== bw) return aw - bw;
+      return a.item.sort_order - b.item.sort_order;
+    });
 
   const allNotes = (notes ?? []) as ReportNote[];
   const propertyNotes = allNotes.filter((n) => n.note_type === 'PROPERTY_NOTE');
@@ -178,7 +200,7 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
           .map(
             (row) => `
         <div style="padding:10px 0; border-bottom:1px solid #e7e3d9;">
-          <div style="font-size:9px; letter-spacing:.18em; text-transform:uppercase; font-weight:600; color:#c85a3a; margin-bottom:4px;">${escapeHtml(row.item.category)}</div>
+          <div style="font-size:9px; letter-spacing:.18em; text-transform:uppercase; font-weight:600; color:#c85a3a; margin-bottom:4px;">${escapeHtml(row.zone?.name ?? row.item.category)}${row.zone?.floor_label ? ` <span style="color:#98a0a4; font-weight:400;">· ${escapeHtml(row.zone.floor_label)}</span>` : ''}</div>
           <div style="font-size:14px; color:#1e2e34; font-weight:500;">${escapeHtml(row.item.title)}</div>
           ${row.result.notes ? `<div style="margin-top:4px; font-size:13px; color:#4a565b; font-style:italic; line-height:1.45;">&ldquo;${escapeHtml(row.result.notes)}&rdquo;</div>` : ''}
           ${renderPhotos(row.result.photo_urls)}
@@ -296,7 +318,10 @@ export async function sendInspectionReportEmail(inspectionId: string): Promise<v
   if (issues.length > 0) {
     textLines.push('', `ISSUES (${issues.length})`);
     for (const row of issues) {
-      textLines.push(`  · [${row.item.category}] ${row.item.title}`);
+      const label = row.zone
+        ? `${row.zone.name}${row.zone.floor_label ? ` (${row.zone.floor_label})` : ''}`
+        : row.item.category;
+      textLines.push(`  · [${label}] ${row.item.title}`);
       if (row.result.notes) textLines.push(`      "${row.result.notes}"`);
     }
   }

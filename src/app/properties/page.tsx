@@ -101,13 +101,15 @@ export default async function PropertiesPage() {
           <EmptyBlock />
         ) : (
           <>
-            <div
-              className="grid grid-cols-1 md:grid-cols-2"
-              style={{
-                borderTop: '1px solid var(--ink)',
-                columnGap: 40,
-              }}
-            >
+            {/* Single column. The 2-column md:grid-cols-2 layout looked
+                tidy in theory but PropertyRow's internal 5-col grid
+                (64px 1fr auto auto auto) was designed for the full
+                container width - at half width the auto cols squeezed
+                the subtitle and meta into truncated, wrapping mess. The
+                map up top is doing the portfolio overview job; the
+                list below just needs to be a clean lookup with room
+                to breathe. */}
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
               {active.map((p, i) => (
                 <PropertyRow
                   key={p.id}
@@ -121,13 +123,7 @@ export default async function PropertiesPage() {
             {inactive.length > 0 && (
               <div style={{ marginTop: 56 }}>
                 <div className="eyebrow" style={{ marginBottom: 18 }}>Inactive</div>
-                <div
-                  className="grid grid-cols-1 md:grid-cols-2"
-                  style={{
-                    borderTop: '1px solid var(--rule)',
-                    columnGap: 40,
-                  }}
-                >
+                <div style={{ borderTop: '1px solid var(--rule)' }}>
                   {inactive.map((p, i) => (
                     <PropertyRow
                       key={p.id}

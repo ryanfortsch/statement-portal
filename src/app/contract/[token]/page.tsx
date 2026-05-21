@@ -1,10 +1,22 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';
+import { SignSubmitButton, ScrollToSignButton } from '@/components/projections/SigningButtons';
 
 export const dynamic = 'force-dynamic';
+
+// Public signing page — token-gated but should never be indexed by
+// search engines even if a URL leaks into a public context.
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 async function getProspect(token: string): Promise<ProjectionRow | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
@@ -29,7 +41,15 @@ export default async function ContractSignPage({ params }: { params: Promise<{ t
     <SignForm token={token} prefillName={ownerName} />
   );
 
-  return <ContractDocument projection={projection} signingForm={signingForm} />;
+  return (
+    <>
+      <ContractDocument projection={projection} signingForm={signingForm} />
+      {/* Floating "Jump to signature" pill — only show before signing,
+          since after signing the form is gone and the page is the
+          executed contract + certificate. */}
+      {!projection.contract_signed_at && <ScrollToSignButton />}
+    </>
+  );
 }
 
 function SignForm({ token, prefillName }: { token: string; prefillName: string }) {
@@ -63,7 +83,7 @@ function SignForm({ token, prefillName }: { token: string; prefillName: string }
           <span className="rt-sign-hint">Your typed name serves as your legally binding signature.</span>
         </label>
 
-        <button type="submit" className="rt-sign-btn">Sign and submit</button>
+        <SignSubmitButton />
 
         <p className="rt-sign-foot">
           Questions before signing? Email <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or call (978) 865-2387.

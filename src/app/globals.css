@@ -656,3 +656,108 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   border-bottom: 1px solid var(--rule);
 }
 .rt-mobile-menu-row:hover { background: var(--paper-2); }
+
+/* ─── Auth page ship-wheel: portal animation ─────────────────────────
+   Three-stage choreography:
+     DRIFT  (0 - 65%): halves slide in from ±90px offscreen.
+     IMPACT (~68%):   halves meet at the seam, recoil INTO each other,
+                      wobble damped back to rest.
+     LOCK + STEER (~68% onward): the WHOLE wheel rotates 90° as it
+                      seats, then continues a very slow continuous
+                      drift (120s per turn) so it feels alive.
+   Total opening choreography: 2.8s. Continuous steer: forever.
+
+   Hand-tuned keyframes rather than a single bezier because the impact
+   recoil needs explicit overshoot/wobble frames the curve can't model.
+   linear timing-function on each step; the curve is in the keyframe
+   positions. */
+
+.rt-helm-wheel-left,
+.rt-helm-wheel-right {
+  animation-duration: 2800ms;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+.rt-helm-wheel-left { animation-name: rt-helm-wheel-left; }
+.rt-helm-wheel-right { animation-name: rt-helm-wheel-right; }
+
+@keyframes rt-helm-wheel-left {
+  0%   { transform: translateX(-90px); opacity: 0; }
+  8%   { transform: translateX(-84px); opacity: 0.4; }
+  22%  { transform: translateX(-66px); opacity: 1; }
+  45%  { transform: translateX(-36px); }
+  60%  { transform: translateX(-12px); }
+  66%  { transform: translateX(-3px); }
+  68%  { transform: translateX(0); }       /* IMPACT */
+  72%  { transform: translateX(3.5px); }   /* recoil past center */
+  78%  { transform: translateX(-1.5px); }  /* damped wobble */
+  85%  { transform: translateX(0.6px); }
+  92%  { transform: translateX(-0.2px); }
+  100% { transform: translateX(0); opacity: 1; }
+}
+@keyframes rt-helm-wheel-right {
+  0%   { transform: translateX(90px);  opacity: 0; }
+  8%   { transform: translateX(84px);  opacity: 0.4; }
+  22%  { transform: translateX(66px);  opacity: 1; }
+  45%  { transform: translateX(36px); }
+  60%  { transform: translateX(12px); }
+  66%  { transform: translateX(3px); }
+  68%  { transform: translateX(0); }       /* IMPACT */
+  72%  { transform: translateX(-3.5px); }
+  78%  { transform: translateX(1.5px); }
+  85%  { transform: translateX(-0.6px); }
+  92%  { transform: translateX(0.2px); }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+/* Whole-wheel rotation. First the LOCK turn (one quarter), then the
+   continuous STEER drift forever. Two animations composed: the lock
+   ends at rotate(90deg) and the steer starts at rotate(90deg), so they
+   meet seamlessly at 2800ms. */
+.rt-helm-wheel-spin {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  animation:
+    rt-helm-wheel-lock 2800ms cubic-bezier(0.4, 0, 0.2, 1) both,
+    rt-helm-wheel-steer 120s linear 2800ms infinite;
+}
+@keyframes rt-helm-wheel-lock {
+  0%, 68% { transform: rotate(0deg); }
+  100%    { transform: rotate(90deg); }
+}
+@keyframes rt-helm-wheel-steer {
+  from { transform: rotate(90deg); }
+  to   { transform: rotate(450deg); }   /* 90 + 360 = full revolution */
+}
+
+/* Page choreography: brand block fades in first, sign-in action gates
+   on the wheel's lock completing. Footer text trails the action. */
+.rt-helm-signin-brand {
+  opacity: 0;
+  animation: rt-helm-signin-fade-in 800ms ease-out 200ms both;
+}
+.rt-helm-signin-action {
+  opacity: 0;
+  animation: rt-helm-signin-fade-in 700ms ease-out 2500ms both;
+}
+.rt-helm-signin-footer {
+  opacity: 0;
+  animation: rt-helm-signin-fade-in 600ms ease-out 2900ms both;
+}
+@keyframes rt-helm-signin-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rt-helm-wheel-left,
+  .rt-helm-wheel-right,
+  .rt-helm-wheel-spin,
+  .rt-helm-signin-brand,
+  .rt-helm-signin-action,
+  .rt-helm-signin-footer {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

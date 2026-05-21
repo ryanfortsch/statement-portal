@@ -3,6 +3,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { TimeRangePicker } from './TimeRangePicker';
+import { ViewToggle, type RevenueView } from './ViewToggle';
 import { AutoRefresh } from './AutoRefresh';
 import {
   computeDateRange,
@@ -11,6 +12,7 @@ import {
   previousRange,
   deltaPct,
   type RangePreset,
+  type CustomMonth,
 } from '@/lib/revenue-date-range';
 import {
   computeRevenueSnapshot,
@@ -39,6 +41,13 @@ async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: b
   return { lastSyncedAt, isStale };
 }
 
+/** "2026-05" -> "May 2026". For the pacing context line. */
+function formatPacingMonth(ym: string): string {
+  const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 function formatRelative(date: Date | null): string {
   if (!date) return 'never';
   const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
@@ -54,20 +63,37 @@ const VALID_PRESETS: RangePreset[] = [
 ];
 
 type PageProps = {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; view?: string }>;
 };
 
 export default async function RevenuePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const presetParam = params?.range;
-  const preset: RangePreset =
-    presetParam && (VALID_PRESETS as string[]).includes(presetParam)
-      ? (presetParam as RangePreset)
-      : 'this_month';
+  const rangeParam = params?.range;
 
-  const { rangeStart, rangeEnd } = computeDateRange(preset);
+  // The range param is either a preset keyword (this_month, last_30, ...) or
+  // a YYYY-MM string for a specific calendar month picked from the dropdown.
+  let preset: RangePreset = 'this_month';
+  let customMonth: CustomMonth | undefined;
+  if (rangeParam) {
+    const monthMatch = /^(\d{4})-(\d{2})$/.exec(rangeParam);
+    if (monthMatch) {
+      preset = 'custom_month';
+      customMonth = {
+        year: parseInt(monthMatch[1], 10),
+        month: parseInt(monthMatch[2], 10) - 1, // 0-indexed
+      };
+    } else if ((VALID_PRESETS as string[]).includes(rangeParam)) {
+      preset = rangeParam as RangePreset;
+    }
+  }
+
+  // Pacing is a projection; default to plain booked Actuals so the page
+  // opens on what's actually committed. The toggle opts into projection.
+  const view: RevenueView = params?.view === 'pacing' ? 'pacing' : 'actuals';
+
+  const { rangeStart, rangeEnd } = computeDateRange(preset, customMonth);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
-  const presetTitle = presetLabel(preset);
+  const presetTitle = presetLabel(preset, customMonth);
 
   if (!isHelmConfigured) {
     return (
@@ -82,13 +108,24 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   }
 
   // Forward-looking presets compare vs the future, which has no actuals
-  // yet. Skip the prior-period fetch (and deltas) for those.
-  const isForwardLooking = preset === 'next_month' || preset === 'next_90';
+  // yet. Skip the prior-period fetch (and deltas) for those. A custom month
+  // set to a future month counts as forward-looking too.
+  const todayYM = new Date().toISOString().slice(0, 7);
+  const customMonthIsFuture =
+    preset === 'custom_month' && rangeStart.slice(0, 7) > todayYM;
+  const isForwardLooking =
+    preset === 'next_month' || preset === 'next_90' || customMonthIsFuture;
   const prior = isForwardLooking ? null : previousRange({ rangeStart, rangeEnd });
+
+  // Raw range value handed to the picker: a preset keyword, or YYYY-MM when
+  // a specific month is selected.
+  const rangeValue = customMonth
+    ? `${customMonth.year}-${String(customMonth.month + 1).padStart(2, '0')}`
+    : preset;
 
   const [{ lastSyncedAt, isStale }, current, priorFull] = await Promise.all([
     readSyncStatus(),
-    computeRevenueSnapshot(rangeStart, rangeEnd),
+    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing' }),
     prior
       ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd)
       : Promise.resolve(null),
@@ -130,7 +167,10 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 justifyContent: 'space-between',
               }}
             >
-              <TimeRangePicker value={preset} />
+              <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
+                <TimeRangePicker value={rangeValue} />
+                {pacing && pacing.multiplier > 1 && <ViewToggle value={view} />}
+              </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
             </div>
             {pacing && pacing.multiplier > 1 && (
@@ -142,9 +182,12 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                   lineHeight: 1.5,
                 }}
               >
-                Pacing {pacing.pacingPct.toFixed(0)}% so far this month. Gloucester
-                historical average for this month is {pacing.historicalAvgPct.toFixed(0)}%.
-                Revenue figures below project booked-so-far × {pacing.multiplier.toFixed(2)}.
+                Pacing {pacing.pacingPct.toFixed(0)}% so far in {formatPacingMonth(pacing.month)}.
+                Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
+                {pacing.historicalAvgPct.toFixed(0)}%.
+                {view === 'pacing'
+                  ? ` Revenue projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range.`
+                  : ' Revenue shows booked-so-far actuals only.'}
               </p>
             )}
           </>
@@ -272,16 +315,12 @@ function PropertyCard({
             <span
               className="eyebrow"
               style={{
-                color: snapshot.source === 'statement' ? 'var(--tide-deep)' : 'var(--signal)',
+                color: SOURCE_COLOR[snapshot.source],
                 whiteSpace: 'nowrap',
               }}
-              title={
-                snapshot.source === 'statement'
-                  ? 'From the monthly owner statement (canonical for closed months)'
-                  : 'Projecting booked-so-far toward historical Gloucester occupancy'
-              }
+              title={SOURCE_TITLE[snapshot.source]}
             >
-              {snapshot.source === 'statement' ? 'Statement' : 'Pacing'}
+              {SOURCE_LABEL[snapshot.source]}
             </span>
           )}
         </div>
@@ -322,6 +361,27 @@ function PropertyCard({
     </article>
   );
 }
+
+const SOURCE_LABEL: Record<PropertySnapshot['source'], string> = {
+  statement: 'Statement',
+  pacing: 'Pacing',
+  booked: 'Booked',
+  computed: '',
+};
+
+const SOURCE_COLOR: Record<PropertySnapshot['source'], string> = {
+  statement: 'var(--tide-deep)',
+  pacing: 'var(--signal)',
+  booked: 'var(--ink-3)',
+  computed: 'var(--ink-3)',
+};
+
+const SOURCE_TITLE: Record<PropertySnapshot['source'], string> = {
+  statement: 'From the monthly owner statement (canonical for closed months)',
+  pacing: 'Booked-so-far × historical-occupancy multiplier (projected)',
+  booked: 'Booked-so-far actuals only, no projection',
+  computed: '',
+};
 
 function Metric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (

@@ -16,8 +16,23 @@ export type InspectionRow = {
   issue_count: number;
   na_count: number;
   ordered_item_ids: string[] | null;
+  ordered_cards: OrderedCard[] | null;
+  // Google Drive archive link for the completed inspection report PDF.
+  // Stamped by /api/archive-inspection after the inspection completes.
+  drive_url: string | null;
   created_at: string | null;
   updated_at: string | null;
+};
+
+/**
+ * A single card in an inspection deck. zoneId is null for fallback decks
+ * (properties without a zone mapping); for mapped properties each card
+ * represents one (item, zone) pair so a template item can expand into N
+ * cards for N zones.
+ */
+export type OrderedCard = {
+  itemId: string;
+  zoneId: string | null;
 };
 
 export type InspectionItemRow = {
@@ -37,6 +52,7 @@ export type InspectionResultRow = {
   id: string;
   inspection_id: string;
   item_id: string;
+  property_zone_id: string | null;
   status: InspectionStatus;
   notes: string | null;
   photo_urls: string[];

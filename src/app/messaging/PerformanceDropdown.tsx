@@ -12,7 +12,7 @@ import {
 } from './facts-actions';
 import { prettifySlug } from './format';
 import { TrendChart } from './TrendChart';
-import type { MessagingStats, Fact, TimeseriesPoint } from '@/lib/stay-concierge';
+import type { MessagingStats, Fact, TimeseriesPoint, TopicRollup } from '@/lib/stay-concierge';
 
 type Props = {
   initialStats: MessagingStats | null;
@@ -20,6 +20,7 @@ type Props = {
   initialFacts: Fact[];
   totalFacts: number;
   initialTimeseries: TimeseriesPoint[];
+  initialAvailableTopics: TopicRollup[];
 };
 
 type Window = { label: string; hours: number };
@@ -42,6 +43,7 @@ export function PerformanceDropdown({
   initialFacts,
   totalFacts,
   initialTimeseries,
+  initialAvailableTopics,
 }: Props) {
   // Default open. The user came to /messaging to see this; the dropdown
   // chip was too easy to miss. Keeping the open/close affordance for
@@ -128,6 +130,7 @@ export function PerformanceDropdown({
           facts={initialFacts}
           totalFacts={totalFacts}
           timeseries={initialTimeseries}
+          availableTopics={initialAvailableTopics}
         />
       )}
     </Section>
@@ -173,6 +176,7 @@ function StatsBody({
   facts,
   totalFacts,
   timeseries,
+  availableTopics,
 }: {
   stats: MessagingStats;
   window: Window;
@@ -182,6 +186,7 @@ function StatsBody({
   facts: Fact[];
   totalFacts: number;
   timeseries: TimeseriesPoint[];
+  availableTopics: TopicRollup[];
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -234,7 +239,10 @@ function StatsBody({
           the hero and the KPI grid so the "is it getting better?" answer
           is the second thing the operator reads. */}
       <div style={{ padding: '24px 0', borderBottom: '1px solid var(--rule)', marginBottom: 20 }}>
-        <TrendChart series={timeseries} />
+        <TrendChart
+          initialSeries={timeseries}
+          initialAvailableTopics={availableTopics}
+        />
       </div>
 
       {/* KPI grid: shipped, coached, handled, rejected, expired, escalated */}

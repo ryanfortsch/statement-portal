@@ -32,7 +32,7 @@ const PUBLIC_PATH_PREFIXES = [
  * isn't precise enough (it would expose the auth-gated edit page). Use a regex
  * that matches *only* the deliverable sub-routes.
  */
-const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract)(\/.*)?$/;
+const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract|onboarding-render)(\/.*)?$/;
 
 /** Same pattern for the Properties module. Guest-facing deliverables (Home
  * Guide, WiFi placard, Information Note, Welcome Card) need to be public
@@ -48,6 +48,16 @@ const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-pl
  */
 const PROPERTY_NOTICE_RE = /^\/properties\/[a-z0-9_-]+\/notice\/[0-9a-f-]+(\/.*)?$/;
 
+/**
+ * The inspection print view at `/inspections/<uuid>/render` needs to be
+ * reachable by the headless Chromium that archives completed inspections
+ * to Drive. The interactive inspection (`/inspections/<uuid>`) and the
+ * summary (`/inspections/<uuid>/summary`) stay auth-gated — only the
+ * /render sub-route is public, same pattern as the projection
+ * deliverables above.
+ */
+const INSPECTION_RENDER_RE = /^\/inspections\/[0-9a-f-]+\/render(\/.*)?$/;
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
@@ -55,6 +65,7 @@ export default auth((req) => {
   if (PROJECTION_DELIVERABLE_RE.test(pathname)) return;
   if (PROPERTY_DELIVERABLE_RE.test(pathname)) return;
   if (PROPERTY_NOTICE_RE.test(pathname)) return;
+  if (INSPECTION_RENDER_RE.test(pathname)) return;
   if (pathname.startsWith("/api/")) return;
 
   if (!req.auth) {

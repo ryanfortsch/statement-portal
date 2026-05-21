@@ -4,9 +4,16 @@ import crypto from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
-import type { OnboardingData, CustomClause, Owner, ProjectionRow } from '@/lib/projections-types';
+import type {
+  OnboardingData,
+  CustomClause,
+  Owner,
+  ProjectionRow,
+  ReadinessState,
+} from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
 import {
@@ -15,6 +22,46 @@ import {
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
+import {
+  sendOwnerSignedEmail,
+  sendExecutedEmail,
+  sendCountersignNotification,
+  fetchContractPdf,
+} from '@/lib/contract-email';
+import { archiveContractToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
+import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
+import { sendReadinessReviewEmail } from '@/lib/readiness-email';
+
+/**
+ * Build an absolute origin URL for use by server-side Puppeteer renders.
+ * Reads the request's forwarded host so the spawned PDF render hits the
+ * same deployment that's serving the action (preview / prod / local).
+ */
+async function getRequestOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get('x-forwarded-host') || h.get('host') || '';
+  const proto = h.get('x-forwarded-proto') || 'https';
+  return host ? `${proto}://${host}` : '';
+}
+
+/**
+ * Service-role Supabase client for writes to RLS-protected tables.
+ *
+ * The module-level `supabase` uses the public anon key — fine for the
+ * `projections` table (permissive RLS), but `properties` has row-level
+ * security that rejects anon inserts ("new row violates row-level
+ * security policy"). promoteToProperty writes a new `properties` row, so
+ * it needs the service role. Server-action code only — the service key
+ * must never reach the browser.
+ */
+function getServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  }
+  return createClient(url, key);
+}
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -87,7 +134,14 @@ function buildPayload(formData: FormData) {
     owners: owners.length > 0 ? owners : null,
     ...derived,
     property_address: str(formData, 'property_address'),
-    property_city: strOrNull(formData, 'property_city'),
+    // City defaults to "<Market>, MA" when the form doesn't explicitly
+    // submit one — Dotti dropped the duplicative "City, State, ZIP" field
+    // from the form (Market already encodes the location for everything
+    // operational + the AirDNA projection data). Existing rows that have
+    // a manually-set city pass it through unchanged via the hidden field.
+    property_city:
+      strOrNull(formData, 'property_city') ||
+      `${str(formData, 'market') || 'Rockport'}, MA`,
     property_type: str(formData, 'property_type') || 'House',
     market: str(formData, 'market') as 'Rockport' | 'Gloucester',
     bedrooms: num(formData, 'bedrooms'),
@@ -268,6 +322,46 @@ export async function markSent(id: string) {
 }
 
 /**
+ * Manually complete the Onboarding pipeline stage. Used when the owner's
+ * operational info was collected outside the public intake form (a phone
+ * call, an in-person walkthrough), so the pipeline can advance to Promote
+ * without waiting on a form submission. `unmarkOnboardingDone` reverts it.
+ *
+ * Stamps onboarding_marked_done_at rather than onboarding_submitted_at so
+ * the activity log + stage status can still distinguish "owner submitted
+ * the form" from "staff marked it complete".
+ */
+export async function markOnboardingDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ onboarding_marked_done_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+export async function unmarkOnboardingDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ onboarding_marked_done_at: null })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
  * Set the analyst's confidence that this prospect will close, 0–100.
  *
  * Called from the inline widget on the identity strip and from the prospect
@@ -298,6 +392,117 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
   revalidatePath(`/projections/${id}`);
 }
 
+// ─── Readiness checklist mutations ─────────────────────────────────────────
+// Each call does a read-merge-write on the single jsonb column. Critically,
+// these actions do NOT revalidatePath — the analyst is *on* the readiness
+// page during a walkthrough, and revalidating the current route triggers
+// the parent /projections/loading.tsx, which feels like the page froze.
+// Readiness state is purely client-managed in-memory while the page is
+// mounted; the next navigation re-fetches because the route is
+// dynamic = 'force-dynamic'.
+
+async function readReadinessState(projectionId: string): Promise<ReadinessState> {
+  const { data, error } = await supabase
+    .from('projections')
+    .select('readiness_state')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const raw = (data?.readiness_state ?? null) as ReadinessState | null;
+  return {
+    have: raw?.have && typeof raw.have === 'object' ? raw.have : {},
+    checked: Array.isArray(raw?.checked) ? raw.checked : [],
+    notes: raw?.notes && typeof raw.notes === 'object' ? raw.notes : {},
+    updated_at: raw?.updated_at,
+  };
+}
+
+async function writeReadinessState(projectionId: string, next: ReadinessState): Promise<void> {
+  const stamped: ReadinessState = { ...next, updated_at: new Date().toISOString() };
+  const { error } = await supabase
+    .from('projections')
+    .update({ readiness_state: stamped })
+    .eq('id', projectionId);
+  if (error) throw new Error(error.message);
+  // Intentionally NO revalidatePath — see header comment.
+}
+
+/**
+ * Set how many units of an item the owner has. Pass 0 for "they have
+ * none"; pass need-count (or higher) for "complete". `itemLabel` matches
+ * READINESS_GROUPS in lib/projections-readiness.ts.
+ *
+ * Writes to the canonical `have` dict and strips the legacy `checked`
+ * entry for this label so the two stay consistent.
+ */
+export async function setReadinessHave(
+  projectionId: string,
+  itemLabel: string,
+  count: number,
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const safeCount = Math.max(0, Math.round(Number(count) || 0));
+  const state = await readReadinessState(projectionId);
+  const have = { ...(state.have ?? {}) };
+  have[itemLabel] = safeCount;
+  // Drop the legacy `checked` entry for this label so the two views can't
+  // disagree. Future reads derive presence purely from `have`.
+  const checked = (state.checked ?? []).filter((c) => c !== itemLabel);
+  await writeReadinessState(projectionId, { ...state, have, checked });
+}
+
+/**
+ * Write/overwrite a single walkthrough note. Pass empty string to clear.
+ * `noteKey` is a stable identifier (supply_closet, smart_lock, etc.) —
+ * see the NOTE_FIELDS array in lib/projections-readiness.ts.
+ */
+export async function setReadinessNote(
+  projectionId: string,
+  noteKey: string,
+  value: string,
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const state = await readReadinessState(projectionId);
+  const notes = { ...state.notes };
+  const trimmed = value.trim();
+  if (trimmed === '') delete notes[noteKey];
+  else notes[noteKey] = value;
+  await writeReadinessState(projectionId, { ...state, notes });
+}
+
+/**
+ * Email the current readiness state to the Rising Tide team (Allie + Ryan
+ * + Dotti) for internal review. Not sent to the owner directly — the team
+ * polishes the list and forwards it. Returns { ok, reason? } so the UI
+ * can show a sent / failed confirmation without throwing.
+ */
+export async function requestReadinessReview(
+  projectionId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, reason: 'not signed in' };
+
+  const { data, error } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', projectionId)
+    .maybeSingle();
+  if (error || !data) {
+    return { ok: false, reason: error?.message || 'projection not found' };
+  }
+  const projection = data as ProjectionRow;
+
+  const origin = await getRequestOrigin();
+  const readinessUrl = `${origin}/projections/${projectionId}/readiness`;
+  const triggeredBy = session.user.name || session.user.email || null;
+
+  return await sendReadinessReviewEmail({ projection, triggeredBy, readinessUrl });
+}
+
 /**
  * Promote a prospect into a managed property record. Copies prospect inputs
  * and onboarding answers onto a new public.properties row, links the two
@@ -310,8 +515,12 @@ export async function promoteToProperty(projectionId: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  // Service-role client: this action inserts a new `properties` row, and
+  // that table's row-level security rejects the public anon key.
+  const sb = getServiceClient();
+
   // Pull the prospect record
-  const { data: projRow, error: projErr } = await supabase
+  const { data: projRow, error: projErr } = await sb
     .from('projections')
     .select('*')
     .eq('id', projectionId)
@@ -325,7 +534,7 @@ export async function promoteToProperty(projectionId: string) {
   }
 
   const ob = (projRow.onboarding_data ?? {}) as OnboardingData;
-  const propertyId = await pickPropertyId(projRow.property_address as string);
+  const propertyId = await pickPropertyId(projRow.property_address as string, sb);
 
   const ownerFull = projRow.prospect_full_legal || projRow.prospect_name;
   const ownerGreeting = projRow.prospect_first_names || projRow.prospect_first_name || ownerFull;
@@ -374,11 +583,11 @@ export async function promoteToProperty(projectionId: string) {
     projection_id: projectionId,
   };
 
-  const { error: insertErr } = await supabase.from('properties').insert(propertyPayload);
+  const { error: insertErr } = await sb.from('properties').insert(propertyPayload);
   if (insertErr) throw new Error(insertErr.message);
 
   // Wire the back-reference on the prospect side so the link is bidirectional.
-  const { error: linkErr } = await supabase
+  const { error: linkErr } = await sb
     .from('projections')
     .update({ property_id: propertyId })
     .eq('id', projectionId);
@@ -395,12 +604,13 @@ export async function promoteToProperty(projectionId: string) {
  * existing convention (e.g. "21 Horton St" → "21_horton"). Drops common
  * street suffixes; if the slug collides, suffixes _2, _3, etc.
  */
-async function pickPropertyId(address: string): Promise<string> {
+async function pickPropertyId(address: string, sb: SupabaseClient): Promise<string> {
   const base = slugifyAddress(address);
   if (!base) throw new Error('Could not derive a property id from the address');
 
-  // Probe for collisions; cheap because the table is small.
-  const { data: existing } = await supabase
+  // Probe for collisions; cheap because the table is small. Uses the
+  // passed-in service client so the read isn't filtered by RLS.
+  const { data: existing } = await sb
     .from('properties')
     .select('id')
     .ilike('id', `${base}%`);
@@ -480,9 +690,157 @@ export async function submitContractSignature(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
+  // Send the "thanks, here's your signed copy" email with the
+  // owner-signed PDF attached. Failures are logged but non-fatal —
+  // the signature is already persisted; a transient Resend outage
+  // shouldn't prevent the redirect to the confirmation page or lose
+  // the audit record. Stamp contract_owner_email_sent_at on success
+  // for idempotency (and so Allie can see the email did go out).
+  const { data: fullProjection } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (fullProjection) {
+    const origin = await getRequestOrigin();
+    if (origin) {
+      // Two parallel sends: the owner gets their signed copy, and
+      // staff (allie@ + dotti@) get a separate "you have a
+      // countersign to do" alert. The staff alert is what closes
+      // the loop on the workflow - the owner-confirmation CC'd
+      // Allie on a message addressed to the client, which doesn't
+      // read as "you have work to do" and let countersigns sit.
+      const [ownerResult, staffResult] = await Promise.all([
+        sendOwnerSignedEmail({
+          projection: fullProjection as ProjectionRow,
+          origin,
+        }),
+        sendCountersignNotification({
+          projection: fullProjection as ProjectionRow,
+          origin,
+        }),
+      ]);
+      if (ownerResult.ok) {
+        await supabase
+          .from('projections')
+          .update({ contract_owner_email_sent_at: new Date().toISOString() })
+          .eq('onboarding_token', token);
+      } else {
+        console.warn('[submitContractSignature] owner-signed email skipped:', ownerResult.reason);
+      }
+      if (!staffResult.ok) {
+        console.warn('[submitContractSignature] staff countersign alert skipped:', staffResult.reason);
+      }
+    }
+  }
+
   revalidatePath(`/contract/${token}`);
   revalidatePath(`/projections/${existing.id}`);
   redirect(`/contract/${token}/signed`);
+}
+
+/**
+ * Staff-only: Allie countersigns a contract that the owner has already
+ * signed. Fully executes the contract and sends the doubly-signed PDF
+ * to the owner with a welcome note. CC's allie@ for record-keeping.
+ *
+ * Idempotent: re-invocations after countersign return without
+ * overwriting. The owner-signed prerequisite is enforced — you can't
+ * countersign a contract whose owner hasn't signed yet.
+ */
+export async function countersignContract(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing projection id');
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from('projections')
+    .select('id, contract_signed_at, contract_countersigned_at, onboarding_token')
+    .eq('id', id)
+    .maybeSingle();
+  if (lookupErr || !existing) throw new Error(lookupErr?.message || 'Projection not found');
+  if (!existing.contract_signed_at) throw new Error('Owner has not signed yet');
+  if (existing.contract_countersigned_at) {
+    // Already countersigned — nothing to do, just revalidate the page.
+    revalidatePath(`/projections/${id}`);
+    return;
+  }
+
+  const { error: updateErr } = await supabase
+    .from('projections')
+    .update({ contract_countersigned_at: new Date().toISOString() })
+    .eq('id', id);
+  if (updateErr) throw new Error(updateErr.message);
+
+  // Post-countersign side effects: email the executed PDF to the owner
+  // AND archive it to the Rising Tide Drive. Both are best-effort —
+  // failures are logged, never thrown; the countersign timestamp is
+  // already persisted so a Resend / Drive outage doesn't lose the
+  // execution. The PDF is rendered ONCE here and the same buffer feeds
+  // both the email attachment and the Drive upload (the render is the
+  // slow ~10s step — doing it twice would double the countersign wait).
+  const { data: fullProjection } = await supabase
+    .from('projections')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (fullProjection) {
+    const projectionRow = fullProjection as ProjectionRow;
+    const origin = await getRequestOrigin();
+    if (origin) {
+      let pdf: Buffer | null = null;
+      try {
+        pdf = await fetchContractPdf({ projectionId: id, origin, token: projectionRow.onboarding_token });
+      } catch (err) {
+        console.error(
+          '[countersignContract] executed PDF render failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // 1. Email the executed contract to the owner (CC Allie).
+      const emailResult = await sendExecutedEmail({
+        projection: projectionRow,
+        origin,
+        pdf: pdf ?? undefined,
+      });
+      if (emailResult.ok) {
+        await supabase
+          .from('projections')
+          .update({ contract_executed_email_sent_at: new Date().toISOString() })
+          .eq('id', id);
+      } else {
+        console.warn('[countersignContract] executed email skipped:', emailResult.reason);
+      }
+
+      // 2. Archive the executed PDF to the Rising Tide shared Drive
+      //    (Helm Records / Contracts / <year>/). Stamp the resulting
+      //    Drive link on the projection so the page links straight to it.
+      if (pdf && isDriveArchiveConfigured()) {
+        const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const year = dateStr.slice(0, 4);
+        const archiveName = `${projectionRow.property_address} - ${projectionRow.prospect_name} - Executed ${dateStr}.pdf`
+          .replace(/[\\/:*?"<>|]/g, '')
+          .trim();
+        const archive = await archiveContractToDrive({ pdf, filename: archiveName, year });
+        if (archive.ok && archive.url) {
+          await supabase
+            .from('projections')
+            .update({ contract_drive_url: archive.url })
+            .eq('id', id);
+        } else {
+          console.warn('[countersignContract] Drive archive skipped:', archive.reason);
+        }
+      }
+    }
+  }
+
+  if (existing.onboarding_token) {
+    revalidatePath(`/contract/${existing.onboarding_token}`);
+  }
+  revalidatePath(`/projections/${id}`);
 }
 
 /**
@@ -521,11 +879,47 @@ export async function submitOnboarding(formData: FormData) {
 
     if (error) throw new Error(error.message);
 
+    // Fire a staff notification on the first submission only (idempotency
+    // via onboarding_notification_sent_at). Non-fatal if Resend errors —
+    // the form data is already persisted; the redirect below still
+    // confirms submission to the owner.
+    const { data: full } = await supabase
+      .from('projections')
+      .select('id, prospect_name, property_address, onboarding_notification_sent_at')
+      .eq('onboarding_token', token)
+      .maybeSingle();
+    if (full && !full.onboarding_notification_sent_at) {
+      const origin = await getRequestOrigin();
+      if (origin) {
+        const result = await sendOnboardingSubmittedEmail({
+          propertyAddress: (full as { property_address: string }).property_address,
+          ownerName: (full as { prospect_name: string | null }).prospect_name,
+          data,
+          helmUrl: `${origin}/projections/${(full as { id: string }).id}`,
+        });
+        if (result.ok) {
+          await supabase
+            .from('projections')
+            .update({ onboarding_notification_sent_at: new Date().toISOString() })
+            .eq('onboarding_token', token);
+        } else {
+          console.warn('[submitOnboarding] notification email skipped:', result.reason);
+        }
+      }
+    }
+
     revalidatePath(`/onboarding/${token}`);
     redirect(`/onboarding/${token}/thanks`);
   }
 
-  const { data: propHit } = await supabase
+  // Property path: the onboarding form was opened for an already-managed
+  // property. `properties` is RLS-protected (no anon INSERT/UPDATE
+  // policy), so writes here must go through the service-role client —
+  // an anon UPDATE silently affects zero rows and the owner's answers
+  // would vanish without an error.
+  const sb = getServiceClient();
+
+  const { data: propHit } = await sb
     .from('properties')
     .select('id, owner_emails')
     .eq('onboarding_token', token)
@@ -552,12 +946,40 @@ export async function submitOnboarding(formData: FormData) {
     }
   }
 
-  const { error } = await supabase
+  const { error } = await sb
     .from('properties')
     .update(updatePayload)
     .eq('onboarding_token', token);
 
   if (error) throw new Error(error.message);
+
+  // Staff notification — same idempotent pattern as the projection
+  // branch above. Looks up the property to get address + notification
+  // flag, sends the email if not already sent, then stamps.
+  const { data: fullProp } = await sb
+    .from('properties')
+    .select('id, address, name, onboarding_notification_sent_at')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (fullProp && !(fullProp as { onboarding_notification_sent_at: string | null }).onboarding_notification_sent_at) {
+    const origin = await getRequestOrigin();
+    if (origin) {
+      const result = await sendOnboardingSubmittedEmail({
+        propertyAddress: (fullProp as { address: string; name: string }).address || (fullProp as { name: string }).name,
+        ownerName: data.full_name || null,
+        data,
+        helmUrl: `${origin}/properties/${(fullProp as { id: string }).id}`,
+      });
+      if (result.ok) {
+        await sb
+          .from('properties')
+          .update({ onboarding_notification_sent_at: new Date().toISOString() })
+          .eq('onboarding_token', token);
+      } else {
+        console.warn('[submitOnboarding] property-path notification email skipped:', result.reason);
+      }
+    }
+  }
 
   revalidatePath(`/onboarding/${token}`);
   revalidatePath(`/properties/${propHit.id}`);
@@ -574,7 +996,12 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const { data: existing, error: lookupErr } = await supabase
+  // `properties` is RLS-protected — an anon UPDATE silently no-ops, which
+  // would persist no token and hand back a dead onboarding link. Use the
+  // service-role client for the write.
+  const sb = getServiceClient();
+
+  const { data: existing, error: lookupErr } = await sb
     .from('properties')
     .select('onboarding_token')
     .eq('id', propertyId)
@@ -587,7 +1014,7 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   }
 
   const token = newOnboardingToken();
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await sb
     .from('properties')
     .update({ onboarding_token: token })
     .eq('id', propertyId);

@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { PlanButton } from './PlanButton';
+import { CalendarCellTooltip } from './CalendarCellTooltip';
 import {
   loadOperationsData,
   RANGE_LABEL,
@@ -107,14 +107,16 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="operations" />
 
-      <HelmHero
-        eyebrow="Helm · Turnovers"
-        title="The"
-        emphasis="turnover pipeline."
-      />
-
-      {propertyFilter && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 18 }}>
+      {/* Compact ops header — replaces the editorial hero + separate
+          range-tabs + summary stack. Single bordered row carries the
+          page summary on the left and the range tabs on the right;
+          sync indicator drops underneath as small dim text. ~120px of
+          chrome saved before any turnover row renders. */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ width: '100%', paddingTop: 28, paddingBottom: 24 }}
+      >
+        {propertyFilter && (
           <div
             style={{
               display: 'flex',
@@ -124,6 +126,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               border: '1px solid var(--signal)',
               background: 'rgba(200, 90, 58, 0.06)',
               fontSize: 12,
+              marginBottom: 18,
             }}
           >
             <span style={{ color: 'var(--signal)', fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', fontSize: 10 }}>
@@ -146,29 +149,49 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               Clear
             </Link>
           </div>
-        </section>
-      )}
+        )}
 
-      {/* RANGE TABS + SYNC STATUS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
-            padding: '14px 0',
+            padding: '16px 0',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'baseline',
             justifyContent: 'space-between',
-            gap: 16,
+            gap: 24,
             flexWrap: 'wrap',
           }}
         >
-          <nav className="flex items-baseline gap-5" style={{
-            fontSize: 11,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-          }}>
+          <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+            {data.totalCount === 0 ? (
+              <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
+            ) : (
+              <>
+                <strong style={{ color: 'var(--ink)' }}>{data.totalCount}</strong>{' '}
+                check-in{data.totalCount === 1 ? '' : 's'}
+                {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                {inspectionsLeft > 0 ? (
+                  <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
+                    · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--positive)', fontSize: 14, marginLeft: 12 }}>
+                    · all prepped
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          <nav
+            className="flex items-baseline gap-4"
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >
             {VALID_RANGES.map((r) => {
               const active = r === range;
               return (
@@ -176,7 +199,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                   key={r}
                   href={`/operations?range=${r}&cal=${calRange}`}
                   style={{
-                    color: active ? 'var(--ink)' : 'var(--ink-3)',
+                    color: active ? 'var(--ink)' : 'var(--ink-4)',
                     textDecoration: 'none',
                     borderBottom: active ? '2px solid var(--signal)' : '2px solid transparent',
                     paddingBottom: 4,
@@ -187,40 +210,42 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               );
             })}
           </nav>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
-          </span>
         </div>
-      </section>
-
-      {/* SUMMARY LINE */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
         <div
-          className="font-serif"
-          style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink-2)', letterSpacing: '-0.01em' }}
+          className="flex items-center justify-between"
+          style={{
+            marginTop: 8,
+            fontSize: 10,
+            color: 'var(--ink-4)',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
         >
-          {data.totalCount === 0 ? (
-            <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
-          ) : (
-            <>
-              <strong style={{ color: 'var(--ink)' }}>{data.totalCount}</strong> check-in
-              {data.totalCount === 1 ? '' : 's'}
-              {range === 'today' ? ' today' : ` in the next ${RANGE_LABEL[range].toLowerCase()}`}
-              {inspectionsLeft > 0 ? (
-                <>
-                  {' · '}
-                  <span style={{ color: 'var(--signal)' }}>
-                    {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
-                  </span>
-                </>
-              ) : (
-                <>
-                  {' · '}
-                  <span style={{ color: 'var(--positive)' }}>all prepped</span>
-                </>
-              )}
-            </>
-          )}
+          {/* Inspections has no menu module of its own — this is the
+              entry point. Links to /inspections, the start form (pick a
+              property, begin) + recent-inspections list. Per-turnover
+              "Start Inspection" buttons in the list below cover the
+              scoped case; this covers ad-hoc walks and re-inspections. */}
+          <Link
+            href="/inspections"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '5px 11px',
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+            Start inspection
+          </Link>
+          <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>
 
@@ -354,6 +379,22 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
   const cleaningDone = t.cleaning !== null;
   const cleaningRelative = t.cleaning ? formatRelativeShort(t.cleaning.completedAt) : null;
 
+  // Gap context: for non-same-day turnovers with a known previousCheckout,
+  // surface how long the property has been sitting since the last guest.
+  // Answers "is this a tight turn or has it been clean for a week?" at a
+  // glance. Same-day cases use the existing "Tight turnaround" banner.
+  const gapDays =
+    !t.isSameDayTurnover && t.previousCheckout
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.parse(`${t.checkIn.slice(0, 10)}T00:00:00`) -
+              Date.parse(`${t.previousCheckout}T00:00:00`)) /
+              86_400_000,
+          ),
+        )
+      : null;
+
   return (
     <div
       className="rt-turnover-row"
@@ -366,7 +407,10 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         borderBottom: '1px solid var(--rule)',
       }}
     >
-      {/* Date column */}
+      {/* Date column. Top: check-in (the date the row is about). Middle:
+          check-out + nights. Bottom: when the previous guest left (only
+          when there's a non-zero gap). Stays in the fixed 160px column so
+          it never wraps under right-side button pressure. */}
       <div className="rt-turnover-date">
         <div className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
           {checkIn}
@@ -375,12 +419,33 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           → {checkOut}
           {t.nights ? ` · ${t.nights} nt${t.nights === 1 ? '' : 's'}` : ''}
         </div>
+        {!t.isSameDayTurnover && gapDays != null && gapDays >= 1 && t.previousCheckout && (
+          <div
+            style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.04em' }}
+            title={`Last guest checked out ${t.previousCheckout} · ${gapDays}-day gap`}
+          >
+            clear since {formatDateShort(t.previousCheckout)}
+          </div>
+        )}
       </div>
 
-      {/* Property + guest column */}
-      <div className="rt-turnover-property" style={{ minWidth: 0 }}>
+      {/* Property + guest column. Reserve a real minimum width so the
+          property name + guest line never wrap onto five lines when the
+          right side stacks Plan + Start Inspection buttons. Excess
+          pressure pushes the chip cluster to wrap (it already flex-wraps)
+          rather than the typography. */}
+      <div className="rt-turnover-property" style={{ minWidth: 220 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+          <span
+            className="font-serif"
+            style={{
+              fontSize: 18,
+              fontWeight: 400,
+              color: 'var(--ink)',
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {t.propertyName}
           </span>
           {t.isSameDayTurnover && (
@@ -400,7 +465,20 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </span>
           )}
         </div>
-        <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+        {/* Guest + channel. Gap context lives in the fixed-width date
+            column on the left so it never wraps under narrow conditions. */}
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 13,
+            color: 'var(--ink-3)',
+            lineHeight: 1.4,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={`${t.guestName || 'Unnamed guest'}${t.channel ? ` · ${t.channel}` : ''}`}
+        >
           {t.guestName || 'Unnamed guest'}
           {t.channel && (
             <>
@@ -409,10 +487,9 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </>
           )}
         </div>
-        {/* Same-day turnover gets a visible banner because it's a real
-            urgency signal. Routine "Prev. checkout May 12" lines were
-            scaffolding that read as noise on both desktop and mobile -
-            the work-slip count + cleaning chip already convey state. */}
+        {/* Same-day turnover keeps its loud signal banner — it's a real
+            urgency signal worth its own line. Non-same-day gap context
+            lives inline (above) so it never adds row height. */}
         {t.isSameDayTurnover && (
           <div
             className="rt-turnover-prev rt-turnover-prev-sameday"
@@ -428,58 +505,63 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Status chips: work slips + cleaning + inspection on a single
-          horizontal row. Work slips are persistent property issues you
-          bring on the walk; cleaning + inspection are the per-turnover
-          prep gates. Stacked vertical column read as a 3-line block on
-          desktop, which made every row feel busy - flowing inline keeps
-          each row to ~2 visual lines. */}
-      <div className="rt-turnover-chips" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'flex-end', gap: '4px 14px', whiteSpace: 'nowrap' }}>
+      {/* Status: cleaning + inspection collapse to a single dim line of
+          sentence-case text with color-coded labels per step. Work-slip
+          count rides as a quiet link on a second line when present. The
+          previous version stacked 3 uppercase letter-spaced 600-weight
+          pills per row, which read as a wall of shouting status. */}
+      <div
+        className="rt-turnover-chips"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          justifyContent: 'flex-start',
+          gap: 4,
+          whiteSpace: 'nowrap',
+          fontSize: 12,
+          color: 'var(--ink-4)',
+        }}
+      >
+        <div>
+          {cleaningExpected && (
+            <>
+              <span
+                style={{ color: cleaningDone ? 'var(--positive)' : 'var(--signal)' }}
+                title={
+                  t.cleaning
+                    ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
+                    : 'No cleaner-completion text received via Quo for this turnover'
+                }
+              >
+                {cleaningDone ? `Cleaned ${cleaningRelative}` : 'Awaiting cleaner'}
+              </span>
+              <span style={{ color: 'var(--ink-4)' }}>{' · '}</span>
+            </>
+          )}
+          <span style={{ color: inspectionDone ? 'var(--positive)' : 'var(--signal)' }}>
+            {inspectionDone ? 'Inspected' : 'Not inspected'}
+          </span>
+        </div>
+        {t.lockBattery && t.lockBattery.isLow && (
+          <span
+            title={`Smart lock battery is ${
+              t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : t.lockBattery.status
+            }. Pack replacement batteries for this turnover.`}
+            style={{ color: 'var(--signal)', fontWeight: 600 }}
+          >
+            Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
+          </span>
+        )}
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}
             title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              color: 'var(--tide-deep)',
-              textDecoration: 'none',
-            }}
+            style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none' }}
           >
-            {t.openWorkSlipsCount} work {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · Print →
+            {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
           </Link>
         )}
-        {cleaningExpected && (
-          <span
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              color: cleaningDone ? 'var(--positive)' : 'var(--signal)',
-            }}
-            title={
-              t.cleaning
-                ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
-                : 'No cleaner-completion text received via Quo for this turnover'
-            }
-          >
-            {cleaningDone ? `Cleaned · ${cleaningRelative}` : 'Awaiting cleaner'}
-          </span>
-        )}
-        <span
-          style={{
-            fontSize: 10,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            color: inspectionDone ? 'var(--positive)' : 'var(--signal)',
-          }}
-        >
-          {inspectionDone ? 'Inspection done' : 'Not inspected'}
-        </span>
       </div>
 
       {/* Action — done shows Summary; in-progress shows Resume; otherwise
@@ -513,7 +595,11 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           Resume →
         </Link>
       ) : (
-        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+        // Plan + Start Inspection side-by-side (was stacked vertically),
+        // so this action column matches the height of a Summary/Resume
+        // row. Keeps the right edge of every row at roughly the same
+        // visual position across rows.
+        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <PlanButton
             guestyReservationId={t.reservationId}
             propertyId={t.propertyId}
@@ -713,9 +799,8 @@ function PropertyCalendarRow({
             ? 'rgba(232, 184, 165, 0.18)' // signal-soft @ 18% for today vacancy
             : 'transparent';
 
-        return (
+        const cellInner = (
           <div
-            key={cell.date}
             style={{
               height: rowHeight,
               borderBottom: rowBorder,
@@ -730,12 +815,8 @@ function PropertyCalendarRow({
               whiteSpace: 'nowrap',
               textOverflow: 'ellipsis',
               minWidth: 0,
+              cursor: occupied ? 'help' : 'default',
             }}
-            title={
-              occupied && cell.reservation
-                ? `${cell.reservation.guest_name ?? 'Guest'} · ${cell.reservation.check_in} → ${cell.reservation.check_out}`
-                : undefined
-            }
           >
             {cell.isCheckIn && cell.reservation ? (
               <span
@@ -750,6 +831,27 @@ function PropertyCalendarRow({
               </span>
             ) : null}
           </div>
+        );
+
+        if (!occupied || !cell.reservation) {
+          return <div key={cell.date}>{cellInner}</div>;
+        }
+
+        return (
+          <CalendarCellTooltip
+            key={cell.date}
+            data={{
+              guestName: cell.reservation.guest_name,
+              channel: cell.reservation.channel,
+              checkIn: cell.reservation.check_in,
+              checkOut: cell.reservation.check_out,
+              nights: cell.reservation.nights,
+              hostPayout: cell.reservation.host_payout,
+              confirmationCode: cell.reservation.confirmation_code,
+            }}
+          >
+            {cellInner}
+          </CalendarCellTooltip>
         );
       })}
     </>

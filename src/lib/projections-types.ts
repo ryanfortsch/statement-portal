@@ -35,12 +35,18 @@ export type ProjectionRow = {
   // Contract term dates + standard terms (editable per deal)
   term_start: string | null;               // ISO date YYYY-MM-DD
   term_end: string | null;                 // ISO date YYYY-MM-DD
-  initial_deposit: number;
-  min_account_balance: number;
-  min_availability_days: number;
-  sale_notification_days: number;
-  reputation_fee: number;
+  // Nullable: a redline can negotiate any of these terms away entirely
+  // (waive the deposit, drop the min balance, swap the availability
+  // day-count for a seasonal window, etc.). Null renders as "—" in the
+  // contract and "no deposit"/etc. on the projection page.
+  initial_deposit: number | null;
+  min_account_balance: number | null;
+  min_availability_days: number | null;
+  sale_notification_days: number | null;
+  reputation_fee: number | null;
 
+  // Core economic term — stays non-null (a redline changes it, never
+  // removes it; it drives the projection financial model).
   mgmt_fee_pct: number;
   base_cleaning: number;
   addl_cleaning_per_br: number;
@@ -68,6 +74,12 @@ export type ProjectionRow = {
   // Prospects list row badge. Null until the analyst sets one.
   close_likelihood_pct: number | null;
 
+  // Interactive Property Readiness Checklist state. Mutated during a
+  // property walkthrough — tap to check items off, type into the
+  // walkthrough-notes fields. Null until the analyst first interacts.
+  // Shape defined by ReadinessState below.
+  readiness_state: ReadinessState | null;
+
   // Per-deal contract addenda. Legacy field: was rendered as a "Rider"
   // page after Sale Protection. Now superseded by contract_overrides
   // below — kept for backward compat on projections created before
@@ -85,6 +97,11 @@ export type ProjectionRow = {
   onboarding_token: string;
   onboarding_submitted_at: string | null;
   onboarding_data: OnboardingData | null;
+  // Staff-side manual completion of the Onboarding stage — set when the
+  // info was collected outside the public form (phone call, walkthrough)
+  // so the pipeline can still advance to Promote. The stage is "done"
+  // when this OR onboarding_submitted_at is set.
+  onboarding_marked_done_at: string | null;
 
   // Funnel handoff: once promoted, the id of the public.properties row this
   // prospect became.
@@ -95,6 +112,25 @@ export type ProjectionRow = {
   contract_signed_name: string | null;
   contract_signed_ip: string | null;
   contract_signed_user_agent: string | null;
+  // Countersignature (Allie, from the projection detail page).
+  // The contract is fully executed once both contract_signed_at AND
+  // contract_countersigned_at are set.
+  contract_countersigned_at: string | null;
+  // Email-send tracking. Stamped once after each transactional email
+  // goes out so the action is idempotent (no double-send on refresh).
+  contract_owner_email_sent_at: string | null;
+  contract_executed_email_sent_at: string | null;
+  // Google Drive archive link for the fully-executed contract PDF.
+  // Set after countersign uploads the PDF to the Rising Tide shared
+  // drive (Helm Records / Contracts / <year>/). Null until archived.
+  contract_drive_url: string | null;
+  // Onboarding-submitted notification idempotency. Stamped once after
+  // the staff-alert email fires; skipped on re-submissions of the
+  // same form.
+  onboarding_notification_sent_at: string | null;
+  // Google Drive archive link for the submitted onboarding intake PDF.
+  // Stamped by /api/archive-onboarding after the owner submits.
+  onboarding_drive_url: string | null;
 
   // Gmail-derived deliverable status (latest send per type)
   gmail_touches: GmailTouches | null;
@@ -102,6 +138,36 @@ export type ProjectionRow = {
 
   created_at: string | null;
   updated_at: string | null;
+};
+
+/**
+ * Persisted state for the interactive Property Readiness Checklist. Items
+ * support partial counts ("they have 12 of the 18 coffee mugs we recommend")
+ * via the `have` dict, which is the canonical source of truth — the legacy
+ * `checked` array exists only for backward compat with data written before
+ * partial counts were a feature, and is treated as "have = need-count" on
+ * read.
+ *
+ * Item labels come straight from READINESS_GROUPS in
+ * lib/projections-readiness.ts — stable enough to use as keys; any rename
+ * there just drops the old entry (acceptable trade for a single jsonb
+ * column).
+ */
+export type ReadinessState = {
+  /** How many units the owner already has, keyed by item label. Anything
+   *  not in the dict is undefined (untouched). 0 means "explicitly zero —
+   *  they have none". Equals the item's need-count means "complete". */
+  have?: Record<string, number>;
+  /** LEGACY: item labels that were checked off before partial counts
+   *  shipped. Treated as "have = need-count" when present and the label
+   *  has no entry in `have`. New writes only touch `have`. */
+  checked?: string[];
+  /** Walkthrough notes keyed by field name (supply_closet, smart_lock,
+   *  cleaner_access, trash_recycling, wifi, owner_notes, ...). */
+  notes: Record<string, string>;
+  /** ISO timestamp of the most recent write — surfaces as
+   *  "last edited 12:42 PM" on the page. */
+  updated_at?: string;
 };
 
 /** Gmail send detection — one entry per deliverable type, latest send wins. */

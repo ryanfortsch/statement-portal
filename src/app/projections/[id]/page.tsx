@@ -4,9 +4,11 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
+import { RedlinesDisclosure } from '@/components/projections/RedlinesDisclosure';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
+import { CopyLinkButton, CountersignButton } from '@/components/projections/SigningButtons';
 import {
   Pipeline,
   Stage,
@@ -24,7 +26,14 @@ import {
   fmtPercent,
   roundToThousand,
 } from '@/lib/projections-model';
-import { updateProjection, markSent, promoteToProperty } from '../actions';
+import {
+  updateProjection,
+  markSent,
+  promoteToProperty,
+  countersignContract,
+  markOnboardingDone,
+  unmarkOnboardingDone,
+} from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +52,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const update = updateProjection.bind(null, id);
   const send = markSent.bind(null, id);
   const promote = promoteToProperty.bind(null, id);
+  const markOnboarding = markOnboardingDone.bind(null, id);
+  const unmarkOnboarding = unmarkOnboardingDone.bind(null, id);
 
   // For the Danger zone delete confirmation: prefer the structured
   // owner's last name when populated; otherwise fall back to the last
@@ -66,7 +77,12 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const guideSent = !!guideTouch;
   const contractSent = !!contractTouch;
   const signed = !!projection.contract_signed_at;
-  const onboardingDone = !!projection.onboarding_submitted_at;
+  // Onboarding completes two ways: the owner submits the public intake
+  // form, OR a staff member taps "Mark complete" (info gathered another
+  // way). Either advances the pipeline.
+  const onboardingSubmitted = !!projection.onboarding_submitted_at;
+  const onboardingMarkedDone = !!projection.onboarding_marked_done_at;
+  const onboardingDone = onboardingSubmitted || onboardingMarkedDone;
   const promoted = !!projection.property_id;
   const promoteUnlocked = signed && onboardingDone;
 
@@ -81,10 +97,20 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   // after that = "locked" (muted). One source of truth: the same booleans
   // the Stage cards use, just summarised.
   const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
+    // Guide + Contract + Signing collapsed into one pipeline step
+    // since they were always one logical phase (the contract
+    // workflow). "Done" = fully countersigned, regardless of whether
+    // the email-send touch was logged. The Gmail-touch flags
+    // (guideSent / contractSent) only fire when the deliverables go
+    // out via an email Gmail can log — but Helm staff might paste the
+    // signing URL into a text / DM / shared link, and the contract
+    // still gets signed + countersigned through legitimate channels.
+    // The countersign timestamp is the authoritative completion
+    // signal; "did we send the email" is a separate concern.
+    const contractStageDone = !!projection.contract_countersigned_at;
     const flags = [
       { label: 'Projection', done: projectionSent },
-      { label: 'Guide & Contract', done: guideSent && contractSent },
-      { label: 'Signed', done: signed },
+      { label: 'Guide & Contract', done: contractStageDone },
       { label: 'Onboarding', done: onboardingDone },
       { label: 'Promote', done: promoted },
     ];
@@ -181,61 +207,62 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
           </Stage>
 
-          {/* 02 — Partnership Guide & Contract (sent together) */}
+          {/* 02 — Partnership Guide, Contract, AND Signing. The
+              previous 02 (Guide + Contract sent) and 03 (Signing)
+              were always one logical phase: the contract workflow.
+              Folding them into one stage shows the whole arc in one
+              card, with each piece as a sub-deliverable. */}
           <Stage
             num="02"
             title="Partnership Guide & Contract"
-            state={guideSent && contractSent ? 'done' : 'active'}
+            state={projection.contract_countersigned_at ? 'done' : 'active'}
             status={
-              guideSent && contractSent
-                // Both sent — show the most recent of the two so the status
-                // line tracks the latest touch.
-                ? gmailStatus(
-                    [guideTouch, contractTouch]
-                      .filter((t): t is NonNullable<typeof t> => !!t)
-                      .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
-                  )
-                : guideSent
-                  ? 'Guide sent · contract pending'
-                  : contractSent
-                    ? 'Contract sent · guide pending'
-                    : 'Not yet sent'
+              // Status priority: fully executed > signed/awaiting > both sent > one sent > nothing sent.
+              projection.contract_countersigned_at
+                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at)}</>
+                : signed
+                  ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
+                  : guideSent && contractSent
+                    ? gmailStatus(
+                        [guideTouch, contractTouch]
+                          .filter((t): t is NonNullable<typeof t> => !!t)
+                          .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
+                      )
+                    : guideSent
+                      ? 'Guide sent · contract pending'
+                      : contractSent
+                        ? 'Contract sent · guide pending'
+                        : 'Not yet sent'
             }
           >
             <GuideAndContractStageBody projection={projection} projectionId={id} />
           </Stage>
 
-          {/* 03 — Signed */}
+          {/* 03 — Onboarding (was 04 before contract workflow merge) */}
           <Stage
             num="03"
-            title="Signed"
-            state={signed ? 'done' : 'active'}
-            status={
-              signed
-                ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''}</>
-                : 'Awaiting signature'
-            }
-          >
-            <SignedStageBody projection={projection} />
-          </Stage>
-
-          {/* 04 — Onboarding */}
-          <Stage
-            num="04"
             title="Onboarding"
             state={onboardingDone ? 'done' : 'active'}
             status={
-              onboardingDone
+              onboardingSubmitted
                 ? <>Submitted {fmtTouchDate(projection.onboarding_submitted_at!)}</>
-                : 'Awaiting submission'
+                : onboardingMarkedDone
+                  ? <>Marked complete {fmtTouchDate(projection.onboarding_marked_done_at!)}</>
+                  : 'Awaiting submission'
             }
           >
-            <OnboardingStageBody projection={projection} onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null} />
+            <OnboardingStageBody
+              projection={projection}
+              projectionId={id}
+              onboardingTouch={onboardingTouch ? gmailStatus(onboardingTouch) : null}
+              markOnboardingDone={markOnboarding}
+              unmarkOnboardingDone={unmarkOnboarding}
+            />
           </Stage>
 
-          {/* 05 — Promote to managed property */}
+          {/* 04 — Promote to managed property (was 05) */}
           <Stage
-            num="05"
+            num="04"
             title="Promote to managed property"
             state={promoteState}
             status={
@@ -416,32 +443,25 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
       </SubDeliverable>
 
       {/* Contract sub-deliverable */}
-      <SubDeliverable label="Contract" isLast>
+      <SubDeliverable label="Contract">
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
-          {termRange} · {fee} · ${projection.initial_deposit.toLocaleString()} deposit
+          {termRange} · {fee} · {projection.initial_deposit != null
+            ? `$${projection.initial_deposit.toLocaleString()} deposit`
+            : 'no deposit'}
         </div>
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
-        <details style={{ marginTop: 14 }}>
-          <summary
-            style={{
-              listStyle: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 10,
-              userSelect: 'none',
-            }}
-          >
-            <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
-            <span className="eyebrow">Apply owner redlines</span>
-            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              paste their email / call notes, Claude maps to contract edits
-            </span>
-          </summary>
-          <div style={{ paddingTop: 14 }}>
-            <ContractRedlinesPanel projection={projection} />
-          </div>
-        </details>
+        <RedlinesDisclosure>
+          <ContractRedlinesPanel projection={projection} />
+        </RedlinesDisclosure>
+      </SubDeliverable>
+
+      {/* Signing sub-deliverable - folded in from what used to be a
+          separate Stage 03. The signing link, audit stamps, and
+          countersign workflow all live here so the whole contract
+          arc (guide → contract → signature → countersign) reads as
+          one phase on the page. */}
+      <SubDeliverable label="Signing" isLast>
+        <SignedStageBody projection={projection} />
       </SubDeliverable>
     </>
   );
@@ -481,6 +501,9 @@ function SubDeliverable({
 function SignedStageBody({ projection }: { projection: ProjectionRow }) {
   const signedAt = projection.contract_signed_at;
   const signedName = projection.contract_signed_name;
+  const countersignedAt = projection.contract_countersigned_at;
+  const ownerEmailSentAt = projection.contract_owner_email_sent_at;
+  const executedEmailSentAt = projection.contract_executed_email_sent_at;
   const link = `/contract/${projection.onboarding_token}`;
   return (
     <>
@@ -491,19 +514,148 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
       )}
       {signedAt && signedName && (
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
-          Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}
+          Signed by <strong>{signedName}</strong> on {new Date(signedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}
           {projection.contract_signed_ip ? ` from ${projection.contract_signed_ip}` : ''}.
+          {ownerEmailSentAt && (
+            <>
+              {' '}<span style={{ color: 'var(--ink-3)' }}>(signed copy emailed to owner {fmtTouchDate(ownerEmailSentAt)})</span>
+            </>
+          )}
+        </p>
+      )}
+      {/* Countersign workflow: appears only once the owner has signed
+          and Allie hasn't countersigned yet. After countersign, shows
+          the executed-state summary including the "fully executed
+          email sent" timestamp. */}
+      {signedAt && !countersignedAt && (
+        <CountersignRow projectionId={projection.id} />
+      )}
+      {countersignedAt && (
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
+          Countersigned by <strong>Allie O&rsquo;Brien</strong> on {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}. Fully executed.
+          {executedEmailSentAt && (
+            <>
+              {' '}<span style={{ color: 'var(--ink-3)' }}>(executed copy emailed to owner {fmtTouchDate(executedEmailSentAt)})</span>
+            </>
+          )}
         </p>
       )}
       <LinkRow link={link} />
+      {/* Once the owner has signed, surface a download for the signed
+          PDF directly here (otherwise staff have to dig through the
+          onboarding@ inbox to get a fresh copy). The DOWNLOAD CONTRACT
+          button in stage 02 also works — same /api/projection-pdf
+          endpoint — but having it inline with the signed state is more
+          discoverable. */}
+      {signedAt && (
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            href={`/api/projection-pdf?id=${projection.id}&type=contract`}
+            target="_blank"
+            style={{
+              background: 'transparent',
+              color: 'var(--ink)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              padding: '9px 16px',
+              border: '1px solid var(--ink)',
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ↓ Download {countersignedAt ? 'fully executed' : 'signed'} PDF
+          </Link>
+          {/* Drive archive link — present once the executed contract has
+              been uploaded to the Rising Tide shared drive at countersign.
+              Gives a one-click jump to the durable off-platform copy. */}
+          {projection.contract_drive_url && (
+            <Link
+              href={projection.contract_drive_url}
+              target="_blank"
+              style={{
+                background: 'transparent',
+                color: 'var(--ink-3)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                padding: '9px 16px',
+                border: '1px solid var(--rule)',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ↗ View in Drive archive
+            </Link>
+          )}
+        </div>
+      )}
     </>
   );
 }
 
-function OnboardingStageBody({ projection, onboardingTouch }: { projection: ProjectionRow; onboardingTouch: React.ReactNode | null }) {
+/**
+ * Countersign action UI. A single form-button that POSTs to
+ * countersignContract. Server action does the auth check, stamps
+ * contract_countersigned_at, renders the fully-executed PDF, and
+ * emails the owner with Allie CC'd.
+ */
+function CountersignRow({ projectionId }: { projectionId: string }) {
+  return (
+    <form action={countersignContract} style={{ marginTop: 0, marginBottom: 12, maxWidth: 720 }}>
+      <input type="hidden" name="id" value={projectionId} />
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+        padding: 14,
+        border: '1px solid var(--rule)',
+        background: 'var(--paper-2)',
+      }}>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 460 }}>
+          The owner has signed. Click to add Allie&rsquo;s countersignature and email the owner the fully executed contract (you&rsquo;ll be CC&rsquo;d). The send takes ~10 seconds while the PDF re-renders with both signatures.
+        </div>
+        <CountersignButton />
+      </div>
+    </form>
+  );
+}
+
+function OnboardingStageBody({
+  projection,
+  projectionId,
+  onboardingTouch,
+  markOnboardingDone,
+  unmarkOnboardingDone,
+}: {
+  projection: ProjectionRow;
+  projectionId: string;
+  onboardingTouch: React.ReactNode | null;
+  markOnboardingDone: () => Promise<void>;
+  unmarkOnboardingDone: () => Promise<void>;
+}) {
   const submitted = projection.onboarding_submitted_at;
+  const markedDone = projection.onboarding_marked_done_at;
   const data = projection.onboarding_data;
   const link = `/onboarding/${projection.onboarding_token}`;
+
+  // Inputs that drive the readiness checklist's computed quantities.
+  // Show a one-line "computed for X guests / Y bedrooms / Z bathrooms"
+  // hint so it's clear how the punch-list numbers were derived before
+  // opening the doc.
+  const beds = Math.max(1, Math.round(projection.bedrooms || 1));
+  const guests = beds * 2;
+  const intakeBaths = projection.onboarding_data?.bathrooms;
+  const bathsParsed = intakeBaths ? parseFloat(String(intakeBaths).replace(/[^0-9.]/g, '')) : NaN;
+  const baths = Number.isFinite(bathsParsed) && bathsParsed > 0
+    ? Math.ceil(bathsParsed)
+    : Math.max(1, Math.round(beds * 0.75));
+  const bathsSource = Number.isFinite(bathsParsed) ? 'from intake' : 'estimated';
+
   return (
     <>
       {!submitted && (
@@ -517,6 +669,68 @@ function OnboardingStageBody({ projection, onboardingTouch }: { projection: Proj
         </p>
       )}
       <LinkRow link={link} />
+
+      {/* Manual completion — only when the owner hasn't submitted the
+          public form. Lets staff advance the pipeline to Promote when
+          the property info was gathered another way (call, walkthrough,
+          emailed PDF). */}
+      {!submitted && (
+        <div style={{ marginTop: 14 }}>
+          {markedDone ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--positive)', fontWeight: 500 }}>
+                ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
+              </span>
+              <form action={unmarkOnboardingDone} style={{ display: 'inline-block' }}>
+                <button
+                  type="submit"
+                  style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
+                >
+                  Undo
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <form action={markOnboardingDone} style={{ display: 'inline-block' }}>
+                <button type="submit" style={ghostButtonStyle}>
+                  Mark onboarding complete
+                </button>
+              </form>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                Use when you&rsquo;ve gathered the property info another way.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Readiness checklist — sub-deliverable that lives inside the
+          Onboarding stage rather than its own pipeline step. Always
+          available; quantities default from projection.bedrooms when the
+          intake form hasn't been submitted yet, and refine once the
+          owner fills in bathrooms. */}
+      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+          <span className="eyebrow">Property Readiness Checklist</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+            optional · walk-through punch list
+          </span>
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Room-by-room punch list to turn the property from owner-ready to guest-ready. Quantities
+          are computed for {guests} guests across {beds} bedroom{beds === 1 ? '' : 's'} and {baths}{' '}
+          bathroom{baths === 1 ? '' : 's'} ({bathsSource}). Useful for owners new to STR who need
+          help sizing pots, towels, and the supply closet.
+        </p>
+        <DeliverableActions
+          projectionId={projectionId}
+          type="readiness"
+          openSlug="readiness"
+          downloadLabel="Download Checklist"
+        />
+      </div>
+
       {submitted && data && <OnboardingSummary data={data} />}
     </>
   );
@@ -610,6 +824,9 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
   if (projection.onboarding_submitted_at) {
     events.push({ at: projection.onboarding_submitted_at, label: 'Onboarding form submitted' });
   }
+  if (projection.onboarding_marked_done_at) {
+    events.push({ at: projection.onboarding_marked_done_at, label: 'Onboarding marked complete by staff' });
+  }
   if (projection.property_id && projection.updated_at) {
     events.push({ at: projection.updated_at, label: 'Promoted to managed property' });
   }
@@ -678,8 +895,8 @@ function DeliverableActions({
   extraAction,
 }: {
   projectionId: string;
-  type: 'projection' | 'guide' | 'contract';
-  openSlug: 'render' | 'guide' | 'contract';
+  type: 'projection' | 'guide' | 'contract' | 'readiness';
+  openSlug: 'render' | 'guide' | 'contract' | 'readiness';
   downloadLabel: string;
   extraAction?: React.ReactNode;
 }) {
@@ -709,6 +926,13 @@ function DeliverableActions({
 
 /** Public-link row used by Signed + Onboarding stages — code box + Open ↗. */
 function LinkRow({ link }: { link: string }) {
+  // The link is an absolute path (e.g. /contract/<token>). For the
+  // Copy button we want the FULL URL with protocol+host so paste-into-
+  // email yields a clickable link. resolve at server-render time via
+  // the public site domain — falls back to the relative path if the
+  // env var isn't set (dev / local).
+  const base = process.env.NEXT_PUBLIC_HELM_ORIGIN || 'https://statements.risingtidestr.com';
+  const fullUrl = link.startsWith('http') ? link : `${base}${link}`;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
       <code
@@ -726,6 +950,7 @@ function LinkRow({ link }: { link: string }) {
       >
         {link}
       </code>
+      <CopyLinkButton text={fullUrl} />
       <Link
         href={link}
         target="_blank"

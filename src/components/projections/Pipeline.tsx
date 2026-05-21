@@ -61,6 +61,10 @@ export function Stage({
 /**
  * Small caps date text used in stage status lines + activity log entries.
  * Formats an ISO timestamp as "May 1, 2026 · 4:23 PM".
+ *
+ * Pinned to America/New_York because this is server-rendered on Vercel
+ * (UTC) and every Rising Tide user is on Eastern — without the tz hint
+ * timestamps would read 4–5 hours ahead of local.
  */
 export function fmtTouchTs(iso: string): string {
   try {
@@ -70,19 +74,23 @@ export function fmtTouchTs(iso: string): string {
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+      timeZone: 'America/New_York',
     });
   } catch {
     return iso.slice(0, 10);
   }
 }
 
-/** Short date for stage status lines: "May 1, 2026". */
+/** Short date for stage status lines: "May 1, 2026". Eastern-pinned for
+ *  the same reason as fmtTouchTs — a Gmail send at 11pm EDT would
+ *  otherwise display as the next day. */
 export function fmtTouchDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'America/New_York',
     });
   } catch {
     return iso.slice(0, 10);
@@ -112,7 +120,11 @@ export function gmailStatus(touch: GmailTouchEntry | undefined, fallback?: { sen
 export function lockedReason(p: ProjectionRow): React.ReactNode {
   const missing: string[] = [];
   if (!p.contract_signed_at) missing.push('signed contract');
-  if (!p.onboarding_submitted_at) missing.push('onboarding submission');
+  // Onboarding counts as done if the owner submitted the form OR a staff
+  // member manually marked it complete.
+  if (!p.onboarding_submitted_at && !p.onboarding_marked_done_at) {
+    missing.push('onboarding');
+  }
   if (missing.length === 0) return null;
   return <>Awaiting {missing.join(' + ')}</>;
 }

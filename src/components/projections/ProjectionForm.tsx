@@ -1,6 +1,8 @@
 import type { Owner, ProjectionRow } from '@/lib/projections-types';
 import { CustomClausesField } from './CustomClausesField';
 import { OwnersSection } from './OwnersSection';
+import { MoneyInput } from './MoneyInput';
+import { FormSubmitButton } from './FormSubmitButton';
 
 /**
  * Shared input form for new + edit projections. Submits to a server action
@@ -52,14 +54,6 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
               style={inputStyle}
             />
           </Field>
-          <Field label="City, State, ZIP">
-            <input
-              name="property_city"
-              defaultValue={v.property_city ?? ''}
-              placeholder="Rockport, MA 01930"
-              style={inputStyle}
-            />
-          </Field>
           <Field label="Property type">
             <select
               name="property_type"
@@ -73,6 +67,11 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
               <option value="Apartment">Apartment</option>
             </select>
           </Field>
+          {/* Carry the existing property_city through unchanged on edits so
+              we don't accidentally clobber a manually-set city (e.g. 20 Enon
+              Rd / Beverly MA, whose Market is Gloucester). New prospects
+              skip this and the server derives the city from `market`. */}
+          <input type="hidden" name="property_city" defaultValue={v.property_city ?? ''} />
         </Row>
         <Row>
           <Field label="Market" required>
@@ -102,16 +101,14 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
             </select>
           </Field>
           <Field label="Home value" required hint="Zillow-equivalent">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="home_value"
               required
-              type="number"
               min={0}
               step={1000}
               defaultValue={v.home_value ?? ''}
-              placeholder="850000"
-              style={moneyInputStyle}
-            /></div>
+              placeholder="850,000"
+            />
           </Field>
         </Row>
         <Row>
@@ -226,26 +223,22 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
         </Row>
         <Row>
           <Field label="Base cleaning ($)" required hint="Per turnover">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="base_cleaning"
               required
-              type="number"
               min={0}
               step={5}
               defaultValue={v.base_cleaning ?? 200}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
           <Field label="Add'l per BR > 2 ($)" required>
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="addl_cleaning_per_br"
               required
-              type="number"
               min={0}
               step={5}
               defaultValue={v.addl_cleaning_per_br ?? 50}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
         </Row>
       </Section>
@@ -259,46 +252,38 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
         </p>
         <Row>
           <Field label="Revenue override — Low ($)">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="revenue_override_low"
-              type="number"
               min={0}
               step={1000}
               defaultValue={v.revenue_override_low ?? ''}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
           <Field label="Revenue override — High ($)">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="revenue_override_high"
-              type="number"
               min={0}
               step={1000}
               defaultValue={v.revenue_override_high ?? ''}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
         </Row>
         <Row>
           <Field label="Hero range — Low ($)" hint="Cover page lower bound">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="hero_low_override"
-              type="number"
               min={0}
               step={1000}
               defaultValue={v.hero_low_override ?? ''}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
           <Field label="Hero range — High ($)" hint="Cover page upper bound">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="hero_high_override"
-              type="number"
               min={0}
               step={1000}
               defaultValue={v.hero_high_override ?? ''}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
         </Row>
       </Section>
@@ -331,37 +316,31 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
         </Row>
         <Row>
           <Field label="Initial deposit ($)" required>
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="initial_deposit"
               required
-              type="number"
               min={0}
               step={100}
               defaultValue={v.initial_deposit ?? 2000}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
           <Field label="Min account balance ($)" required>
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="min_account_balance"
               required
-              type="number"
               min={0}
               step={100}
               defaultValue={v.min_account_balance ?? 2000}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
           <Field label="Reputation damages ($)" required hint="If owner sells without notice">
-            <div style={moneyWrapStyle}><span style={moneyPrefixStyle} aria-hidden="true">$</span><input
+            <MoneyInput
               name="reputation_fee"
               required
-              type="number"
               min={0}
               step={500}
               defaultValue={v.reputation_fee ?? 5000}
-              style={moneyInputStyle}
-            /></div>
+            />
           </Field>
         </Row>
         <Row>
@@ -404,22 +383,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
       
 
       <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 24, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          type="submit"
-          style={{
-            background: 'var(--ink)',
-            color: 'var(--paper)',
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            padding: '14px 28px',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          {submitLabel} →
-        </button>
+        <FormSubmitButton label={submitLabel} />
         {lastSavedAt ? (
           <span
             style={{
@@ -458,11 +422,15 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
 
 function formatSavedAt(iso: string): string {
   try {
+    // Pin to Rising Tide HQ tz — this component renders server-side and
+    // Vercel runs in UTC, so without a timeZone hint the chip would read
+    // 4h ahead of local. All staff are on Eastern, so it's a hard pin.
     return new Date(iso).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+      timeZone: 'America/New_York',
     });
   } catch {
     return iso;
@@ -545,32 +513,6 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
 };
 
-
-const moneyWrapStyle: React.CSSProperties = {
-  position: 'relative',
-  display: 'block',
-  width: '100%',
-};
-const moneyPrefixStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 12,
-  top: '50%',
-  transform: 'translateY(-50%)',
-  fontSize: 14,
-  color: 'var(--ink-3)',
-  pointerEvents: 'none',
-  fontFamily: 'var(--font-fraunces), "Times New Roman", serif',
-};
-const moneyInputStyle: React.CSSProperties = {
-  background: 'var(--paper)',
-  border: '1px solid var(--rule)',
-  color: 'var(--ink)',
-  fontSize: 14,
-  fontWeight: 400,
-  padding: '10px 12px 10px 24px',
-  outline: 'none',
-  width: '100%',
-};
 
 const selectStyle: React.CSSProperties = {
   ...inputStyle,

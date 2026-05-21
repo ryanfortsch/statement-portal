@@ -474,10 +474,15 @@ export const CONTRACT_BASE: ContractPage[] = [
  *  `depth` indicates nesting level: 0 = top-level bullet/paragraph in a
  *  section; 1 = first-level child (sub-bullet); 2 = grandchild; etc. The
  *  LLM uses depth to anchor 'add' overrides at the right nesting level. */
-export function listContractIds(): {
+export function listContractIds(pages: ContractPage[] = CONTRACT_BASE): {
   sections: { id: string; title: string }[];
   clauses: { id: string; sectionId: string; depth: number; preview: string }[];
 } {
+  // Defaults to the base contract, but callers can pass a post-override
+  // tree (base + applied redlines) so the inventory reflects the CURRENT
+  // contract — including clauses added by previous redlines. Without that,
+  // the interpret prompt couldn't see (and therefore couldn't delete or
+  // modify) a clause a prior redline had added.
   const sections: { id: string; title: string }[] = [];
   const clauses: { id: string; sectionId: string; depth: number; preview: string }[] = [];
   const collect = (sectionId: string, c: ContractClause | ContractKv, depth: number) => {
@@ -488,7 +493,7 @@ export function listContractIds(): {
     clauses.push({ id: c.id, sectionId, depth, preview: previewText(c.template, c.boldPrefix) });
     for (const child of c.children ?? []) collect(sectionId, child, depth + 1);
   };
-  for (const page of CONTRACT_BASE) {
+  for (const page of pages) {
     for (const s of page.sections) {
       sections.push({ id: s.id, title: s.title });
       if (s.intro) collect(s.id, s.intro, 0);

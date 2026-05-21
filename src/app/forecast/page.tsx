@@ -1,6 +1,8 @@
+import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { ForecastClient } from './ForecastClient';
+import { CleaningCostsSection } from './CleaningCostsSection';
 import { isConfigured } from '@/lib/supabase';
 import {
   forwardMonths,
@@ -266,7 +268,7 @@ export default async function ForecastPage() {
     getProspectForecast(2026),
     getProspectForecast(2027),
     getProspectForecast(2028),
-    getStatementRevenueByMonth([2026, 2027, 2028]),
+    getStatementRevenueByMonth(),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
@@ -292,6 +294,31 @@ export default async function ForecastPage() {
         prospects2028={prospects2028}
         statementRevenue={statementRevenue}
       />
+
+      {/*
+        Cleaning costs pull invoices from Gmail — slow and unrelated to the
+        forecast model. Suspense-stream it so it never blocks the page.
+      */}
+      <Suspense
+        fallback={
+          <section
+            className="max-w-[1100px] mx-auto px-10"
+            style={{ paddingBottom: 32, width: '100%' }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--ink-3)',
+                fontStyle: 'italic',
+              }}
+            >
+              Loading cleaning costs…
+            </div>
+          </section>
+        }
+      >
+        <CleaningCostsSection />
+      </Suspense>
 
       <HelmFooter
         module="Forecast"
