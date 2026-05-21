@@ -20,6 +20,17 @@ export type CampaignDraftContext = {
     pageUrl: string | null;
     /** Public hero image URL, or null if we don't have one yet. */
     heroUrl: string | null;
+    /** Marketing memory: how we actually sell this home. */
+    marketing: {
+      tagline: string | null;
+      primarySellingPoint: string | null;
+      sellingPoints: string[];
+      onWater: boolean;
+      bedrooms: number | null;
+      sleeps: number | null;
+      bestFor: string | null;
+      notes: string | null;
+    } | null;
   }>;
   /** Picked segment for this draft, or null if not picked yet. */
   segment: {
@@ -29,6 +40,18 @@ export type CampaignDraftContext = {
     isWeekly: boolean;
     isInsider: boolean;
   } | null;
+};
+
+type MarketingRow = {
+  property_id: string;
+  tagline: string | null;
+  primary_selling_point: string | null;
+  selling_points: string[] | null;
+  on_water: boolean;
+  bedrooms: number | null;
+  sleeps: number | null;
+  best_for: string | null;
+  notes: string | null;
 };
 
 const NEIGHBORHOOD: Record<string, string> = {
@@ -51,9 +74,10 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
   // populated by /api/sync-guesty. That's more reliable than
   // properties.guesty_listing_id which is a denormalized snapshot that
   // can be null for properties that haven't had it set manually.
-  const [propsResult, listingsResult] = await Promise.all([
+  const [propsResult, listingsResult, marketingResult] = await Promise.all([
     supabase.from('properties').select('id, title').eq('is_active', true),
     supabase.from('guesty_listings').select('property_id, listing_id'),
+    supabase.from('property_marketing').select('*'),
   ]);
 
   const titleById = new Map<string, string | null>();
@@ -69,14 +93,34 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     }
   }
 
+  const marketingById = new Map<string, MarketingRow>();
+  for (const row of (marketingResult.data ?? []) as MarketingRow[]) {
+    marketingById.set(row.property_id, row);
+  }
+
   const properties = Object.values(PROPERTIES)
     .filter((p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th') // Ryan's personal, not guest-facing
-    .map((p: Property) => ({
-      title: titleById.get(p.id) ?? null,
-      neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
-      pageUrl: pageUrlForGuestyListing(guestyIdById.get(p.id) ?? null),
-      heroUrl: heroUrlForProperty(p.id),
-    }));
+    .map((p: Property) => {
+      const m = marketingById.get(p.id);
+      return {
+        title: titleById.get(p.id) ?? null,
+        neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
+        pageUrl: pageUrlForGuestyListing(guestyIdById.get(p.id) ?? null),
+        heroUrl: heroUrlForProperty(p.id),
+        marketing: m
+          ? {
+              tagline: m.tagline,
+              primarySellingPoint: m.primary_selling_point,
+              sellingPoints: m.selling_points ?? [],
+              onWater: m.on_water,
+              bedrooms: m.bedrooms,
+              sleeps: m.sleeps,
+              bestFor: m.best_for,
+              notes: m.notes,
+            }
+          : null,
+      };
+    });
 
   let segment: CampaignDraftContext['segment'] = null;
   if (args.segmentId) {
@@ -114,19 +158,33 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 export function formatContextBlock(ctx: CampaignDraftContext): string {
   const lines: string[] = [];
 
-  lines.push('Homes we manage. Refer to each home ONLY by its guest-facing title');
-  lines.push('and neighborhood. NEVER use a street address or internal name. When a home');
-  lines.push('has no title (null), use the neighborhood phrase ("the home on the Neck").');
+  lines.push('Homes we manage, with how we actually market each one. Refer to each home');
+  lines.push('ONLY by its guest-facing title and neighborhood. NEVER use a street address');
+  lines.push('or internal name. Write COMPLETE sentences using the selling points below;');
+  lines.push('do not invent details or write fragments. Lead with the primary selling');
+  lines.push('point. If a home is on the water, that is the headline.');
   lines.push('');
   for (const p of ctx.properties) {
     const titlePart = p.title ? `"${p.title}"` : '(no guest-facing title set)';
-    const pagePart = p.pageUrl ? `  page: ${p.pageUrl}` : '  page: (none)';
-    const heroPart = p.heroUrl ? `  hero: ${p.heroUrl}` : '  hero: (not available, use heading + link only)';
     lines.push(`  - ${titlePart}, ${p.neighborhood}`);
-    lines.push(pagePart);
-    lines.push(heroPart);
+    lines.push(`    page: ${p.pageUrl ?? '(none, render card without a link)'}`);
+    lines.push(`    hero: ${p.heroUrl ?? '(not available, use heading + link only)'}`);
+    if (p.marketing) {
+      const m = p.marketing;
+      if (m.onWater) lines.push('    ON THE WATER (lead with this)');
+      if (m.primarySellingPoint) lines.push(`    primary selling point: ${m.primarySellingPoint}`);
+      if (m.tagline) lines.push(`    tagline: ${m.tagline}`);
+      if (m.sleeps) lines.push(`    sleeps ${m.sleeps}${m.bedrooms ? `, ${m.bedrooms} bedrooms` : ''}`);
+      if (m.bestFor) lines.push(`    best for: ${m.bestFor}`);
+      if (m.sellingPoints.length > 0) {
+        lines.push(`    selling points: ${m.sellingPoints.join('; ')}`);
+      }
+      if (m.notes) lines.push(`    notes: ${m.notes}`);
+    } else {
+      lines.push('    (no marketing memory yet, describe only from neighborhood)');
+    }
+    lines.push('');
   }
-  lines.push('');
 
   if (ctx.segment) {
     lines.push(`Sending to: ${ctx.segment.name} (${ctx.segment.recipientCount} recipients).`);

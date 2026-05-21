@@ -136,6 +136,9 @@ export default async function GuestPage({
           <Link href="/guests/segments" style={secondaryButtonStyle}>
             Segments ({segments.length})
           </Link>
+          <Link href="/guests/marketing" style={secondaryButtonStyle}>
+            Marketing Memory
+          </Link>
           <span style={{ flex: 1 }} />
           <details style={{ position: 'relative' }}>
             <summary style={{ ...secondaryButtonStyle, cursor: 'pointer', listStyle: 'none' }}>
