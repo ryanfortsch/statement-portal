@@ -104,6 +104,15 @@ export type ReviewListFilters = {
   channel?: string;
   /** Free-text search against guest_name + public_review. */
   search?: string;
+  /**
+   * Rolling-window scope in days. When set, only reviews whose
+   * review_created_at lands within the last N days are returned. Must
+   * match the window the page's stat strip uses (getReviewWindowStats)
+   * so the list and the stats never disagree — a 30-day stat strip
+   * sitting above an all-time list was the original "0 below five next
+   * to a 4-star review" bug. Undefined = no date floor (all-time).
+   */
+  days?: number;
   /** Page size, default 50. */
   limit?: number;
 };
@@ -119,6 +128,10 @@ export async function listReviews(filters: ReviewListFilters = {}): Promise<Revi
       .order('review_created_at', { ascending: false })
       .limit(filters.limit ?? 50);
 
+    if (filters.days != null && filters.days > 0) {
+      const sinceISO = new Date(Date.now() - filters.days * DAY_MS).toISOString();
+      q = q.gte('review_created_at', sinceISO);
+    }
     if (filters.rating === '5') q = q.gte('overall_rating', 5);
     else if (filters.rating === 'below') q = q.lt('overall_rating', 5);
     if (filters.propertyId) q = q.eq('property_id', filters.propertyId);

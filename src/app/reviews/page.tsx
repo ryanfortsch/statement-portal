@@ -71,7 +71,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Sear
 
   const [stats, reviews, channels, propertyOptions] = await Promise.all([
     getReviewWindowStats(days),
-    listReviews({ rating, propertyId, channel, search, limit: 100 }),
+    listReviews({ rating, propertyId, channel, search, days, limit: 100 }),
     listReviewChannels(),
     getPropertyOptions(),
   ]);
