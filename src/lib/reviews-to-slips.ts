@@ -60,17 +60,32 @@ export type ReviewsToSlipsResult = {
  * by the sync routes; in dev with anon it works because work_slips RLS
  * is permissive.
  */
+/**
+ * Only consider reviews from the trailing window. Without this, the first
+ * successful run would generate a slip for every below-five / feedback
+ * review in all of history (~years), flooding the work queue with stale
+ * items. The daily cron keeps the window covered going forward, so a
+ * review is always seen within its first WINDOW_DAYS. The dedup index
+ * means re-checking already-slipped reviews on each run is harmless.
+ */
+const WINDOW_DAYS = 45;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export async function createSlipsFromActionableReviews(
   supabase: SupabaseClient,
+  windowDays = WINDOW_DAYS,
 ): Promise<ReviewsToSlipsResult> {
-  // 1. Pull every potentially-actionable review (rating below 5 OR
-  //    private_feedback present). Empty-string private_feedback gets
-  //    filtered in JS since PostgREST can't express "non-empty trimmed."
+  // 1. Pull potentially-actionable reviews in the trailing window
+  //    (rating below 5 OR private_feedback present). Empty-string
+  //    private_feedback gets filtered in JS since PostgREST can't
+  //    express "non-empty trimmed."
+  const sinceISO = new Date(Date.now() - windowDays * DAY_MS).toISOString();
   const { data: candidates, error: readErr } = await supabase
     .from('reviews')
     .select(
       'id, property_id, guest_name, channel, overall_rating, public_review, private_feedback, review_created_at',
     )
+    .gte('review_created_at', sinceISO)
     .or('overall_rating.lt.5,private_feedback.not.is.null');
   if (readErr) {
     throw new Error(`reviews read failed: ${readErr.message}`);
@@ -145,7 +160,12 @@ export async function createSlipsFromActionableReviews(
       alreadyHadSlip += 1;
       continue;
     }
-    if (!r.property_id) {
+    // Skip reviews whose property_id isn't a Helm-tracked property. Some
+    // reviews sync from Guesty for Ryan's personal units (3246_ne_27th,
+    // 65_calderwood) that are intentionally excluded from public.properties.
+    // work_slips.property_id has an FK to properties, so a slip for those
+    // would violate it and (in a bulk insert) take down the whole batch.
+    if (!r.property_id || !propertyNames.has(r.property_id)) {
       skippedNoProperty += 1;
       continue;
     }
