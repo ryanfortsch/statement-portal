@@ -16,10 +16,11 @@ export default async function ReviewsRedirect({
 }) {
   const sp = await searchParams;
   const qs = new URLSearchParams();
-  qs.set('tab', 'reviews');
+  // Reviews is the default lens at bare /guests — no tab param needed.
   for (const key of ['days', 'rating', 'channel', 'property', 'q'] as const) {
     const v = sp[key];
     if (typeof v === 'string' && v) qs.set(key, v);
   }
-  redirect(`/guests?${qs.toString()}`);
+  const query = qs.toString();
+  redirect(query ? `/guests?${query}` : '/guests');
 }

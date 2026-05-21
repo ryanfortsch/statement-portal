@@ -393,7 +393,7 @@ export default async function HelmHome() {
               );
               return `${rate}% five-star · last 30 days`;
             })()}
-            href="/guests?tab=reviews&days=30"
+            href="/guests?days=30"
             size="hero"
             accent={
               stats.reviews30dTotal > 0 &&

@@ -133,7 +133,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
             <div className="eyebrow">Reviews</div>
             <Link
-              href={`/guests?tab=reviews&q=${encodeURIComponent(displayName(contact))}`}
+              href={`/guests?q=${encodeURIComponent(displayName(contact))}`}
               className="eyebrow"
               style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
             >

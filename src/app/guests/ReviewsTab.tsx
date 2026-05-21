@@ -19,7 +19,8 @@ import {
  * the tab keeps you on the tab. /reviews now redirects here.
  */
 
-const TAB_BASE = '/guests?tab=reviews';
+// Reviews is the default lens, so its links are the bare /guests path.
+const TAB_BASE = '/guests';
 
 const VALID_RATINGS: ReviewListFilters['rating'][] = ['5', 'below'];
 const VALID_WINDOWS = [7, 30, 90, 365] as const;
@@ -132,8 +133,8 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
           className="rt-helm-filter-bar"
           style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
         >
-          {/* Keep the GET on the reviews tab. */}
-          <input type="hidden" name="tab" value="reviews" />
+          {/* Reviews is the default lens, so the GET submits to bare
+              /guests with no tab param. */}
           <input type="hidden" name="days" value={days} />
           <input
             name="q"
@@ -161,7 +162,7 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
           <button type="submit" style={buttonStyle}>Filter</button>
           {(rating || propertyId || channel || search) && (
             <Link
-              href={`${TAB_BASE}&days=${days}`}
+              href={`${TAB_BASE}?days=${days}`}
               style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}
             >
               Clear
@@ -205,7 +206,7 @@ function WindowSwitcher({ current }: { current: WindowDays }) {
         return (
           <Link
             key={d}
-            href={`${TAB_BASE}&days=${d}`}
+            href={`${TAB_BASE}?days=${d}`}
             style={{
               fontSize: 11,
               letterSpacing: '.16em',

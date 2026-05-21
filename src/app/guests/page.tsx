@@ -33,10 +33,11 @@ export default async function GuestPage({
 }) {
   const sp = await searchParams;
 
-  // Reviews tab: a different lens on the same people. Render the section
-  // shell (masthead + hero + tab bar) and hand off to ReviewsTab. We
-  // skip the contacts data fetch entirely on this tab.
-  if (sp.tab === 'reviews') {
+  // Reviews is the DEFAULT lens for the Guests section — opening /guests
+  // lands here. Contacts is the click-in (/guests?tab=contacts). Render
+  // the section shell (masthead + hero + tab bar) and hand off to
+  // ReviewsTab, skipping the contacts data fetch entirely on this tab.
+  if (sp.tab !== 'contacts') {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead current="guests" />
@@ -203,6 +204,8 @@ export default async function GuestPage({
       {/* SEARCH + TAG FILTERS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <form method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Keep the GET on the Contacts tab — Reviews is the bare-/guests default. */}
+          <input type="hidden" name="tab" value="contacts" />
           <input
             name="q"
             defaultValue={search}
@@ -219,7 +222,7 @@ export default async function GuestPage({
           {tag && <input type="hidden" name="tag" value={tag} />}
           <button type="submit" style={secondaryButtonStyle}>Filter</button>
           {(search || tag || status !== 'all') && (
-            <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
+            <Link href="/guests?tab=contacts" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
               Clear
             </Link>
           )}
@@ -231,10 +234,11 @@ export default async function GuestPage({
             {stats.topTags.map((t) => {
               const active = t.tag === tag;
               const params = new URLSearchParams();
+              params.set('tab', 'contacts');
               if (search) params.set('q', search);
               if (status !== 'all') params.set('status', status);
               if (!active) params.set('tag', t.tag);
-              const href = `/guests${params.toString() ? '?' + params.toString() : ''}`;
+              const href = `/guests?${params.toString()}`;
               return (
                 <Link
                   key={t.tag}

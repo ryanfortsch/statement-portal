@@ -8,9 +8,10 @@ import Link from 'next/link';
  * state.
  */
 export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' }) {
+  // Reviews is the default lens (bare /guests); Contacts is the click-in.
   const tabs = [
-    { id: 'contacts', label: 'Contacts', href: '/guests' },
-    { id: 'reviews', label: 'Reviews', href: '/guests?tab=reviews' },
+    { id: 'reviews', label: 'Reviews', href: '/guests' },
+    { id: 'contacts', label: 'Contacts', href: '/guests?tab=contacts' },
   ] as const;
 
   return (
