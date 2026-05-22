@@ -278,6 +278,42 @@ export async function loadOperationsData(
         (!propertyId || r.property_id === propertyId)
     );
 
+  // Guest-name fallback. Airbnb stays enter `bookings` via iCal, which
+  // carries no guest name, so ~30% of bookings land with guest_name null
+  // and render as "Unnamed guest." The legacy guesty_reservations mirror
+  // (still synced) DOES have those names. Bridge the gap at read time: for
+  // any blank-name booking, look up the matching Guesty stay by
+  // (property_id, check_in, check_out) and fill the name in. Composing at
+  // read time means the next iCal re-sync can't clobber it. Remove once the
+  // Channels pipeline sources Airbnb guest names directly.
+  const blankNameReservations = reservations.filter(
+    (r) => !r.guest_name || r.guest_name.trim() === ''
+  );
+  if (blankNameReservations.length > 0) {
+    const { data: guestyData } = await supabase
+      .from('guesty_reservations')
+      .select('property_id, check_in, check_out, guest_name')
+      .lte('check_in', fetchEnd)
+      .gte('check_out', fetchStart);
+
+    const guestyNameByKey = new Map<string, string>();
+    for (const g of (guestyData ?? []) as Array<{
+      property_id: string;
+      check_in: string;
+      check_out: string;
+      guest_name: string | null;
+    }>) {
+      if (g.guest_name && g.guest_name.trim()) {
+        guestyNameByKey.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g.guest_name);
+      }
+    }
+
+    for (const r of blankNameReservations) {
+      const match = guestyNameByKey.get(`${r.property_id}|${r.check_in}|${r.check_out}`);
+      if (match) r.guest_name = match;
+    }
+  }
+
   // Pull inspections in the same window for matching.
   const { data: inspData, error: inspErr } = await supabase
     .from('inspections')
