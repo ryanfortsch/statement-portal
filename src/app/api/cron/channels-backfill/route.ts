@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
+import { backfillBookingFinance } from '@/lib/finance-backfill';
 
 export const maxDuration = 300;
 
@@ -21,7 +22,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await backfillGuestyToBookings({});
-    return NextResponse.json(result);
+    // Then pool money onto each canonical booking. Runs after the bookings
+    // backfill + its dedup so finance attaches to the surviving canonical row.
+    let finance = null;
+    try {
+      finance = await backfillBookingFinance();
+    } catch (err) {
+      console.error('[cron/channels-backfill] finance backfill failed:', err);
+    }
+    return NextResponse.json({ ...result, finance });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/does not exist|relation .* does not exist/i.test(msg)) {
