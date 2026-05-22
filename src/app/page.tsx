@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -8,6 +9,7 @@ import { loadOperationsData } from '@/lib/operations';
 import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
 import { AskHelm } from '@/components/AskHelm';
+import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -53,11 +55,25 @@ type DashboardStats = {
   reviews30dBelowFive: number;
 };
 
-async function getDashboardStats(): Promise<DashboardStats> {
+/** Operations data for the home page, fetched once and shared by the
+ *  inspections tile (turnover counts) and the occupancy calendar under
+ *  Today's Signals. '7d' matches the /operations default calendar window. */
+type HomeOps = Awaited<ReturnType<typeof loadOperationsData>> | null;
+
+async function loadHomeOps(): Promise<HomeOps> {
+  if (!isHelmConfigured) return null;
+  try {
+    return await loadOperationsData('7d', '7d');
+  } catch {
+    return null;
+  }
+}
+
+async function getDashboardStats(ops: HomeOps): Promise<DashboardStats> {
   const [propertyStats, helmStats, opsStats, actualPayout, reviews] = await Promise.all([
     getPropertyStats(),
     getHelmStats(),
-    getOperationalStats(),
+    getOperationalStats(ops),
     getCurrentMonthActualPayout(),
     getReviewWindowStats(30),
   ]);
@@ -95,7 +111,7 @@ async function getCurrentMonthActualPayout(): Promise<number | null> {
 const ACTIVE_SLIP_STATUSES = ['open', 'in_progress', 'scheduled'];
 const ACTIVE_TASK_STATUSES = ['open', 'in_progress', 'blocked'];
 
-async function getOperationalStats() {
+async function getOperationalStats(ops: HomeOps) {
   if (!isHelmConfigured) {
     return {
       activeSlips: null,
@@ -115,7 +131,6 @@ async function getOperationalStats() {
       { count: highSlips },
       { count: ownerSlips },
       { count: activeTasks },
-      ops,
     ] = await Promise.all([
       supabase
         .from('work_slips')
@@ -138,17 +153,18 @@ async function getOperationalStats() {
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_TASK_STATUSES),
-      // Use the same source /operations uses so the home tile and the
-      // operations page agree. loadOperationsData filters out cancelled
-      // reservations and non-operations properties; counting plan rows
-      // directly under-counts because most check-ins don't have a plan
-      // row yet (the plan is created when someone clicks Plan a walk).
-      loadOperationsData('7d', '7d'),
     ]);
 
+    // Inspection counts come from the shared loadHomeOps fetch — the same
+    // source /operations uses, so the home tile and the operations page
+    // agree. Counting plan rows directly under-counts because most
+    // check-ins don't have a plan row yet (the plan is created when
+    // someone clicks Plan a walk).
     const opsTotal = ops?.totalCount ?? 0;
     const opsDone = ops?.inspectionDoneCount ?? 0;
-    const upcoming = Math.max(0, opsTotal - opsDone);
+    // ops is null only when the shared fetch failed; keep the tile on "—"
+    // rather than implying a real zero.
+    const upcoming = ops ? Math.max(0, opsTotal - opsDone) : null;
 
     return {
       activeSlips: activeSlips ?? 0,
@@ -157,7 +173,7 @@ async function getOperationalStats() {
       activeTasks: activeTasks ?? 0,
       inspectionsThisWeek: upcoming,
       inspectionsPlanned: upcoming,
-      inspectionsCompleted: opsDone,
+      inspectionsCompleted: ops ? opsDone : null,
     };
   } catch {
     return {
@@ -247,7 +263,8 @@ async function getHelmStats() {
 }
 
 export default async function HelmHome() {
-  const stats = await getDashboardStats();
+  const ops = await loadHomeOps();
+  const stats = await getDashboardStats(ops);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -351,6 +368,32 @@ export default async function HelmHome() {
           />
         </div>
       </section>
+
+      {/* OCCUPANCY CALENDAR — next 7 days, shared with the Turnovers page */}
+      {ops?.calendar && ops.calendar.rows.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 64 }}>
+          <div
+            className="flex items-baseline justify-between flex-wrap"
+            style={{ gap: 12, marginBottom: 14 }}
+          >
+            <div className="eyebrow">On the calendar</div>
+            <Link
+              href="/operations"
+              style={{
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                color: 'var(--ink-3)',
+                textDecoration: 'none',
+              }}
+            >
+              All turnovers →
+            </Link>
+          </div>
+          <OccupancyCalendar calendar={ops.calendar} />
+        </section>
+      )}
 
       {/* TEAM ACTIVITY */}
       <div style={{ flex: 1 }}>
