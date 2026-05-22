@@ -6,8 +6,8 @@
  *
  *   - HelmMasthead (variant: 'masthead', default) — small, rule-bordered
  *     trigger sitting next to the user menu. Visible on every page.
- *   - The home page (variant: 'prominent') — a larger sibling to the
- *     "What's on for you" CTA. Replaces the inline live search input.
+ *   - The home page (variant: 'prominent') — a full-width "Ask Helm" bar
+ *     that opens the palette straight into Ask (Claude Q&A) mode.
  *
  * Communicates with CommandPalette via a custom DOM event, so any
  * button can open the palette without prop drilling.
@@ -26,16 +26,18 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
     setIsMac(navigator.platform.toLowerCase().includes('mac'));
   }, []);
 
-  function open() {
-    window.dispatchEvent(new Event('helm:open-command-palette'));
+  function open(mode?: 'search' | 'ask') {
+    window.dispatchEvent(
+      new CustomEvent('helm:open-command-palette', { detail: { mode } }),
+    );
   }
 
   if (variant === 'prominent') {
     return (
       <button
         type="button"
-        onClick={open}
-        aria-label="Open search palette"
+        onClick={() => open('ask')}
+        aria-label="Ask Helm"
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -58,7 +60,7 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
       >
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <SearchIcon />
-          <span>Search Helm</span>
+          <span>Ask Helm</span>
         </span>
         <kbd
           className="font-mono"
@@ -81,8 +83,8 @@ export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
   return (
     <button
       type="button"
-      onClick={open}
-      aria-label="Open search palette"
+      onClick={() => open()}
+      aria-label="Search Helm"
       title="Search Helm (⌘K)"
       className="rt-helm-search-trigger"
       style={{
