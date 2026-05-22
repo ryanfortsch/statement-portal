@@ -13,6 +13,10 @@ export const BOOKING_CHANNELS = [
   'direct',
   'manual',
   'block',
+  // 'guesty' marks a channel_listings row that is the Guesty per-listing
+  // aggregate feed (all channels in one .ics). The sync parses each event into
+  // its real channel, so a *booking* is never stored as channel='guesty'.
+  'guesty',
   'other',
 ] as const;
 export type BookingChannel = (typeof BOOKING_CHANNELS)[number];
@@ -123,6 +127,7 @@ export const CHANNEL_LABELS: Record<BookingChannel, string> = {
   direct: 'Direct',
   manual: 'Manual',
   block: 'Block',
+  guesty: 'Guesty (all channels)',
   other: 'Other',
 };
 
@@ -149,5 +154,6 @@ export const ICAL_HINTS: Record<BookingChannel, string> = {
   direct: 'No external feed for direct stays — bookings land via the Helm direct-booking form.',
   manual: 'Manual entries do not have an iCal feed.',
   block: 'Owner blocks are entered in Helm; no inbound feed.',
+  guesty: 'Guesty → Listing → Calendar → Export. One feed carries every channel; Helm parses each into its real channel.',
   other: 'Pick one of the supported channels.',
 };
