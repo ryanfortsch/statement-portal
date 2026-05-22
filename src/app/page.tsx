@@ -2,7 +2,7 @@ import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
-import { computeDateRange, deltaPct } from '@/lib/revenue-date-range';
+import { computeDateRange } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { loadOperationsData } from '@/lib/operations';
 import { getReviewWindowStats } from '@/lib/reviews';
@@ -23,11 +23,11 @@ type DashboardStats = {
    *  delta on the Today's Signals strip. null when there's no prior period. */
   priorPayout: number | null;
   statementsCount: number;
-  /** Projected total owner payout for the CURRENT month, derived from
-   *  Guesty bookings on the books (pro-rated by nights). The "what we're
-   *  tracking to" complement to the closed-period payout. null when
+  /** Actual booked-so-far owner payout for the CURRENT month, recognized
+   *  at checkout from bookings already on the books. No pacing projection
+   *  (matches the /revenue page's default "Actuals" view). null when
    *  Guesty data isn't available. */
-  projectedCurrentMonthPayout: number | null;
+  currentMonthActualPayout: number | null;
   // Operational signals
   activeSlips: number | null;
   highPrioritySlips: number | null;
@@ -54,18 +54,18 @@ type DashboardStats = {
 };
 
 async function getDashboardStats(): Promise<DashboardStats> {
-  const [propertyStats, helmStats, opsStats, projected, reviews] = await Promise.all([
+  const [propertyStats, helmStats, opsStats, actualPayout, reviews] = await Promise.all([
     getPropertyStats(),
     getHelmStats(),
     getOperationalStats(),
-    getProjectedCurrentMonthPayout(),
+    getCurrentMonthActualPayout(),
     getReviewWindowStats(30),
   ]);
   return {
     ...propertyStats,
     ...helmStats,
     ...opsStats,
-    projectedCurrentMonthPayout: projected,
+    currentMonthActualPayout: actualPayout,
     reviews30dTotal: reviews.total,
     reviews30dFiveStar: reviews.fiveStar,
     reviews30dBelowFive: reviews.belowFive,
@@ -73,16 +73,19 @@ async function getDashboardStats(): Promise<DashboardStats> {
 }
 
 /**
- * Forecast for the *current calendar month* based on Guesty bookings
- * already on the books, pro-rated by nights. Reuses the same
- * computeRevenueSnapshot logic the /revenue page renders, just scoped
- * to "this month" so the home tile shows what we're tracking to.
+ * Actual owner payout booked so far this calendar month, recognized at
+ * checkout from bookings already on the books. Passes applyPacing:false so
+ * there's no occupancy projection — the home tile shows real money, the
+ * same "Actuals" the /revenue page defaults to. (Pacing is available there
+ * via the view toggle.)
  */
-async function getProjectedCurrentMonthPayout(): Promise<number | null> {
+async function getCurrentMonthActualPayout(): Promise<number | null> {
   if (!isHelmConfigured) return null;
   try {
     const { rangeStart, rangeEnd } = computeDateRange('this_month');
-    const { portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd);
+    const { portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd, {
+      applyPacing: false,
+    });
     return portfolio.totalPayout;
   } catch {
     return null;
@@ -319,37 +322,29 @@ export default async function HelmHome() {
           />
           <Stat
             label={(() => {
-              // When projection is available, headline the current month
-              // (what we're tracking to). Falls back to the latest closed
-              // period when there's no Guesty projection yet.
-              if (stats.projectedCurrentMonthPayout != null) {
-                return `${currentMonthShortName()} Tracking`;
+              // Headline the current month's booked-so-far payout. Falls
+              // back to the latest closed period when there's no Guesty
+              // data yet.
+              if (stats.currentMonthActualPayout != null) {
+                return `${currentMonthShortName()} payout`;
               }
-              return stats.latestMonth ? `${formatMonth(stats.latestMonth)} Payout` : 'Owner Payouts';
+              return stats.latestMonth ? `${formatMonth(stats.latestMonth)} payout` : 'Owner payouts';
             })()}
             value={(() => {
-              const tracking = stats.projectedCurrentMonthPayout;
-              if (tracking != null) return formatCurrency(tracking);
+              const actual = stats.currentMonthActualPayout;
+              if (actual != null) return actual > 0 ? formatCurrency(actual) : '—';
               return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
             })()}
             sub={(() => {
-              const tracking = stats.projectedCurrentMonthPayout;
-              if (tracking != null && stats.latestMonth && stats.totalPayout > 0) {
-                return `${formatMonth(stats.latestMonth)} closed at ${formatCurrency(stats.totalPayout)}`;
+              const actual = stats.currentMonthActualPayout;
+              if (actual != null) {
+                return stats.latestMonth && stats.totalPayout > 0
+                  ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`
+                  : 'booked so far';
               }
-              if (tracking != null) return 'projected from bookings';
               return stats.latestMonth ? 'latest period total' : 'no statements yet';
             })()}
-            delta={(() => {
-              const tracking = stats.projectedCurrentMonthPayout;
-              // When showing tracking: compare to last closed month (apples
-              // to oranges in calendar terms but the right "trending up vs
-              // last month" signal). Otherwise keep the closed-vs-prior
-              // delta the tile used before.
-              if (tracking != null && stats.totalPayout > 0) return deltaPct(tracking, stats.totalPayout);
-              return deltaPct(stats.totalPayout, stats.priorPayout);
-            })()}
-            href={stats.projectedCurrentMonthPayout != null ? '/revenue?range=this_month' : '/statements'}
+            href={stats.currentMonthActualPayout != null ? '/revenue?range=this_month' : '/statements'}
             size="hero"
             last
             accent
@@ -379,7 +374,7 @@ function formatMonth(month: string): string {
   }
 }
 
-/** "May" — used in the headline of the current-month tracking tile. */
+/** "May" — used in the headline of the current-month payout tile. */
 function currentMonthShortName(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long' });
 }
