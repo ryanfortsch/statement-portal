@@ -9,7 +9,7 @@ import {
   type QuoCall,
   type QuoPhoneNumber,
 } from '@/lib/quo';
-import { propertyFromListing } from '@/lib/properties';
+import { matchPropertyFromCleanerText } from '@/lib/properties';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -269,7 +269,7 @@ async function ingestCall(call: QuoCall, target: Target): Promise<boolean> {
 //    webhook handlers to a sync-only persistence path). ─────────────
 
 function attributeCleaningProperty(body: string, whitelist: string[]): string | null {
-  const fromBody = propertyFromListing(body)?.id ?? null;
+  const fromBody = matchPropertyFromCleanerText(body)?.id ?? null;
   if (fromBody) {
     if (whitelist.length === 0 || whitelist.includes(fromBody)) return fromBody;
   }
