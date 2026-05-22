@@ -308,3 +308,68 @@ export function propertyFromListing(listing: string): Property | undefined {
   }
   return undefined;
 }
+
+/**
+ * Match a free-text cleaner / vendor message to a property.
+ *
+ * propertyFromListing expects the full Guesty listing name as a
+ * substring ("73 rocky neck") — fine for platform notifications, useless
+ * for how cleaners actually text: "Hi Allie the house 73 it's ready",
+ * "53 rock neck done", "20 hammond all set". This matcher is tolerant of
+ * shorthand and typos:
+ *   - the bare street number when it uniquely identifies a property and
+ *     is ≥2 digits ("73" -> 73 Rocky Neck). Single digits ("3"/"4") are
+ *     too easy to hit by accident in free text, so they require a street
+ *     word.
+ *   - street number + a shortened / misspelled street word ("53 rock
+ *     neck" -> 53 Rocky Neck; "rock" stems to "rocky").
+ *   - the full listing_match substring (back-compat).
+ *
+ * Returns a property ONLY when the match is unambiguous. If nothing
+ * matches, or two properties could plausibly match, returns undefined —
+ * we never want to mis-attribute a cleaning to the wrong owner.
+ */
+export function matchPropertyFromCleanerText(body: string): Property | undefined {
+  if (!body) return undefined;
+  const text = ` ${body.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  const all = Object.values(PROPERTIES);
+
+  // How many properties share each leading street number (ambiguity guard
+  // for "20" = Hammond or Enon, "3" = South or Locust).
+  const numberCounts = new Map<string, number>();
+  for (const p of all) {
+    const num = p.name.match(/^(\d+)/)?.[1];
+    if (num) numberCounts.set(num, (numberCounts.get(num) ?? 0) + 1);
+  }
+
+  const matched = new Set<string>();
+  for (const p of all) {
+    // 1. Full listing name present (back-compat).
+    if (p.listing_match && text.includes(` ${p.listing_match} `)) { matched.add(p.id); continue; }
+    if (p.listing_match && text.includes(p.listing_match)) { matched.add(p.id); continue; }
+
+    const num = p.name.match(/^(\d+)/)?.[1] ?? '';
+    if (!num) continue;
+    if (!new RegExp(`(^| )${num}( |$)`).test(text)) continue;
+
+    // Street words after the number: "73 Rocky Neck" -> ["rocky","neck"].
+    const streetWords = p.name
+      .replace(/^\d+\s*/, '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length >= 3);
+    const wordPresent = streetWords.some((w) => text.includes(` ${w.slice(0, 4)}`));
+
+    // 2. number + a street word (typo/shorthand tolerant).
+    if (wordPresent) { matched.add(p.id); continue; }
+
+    // 3. bare number, only when ≥2 digits AND unique across the portfolio.
+    if (num.length >= 2 && numberCounts.get(num) === 1) matched.add(p.id);
+  }
+
+  if (matched.size === 1) {
+    const id = [...matched][0];
+    return all.find((p) => p.id === id);
+  }
+  return undefined;
+}

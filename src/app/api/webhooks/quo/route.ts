@@ -9,7 +9,7 @@ import {
   type QuoWebhookEvent,
   type QuoWebhookEventType,
 } from '@/lib/quo';
-import { propertyFromListing } from '@/lib/properties';
+import { matchPropertyFromCleanerText } from '@/lib/properties';
 
 // Service role bypasses RLS so cross-table inserts (quo_events,
 // cleaning_completions, contact_touches, properties stamp updates) all
@@ -298,7 +298,7 @@ async function attributeCleaningProperty(
   body: string,
   cleanerWhitelist: string[],
 ): Promise<string | null> {
-  const fromBody = propertyFromListing(body)?.id ?? null;
+  const fromBody = matchPropertyFromCleanerText(body)?.id ?? null;
   if (fromBody) {
     if (cleanerWhitelist.length === 0 || cleanerWhitelist.includes(fromBody)) {
       return fromBody;
