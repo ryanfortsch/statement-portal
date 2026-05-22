@@ -7,7 +7,7 @@ import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { loadOperationsData } from '@/lib/operations';
 import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
-import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
+import { AskHelm } from '@/components/AskHelm';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -245,17 +245,20 @@ async function getHelmStats() {
 
 export default async function HelmHome() {
   const stats = await getDashboardStats();
+  const askSuggestions = buildAskSuggestions(stats);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      {/* ASK HELM */}
+      {/* ASK HELM — inline so the signals below stay in view */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingTop: 36, paddingBottom: 28, display: 'flex' }}
+        style={{ width: '100%', paddingTop: 36, paddingBottom: 36 }}
       >
-        <CommandPaletteTrigger variant="prominent" />
+        <div style={{ maxWidth: 760 }}>
+          <AskHelm suggestions={askSuggestions} />
+        </div>
       </section>
 
       {/* SIGNALS STRIP — what needs attention today, with the headline payout pinned right */}
@@ -389,4 +392,38 @@ function formatCurrency(value: number): string {
     return `$${(value / 1000).toFixed(1)}k`;
   }
   return `$${Math.round(value)}`;
+}
+
+/**
+ * Live "Try asking" prompts for the home Ask Helm panel, built from the
+ * same signals the dashboard shows so they reflect what's happening right
+ * now. Every prompt maps to a tool Ask Helm can actually answer with
+ * (list_work, get_statements, get_turnovers, list_prospects). Reviews are
+ * left out on purpose: Ask Helm has no reviews tool yet.
+ */
+function buildAskSuggestions(stats: DashboardStats): string[] {
+  const out: string[] = [];
+
+  if (stats.highPrioritySlips != null && stats.highPrioritySlips > 0) {
+    out.push(`What are the ${stats.highPrioritySlips} high-priority work slips right now?`);
+  } else if (stats.activeSlips != null && stats.activeSlips > 0) {
+    out.push('What open work needs attention right now?');
+  }
+
+  if (stats.ownerActionSlips != null && stats.ownerActionSlips > 0) {
+    out.push(
+      stats.ownerActionSlips === 1
+        ? 'What work is waiting on owner approval?'
+        : `Which ${stats.ownerActionSlips} work items are waiting on owner approval?`,
+    );
+  }
+
+  if (stats.latestMonth && stats.totalPayout > 0) {
+    out.push(`Which property earned the most in ${formatMonth(stats.latestMonth)}?`);
+  }
+
+  out.push("What's checking in over the next 7 days?");
+  out.push("Which prospects haven't signed their contract yet?");
+
+  return Array.from(new Set(out)).slice(0, 4);
 }

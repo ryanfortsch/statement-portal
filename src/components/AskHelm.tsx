@@ -15,6 +15,8 @@ import Link from 'next/link';
 
 type Source = { label: string; href: string };
 
+// Fallback prompts for the global Cmd+K palette, where there are no live
+// dashboard stats. The home page passes data-driven suggestions instead.
 const SUGGESTIONS = [
   'How much did 53 Rocky Neck make last month?',
   'Which prospects haven’t signed their contract yet?',
@@ -22,13 +24,23 @@ const SUGGESTIONS = [
   'What’s checking in over the next 7 days?',
 ];
 
-export function AskHelm({ autoFocus }: { autoFocus?: boolean }) {
+export function AskHelm({
+  autoFocus,
+  suggestions,
+}: {
+  autoFocus?: boolean;
+  suggestions?: string[];
+}) {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Prefer live, data-driven prompts from the caller; fall back to the
+  // static set when none are passed (e.g. the Cmd+K palette).
+  const tips = suggestions && suggestions.length > 0 ? suggestions : SUGGESTIONS;
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -142,7 +154,7 @@ export function AskHelm({ autoFocus }: { autoFocus?: boolean }) {
         <div style={{ marginTop: 18 }}>
           <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>Try asking</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {SUGGESTIONS.map((s) => (
+            {tips.map((s) => (
               <button
                 key={s}
                 type="button"
