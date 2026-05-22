@@ -1,8 +1,5 @@
-import Link from 'next/link';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { auth } from '@/auth';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { computeDateRange, deltaPct } from '@/lib/revenue-date-range';
@@ -13,8 +10,7 @@ import { TeamActivity } from '@/components/TeamActivity';
 import { CommandPaletteTrigger } from '@/components/CommandPaletteTrigger';
 
 export const dynamic = 'force-dynamic';
-// Personal count needs the live session, so we can't precompute. Drop the
-// 60s revalidate so the home re-renders per-request (auth check is cheap).
+// Today's signals read live from Supabase per request, so don't cache.
 export const revalidate = 0;
 
 type DashboardStats = {
@@ -247,94 +243,18 @@ async function getHelmStats() {
   }
 }
 
-async function getYourCount(myEmail: string): Promise<number | null> {
-  if (!isHelmConfigured || !myEmail) return null;
-  try {
-    const todayIso = new Date().toISOString().slice(0, 10);
-    const [{ count: slips }, { count: tasks }, { count: plans }] = await Promise.all([
-      supabase
-        .from('work_slips')
-        .select('*', { count: 'exact', head: true })
-        .eq('assigned_to_email', myEmail)
-        .in('status', ACTIVE_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`),
-      supabase
-        .from('tasks')
-        .select('*', { count: 'exact', head: true })
-        .eq('assigned_to_email', myEmail)
-        .in('status', ACTIVE_TASK_STATUSES),
-      supabase
-        .from('inspection_plans')
-        .select('*', { count: 'exact', head: true })
-        .eq('assigned_to_email', myEmail)
-        .gte('planned_for_date', todayIso),
-    ]);
-    return (slips ?? 0) + (tasks ?? 0) + (plans ?? 0);
-  } catch {
-    return null;
-  }
-}
-
 export default async function HelmHome() {
-  const session = await auth();
-  const myEmail = session?.user?.email ?? '';
-  const [stats, yourCount] = await Promise.all([
-    getDashboardStats(),
-    getYourCount(myEmail),
-  ]);
+  const stats = await getDashboardStats();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <HelmHero
-        eyebrow="The Bridge"
-        title="Run Rising Tide from"
-        emphasis="one place."
-        paddingTop={36}
-        paddingBottom={20}
-      />
-
-      {/* PERSONAL JUMP-OFF + SEARCH */}
+      {/* ASK HELM */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingBottom: 28, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}
+        style={{ width: '100%', paddingTop: 36, paddingBottom: 28, display: 'flex' }}
       >
-        <Link
-          href="/me"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: 12,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            border: '1px solid var(--ink)',
-            padding: '8px 14px',
-            background: 'var(--paper)',
-          }}
-        >
-          What&rsquo;s on for you
-          {yourCount != null && yourCount > 0 && (
-            <span
-              style={{
-                background: 'var(--signal)',
-                color: 'var(--paper)',
-                padding: '2px 8px',
-                fontSize: 11,
-                letterSpacing: '.06em',
-                fontWeight: 700,
-              }}
-            >
-              {yourCount}
-            </span>
-          )}
-          <span>→</span>
-        </Link>
-
         <CommandPaletteTrigger variant="prominent" />
       </section>
 
