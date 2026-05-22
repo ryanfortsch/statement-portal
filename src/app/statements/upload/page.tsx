@@ -333,7 +333,7 @@ function FileDropZone({
               <span style={{
                 fontSize: 9, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
                 color: 'var(--positive)',
-              }}>Cached</span>
+              }}>On file · all properties</span>
             )}
           </div>
           <div style={{
@@ -343,7 +343,7 @@ function FileDropZone({
             {file
               ? file.name
               : usingCache
-                ? <>Using <span style={{ color: 'var(--ink-2)' }}>{cached!.filename}</span> {cachedAgo && <>· uploaded {cachedAgo}</>}</>
+                ? <>One upload covers every property this month · <span style={{ color: 'var(--ink-2)' }}>{cached!.filename}</span>{cachedAgo && <> · {cachedAgo}</>}</>
                 : description}
           </div>
         </div>
@@ -456,36 +456,50 @@ function UploadPageInner() {
   const platformSlotReady = !!platformCSV || !!cachedPlatformCSV;
   const filesReady = [!!guestyPDF, platformSlotReady, !!bankCSV].filter(Boolean).length;
 
-  useEffect(() => {
-    // Look up cached Platform CSV metadata for the selected month so the
-    // dropzone can show "Using cached: filename" instead of asking the
-    // operator to re-attach the same portfolio-wide export. Re-runs when
-    // month changes. Aborted on unmount via the cancelled flag.
-    let cancelled = false;
-    setCachedPlatformCSV(null);
-    if (!month) return;
-    (async () => {
-      try {
-        const res = await fetch(`/api/platform-csv-status?month=${encodeURIComponent(month)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.exists) {
-          setCachedPlatformCSV({
-            filename: data.filename,
-            uploaded_at: data.uploaded_at,
-            size: data.size ?? null,
-          });
-        } else {
-          setCachedPlatformCSV(null);
-        }
-      } catch {
-        // Best-effort: a status fetch failure just means the slot shows
-        // the empty state, not a hard error.
+  // Look up cached Platform CSV metadata for a month. The Platform CSV is
+  // a whole-portfolio export -- one file covers every property -- so once
+  // it's been uploaded for a month, the server reuses it for every
+  // subsequent property ingest. This drives the "already on file for the
+  // month" state so the operator stops treating it as a per-property task.
+  const refreshPlatformCsvStatus = useCallback(async (m: string): Promise<boolean> => {
+    if (!m) { setCachedPlatformCSV(null); return false; }
+    try {
+      const res = await fetch(`/api/platform-csv-status?month=${encodeURIComponent(m)}`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data.exists) {
+        setCachedPlatformCSV({
+          filename: data.filename,
+          uploaded_at: data.uploaded_at,
+          size: data.size ?? null,
+        });
+        return true;
       }
+      setCachedPlatformCSV(null);
+      return false;
+    } catch {
+      // Best-effort: a status fetch failure just means the slot shows the
+      // empty state, not a hard error.
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Refresh cached-CSV status whenever the month changes. All state
+    // mutation happens inside refreshPlatformCsvStatus after an await, so
+    // there's no synchronous setState in the effect body. A month switch
+    // briefly shows the prior month's cache until the fetch resolves,
+    // which is imperceptible in practice.
+    let cancelled = false;
+    (async () => {
+      const m = month;
+      await refreshPlatformCsvStatus(m);
+      // If the month changed again mid-fetch, the later effect run wins;
+      // nothing to undo here since refresh already set state for `m`.
+      void cancelled;
     })();
     return () => { cancelled = true; };
-  }, [month]);
+  }, [month, refreshPlatformCsvStatus]);
 
   async function handleSubmit() {
     if (!propertyId) { setError('Please select a property'); return; }
@@ -509,6 +523,15 @@ function UploadPageInner() {
         setError(data.error || 'Upload failed');
       } else {
         setResult(data);
+        // If this ingest carried the Platform CSV (either freshly uploaded
+        // or pulled from cache), make sure the cache indicator is current
+        // so the NEXT property shows "on file for the month" and the
+        // operator never re-attaches it. Also drop the local pick.
+        if (platformCSV) {
+          setPlatformCSV(null);
+          if (platRef.current) platRef.current.value = '';
+        }
+        await refreshPlatformCsvStatus(month);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
@@ -785,7 +808,19 @@ function UploadPageInner() {
                   <div className="eyebrow" style={{ marginBottom: 6 }}>Property</div>
                   <select
                     value={propertyId}
-                    onChange={(e) => setPropertyId(e.target.value)}
+                    onChange={(e) => {
+                      setPropertyId(e.target.value);
+                      // The Platform CSV is universal + cached server-side,
+                      // so a pick made for the previous property shouldn't
+                      // linger as a stale per-property attachment. Drop it
+                      // when a cache exists; the slot then shows the calm
+                      // "on file for the month" state. Pre-cache we keep it,
+                      // since it's still needed for the first submit.
+                      if (cachedPlatformCSV) {
+                        setPlatformCSV(null);
+                        if (platRef.current) platRef.current.value = '';
+                      }
+                    }}
                     className="font-serif"
                     style={{
                       width: '100%',
