@@ -690,6 +690,12 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
   const gridTemplate = `${propertyColWidth}px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
   const headerHeight = 48;
   const rowHeight = 36;
+  // Deterministic width: at most day counts the grid fills the container
+  // (1fr stretches the day columns); once 144 + N*40 exceeds the container
+  // it hits this floor and scrolls with uniform 40px columns. Using an
+  // explicit px floor instead of `max-content` keeps column widths from
+  // being driven by guest-name length, which jumbled the grid at 14/30d.
+  const minGridWidth = propertyColWidth + days.length * dayColMin;
 
   return (
     <div
@@ -699,7 +705,14 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
         overflowX: 'auto',
       }}
     >
-      <div style={{ minWidth: 'max-content', display: 'grid', gridTemplateColumns: gridTemplate }}>
+      <div
+        style={{
+          width: '100%',
+          minWidth: `${minGridWidth}px`,
+          display: 'grid',
+          gridTemplateColumns: gridTemplate,
+        }}
+      >
         {/* HEADER ROW */}
         <div
           style={{
@@ -837,19 +850,19 @@ function PropertyCalendarRow({
             : 'transparent';
 
         // First visible cell of a reservation block gets a colored "spine"
-        // in its channel accent — subtle source indicator that reads as one
-        // block across the connected days.
+        // in its channel accent — drawn as an inset box-shadow (not a wider
+        // border) so it never perturbs the box model / column widths.
         const blockStart = occupied && !sameAsPrev;
         const cellInner = (
           <div
             style={{
+              boxSizing: 'border-box',
               height: rowHeight,
               borderBottom: rowBorder,
-              borderLeft: blockStart
-                ? `3px solid ${channelAccent(cell.reservation!.channel)}`
-                : sameAsPrev
-                  ? 'none'
-                  : '1px solid var(--rule-soft)',
+              borderLeft: sameAsPrev ? 'none' : '1px solid var(--rule-soft)',
+              boxShadow: blockStart
+                ? `inset 3px 0 0 ${channelAccent(cell.reservation!.channel)}`
+                : undefined,
               background: bg,
               padding: '0 6px',
               display: 'flex',
