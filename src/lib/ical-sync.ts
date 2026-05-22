@@ -85,21 +85,35 @@ export async function syncListing(opts: {
     result.events_total = events.length;
 
     // --- Build upsert rows ---
+    // A Guesty per-listing feed (channel='guesty') is an aggregate of every
+    // channel; parse each event into its real channel + confirmation code. A
+    // normal single-channel feed uses the listing's own channel.
+    const isGuestyFeed = opts.channel === 'guesty';
     const rows = events
       .filter(isBookingEvent)
       .map((e) => {
         const guest = guessGuestNameFromIcal(e);
+        let channel: BookingChannel = opts.channel;
+        let externalConfirmationCode: string | null = null;
+        let status: 'confirmed' | 'block' = 'confirmed';
+        if (isGuestyFeed) {
+          const parsed = parseGuestySummary(e.summary);
+          channel = parsed.channel;
+          externalConfirmationCode = parsed.code;
+          if (parsed.isBlock) status = 'block';
+        }
         return {
           property_id: opts.property_id,
           channel_listing_id: opts.listing_id,
-          channel: opts.channel,
+          channel,
           source: 'ical_import' as const,
           ical_uid: e.uid,
           check_in: e.dtstart,
           check_out: e.dtend,
           nights: nightsBetween(e.dtstart, e.dtend),
-          status: 'confirmed' as const,
+          status,
           guest_name: guest,
+          external_confirmation_code: externalConfirmationCode,
           raw_summary: e.summary,
           raw_description: e.description,
           raw_url: e.url,
@@ -204,6 +218,7 @@ export type DedupResult = {
   clusters: number;
   duplicates: number;
   changed: number;
+  enriched: number;
 };
 
 /**
@@ -292,7 +307,29 @@ type DedupRow = {
   check_out: string;
   duplicate_of: string | null;
   created_at: string;
+  // Enrichment fields: a deduped cluster pools these onto the canonical row,
+  // since no single source has all of them (Airbnb/Guesty iCal lack the guest
+  // name; the guesty_legacy backfill lacks the confirmation code, etc).
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
+  external_confirmation_code: string | null;
+  external_booking_id: string | null;
+  payout: number | null;
+  gross_amount: number | null;
+  num_guests: number | null;
 };
+
+const ENRICH_FIELDS = [
+  'guest_name',
+  'guest_email',
+  'guest_phone',
+  'external_confirmation_code',
+  'external_booking_id',
+  'payout',
+  'gross_amount',
+  'num_guests',
+] as const;
 
 /** Whole days between two YYYY-MM-DD dates, absolute. */
 function dayGap(d1: string, d2: string): number {
@@ -345,7 +382,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
   const sb = getServiceClient();
   const { data, error } = await sb
     .from('bookings')
-    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at')
+    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
     .neq('status', 'cancelled');
   if (error) throw new Error(`dedupe load: ${error.message}`);
 
@@ -358,6 +395,9 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
   }
 
   const desired = new Map<string, string | null>();
+  // Per-canonical field patches: fields the canonical is missing but a
+  // duplicate in its cluster provides.
+  const enrichPatches = new Map<string, Record<string, unknown>>();
   let clusterCount = 0;
   let dupCount = 0;
 
@@ -410,6 +450,18 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
           dupCount += 1;
         }
       }
+
+      // Pool enrichment fields onto the canonical: for each field the
+      // canonical is missing, take the first non-null value from a duplicate.
+      const patch: Record<string, unknown> = {};
+      for (const field of ENRICH_FIELDS) {
+        if (canonical[field] != null) continue;
+        const donor = cluster.find((r) => r.id !== canonical.id && r[field] != null);
+        if (donor) patch[field] = donor[field];
+      }
+      if (Object.keys(patch).length > 0) {
+        enrichPatches.set(canonical.id, patch);
+      }
     }
   }
 
@@ -445,7 +497,18 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     if (setErr) throw new Error(`dedupe set: ${setErr.message}`);
   }
 
-  return { clusters: clusterCount, duplicates: dupCount, changed };
+  // Apply enrichment patches (one update per canonical that gained fields).
+  let enriched = 0;
+  for (const [canonicalId, patch] of enrichPatches) {
+    const { error: enrichErr } = await sb
+      .from('bookings')
+      .update(patch)
+      .eq('id', canonicalId);
+    if (enrichErr) throw new Error(`dedupe enrich: ${enrichErr.message}`);
+    enriched += 1;
+  }
+
+  return { clusters: clusterCount, duplicates: dupCount, changed, enriched };
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number | null {
@@ -464,6 +527,32 @@ function maskUrl(url: string): string {
   } catch {
     return '…';
   }
+}
+
+/**
+ * Parse a Guesty per-listing iCal event SUMMARY into its real channel and
+ * confirmation code. Guesty formats reservations as "Reservation <CODE>"
+ * where the code prefix identifies the channel:
+ *   HM…  Airbnb          HA-  VRBO / HomeAway
+ *   BC-  Booking.com     GY-  Guesty direct / manual
+ * Events that aren't reservations (owner blocks, "Not available") carry no
+ * code and are treated as blocks.
+ */
+function parseGuestySummary(summary: string | null): {
+  channel: BookingChannel;
+  code: string | null;
+  isBlock: boolean;
+} {
+  const m = (summary ?? '').trim().match(/^Reservation\s+(\S+)/i);
+  if (!m) return { channel: 'block', code: null, isBlock: true };
+  const code = m[1];
+  const u = code.toUpperCase();
+  let channel: BookingChannel = 'other';
+  if (u.startsWith('HM')) channel = 'airbnb';
+  else if (u.startsWith('HA')) channel = 'vrbo';
+  else if (u.startsWith('BC')) channel = 'booking_com';
+  else if (u.startsWith('GY')) channel = 'direct';
+  return { channel, code, isBlock: false };
 }
 
 export function _channelLabel(c: BookingChannel): string {

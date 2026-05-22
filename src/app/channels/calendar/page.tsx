@@ -17,6 +17,7 @@ const CHANNEL_BG: Record<BookingChannel, string> = {
   direct: '#2d6b50',
   manual: '#6b6b6b',
   block: '#888',
+  guesty: '#7a7a7a',
   other: '#999',
 };
 
