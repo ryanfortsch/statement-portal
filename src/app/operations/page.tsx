@@ -300,6 +300,31 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             })}
           </nav>
         </div>
+        {/* Channel legend — decodes the colored spine on each block. */}
+        <div
+          className="flex items-center flex-wrap"
+          style={{ gap: 14, marginBottom: 12 }}
+        >
+          {CHANNEL_LEGEND.map((c) => (
+            <span
+              key={c.channel}
+              className="flex items-center"
+              style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  display: 'inline-block',
+                  width: 10,
+                  height: 3,
+                  borderRadius: 2,
+                  background: channelAccent(c.channel),
+                }}
+              />
+              {c.label}
+            </span>
+          ))}
+        </div>
         {data.calendar.days.length > 7 && (
           <p
             style={{
@@ -483,7 +508,19 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           {t.channel && (
             <>
               <span style={{ color: 'var(--ink-4)' }}> · </span>
-              <span style={{ color: 'var(--ink-3)' }}>{t.channel}</span>
+              <span
+                aria-hidden
+                style={{
+                  display: 'inline-block',
+                  width: 7,
+                  height: 7,
+                  borderRadius: 4,
+                  background: channelAccent(t.channel),
+                  marginRight: 5,
+                  verticalAlign: 'baseline',
+                }}
+              />
+              <span style={{ color: 'var(--ink-3)' }}>{channelLabel(t.channel)}</span>
             </>
           )}
         </div>
@@ -799,12 +836,20 @@ function PropertyCalendarRow({
             ? 'rgba(232, 184, 165, 0.18)' // signal-soft @ 18% for today vacancy
             : 'transparent';
 
+        // First visible cell of a reservation block gets a colored "spine"
+        // in its channel accent — subtle source indicator that reads as one
+        // block across the connected days.
+        const blockStart = occupied && !sameAsPrev;
         const cellInner = (
           <div
             style={{
               height: rowHeight,
               borderBottom: rowBorder,
-              borderLeft: sameAsPrev ? 'none' : '1px solid var(--rule-soft)',
+              borderLeft: blockStart
+                ? `3px solid ${channelAccent(cell.reservation!.channel)}`
+                : sameAsPrev
+                  ? 'none'
+                  : '1px solid var(--rule-soft)',
               background: bg,
               padding: '0 6px',
               display: 'flex',
@@ -863,6 +908,40 @@ function firstName(fullName: string | null): string {
   const trimmed = fullName.trim();
   if (!trimmed) return 'Guest';
   return trimmed.split(/\s+/)[0];
+}
+
+/**
+ * Subtle, on-palette accent per booking channel so the operator can read
+ * the source at a glance. Kept muted (no neon brand colors) to fit the
+ * editorial look — a thin spine on the calendar + a small dot in the list.
+ */
+function channelAccent(channel: string | null): string {
+  const c = (channel || '').toLowerCase();
+  if (c.includes('airbnb')) return 'var(--negative)';        // rust — Airbnb is red
+  if (c.includes('vrbo') || c.includes('homeaway')) return 'var(--tide)'; // blue
+  if (c.includes('booking')) return 'var(--tide-deep)';      // navy — Booking.com
+  if (c.includes('direct') || c.includes('manual')) return 'var(--positive)'; // green — our own
+  if (c.includes('block')) return 'var(--ink-4)';            // grey — owner/maintenance block
+  return 'var(--ink-4)';
+}
+
+// Only channels that actually render in the turnover/calendar views
+// (blocks are filtered out by TURNOVER_STATUSES, so they're omitted).
+const CHANNEL_LEGEND: { label: string; channel: string }[] = [
+  { label: 'Airbnb', channel: 'airbnb' },
+  { label: 'VRBO', channel: 'vrbo' },
+  { label: 'Booking.com', channel: 'booking' },
+  { label: 'Direct', channel: 'direct' },
+];
+
+function channelLabel(channel: string | null): string {
+  const c = (channel || '').toLowerCase();
+  if (c.includes('airbnb')) return 'Airbnb';
+  if (c.includes('vrbo') || c.includes('homeaway')) return 'VRBO';
+  if (c.includes('booking')) return 'Booking.com';
+  if (c.includes('direct') || c.includes('manual')) return 'Direct';
+  if (c.includes('block')) return 'Block';
+  return channel || 'Other';
 }
 
 function formatRelativeShort(iso: string | null): string {
