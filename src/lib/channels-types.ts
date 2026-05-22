@@ -31,6 +31,36 @@ export const BOOKING_STATUSES = [
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
+export const BOOKING_MONEY_SOURCES = [
+  'stripe',
+  'ota_email',
+  'bank_csv',
+  'manual',
+  'guesty_legacy',
+] as const;
+export type BookingMoneySource = (typeof BOOKING_MONEY_SOURCES)[number];
+
+export const BOOKING_MONEY_CONFIDENCE = ['high', 'medium', 'low'] as const;
+export type BookingMoneyConfidence = (typeof BOOKING_MONEY_CONFIDENCE)[number];
+
+export type BookingFinance = {
+  booking_id: string;
+  gross_amount: number | null;
+  channel_commission: number | null;
+  taxes: number | null;
+  cleaning_fee: number | null;
+  stripe_fee: number | null;
+  payout: number | null;
+  rental_income: number | null;
+  currency: string;
+  money_source: BookingMoneySource;
+  confidence: BookingMoneyConfidence;
+  reconciled_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export const BOOKING_SOURCES = [
   'ical_import',
   'direct_booking',
