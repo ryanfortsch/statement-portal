@@ -1,89 +1,31 @@
 'use client';
 
 /**
- * Button that opens the global Cmd+K command palette. Used in two
- * places:
+ * Small Cmd+K trigger shown in the HelmMasthead, next to the user menu.
+ * Opens the global command palette (Search mode) via a custom DOM event,
+ * so it works without prop drilling. Visible on every page.
  *
- *   - HelmMasthead (variant: 'masthead', default) — small, rule-bordered
- *     trigger sitting next to the user menu. Visible on every page.
- *   - The home page (variant: 'prominent') — a full-width "Ask Helm" bar
- *     that opens the palette straight into Ask (Claude Q&A) mode.
- *
- * Communicates with CommandPalette via a custom DOM event, so any
- * button can open the palette without prop drilling.
+ * The home page has its own inline Ask Helm panel and no longer uses this
+ * trigger.
  */
 
 import { useEffect, useState } from 'react';
 
-type Props = {
-  variant?: 'masthead' | 'prominent';
-};
-
-export function CommandPaletteTrigger({ variant = 'masthead' }: Props) {
+export function CommandPaletteTrigger() {
   const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
     setIsMac(navigator.platform.toLowerCase().includes('mac'));
   }, []);
 
-  function open(mode?: 'search' | 'ask') {
-    window.dispatchEvent(
-      new CustomEvent('helm:open-command-palette', { detail: { mode } }),
-    );
-  }
-
-  if (variant === 'prominent') {
-    return (
-      <button
-        type="button"
-        onClick={() => open('ask')}
-        aria-label="Ask Helm"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 12,
-          background: 'var(--paper)',
-          border: '1px solid var(--ink)',
-          padding: '8px 14px',
-          cursor: 'pointer',
-          color: 'var(--ink)',
-          fontFamily: 'inherit',
-          fontSize: 12,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          fontWeight: 500,
-          whiteSpace: 'nowrap',
-          flex: 1,
-          minWidth: 240,
-          justifyContent: 'space-between',
-        }}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          <SearchIcon />
-          <span>Ask Helm</span>
-        </span>
-        <kbd
-          className="font-mono"
-          style={{
-            fontSize: 10,
-            color: 'var(--ink-4)',
-            background: 'var(--paper-2)',
-            padding: '1px 7px',
-            letterSpacing: 0,
-            fontFamily: 'inherit',
-            fontWeight: 400,
-          }}
-        >
-          {isMac ? '⌘K' : 'Ctrl K'}
-        </kbd>
-      </button>
-    );
+  function open() {
+    window.dispatchEvent(new Event('helm:open-command-palette'));
   }
 
   return (
     <button
       type="button"
-      onClick={() => open()}
+      onClick={open}
       aria-label="Search Helm"
       title="Search Helm (⌘K)"
       className="rt-helm-search-trigger"
