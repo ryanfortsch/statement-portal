@@ -196,23 +196,66 @@ export function createAskTools() {
         if (!name && !propertyId) {
           return { error: 'Provide a contact name or a property id.' };
         }
-        let cq = supabase
-          .from('contacts')
-          .select('id, type, name, emails, phone, organization, linked_property_ids');
-        if (name) cq = cq.ilike('name', `%${name}%`);
-        if (propertyId) cq = cq.contains('linked_property_ids', [propertyId]);
-        const { data: contactRows, error: contactErr } = await cq.limit(8);
-        if (contactErr) return { error: contactErr.message };
-        const contacts = (contactRows ?? []) as Array<{
+        type ContactRow = {
           id: string;
           type: string;
           name: string;
           emails: string[] | null;
           phone: string | null;
           organization: string | null;
-        }>;
+          linked_property_ids?: string[] | null;
+        };
+
+        let contacts: ContactRow[];
+        if (propertyId) {
+          const { data, error } = await supabase
+            .from('contacts')
+            .select('id, type, name, emails, phone, organization, linked_property_ids')
+            .contains('linked_property_ids', [propertyId])
+            .limit(8);
+          if (error) return { error: error.message };
+          contacts = (data ?? []) as ContactRow[];
+        } else {
+          // Token-based fuzzy match instead of a literal substring ilike.
+          // A contact's `name` is often the household ("The Armstrong
+          // Family") while the question uses a person's name ("Jane
+          // Armstrong") whose first name only appears in the email
+          // (jane@...). A `name ilike '%Jane Armstrong%'` can't match
+          // that. The CRM is tiny (dozens of rows), so fetch all and
+          // score by how many query tokens land in name + emails +
+          // organization. Requiring every token (length >= 2) to appear
+          // somewhere matches "Jane Armstrong" -> "The Armstrong Family"
+          // (armstrong in name, jane in email) without false positives.
+          const { data, error } = await supabase
+            .from('contacts')
+            .select('id, type, name, emails, phone, organization, linked_property_ids');
+          if (error) return { error: error.message };
+          const all = (data ?? []) as ContactRow[];
+          const tokens = (name ?? '')
+            .toLowerCase()
+            .split(/\s+/)
+            .map((t) => t.replace(/[^a-z0-9@.]/g, ''))
+            .filter((t) => t.length >= 2);
+          const scored = all
+            .map((c) => {
+              const hay = `${c.name} ${(c.emails ?? []).join(' ')} ${c.organization ?? ''}`.toLowerCase();
+              const hits = tokens.filter((t) => hay.includes(t)).length;
+              return { c, hits };
+            })
+            // Require every token to appear (all tokens matched), else
+            // fall back to "at least one" so a single-word search ("Jane")
+            // still works.
+            .filter((x) => (tokens.length > 1 ? x.hits === tokens.length : x.hits > 0))
+            .sort((a, b) => b.hits - a.hits);
+          contacts = scored.slice(0, 8).map((x) => x.c);
+        }
+
         if (contacts.length === 0) {
-          return { contacts: [], note: 'No matching contact found in the CRM.' };
+          return {
+            contacts: [],
+            note:
+              'No matching contact found in the CRM. The person may not have a contact record yet (owners are also reachable via list_properties).',
+          };
         }
 
         // Pull recent touches for the matched contacts in one query, then
