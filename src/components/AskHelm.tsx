@@ -15,8 +15,8 @@ import Link from 'next/link';
 
 type Source = { label: string; href: string };
 
-// Fallback prompts for the global Cmd+K palette, where there are no live
-// dashboard stats. The home page passes data-driven suggestions instead.
+// Example prompts shown in the Cmd+K palette's Ask mode. The home page
+// hides these (showSuggestions={false}) to keep the landing clean.
 const SUGGESTIONS = [
   'How much did 53 Rocky Neck make last month?',
   'Which prospects haven’t signed their contract yet?',
@@ -26,10 +26,10 @@ const SUGGESTIONS = [
 
 export function AskHelm({
   autoFocus,
-  suggestions,
+  showSuggestions = true,
 }: {
   autoFocus?: boolean;
-  suggestions?: string[];
+  showSuggestions?: boolean;
 }) {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
@@ -37,10 +37,6 @@ export function AskHelm({
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Prefer live, data-driven prompts from the caller; fall back to the
-  // static set when none are passed (e.g. the Cmd+K palette).
-  const tips = suggestions && suggestions.length > 0 ? suggestions : SUGGESTIONS;
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -149,12 +145,13 @@ export function AskHelm({
         </div>
       </form>
 
-      {/* Idle state: a few example questions to teach what's possible. */}
-      {!loading && !answer && !error && (
+      {/* Idle state: a few example questions to teach what's possible.
+          Hidden on the home page; shown in the Cmd+K palette. */}
+      {showSuggestions && !loading && !answer && !error && (
         <div style={{ marginTop: 18 }}>
           <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>Try asking</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {tips.map((s) => (
+            {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 type="button"
