@@ -32,7 +32,7 @@ const PUBLIC_PATH_PREFIXES = [
  * isn't precise enough (it would expose the auth-gated edit page). Use a regex
  * that matches *only* the deliverable sub-routes.
  */
-const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract)(\/.*)?$/;
+const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract|onboarding-render)(\/.*)?$/;
 
 /** Same pattern for the Properties module. Guest-facing deliverables (Home
  * Guide, WiFi placard, Information Note, Welcome Card) need to be public

@@ -128,6 +128,9 @@ export type ProjectionRow = {
   // the staff-alert email fires; skipped on re-submissions of the
   // same form.
   onboarding_notification_sent_at: string | null;
+  // Google Drive archive link for the submitted onboarding intake PDF.
+  // Stamped by /api/archive-onboarding after the owner submits.
+  onboarding_drive_url: string | null;
 
   // Gmail-derived deliverable status (latest send per type)
   gmail_touches: GmailTouches | null;

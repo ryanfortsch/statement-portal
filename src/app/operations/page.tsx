@@ -543,6 +543,16 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             {inspectionDone ? 'Inspected' : 'Not inspected'}
           </span>
         </div>
+        {t.lockBattery && t.lockBattery.isLow && (
+          <span
+            title={`Smart lock battery is ${
+              t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : t.lockBattery.status
+            }. Pack replacement batteries for this turnover.`}
+            style={{ color: 'var(--signal)', fontWeight: 600 }}
+          >
+            Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
+          </span>
+        )}
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}

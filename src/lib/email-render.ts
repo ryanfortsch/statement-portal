@@ -67,15 +67,15 @@ function renderHtml(args: {
         <td align="center" style="padding:40px 16px 24px;">
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px; width:100%;">
             <tr>
-              <td style="padding:8px 32px 24px; font-family: Georgia, 'Times New Roman', serif; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#506068; font-weight:500;">
-                ${escapeHtml(fromName)}
+              <td style="padding:8px 32px 20px;">
+                <div style="font-family: Georgia, 'Times New Roman', serif; font-size:24px; font-weight:400; letter-spacing:-0.01em; color:#1e2e34; line-height:1.1;">
+                  ${escapeHtml(fromName)}
+                </div>
+                <div style="margin-top:6px; height:2px; width:36px; background:#c85a3a; line-height:0; font-size:0;">&nbsp;</div>
               </td>
             </tr>
             <tr>
-              <td style="padding:0 32px 16px; border-bottom:1px solid #1e2e34;">&nbsp;</td>
-            </tr>
-            <tr>
-              <td style="padding:32px 32px 8px; font-size:16px; line-height:1.65; color:#1e2e34;">
+              <td style="padding:12px 32px 8px; font-size:16px; line-height:1.65; color:#1e2e34;">
                 ${bodyHtml}
               </td>
             </tr>

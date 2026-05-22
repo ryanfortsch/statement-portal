@@ -121,15 +121,8 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
-  {
-    id: 'reviews',
-    href: '/reviews',
-    number: '14',
-    title: 'Reviews',
-    description: 'Guest reviews from Airbnb, VRBO, Booking, and direct. Five-star count, below-five flags, per-property breakdown. Synced nightly from Guesty.',
-    status: 'active',
-    primary: false,
-  },
+  // Reviews is not a module of its own — it's the "Reviews" tab inside
+  // the Guests section (/guests?tab=reviews). /reviews redirects there.
   {
     id: 'competitors',
     href: '/competitors',

@@ -1,9 +1,13 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmHero } from '@/components/HelmHero';
+import { HelmFooter } from '@/components/HelmFooter';
 import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
 import { manuallyAddContact, syncFromGuesty } from './actions';
+import { GuestsTabBar } from './GuestsTabBar';
+import { ReviewsTab } from './ReviewsTab';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +19,11 @@ type SearchParams = {
   synced?: string;
   updated?: string;
   scanned?: string;
+  // Tab selection + reviews-tab filters (reviews lives here as a tab).
+  tab?: string;
+  rating?: string;
+  property?: string;
+  channel?: string;
 };
 
 export default async function GuestPage({
@@ -23,6 +32,28 @@ export default async function GuestPage({
   searchParams: Promise<SearchParams>;
 }) {
   const sp = await searchParams;
+
+  // Reviews is the DEFAULT lens for the Guests section — opening /guests
+  // lands here. Contacts is the click-in (/guests?tab=contacts). Render
+  // the section shell (masthead + hero + tab bar) and hand off to
+  // ReviewsTab, skipping the contacts data fetch entirely on this tab.
+  if (sp.tab !== 'contacts') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+        <HelmMasthead current="guests" />
+        <HelmHero
+          eyebrow="Helm · Guests"
+          title="Five-star,"
+          emphasis="and the ones that aren't."
+          description="Guest reviews from Airbnb, VRBO, Booking.com, and direct. Synced nightly from Guesty."
+        />
+        <GuestsTabBar active="reviews" />
+        <ReviewsTab params={sp} />
+        <HelmFooter module="Guests" right="Source: Guesty" />
+      </div>
+    );
+  }
+
   const search = sp.q?.trim() || '';
   const tag = sp.tag?.trim() || '';
   const status = (sp.status as GuestStatus | 'all' | undefined) || 'all';
@@ -64,6 +95,8 @@ export default async function GuestPage({
           Subscribers, segments, and campaigns. Where The Weekly lives, where new signups land, and where every send is logged.
         </p>
       </section>
+
+      <GuestsTabBar active="contacts" />
 
       {/* STATS STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
@@ -136,6 +169,9 @@ export default async function GuestPage({
           <Link href="/guests/segments" style={secondaryButtonStyle}>
             Segments ({segments.length})
           </Link>
+          <Link href="/guests/marketing" style={secondaryButtonStyle}>
+            Marketing Memory
+          </Link>
           <span style={{ flex: 1 }} />
           <details style={{ position: 'relative' }}>
             <summary style={{ ...secondaryButtonStyle, cursor: 'pointer', listStyle: 'none' }}>
@@ -171,6 +207,8 @@ export default async function GuestPage({
       {/* SEARCH + TAG FILTERS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <form method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Keep the GET on the Contacts tab — Reviews is the bare-/guests default. */}
+          <input type="hidden" name="tab" value="contacts" />
           <input
             name="q"
             defaultValue={search}
@@ -187,7 +225,7 @@ export default async function GuestPage({
           {tag && <input type="hidden" name="tag" value={tag} />}
           <button type="submit" style={secondaryButtonStyle}>Filter</button>
           {(search || tag || status !== 'all') && (
-            <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
+            <Link href="/guests?tab=contacts" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline' }}>
               Clear
             </Link>
           )}
@@ -199,10 +237,11 @@ export default async function GuestPage({
             {stats.topTags.map((t) => {
               const active = t.tag === tag;
               const params = new URLSearchParams();
+              params.set('tab', 'contacts');
               if (search) params.set('q', search);
               if (status !== 'all') params.set('status', status);
               if (!active) params.set('tag', t.tag);
-              const href = `/guests${params.toString() ? '?' + params.toString() : ''}`;
+              const href = `/guests?${params.toString()}`;
               return (
                 <Link
                   key={t.tag}
