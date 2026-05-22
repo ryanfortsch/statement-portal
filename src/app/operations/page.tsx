@@ -198,6 +198,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 <Link
                   key={r}
                   href={`/operations?range=${r}&cal=${calRange}`}
+                  scroll={false}
                   style={{
                     color: active ? 'var(--ink)' : 'var(--ink-4)',
                     textDecoration: 'none',
@@ -287,6 +288,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 <Link
                   key={cr}
                   href={`/operations?range=${range}&cal=${cr}`}
+                  scroll={false}
                   style={{
                     color: active ? 'var(--ink)' : 'var(--ink-4)',
                     textDecoration: 'none',
@@ -697,6 +699,18 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
   // being driven by guest-name length, which jumbled the grid at 14/30d.
   const minGridWidth = propertyColWidth + days.length * dayColMin;
 
+  // Each visual row (header + every property) is its OWN grid with the
+  // identical column template and width. Columns line up across rows
+  // because they share that template; using independent per-row grids
+  // (instead of one big auto-flow grid) makes it structurally impossible
+  // for a cell to spill into the wrong column/row at any day count.
+  const rowGridStyle: React.CSSProperties = {
+    width: '100%',
+    minWidth: `${minGridWidth}px`,
+    display: 'grid',
+    gridTemplateColumns: gridTemplate,
+  };
+
   return (
     <div
       style={{
@@ -705,15 +719,8 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
         overflowX: 'auto',
       }}
     >
-      <div
-        style={{
-          width: '100%',
-          minWidth: `${minGridWidth}px`,
-          display: 'grid',
-          gridTemplateColumns: gridTemplate,
-        }}
-      >
-        {/* HEADER ROW */}
+      {/* HEADER ROW (own grid) */}
+      <div style={rowGridStyle}>
         <div
           style={{
             height: headerHeight,
@@ -730,6 +737,7 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
             <div
               key={d}
               style={{
+                boxSizing: 'border-box',
                 height: headerHeight,
                 borderBottom: '1px solid var(--rule)',
                 borderLeft: '1px solid var(--rule-soft)',
@@ -740,6 +748,7 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
                 justifyContent: 'center',
                 padding: '4px 2px',
                 position: 'relative',
+                minWidth: 0,
               }}
             >
               {isToday && (
@@ -780,22 +789,23 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
             </div>
           );
         })}
-
-        {/* PROPERTY ROWS */}
-        {rows.map((row, rowIndex) => {
-          const isLastRow = rowIndex === rows.length - 1;
-          return (
-            <PropertyCalendarRow
-              key={row.property.id}
-              row={row}
-              days={days}
-              todayIndex={todayIndex}
-              rowHeight={rowHeight}
-              isLastRow={isLastRow}
-            />
-          );
-        })}
       </div>
+
+      {/* PROPERTY ROWS (each its own grid) */}
+      {rows.map((row, rowIndex) => {
+        const isLastRow = rowIndex === rows.length - 1;
+        return (
+          <PropertyCalendarRow
+            key={row.property.id}
+            row={row}
+            days={days}
+            todayIndex={todayIndex}
+            rowHeight={rowHeight}
+            isLastRow={isLastRow}
+            rowGridStyle={rowGridStyle}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -806,18 +816,21 @@ function PropertyCalendarRow({
   todayIndex,
   rowHeight,
   isLastRow,
+  rowGridStyle,
 }: {
   row: CalendarData['rows'][number];
   days: string[];
   todayIndex: number;
   rowHeight: number;
   isLastRow: boolean;
+  rowGridStyle: React.CSSProperties;
 }) {
   const rowBorder = isLastRow ? 'none' : '1px solid var(--rule-soft)';
   return (
-    <>
+    <div style={rowGridStyle}>
       <div
         style={{
+          boxSizing: 'border-box',
           height: rowHeight,
           borderBottom: rowBorder,
           padding: '0 14px',
@@ -826,6 +839,10 @@ function PropertyCalendarRow({
           fontSize: 13,
           color: 'var(--ink)',
           background: 'var(--paper)',
+          minWidth: 0,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
         }}
       >
         {row.property.name}
@@ -912,7 +929,7 @@ function PropertyCalendarRow({
           </CalendarCellTooltip>
         );
       })}
-    </>
+    </div>
   );
 }
 
