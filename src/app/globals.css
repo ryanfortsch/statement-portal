@@ -3,23 +3,23 @@
 
 /* ─── Editorial design tokens (shared with the statement page) ─── */
 :root {
-  --ink: #1e2e34;
-  --ink-2: #2a3d45;
-  --ink-3: #506068;
-  --ink-4: #8a969c;
+  --ink: #0b2545;
+  --ink-2: #18375c;
+  --ink-3: #51677d;
+  --ink-4: #8ba0b4;
 
-  --paper: #faf7f1;
-  --paper-2: #f3ede1;
-  --paper-3: #e8dfcc;
+  --paper: #f5efe2;
+  --paper-2: #efe6d2;
+  --paper-3: #e6dac1;
 
-  --rule: #d9cfb8;
-  --rule-soft: #ece3cf;
+  --rule: #ddcfb2;
+  --rule-soft: #ece2cc;
 
-  --tide: #4b8a9e;
-  --tide-deep: #2e5c6e;
+  --tide: #4e7c9e;
+  --tide-deep: #1c4a6b;
 
-  --signal: #c85a3a;
-  --signal-soft: #e8b8a5;
+  --signal: #946d2e;
+  --signal-soft: #c9a057;
 
   --positive: #3a6b4a;
   --negative: #8a3a2e;
