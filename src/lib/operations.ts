@@ -80,6 +80,21 @@ function addDaysStr(base: string, days: number): string {
   return d.toISOString().split('T')[0];
 }
 
+/**
+ * True when a guest_name isn't a real person's name but a feed placeholder.
+ * Airbnb's iCal carries no guest, so the SUMMARY arrives empty or as
+ * "Reservation <confirmation-code>"; VRBO/Airbnb blocks come through as
+ * "Reserved", "Not available", "Blocked". Treat all of these as "no name"
+ * so the guesty_reservations fallback kicks in (and so the UI never prints
+ * a raw confirmation code as if it were a guest).
+ */
+export function isPlaceholderGuestName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  const t = name.trim();
+  if (!t) return true;
+  return /^(reservation|reserved|not available|unavailable|blocked|block|airbnb|guest)\b/i.test(t);
+}
+
 export type InspectionStatus = 'not_started' | 'complete';
 
 export type ReservationRow = {
@@ -279,17 +294,17 @@ export async function loadOperationsData(
     );
 
   // Guest-name fallback. Airbnb stays enter `bookings` via iCal, which
-  // carries no guest name, so ~30% of bookings land with guest_name null
-  // and render as "Unnamed guest." The legacy guesty_reservations mirror
-  // (still synced) DOES have those names. Bridge the gap at read time: for
-  // any blank-name booking, look up the matching Guesty stay by
-  // (property_id, check_in, check_out) and fill the name in. Composing at
-  // read time means the next iCal re-sync can't clobber it. Remove once the
-  // Channels pipeline sources Airbnb guest names directly.
-  const blankNameReservations = reservations.filter(
-    (r) => !r.guest_name || r.guest_name.trim() === ''
+  // never carries the real guest: the feed's SUMMARY is either empty or a
+  // placeholder like "Reservation HMZXM5WP5C" (the confirmation code), so
+  // ~30% of bookings render as "Reservation …" or "Unnamed guest." The
+  // legacy guesty_reservations mirror (still synced every ~10 min) DOES
+  // have those names, matchable by (property_id, check_in, check_out).
+  // Bridge it at read time so the next iCal re-sync can't clobber the fill;
+  // remove once the Channels pipeline sources Airbnb guest names directly.
+  const placeholderReservations = reservations.filter((r) =>
+    isPlaceholderGuestName(r.guest_name)
   );
-  if (blankNameReservations.length > 0) {
+  if (placeholderReservations.length > 0) {
     const { data: guestyData } = await supabase
       .from('guesty_reservations')
       .select('property_id, check_in, check_out, guest_name')
@@ -303,14 +318,17 @@ export async function loadOperationsData(
       check_out: string;
       guest_name: string | null;
     }>) {
-      if (g.guest_name && g.guest_name.trim()) {
-        guestyNameByKey.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g.guest_name);
+      // Only fill from a real Guesty name — never from another placeholder.
+      if (!isPlaceholderGuestName(g.guest_name)) {
+        guestyNameByKey.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g.guest_name!.trim());
       }
     }
 
-    for (const r of blankNameReservations) {
+    for (const r of placeholderReservations) {
       const match = guestyNameByKey.get(`${r.property_id}|${r.check_in}|${r.check_out}`);
-      if (match) r.guest_name = match;
+      // Found a real name → use it. No match → null it out so the UI shows
+      // a clean "Guest" rather than the raw "Reservation HMZXM5WP5C" code.
+      r.guest_name = match ?? null;
     }
   }
 
