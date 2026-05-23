@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
-import { categorizeOverhead, type OverheadAccount, type OverheadCategory } from '@/lib/overhead-categories';
+import { categorizeOverhead, type OverheadAccount } from '@/lib/overhead-categories';
 
 /**
  * Ingest Rising Tide overhead from a corporate-account CSV.
@@ -100,6 +100,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const unrecognized: { description: string; amount: number }[] = [];
     let dropped = 0;
     const inserts: Record<string, unknown>[] = [];
+    // Merge rows that collapse to the same dedupe_key (e.g. two identical
+    // same-day charges to one vendor). Postgres' ON CONFLICT DO UPDATE can't
+    // touch the same row twice in one batch, so the upsert would throw if the
+    // batch had internal dupes. We sum their amounts into a single row, which
+    // both fixes that and keeps the category total honest.
+    const byKey = new Map<string, Record<string, unknown>>();
 
     for (const r of rows) {
       const category = categorizeOverhead({
@@ -125,7 +131,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!month) { dropped++; continue; }
       const dedupe_key = `${r.account}|${r.txn_date}|${cost}|${r.description.slice(0, 60)}`;
       byCategory[category] = Math.round(((byCategory[category] || 0) + cost) * 100) / 100;
-      inserts.push({
+      const existing = byKey.get(dedupe_key);
+      if (existing) {
+        // Same-key collision within this file: fold the amount in so we don't
+        // ask the upsert to update one row twice (and don't lose the charge).
+        existing.amount = Math.round((((existing.amount as number) || 0) + cost) * 100) / 100;
+        continue;
+      }
+      const row = {
         account: r.account,
         txn_date: r.txn_date,
         post_date: r.post_date,
@@ -136,7 +149,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         amount: cost,
         dedupe_key,
         source: file.name || null,
-      });
+      };
+      byKey.set(dedupe_key, row);
+      inserts.push(row);
     }
 
     let inserted = 0;
