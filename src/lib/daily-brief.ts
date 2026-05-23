@@ -176,7 +176,7 @@ function parseFrom(header: string | null): { name: string | null; email: string 
   return { name: bare || null, email: null };
 }
 
-type FetchedEmail = Omit<BriefEmail, 'triage' | 'triageSummary'>;
+type FetchedEmail = Omit<BriefEmail, 'triage' | 'triageSummary'> & { isUnread: boolean };
 
 // Fetch the current unread inbox from Gmail (metadata only). Used by
 // the cron to decide which messages need (re)classification.
@@ -202,14 +202,30 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   ]
     .map(s => `-from:${s}`)
     .join(' ');
-  const q = `is:unread in:inbox -category:promotions -category:social -category:updates newer_than:14d ${excludeSenders}`;
-  const listRes = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=${encodeURIComponent(q)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!listRes.ok) return [];
-  const listData = (await listRes.json()) as { messages?: Array<{ id: string; threadId: string }> };
-  const stubs = listData.messages ?? [];
+  // Two passes over the Primary inbox:
+  //   - unread (14d): the actionable set, as before
+  //   - recently-read (2d): catches mail Ryan/Allie open on their phone
+  //     before the hourly cron, which otherwise would never be classified
+  const baseFilter = `in:inbox -category:promotions -category:social -category:updates ${excludeSenders}`;
+  const listStubs = async (query: string, max: number): Promise<Array<{ id: string; threadId: string }>> => {
+    const r = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=${encodeURIComponent(query)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!r.ok) return [];
+    const d = (await r.json()) as { messages?: Array<{ id: string; threadId: string }> };
+    return d.messages ?? [];
+  };
+  const [unreadStubs, readStubs] = await Promise.all([
+    listStubs(`is:unread ${baseFilter} newer_than:14d`, 20),
+    listStubs(`-is:unread ${baseFilter} newer_than:2d`, 25),
+  ]);
+  const seenIds = new Set<string>();
+  const stubs = [...unreadStubs, ...readStubs].filter(s => {
+    if (seenIds.has(s.id)) return false;
+    seenIds.add(s.id);
+    return true;
+  });
   if (!stubs.length) return [];
 
   const detailed = await Promise.all(
@@ -224,6 +240,7 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
         threadId: string;
         internalDate?: string;
         snippet?: string;
+        labelIds?: string[];
         payload?: { headers?: GmailHeader[] };
       };
       const headers = data.payload?.headers ?? [];
@@ -252,6 +269,7 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
         snippet: (data.snippet ?? '').slice(0, 200),
         receivedAt,
         ageHours,
+        isUnread: (data.labelIds ?? []).includes('UNREAD'),
       } as FetchedEmail;
     }),
   );
@@ -653,7 +671,7 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
       received_at: e.receivedAt,
       triage: t?.category ?? 'fyi',
       triage_summary: t?.summary ?? '',
-      is_unread: true,
+      is_unread: e.isUnread,
       draft_id: draftId,
       draft_created_at: draftId ? nowIso : null,
     };
@@ -662,14 +680,24 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
     await sb.from('email_triage').insert(newRows);
   }
 
-  // For already-cached emails: only flip flags + bump last_seen_at.
+  // For already-cached emails: sync the read flag to current state (we now
+  // fetch read mail too, so don't blindly force unread) + bump last_seen_at.
   // Triage classification stays untouched.
+  const unreadById = new Map(fetched.map(e => [e.id, e.isUnread]));
   const refreshIds = fetched.filter(e => existing.has(e.id)).map(e => e.id);
-  if (refreshIds.length) {
+  const refreshUnread = refreshIds.filter(id => unreadById.get(id));
+  const refreshRead = refreshIds.filter(id => !unreadById.get(id));
+  if (refreshUnread.length) {
     await sb
       .from('email_triage')
       .update({ is_unread: true, last_seen_at: nowIso })
-      .in('gmail_message_id', refreshIds);
+      .in('gmail_message_id', refreshUnread);
+  }
+  if (refreshRead.length) {
+    await sb
+      .from('email_triage')
+      .update({ is_unread: false, last_seen_at: nowIso })
+      .in('gmail_message_id', refreshRead);
   }
 
   // Anything previously marked unread but NOT in the current inbox
@@ -701,11 +729,16 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
 
 // Page-side. Pure read from the cache; one Supabase round-trip.
 async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
+  // Show unread mail AND any needs_reply (read or not) so a needs-reply
+  // email doesn't vanish the moment it's opened on a phone — it stays until
+  // it's replied (reply-detection drops it next sync) or cleared. 30d floor.
+  const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const { data } = await supabase
     .from('email_triage')
     .select('gmail_message_id, thread_id, from_name, from_email, subject, snippet, received_at, triage, triage_summary, draft_id')
-    .eq('is_unread', true)
+    .or('is_unread.eq.true,triage.eq.needs_reply')
     .neq('triage', 'notification')
+    .gte('received_at', since30)
     .order('received_at', { ascending: false })
     .limit(40);
   type RowPick = Pick<
@@ -730,17 +763,20 @@ async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
 }
 
 async function loadEmailTriageTotals(): Promise<{ needsReply: number; fyi: number; notifications: number; unread: number }> {
+  const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const { data } = await supabase
     .from('email_triage')
-    .select('triage')
-    .eq('is_unread', true);
-  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification' };
+    .select('triage, is_unread')
+    .gte('received_at', since30);
+  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification'; is_unread: boolean };
   const rows = (data ?? []) as RowPick[];
   return {
+    // needs_reply persists whether or not it's been read; fyi/notification
+    // stay unread-only (a read note isn't "waiting").
     needsReply: rows.filter(r => r.triage === 'needs_reply').length,
-    fyi: rows.filter(r => r.triage === 'fyi').length,
-    notifications: rows.filter(r => r.triage === 'notification').length,
-    unread: rows.length,
+    fyi: rows.filter(r => r.triage === 'fyi' && r.is_unread).length,
+    notifications: rows.filter(r => r.triage === 'notification' && r.is_unread).length,
+    unread: rows.filter(r => r.is_unread).length,
   };
 }
 
