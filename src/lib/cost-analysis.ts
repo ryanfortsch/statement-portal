@@ -29,6 +29,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
+import { canonicalVendor } from '@/lib/overhead-categories';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -189,37 +190,78 @@ export type SamePropertyComparison = {
 /* Rising Tide overhead (corporate card + operating account)             */
 /* --------------------------------------------------------------------- */
 
+/** One charge, for the deepest drill-down level. */
+export type OverheadTxn = { date: string; description: string; amount: number; account: string };
+/** A merchant within a category: its total, count, and the charges behind it. */
+export type OverheadVendor = { vendor: string; total: number; count: number; txns: OverheadTxn[] };
+/** A category with its vendor breakdown, for click-to-expand. */
+export type OverheadCategoryDetail = { category: string; total: number; count: number; vendors: OverheadVendor[] };
+/** A proactive, plain-English flag about a cost worth reducing or checking. */
+export type OverheadInsight = {
+  id: string;
+  severity: 'high' | 'medium' | 'low';
+  title: string;
+  detail: string;
+  annual: number | null; // estimated yearly $ at stake, when meaningful
+};
+
 export type OverheadAnalysis = {
   months: string[]; // sorted ascending
   categories: string[]; // categories present, by total desc
   byMonthCategory: Record<string, Record<string, number>>; // month -> category -> amount
   byMonthTotal: Record<string, number>;
+  categoryTotals: Record<string, number>; // category -> all-time total
+  total: number; // all-time grand total
+  detail: OverheadCategoryDetail[]; // category -> vendors -> txns, totals desc
+  insights: OverheadInsight[]; // proactive savings/trend flags
   latestTxnDate: string | null; // most recent transaction date, for the "data through X" nudge
   daysSinceLatest: number | null; // computed here (not in render) so the client control stays pure
   hasData: boolean;
 };
 
+type OverheadRow = { month: string; category: string; amount: number; txn_date: string | null; description: string; account: string };
+
 /**
  * Pull categorized overhead from overhead_expenses (populated by
  * /api/ingest-overhead). Resilient to the table not existing yet
  * (migration unrun) -- returns empty so the UI shows an upload prompt.
+ *
+ * Returns aggregates for the headline view PLUS a full category -> vendor ->
+ * transaction tree for the dashboard drill-down, and a set of proactive
+ * insights (overlapping subscriptions, fast-rising categories, etc.).
  */
 export async function getOverhead(): Promise<OverheadAnalysis> {
-  const empty: OverheadAnalysis = { months: [], categories: [], byMonthCategory: {}, byMonthTotal: {}, latestTxnDate: null, daysSinceLatest: null, hasData: false };
+  const empty: OverheadAnalysis = {
+    months: [], categories: [], byMonthCategory: {}, byMonthTotal: {}, categoryTotals: {},
+    total: 0, detail: [], insights: [], latestTxnDate: null, daysSinceLatest: null, hasData: false,
+  };
   if (!supabaseUrl || !supabaseKey) return empty;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { data, error } = await supabase
-    .from('overhead_expenses')
-    .select('month, category, amount, txn_date');
-  if (error || !data || data.length === 0) return empty;
+  // Page through all rows (Supabase caps a single select at 1000).
+  const rows: OverheadRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('overhead_expenses')
+      .select('month, category, amount, txn_date, description, account')
+      .order('txn_date', { ascending: false })
+      .range(from, from + 999);
+    if (error) { if (rows.length === 0) return empty; break; }
+    if (!data || data.length === 0) break;
+    rows.push(...(data as OverheadRow[]));
+    if (data.length < 1000) break;
+  }
+  if (rows.length === 0) return empty;
 
   const byMonthCategory: Record<string, Record<string, number>> = {};
   const byMonthTotal: Record<string, number> = {};
   const catTotals: Record<string, number> = {};
   let latestTxnDate: string | null = null;
 
-  for (const r of data as { month: string; category: string; amount: number; txn_date: string | null }[]) {
+  // category -> vendor -> accumulator
+  const vendorAcc: Record<string, Record<string, OverheadVendor>> = {};
+
+  for (const r of rows) {
     const m = r.month;
     const cat = r.category;
     const amt = Number(r.amount) || 0;
@@ -229,21 +271,160 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
     byMonthTotal[m] = round2((byMonthTotal[m] || 0) + amt);
     catTotals[cat] = round2((catTotals[cat] || 0) + amt);
     if (r.txn_date && (!latestTxnDate || r.txn_date > latestTxnDate)) latestTxnDate = r.txn_date;
+
+    const vendor = canonicalVendor(r.description || '');
+    (vendorAcc[cat] ||= {});
+    const v = (vendorAcc[cat][vendor] ||= { vendor, total: 0, count: 0, txns: [] });
+    v.total = round2(v.total + amt);
+    v.count += 1;
+    v.txns.push({ date: r.txn_date || '', description: r.description || '', amount: round2(amt), account: r.account });
   }
+
+  // Assemble the sorted detail tree.
+  const detail: OverheadCategoryDetail[] = Object.keys(catTotals)
+    .map(cat => {
+      const vendors = Object.values(vendorAcc[cat] || {})
+        .map(v => ({ ...v, txns: v.txns.sort((a, b) => (a.date < b.date ? 1 : -1)) }))
+        .sort((a, b) => b.total - a.total);
+      return {
+        category: cat,
+        total: round2(catTotals[cat]),
+        count: vendors.reduce((s, v) => s + v.count, 0),
+        vendors,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  const months = Object.keys(byMonthTotal).sort();
+  const total = round2(Object.values(catTotals).reduce((s, v) => s + v, 0));
+  const insights = computeOverheadInsights(detail, byMonthCategory, months);
 
   const daysSinceLatest = latestTxnDate
     ? Math.floor((Date.now() - Date.parse(latestTxnDate + 'T00:00:00')) / 86400000)
     : null;
 
   return {
-    months: Object.keys(byMonthTotal).sort(),
+    months,
     categories: Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]),
     byMonthCategory,
     byMonthTotal,
+    categoryTotals: catTotals,
+    total,
+    detail,
+    insights,
     latestTxnDate,
     daysSinceLatest,
     hasData: true,
   };
+}
+
+/**
+ * Proactive overhead insights -- the "things you could trim" panel. All
+ * heuristic and directional; each is phrased as a prompt to check, not a
+ * command. Annual estimates extrapolate the observed run-rate over the
+ * months of data we have.
+ */
+function computeOverheadInsights(
+  detail: OverheadCategoryDetail[],
+  byMonthCategory: Record<string, Record<string, number>>,
+  months: string[],
+): OverheadInsight[] {
+  const out: OverheadInsight[] = [];
+  const nMonths = Math.max(months.length, 1);
+  const annualize = (total: number) => Math.round((total / nMonths) * 12);
+
+  const findVendor = (name: string): OverheadVendor | undefined => {
+    for (const c of detail) {
+      const v = c.vendors.find(v => v.vendor === name);
+      if (v) return v;
+    }
+    return undefined;
+  };
+  const byCat = (cat: string) => detail.find(c => c.category === cat);
+
+  // 1. Overlapping AI tools -- the easiest subscription overlap to consolidate.
+  const aiNames = ['OpenAI', 'Anthropic', 'Cursor', 'Lovable', 'Runway'];
+  const aiVendors = aiNames.map(findVendor).filter(Boolean) as OverheadVendor[];
+  if (aiVendors.length >= 2) {
+    const aiTotal = aiVendors.reduce((s, v) => s + v.total, 0);
+    out.push({
+      id: 'ai-overlap',
+      severity: 'medium',
+      title: `${aiVendors.length} overlapping AI subscriptions`,
+      detail: `You're paying ${aiVendors.map(v => v.vendor).join(', ')}. Consolidating to one or two could trim the rest.`,
+      annual: annualize(aiTotal),
+    });
+  }
+
+  // 2. Auto insurance sitting in business overhead -- reclassify or confirm.
+  const geico = findVendor('GEICO (auto)');
+  if (geico) {
+    out.push({
+      id: 'auto-insurance',
+      severity: 'high',
+      title: 'Auto insurance is in business overhead',
+      detail: `GEICO auto runs ~${fmtUSD(annualize(geico.total))}/yr on the card. Confirm it belongs in the business, otherwise reclassify it as personal.`,
+      annual: annualize(geico.total),
+    });
+  }
+
+  // 3. Software subscription stack -- the single most reducible bucket.
+  const sw = byCat('Software');
+  if (sw && sw.total > 0) {
+    const top = sw.vendors.slice(0, 4).map(v => v.vendor).join(', ');
+    out.push({
+      id: 'software-stack',
+      severity: 'medium',
+      title: `Software is a ~${fmtUSD(annualize(sw.total))}/yr stack`,
+      detail: `${sw.vendors.length} tools, led by ${top}. Worth an annual subscription audit for ones you've outgrown.`,
+      annual: annualize(sw.total),
+    });
+  }
+
+  // 4. Amazon concentration -- many small orders add up; a spend policy helps.
+  const amzn = findVendor('Amazon');
+  if (amzn && amzn.count >= 20) {
+    out.push({
+      id: 'amazon-concentration',
+      severity: 'low',
+      title: `Amazon is ~${fmtUSD(annualize(amzn.total))}/yr across ${amzn.count} orders`,
+      detail: 'A business account with a simple approval step (or a per-property budget) usually trims impulse buys here.',
+      annual: annualize(amzn.total),
+    });
+  }
+
+  // 5. Fastest-rising category: last 3 months vs the 3 before.
+  if (months.length >= 6) {
+    const recent = months.slice(-3);
+    const prior = months.slice(-6, -3);
+    const sumCat = (ms: string[], cat: string) => ms.reduce((s, m) => s + (byMonthCategory[m]?.[cat] || 0), 0);
+    let best: { cat: string; deltaPerMo: number; pct: number } | null = null;
+    for (const c of detail) {
+      const r = sumCat(recent, c.category) / 3;
+      const p = sumCat(prior, c.category) / 3;
+      if (p < 50) continue; // ignore tiny/noisy bases
+      const deltaPerMo = r - p;
+      const pct = (deltaPerMo / p) * 100;
+      if (deltaPerMo >= 150 && pct >= 20 && (!best || deltaPerMo > best.deltaPerMo)) {
+        best = { cat: c.category, deltaPerMo, pct };
+      }
+    }
+    if (best) {
+      out.push({
+        id: 'rising-category',
+        severity: 'medium',
+        title: `${best.cat} is trending up`,
+        detail: `Up ~${fmtUSD(Math.round(best.deltaPerMo))}/mo (+${best.pct.toFixed(0)}%) over the last quarter vs the prior one. Worth a look before it sets a new baseline.`,
+        annual: Math.round(best.deltaPerMo * 12),
+      });
+    }
+  }
+
+  return out.sort((a, b) => (b.annual || 0) - (a.annual || 0));
+}
+
+function fmtUSD(n: number): string {
+  return '$' + Math.round(n).toLocaleString('en-US');
 }
 
 export function compareSameProperties(ca: CostAnalysis, monthA: string, monthB: string): SamePropertyComparison {

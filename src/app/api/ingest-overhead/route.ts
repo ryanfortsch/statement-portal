@@ -154,31 +154,60 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       inserts.push(row);
     }
 
+    // The file's covered txn_date window, taken from ALL parsed rows (not just
+    // the categorized ones) so a stale row at the edge that now drops is still
+    // inside the reconcile range.
+    const fileDates = rows.map(r => r.txn_date).filter((d): d is string => !!d).sort();
+    const minDate = fileDates[0];
+    const maxDate = fileDates[fileDates.length - 1];
+
     let inserted = 0;
     let updated = 0;
+    let pruned = 0;
     if (inserts.length > 0) {
-      // Figure out which keys already exist so we can report new-vs-updated
-      // accurately. Then upsert with UPDATE-on-conflict so re-uploads
-      // re-categorize existing rows when the categorizer improves (not just
-      // skip them) -- the category column refreshes to the latest rules.
-      const keys = inserts.map(i => i.dedupe_key as string);
-      const existing = new Set<string>();
-      for (let i = 0; i < keys.length; i += 200) {
-        const slice = keys.slice(i, i + 200);
-        const { data: ex } = await supabase
-          .from('overhead_expenses')
-          .select('dedupe_key')
-          .in('dedupe_key', slice);
-        (ex || []).forEach(r => existing.add(r.dedupe_key as string));
+      const currentKeys = new Set(inserts.map(i => i.dedupe_key as string));
+
+      // Snapshot the covered window for this account BEFORE writing, so we can
+      // (a) report new-vs-updated accurately and (b) find rows that used to be
+      // here but aren't in the file anymore.
+      const preExisting: string[] = [];
+      if (minDate && maxDate) {
+        for (let from = 0; ; from += 1000) {
+          const { data: ex } = await supabase
+            .from('overhead_expenses')
+            .select('dedupe_key')
+            .eq('account', account)
+            .gte('txn_date', minDate)
+            .lte('txn_date', maxDate)
+            .range(from, from + 999);
+          if (!ex || ex.length === 0) break;
+          ex.forEach(r => preExisting.push(r.dedupe_key as string));
+          if (ex.length < 1000) break;
+        }
       }
+      const preSet = new Set(preExisting);
+      updated = inserts.filter(i => preSet.has(i.dedupe_key as string)).length;
+      inserted = inserts.length - updated;
+
+      // Upsert with UPDATE-on-conflict so re-uploads re-categorize existing
+      // rows when the categorizer improves (not just skip them).
       const { error } = await supabase
         .from('overhead_expenses')
         .upsert(inserts, { onConflict: 'dedupe_key', ignoreDuplicates: false });
       if (error) {
         return NextResponse.json({ error: `DB write failed: ${error.message}` }, { status: 500 });
       }
-      updated = inserts.filter(i => existing.has(i.dedupe_key as string)).length;
-      inserted = inserts.length - updated;
+
+      // Prune stale rows: previously stored in this window but no longer in the
+      // file -- e.g. a charge that now categorizes to "dropped" because its
+      // vendor was newly flagged personal. Without this, re-ingest can only
+      // re-label rows, never remove them, so the totals would stay inflated.
+      const stale = preExisting.filter(k => !currentKeys.has(k));
+      for (let i = 0; i < stale.length; i += 100) {
+        const slice = stale.slice(i, i + 100);
+        const { error: delErr } = await supabase.from('overhead_expenses').delete().in('dedupe_key', slice);
+        if (!delErr) pruned += slice.length;
+      }
     }
 
     const months = inserts.map(i => i.month as string).filter(Boolean).sort();
@@ -189,6 +218,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       categorized: inserts.length,
       inserted_new: inserted,
       already_present: updated,
+      pruned,
       dropped,
       by_category: byCategory,
       date_range: months.length ? { from: months[0], to: months[months.length - 1] } : null,
