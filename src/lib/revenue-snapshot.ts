@@ -596,17 +596,40 @@ async function applyStatementsAndPacing(
   const todayYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const propById = new Map(properties.map((p) => [p.id, p]));
 
-  // Fetch all Statements for months touched by the range in one query.
+  // Fetch all Statements for months touched by the range. `month` lives on
+  // statement_periods (joined via period_id), NOT on property_statements, so
+  // resolve the periods first, then pull their statements and re-key by month
+  // in JS. (Mirror of get_statements in lib/ask/tools.ts.)
   const monthKeys = segments.map((s) => s.monthKey);
-  const { data: stmtData } = await supabase
-    .from('property_statements')
-    .select('property_id, month, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
-    .in('month', monthKeys);
-
-  // (month, property_id) -> Statement row.
   const stmtByMonthAndProperty = new Map<string, StatementRow>();
-  for (const row of (stmtData ?? []) as Array<StatementRow & { month: string }>) {
-    stmtByMonthAndProperty.set(`${row.month}|${row.property_id}`, row);
+
+  const { data: periodData, error: periodErr } = await supabase
+    .from('statement_periods')
+    .select('id, month')
+    .in('month', monthKeys);
+  if (periodErr) {
+    throw new Error(`Failed to load statement periods: ${periodErr.message}`);
+  }
+
+  const monthByPeriod = new Map(
+    ((periodData ?? []) as Array<{ id: string; month: string }>).map((p) => [p.id, p.month]),
+  );
+
+  if (monthByPeriod.size > 0) {
+    const { data: stmtData, error: stmtErr } = await supabase
+      .from('property_statements')
+      .select('period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
+      .in('period_id', Array.from(monthByPeriod.keys()));
+    if (stmtErr) {
+      throw new Error(`Failed to load property statements: ${stmtErr.message}`);
+    }
+
+    // (month, property_id) -> Statement row.
+    for (const row of (stmtData ?? []) as StatementRow[]) {
+      const month = monthByPeriod.get(row.period_id);
+      if (!month) continue;
+      stmtByMonthAndProperty.set(`${month}|${row.property_id}`, row);
+    }
   }
 
   // Per-month pacing multipliers, keyed by monthKey. Only computed for
@@ -773,6 +796,7 @@ function totalNightsForOccupancy(rangeStart: string, rangeEnd: string, activated
 }
 
 type StatementRow = {
+  period_id: string;
   property_id: string;
   num_stays: number | null;
   nights_booked: number | null;
