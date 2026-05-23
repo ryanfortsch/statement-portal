@@ -52,17 +52,17 @@ type Rule = { category: OverheadCategory; matches: string[] };
 // inspecting the 2-yr card "Other" bucket (GEICO insurance, SQSP, Apple,
 // Lovable, Tempus Fugit law, Delta/Enterprise travel, Paone/Dash repairs).
 const VENDOR_RULES: Rule[] = [
-  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AWS', 'AMAZON WEB'] },
-  { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP'] },
+  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AWS', 'AMAZON WEB', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY'] },
+  { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP', 'VISTAPRINT', 'SEASIDE GRAPHICS'] },
   { category: 'Listing platforms', matches: ['VRBO', 'HOMEAWAY', 'FURNISHED FINDER', 'FURNISHEDFINDER', 'EXPEDIA'] },
-  { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S", 'CRATE&', 'CRATE &', 'CB2', 'POTTERY BARN', 'WILLIAMS SONOMA'] },
-  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC'] },
+  { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S", 'CRATE&', 'CRATE &', 'CB2', 'POTTERY BARN', 'POTTERYBARN', 'WILLIAMS SONOMA', 'JOSSMAIN', 'JOSS & MAIN', 'WEBSTAURANT', 'AMENITIES', 'HOME DECOR GROUP', 'MARSHALLS'] },
+  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC', 'WALLACEHOME', 'WALLACE HOME'] },
   { category: 'Insurance', matches: ['PHILLIPS', 'INSURANCE', 'INSUR', 'GEICO', 'PROGRESSIVE', 'STATE FARM', 'LIBERTY MUT', 'TRAVELERS', 'HARTFORD'] },
   { category: 'Health benefits', matches: ['COMMONWEALTH HEA', 'BLUE CROSS', 'BLUECROSS', 'BCBS', 'HARVARD PILGRIM', 'TUFTS HEALTH', 'UNITEDHEALTH', 'AETNA', 'CIGNA'] },
   { category: 'Rent & office', matches: ['85EASTERN', 'EASTERN LANDLORD', 'EASTERNLANDLORD', 'LANDLORD', 'STAPLES', 'OFFICE DEPOT', 'DUMPSTER', 'WASTE MGMT', 'WASTE MANAGEMENT', 'REPUBLIC SERVICES'] },
   { category: 'Professional', matches: ['MSCONSULTANTS', 'MS CONSULTANTS', 'MH PARTNERS', 'MHPARTNERS', 'SUPPORTING STRATEGIES', 'LEGALZOOM', 'ATTORNEY', 'LAW OFFICE', 'LAW LLC', 'TEMPUS FUGIT', 'CPA', 'ACCOUNTING'] },
   { category: 'Payroll', matches: ['GUSTO', 'ADP', 'PAYCHEX', 'PAYROLL'] },
-  { category: 'Travel', matches: ['DELTA AIR', 'JETBLUE', 'UNITED AIR', 'AMERICAN AIR', 'SOUTHWEST AIR', 'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'NATIONAL CAR', 'UBER', 'LYFT'] },
+  { category: 'Travel', matches: ['DELTA AIR', 'JETBLUE', 'UNITED AIR', 'AMERICAN AIR', 'SOUTHWEST AIR', 'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'NATIONAL CAR', 'UBER', 'LYFT', 'AMTRAK'] },
   { category: 'Bank fees', matches: ['STOP PAYMENT', 'SERVICE CHARGE', 'OVERDRAFT', 'WIRE FEE', 'RETURNED ITEM', 'NSF', 'MONTHLY SERVICE FEE'] },
 ];
 
@@ -195,6 +195,20 @@ const CANONICAL_VENDORS: { name: string; match: string[] }[] = [
   { name: 'Target', match: ['TARGET'] },
   { name: 'Walmart', match: ['WALMART'] },
   { name: 'Staples', match: ['STAPLES'] },
+  { name: 'Joss & Main', match: ['JOSSMAIN', 'JOSS & MAIN'] },
+  { name: 'Pottery Barn', match: ['POTTERYBARN', 'POTTERY BARN'] },
+  { name: 'WebstaurantStore', match: ['WEBSTAURANT'] },
+  { name: 'V H Amenities', match: ['V H AMENITIES', 'AMENITIES'] },
+  { name: 'Home Decor Group', match: ['HOME DECOR GROUP'] },
+  { name: 'Marshalls', match: ['MARSHALLS'] },
+  { name: 'Vistaprint', match: ['VISTAPRINT'] },
+  { name: 'Seaside Graphics', match: ['SEASIDE GRAPHICS'] },
+  { name: 'Amtrak', match: ['AMTRAK'] },
+  { name: 'Wallace Home Services', match: ['WALLACEHOME', 'WALLACE HOME'] },
+  { name: '1Password', match: ['1PASSWORD'] },
+  { name: 'Tailscale', match: ['TAILSCALE'] },
+  { name: 'Resend', match: ['RESEND'] },
+  { name: 'Pond5', match: ['POND5'] },
 ];
 
 function titleCase(s: string): string {
