@@ -327,10 +327,11 @@ function todayStr(): string {
 }
 
 function defaultPlannedFor(checkInDate: string): string {
-  // Default to one day before check-in (operator can move forward/back).
-  const d = new Date(`${checkInDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  const proposed = d.toISOString().split('T')[0];
+  // Default to the check-in day itself: the inspection happens the
+  // morning the guest arrives, before they get there. (Previously
+  // defaulted to the day before, which read as the inspection being
+  // due a day early.) Operator can still move it forward/back.
+  const proposed = checkInDate.slice(0, 10);
   const today = todayStr();
   return proposed >= today ? proposed : today;
 }
