@@ -32,6 +32,17 @@ const TriageItemSchema = z.object({
     .describe(
       'One short sentence in plain English. For needs_reply: what they are asking. For fyi: what the email contains. Skip filler like "An email from X about". Under 18 words.',
     ),
+  isIssue: z
+    .boolean()
+    .describe(
+      'True ONLY when this email reports a property maintenance, damage, or safety problem that needs someone to act (broken/missing item, leak, no heat, etc.). Bookings, payments, contracts, and routine questions are NOT issues.',
+    ),
+  propertyHint: z
+    .string()
+    .nullable()
+    .describe(
+      'When isIssue is true, the property as written in the email (name, street address, or listing title, e.g. "21 Horton", "Stay at Rocky Neck"); otherwise null.',
+    ),
 });
 
 const TriageBatchSchema = z.object({
@@ -72,7 +83,9 @@ notification (drop from the brief entirely):
 
 When in doubt between fyi and needs_reply, lean toward needs_reply if a specific person is asking for something concrete. Dotti would rather see one extra item than miss a contract or owner question. When in doubt between fyi and notification, lean toward notification (it just hides it).
 
-Summaries: terse, plain English, state the ask. Skip "An email from X". Under 18 words.`;
+Summaries: terse, plain English, state the ask. Skip "An email from X". Under 18 words.
+
+Property issues: also set isIssue=true when the email reports a maintenance, damage, or safety problem at a specific property that needs action (a guest/owner saying the shower door shattered, the heat is out, there's a leak, something is broken or missing). Bookings, payments, contracts, and routine questions are NOT issues. When isIssue is true, set propertyHint to the property as written (name, address, or listing title); otherwise null.`;
 
 export type TriageInput = {
   id: string;
@@ -88,6 +101,8 @@ export type TriageResult = {
   id: string;
   category: TriageCategory;
   summary: string;
+  isIssue?: boolean;
+  propertyHint?: string | null;
 };
 
 export async function triageEmails(emails: TriageInput[]): Promise<TriageResult[]> {
@@ -111,9 +126,9 @@ export async function triageEmails(emails: TriageInput[]): Promise<TriageResult[
     for (const item of object.items) {
       byId.set(item.id, item);
     }
-    return emails.map(e => byId.get(e.id) ?? { id: e.id, category: 'fyi' as TriageCategory, summary: '' });
+    return emails.map(e => byId.get(e.id) ?? { id: e.id, category: 'fyi' as TriageCategory, summary: '', isIssue: false, propertyHint: null });
   } catch (err) {
     console.error('[triage-emails]', err);
-    return emails.map(e => ({ id: e.id, category: 'fyi' as TriageCategory, summary: '' }));
+    return emails.map(e => ({ id: e.id, category: 'fyi' as TriageCategory, summary: '', isIssue: false, propertyHint: null }));
   }
 }

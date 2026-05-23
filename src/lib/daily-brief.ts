@@ -680,6 +680,29 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
     await sb.from('email_triage').insert(newRows);
   }
 
+  // Issue emails → maintenance work slips. A guest/owner reporting a
+  // property problem auto-opens a slip on the matched property (idempotent
+  // on the gmail id). Only fires when a Helm property is confidently
+  // matched. Best-effort: never blocks the triage sync.
+  try {
+    const issueEmails = newEmails.filter(e => triageById.get(e.id)?.isIssue);
+    if (issueEmails.length) {
+      const matchProps = await loadIssueSlipProperties(sb);
+      for (const e of issueEmails) {
+        const t = triageById.get(e.id);
+        const prop = matchPropertyHint(t?.propertyHint, matchProps);
+        if (!prop) continue;
+        try {
+          await createIssueSlipFromEmail(sb, prop, e, t?.summary ?? e.subject);
+        } catch (err) {
+          console.error('[syncUnreadEmails] issue slip failed', e.id, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[syncUnreadEmails] issue slip pass failed', err);
+  }
+
   // For already-cached emails: sync the read flag to current state (we now
   // fetch read mail too, so don't blindly force unread) + bump last_seen_at.
   // Triage classification stays untouched.
@@ -778,6 +801,74 @@ async function loadEmailTriageTotals(): Promise<{ needsReply: number; fyi: numbe
     notifications: rows.filter(r => r.triage === 'notification' && r.is_unread).length,
     unread: rows.filter(r => r.is_unread).length,
   };
+}
+
+// ── Issue emails → work slips ───────────────────────────────────────
+
+type MatchProperty = { id: string; name: string; address: string | null; title: string | null };
+
+async function loadIssueSlipProperties(sb: SupabaseClient): Promise<MatchProperty[]> {
+  const { data } = await sb.from('properties').select('id, name, address, title');
+  return (data ?? []) as MatchProperty[];
+}
+
+function normalizeHint(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Match the LLM's property hint against a Helm property by name, street
+// address, or listing title. Returns null unless one matches confidently.
+function matchPropertyHint(hint: string | null | undefined, props: MatchProperty[]): MatchProperty | null {
+  if (!hint) return null;
+  const h = normalizeHint(hint);
+  if (h.length < 3) return null;
+  for (const p of props) {
+    const candidates = [p.name, p.address, p.title]
+      .filter((c): c is string => Boolean(c))
+      .map(normalizeHint)
+      .filter(c => c.length >= 3);
+    for (const c of candidates) {
+      if (h.includes(c) || c.includes(h)) return p;
+    }
+  }
+  return null;
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return '';
+  return s.length > n ? `${s.slice(0, n).trim()}…` : s;
+}
+
+async function createIssueSlipFromEmail(
+  sb: SupabaseClient,
+  prop: MatchProperty,
+  email: { id: string; fromName: string | null; fromEmail: string | null; subject: string; snippet: string },
+  summary: string,
+): Promise<void> {
+  const sender = email.fromName || email.fromEmail || 'someone';
+  await sb
+    .from('work_slips')
+    .insert({
+      property_id: prop.id,
+      title: `${prop.name}: ${truncate(summary || email.subject, 60)}`,
+      description: [
+        `Reported via email from ${sender}.`,
+        '',
+        `Subject: ${email.subject}`,
+        email.snippet ? `\n${email.snippet}` : '',
+        '',
+        'Auto-created from a triaged issue email. Recategorize, assign, or close as needed.',
+      ].join('\n'),
+      action_summary: truncate(summary || email.subject, 120),
+      category: 'maintenance',
+      priority: 'normal',
+      status: 'open',
+      from_gmail_message_id: email.id,
+      created_by_email: 'triage@helm.system',
+    })
+    .then((r) => {
+      if (r.error && !['23505', '42703', '42P01'].includes(r.error.code)) throw r.error;
+    });
 }
 
 export async function loadDailyBrief(): Promise<DailyBrief> {
