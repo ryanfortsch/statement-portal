@@ -22,9 +22,11 @@ export function HelmModuleNavMore({ current }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // Everything that isn't already a tab on the masthead.
+  // Everything that isn't already a tab on the masthead, minus modules
+  // hidden because they're tabs of a parent section (e.g. Statements /
+  // Revenue / Forecast live under Financials).
   const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow: HelmModule[] = HELM_MODULES.filter((m) => !primaryIds.has(m.id));
+  const overflow: HelmModule[] = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
   if (overflow.length === 0) return null;
 
   // Mark "More" as active if the current page is in the overflow set.

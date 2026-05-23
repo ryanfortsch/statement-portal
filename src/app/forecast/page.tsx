@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
+import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { ForecastClient } from './ForecastClient';
 import { CleaningCostsSection } from './CleaningCostsSection';
 import { isConfigured } from '@/lib/supabase';
@@ -279,7 +280,8 @@ export default async function ForecastPage() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="forecast" />
+      <HelmMasthead current="financials" />
+      <FinancialsTabs current="forecast" />
 
       <CoverSheet />
       <StaleDataBanner />

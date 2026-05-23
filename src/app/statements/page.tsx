@@ -9,6 +9,7 @@ import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
 
 /* ─── Types ─── */
@@ -2281,7 +2282,7 @@ function DashboardContent() {
           Period dropdown rides in the rightContent slot. The bespoke close-
           of-month actions strip below is its own non-sticky section. */}
       <HelmMasthead
-        current="statements"
+        current="financials"
         rightContent={
           <select
             value={selectedMonth}
@@ -2318,6 +2319,7 @@ function DashboardContent() {
           </select>
         }
       />
+      <FinancialsTabs current="statements" />
 
       {/* ─── ACTIONS STRIP ───
           Module-specific close-of-month controls. Lives directly under the

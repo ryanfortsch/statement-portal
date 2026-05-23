@@ -1,6 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { Stat } from '@/components/Stat';
 import { TimeRangePicker } from './TimeRangePicker';
 import { ViewToggle, type RevenueView } from './ViewToggle';
@@ -149,7 +150,8 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="revenue" />
+      <HelmMasthead current="financials" />
+      <FinancialsTabs current="revenue" />
 
       <HelmHero
         eyebrow="Helm · Revenue"
