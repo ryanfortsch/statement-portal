@@ -54,7 +54,10 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [allWork, dismissed] = await Promise.all([loadMyWork(email), loadDismissals(email)]);
+  const [{ work: allWork, mode: workMode }, dismissed] = await Promise.all([
+    loadMyWork(email),
+    loadDismissals(email),
+  ]);
 
   // Drop cleared items, then take a window so clearing one reveals the next.
   const workFiltered = allWork.filter((w) => !dismissed.has(`${w.kind}:${w.id}`));
@@ -94,12 +97,19 @@ export async function ForMeFeed() {
         </div>
       ) : (
         <>
-          {/* ON YOUR PLATE — work assigned to the signed-in user */}
+          {/* ON YOUR PLATE — work assigned to you, or unassigned work as a
+              fallback when you have nothing assigned. */}
           {myWork.length > 0 && (
             <div style={{ marginBottom: hasReplyItems ? 36 : 12 }}>
               <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>On your plate</h2>
-                <span className="eyebrow">{workFiltered.length} assigned</span>
+                <h2 style={sectionHeadingStyle}>
+                  {workMode === 'assigned' ? 'On your plate' : 'Unassigned work'}
+                </h2>
+                <span className="eyebrow">
+                  {workMode === 'assigned'
+                    ? `${workFiltered.length} assigned`
+                    : `${workFiltered.length} unassigned`}
+                </span>
               </div>
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {myWork.map((w) => (
@@ -153,42 +163,64 @@ export async function ForMeFeed() {
   );
 }
 
+type WorkMode = 'assigned' | 'unassigned';
+
 /**
- * Work slips and tasks assigned to the signed-in user. Active items only,
- * un-snoozed, highest priority first. Pulls a deeper pool than the feed
- * shows so cleared items can backfill. Empty when there's no session.
+ * Work for the "On your plate" section. Prefers slips and tasks assigned to
+ * the signed-in user; if they have NOTHING assigned, falls back to showing
+ * unassigned work (the ownerless backlog) so the section stays useful and
+ * those items get seen. Active, un-snoozed, highest priority first; pulls a
+ * deeper pool than the feed shows so cleared items can backfill.
  */
-async function loadMyWork(email: string): Promise<MyWork[]> {
-  if (!email) return [];
+async function loadMyWork(email: string): Promise<{ work: MyWork[]; mode: WorkMode }> {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const [slipRes, taskRes] = await Promise.all([
-      supabase
-        .from('work_slips')
-        .select('id, property_id, title, priority, status')
-        .eq('assigned_to_email', email)
-        .in('status', ACTIVE_WORK_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
-        .order('priority', { ascending: false })
-        .limit(20),
-      supabase
-        .from('tasks')
-        .select('id, title, priority, status')
-        .eq('assigned_to_email', email)
-        .in('status', ACTIVE_TASK_STATUSES)
-        .order('priority', { ascending: false })
-        .limit(20),
-    ]);
-    const slips: MyWork[] = (
-      (slipRes.data ?? []) as Array<{ id: string; property_id: string | null; title: string; priority: string | null }>
-    ).map((s) => ({ id: s.id, kind: 'slip', title: s.title, priority: s.priority, propertyId: s.property_id }));
-    const tasks: MyWork[] = (
-      (taskRes.data ?? []) as Array<{ id: string; title: string; priority: string | null }>
-    ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null }));
-    return [...slips, ...tasks];
+    if (email) {
+      const mine = await fetchWork({ kind: 'assigned', email });
+      if (mine.length > 0) return { work: mine, mode: 'assigned' };
+    }
+    // Nothing assigned to this user: surface unassigned work instead.
+    const orphans = await fetchWork({ kind: 'unassigned' });
+    return { work: orphans, mode: 'unassigned' };
   } catch {
-    return [];
+    return { work: [], mode: 'assigned' };
   }
+}
+
+type WorkFilter = { kind: 'assigned'; email: string } | { kind: 'unassigned' };
+
+async function fetchWork(filter: WorkFilter): Promise<MyWork[]> {
+  const today = new Date().toISOString().slice(0, 10);
+
+  let slipQ = supabase
+    .from('work_slips')
+    .select('id, property_id, title, priority, status')
+    .in('status', ACTIVE_WORK_SLIP_STATUSES)
+    .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
+    .order('priority', { ascending: false })
+    .limit(20);
+  let taskQ = supabase
+    .from('tasks')
+    .select('id, title, priority, status')
+    .in('status', ACTIVE_TASK_STATUSES)
+    .order('priority', { ascending: false })
+    .limit(20);
+
+  if (filter.kind === 'assigned') {
+    slipQ = slipQ.eq('assigned_to_email', filter.email);
+    taskQ = taskQ.eq('assigned_to_email', filter.email);
+  } else {
+    slipQ = slipQ.is('assigned_to_email', null);
+    taskQ = taskQ.is('assigned_to_email', null);
+  }
+
+  const [slipRes, taskRes] = await Promise.all([slipQ, taskQ]);
+  const slips: MyWork[] = (
+    (slipRes.data ?? []) as Array<{ id: string; property_id: string | null; title: string; priority: string | null }>
+  ).map((s) => ({ id: s.id, kind: 'slip', title: s.title, priority: s.priority, propertyId: s.property_id }));
+  const tasks: MyWork[] = (
+    (taskRes.data ?? []) as Array<{ id: string; title: string; priority: string | null }>
+  ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null }));
+  return [...slips, ...tasks];
 }
 
 /** The per-user set of cleared items, keyed "type:id". */
