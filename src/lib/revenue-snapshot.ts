@@ -618,7 +618,7 @@ async function applyStatementsAndPacing(
   if (monthByPeriod.size > 0) {
     const { data: stmtData, error: stmtErr } = await supabase
       .from('property_statements')
-      .select('period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, owner_payout')
+      .select('period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, tax_remittance, owner_payout')
       .in('period_id', Array.from(monthByPeriod.keys()));
     if (stmtErr) {
       throw new Error(`Failed to load property statements: ${stmtErr.message}`);
@@ -696,6 +696,10 @@ async function applyStatementsAndPacing(
     let nightsDelta = 0;
     let staysDelta = 0;
     let cleaningDelta = 0;
+    // Repairs + tax come straight off the Statement and reduce payout only.
+    // PropertyRevenueMetrics has no field for them, so accumulate here and
+    // subtract from the recomputed payout. Stays 0 for non-Statement months.
+    let repairsTaxDelta = 0;
     let usedStatement = false;
     let usedPacing = false;
     let usedBooked = false;
@@ -712,6 +716,7 @@ async function applyStatementsAndPacing(
           nightsDelta += (Number(stmt.nights_booked) || 0) - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
           staysDelta += (Number(stmt.num_stays) || 0) - (buckets.staysByMonth.get(seg.monthKey) ?? 0);
           cleaningDelta += (Number(stmt.cleaning_total) || 0) - (buckets.cleaningByMonth.get(seg.monthKey) ?? 0);
+          repairsTaxDelta += (Number(stmt.repairs_total) || 0) + (Number(stmt.tax_remittance) || 0);
           usedStatement = true;
           continue;
         }
@@ -745,7 +750,7 @@ async function applyStatementsAndPacing(
 
     const newMgmtFee = newRevenue != null ? newRevenue * mgmtFraction : null;
     const newPayout =
-      newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) : null;
+      newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) - repairsTaxDelta : null;
     const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
     const newOccupancy =
       totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null) > 0
@@ -803,6 +808,8 @@ type StatementRow = {
   rental_revenue: number | null;
   management_fee: number | null;
   cleaning_total: number | null;
+  repairs_total: number | null;
+  tax_remittance: number | null;
   owner_payout: number | null;
 };
 
