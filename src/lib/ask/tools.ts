@@ -147,7 +147,7 @@ export function createAskTools() {
 
     get_statements: tool({
       description:
-        'Owner statement figures per property per month: rental revenue, management fee, cleaning total, repairs, owner payout, stays, and nights booked. THIS is the source of truth for any revenue or payout question. Filter by property and/or month ("2026-04" format). Omit both to get the most recent month across all properties.',
+        'Owner statement figures per property per month: rental revenue, management fee, cleaning total, repairs, owner payout, stays, and nights booked. THIS is the source of truth for any revenue or payout question. Filter by property and/or month ("2026-04" format). Pass a propertyId to get that property\'s monthly history. Omit both to get the latest couple of months across all properties.',
       inputSchema: z.object({
         propertyId: z
           .string()
@@ -156,20 +156,40 @@ export function createAskTools() {
         month: z.string().optional().describe('Month in YYYY-MM, e.g. "2026-04".'),
       }),
       execute: async ({ propertyId, month }: { propertyId?: string; month?: string }) => {
+        // `month` lives on statement_periods (joined via period_id), NOT on
+        // property_statements. Resolve the relevant period(s) first, then
+        // pull the statements for them and attach the month back on.
+        let periodsQ = supabase
+          .from('statement_periods')
+          .select('id, month, status')
+          .order('month', { ascending: false });
+        if (month) periodsQ = periodsQ.eq('month', month);
+        else periodsQ = periodsQ.limit(propertyId ? 24 : 2);
+        const { data: periodData, error: periodErr } = await periodsQ;
+        if (periodErr) return { error: periodErr.message };
+        const periods = (periodData ?? []) as Array<{ id: string; month: string; status: string }>;
+        if (periods.length === 0) {
+          return {
+            count: 0,
+            statements: [],
+            note: month ? `No statement period exists for ${month}.` : 'No statement periods yet.',
+          };
+        }
+        const monthByPeriod = new Map(periods.map((p) => [p.id, p.month]));
+
         let q = supabase
           .from('property_statements')
           .select(
-            'id, property_id, property_name, owner_name, month, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, owner_payout',
-          );
+            'id, period_id, property_id, property_name, owner_name, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, owner_payout',
+          )
+          .in('period_id', Array.from(monthByPeriod.keys()));
         if (propertyId) q = q.eq('property_id', propertyId);
-        if (month) q = q.eq('month', month);
-        // No month filter + no property: default to the latest month so we
-        // don't dump every statement ever. Pull the newest month first.
-        if (!month) q = q.order('month', { ascending: false }).limit(propertyId ? 24 : 60);
         const { data, error } = await q;
         if (error) return { error: error.message };
-        const rows = (data ?? []) as Array<{ id: string; property_name: string; month: string }>;
-        for (const s of rows) addSource(`${s.property_name} (${s.month})`, '/statements');
+        const rows = ((data ?? []) as Array<{ id: string; period_id: string; property_name: string }>)
+          .map((s) => ({ ...s, month: monthByPeriod.get(s.period_id) ?? null }))
+          .sort((a, b) => (b.month ?? '').localeCompare(a.month ?? ''));
+        for (const s of rows) addSource(`${s.property_name} (${s.month ?? '?'})`, '/statements');
         return { count: rows.length, statements: rows };
       },
     }),
