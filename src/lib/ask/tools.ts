@@ -34,6 +34,98 @@ export function createAskTools() {
   };
 
   const tools = {
+    search_helm: tool({
+      description:
+        'Locate anything in Helm by free-text query (a name, address, owner, or house). Searches managed properties, the prospect/deal pipeline, and CRM contacts in one call and returns each match with its type and a link. START HERE for "where are we with X", "who is X", or any lookup where you are not sure whether X is a property, a prospect, or a person; then drill in with the specific tool (get_statements, get_contact_history, list_prospects) using the ids returned.',
+      inputSchema: z.object({
+        query: z
+          .string()
+          .describe('Free text: a person, owner, address, or property/house name, e.g. "36 Granite" or "John Gavin".'),
+      }),
+      execute: async ({ query }: { query: string }) => {
+        // Strip characters that are structural in a PostgREST or() filter
+        // (commas/parens) plus wildcards, so the value can't break the
+        // query or inject a wildcard.
+        const safe = (query ?? '').replace(/[,()*%]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!safe) return { error: 'Provide a search query.' };
+        const like = `%${safe}%`;
+        const matches: Array<Record<string, unknown>> = [];
+
+        // Managed properties.
+        const { data: props } = await supabase
+          .from('properties')
+          .select('id, name, address, city, owner_full, is_active')
+          .or(`name.ilike.${like},address.ilike.${like},owner_full.ilike.${like}`)
+          .limit(8);
+        for (const p of (props ?? []) as Array<{
+          id: string;
+          name: string;
+          address: string | null;
+          owner_full: string | null;
+          is_active: boolean | null;
+        }>) {
+          addSource(p.name, `/properties/${p.id}`);
+          matches.push({
+            kind: 'property',
+            id: p.id,
+            label: p.name,
+            address: p.address,
+            owner: p.owner_full,
+            isActive: p.is_active,
+            href: `/properties/${p.id}`,
+          });
+        }
+
+        // Prospect / deal pipeline.
+        const { data: prospects } = await supabase
+          .from('projections')
+          .select('id, property_address, property_city, prospect_name, status, presentation_month, contract_signed_at, property_id')
+          .or(`property_address.ilike.${like},prospect_name.ilike.${like},property_city.ilike.${like}`)
+          .limit(8);
+        for (const pr of (prospects ?? []) as Array<{
+          id: string;
+          property_address: string;
+          prospect_name: string | null;
+          status: string | null;
+        }>) {
+          addSource(pr.property_address, `/projections/${pr.id}`);
+          matches.push({
+            kind: 'prospect',
+            id: pr.id,
+            label: pr.property_address,
+            prospectName: pr.prospect_name,
+            status: pr.status,
+            href: `/projections/${pr.id}`,
+          });
+        }
+
+        // CRM contacts.
+        const { data: contacts } = await supabase
+          .from('contacts')
+          .select('id, name, organization, type, linked_property_ids')
+          .or(`name.ilike.${like},organization.ilike.${like}`)
+          .limit(8);
+        for (const c of (contacts ?? []) as Array<{
+          id: string;
+          name: string;
+          organization: string | null;
+          type: string;
+        }>) {
+          addSource(c.name, `/crm/${c.id}`);
+          matches.push({
+            kind: 'contact',
+            id: c.id,
+            label: c.name,
+            organization: c.organization,
+            contactType: c.type,
+            href: `/crm/${c.id}`,
+          });
+        }
+
+        return { query: safe, matchCount: matches.length, matches };
+      },
+    }),
+
     list_properties: tool({
       description:
         'List Rising Tide managed properties with owner, address, city, and management fee. Use for questions about the portfolio, who owns what, management fees, or to resolve a property name to its id.',
