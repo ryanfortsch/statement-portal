@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -206,28 +207,6 @@ function normalizePlatform(raw?: string | null): string | null {
   if (l === 'direct' || l === 'manual') return 'Manual';
   if (l === 'unknown') return null;
   return s;
-}
-
-/**
- * Recurring maintenance / repair vendors. Bank ingest scans descriptions for
- * any of these matchers and tags them with the canonical name. New vendors
- * (plumber, electrician, landscaper, etc.) get added here.
- *
- * Match strings are upper-cased substrings.
- */
-const MAINTENANCE_VENDORS: { name: string; matches: string[] }[] = [
-  { name: 'Ian Drometer', matches: ['DROMETER'] },
-  // Morris Heating & Air -- HVAC service contract for the rentals.
-  // Bank descriptor truncates to "Morris Heating &" so we match on the
-  // shorter unambiguous prefix.
-  { name: 'Morris Heating & Air', matches: ['MORRIS HEATING'] },
-];
-
-function matchMaintenanceVendor(descUpper: string): string | null {
-  for (const v of MAINTENANCE_VENDORS) {
-    if (v.matches.some(m => descUpper.includes(m))) return v.name;
-  }
-  return null;
 }
 
 // Check if a date string (MM/DD/YYYY) falls within a given month (YYYY-MM)
@@ -499,7 +478,14 @@ export async function POST(request: NextRequest) {
       bankRows = parseCSV(bankText);
     }
 
-    const cleaningCharges: { date: string; amount: number; description: string }[] = [];
+    // Cleaning (Cape Ann Elite) and linen (Nor'East) charges are tracked in
+    // separate buckets: cleaning charges get the 1:1 reservation match (one
+    // turnover = one cleaning), linen charges are additive cost only. Both
+    // roll into cleaning_total so the owner statement shows one combined
+    // "Cleaning" line (linens were bundled into Cape Ann Elite's invoices
+    // before May 2026; folding them back in keeps owner payouts correct).
+    const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
 
@@ -510,21 +496,27 @@ export async function POST(request: NextRequest) {
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
       const descUpper = desc.toUpperCase();
 
-      // Cleaning charges: month-filtered only
-      if (descUpper.includes('CAPE ANN ELITE')) {
+      const cls = classifyBankRow(descUpper);
+
+      // Cleaning + linen charges: month-filtered only.
+      if (cls?.kind === 'cleaning') {
         if (isInMonth(date, month)) {
-          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
+          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
+        }
+        continue;
+      }
+      if (cls?.kind === 'linen') {
+        if (isInMonth(date, month)) {
+          linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
 
       // Maintenance / repair vendor matches. Recurring property handymen,
-      // plumbers, etc. Always a DEBIT (negative amount). Add to MAINTENANCE_VENDORS
-      // when new vendors come up.
-      const vendor = matchMaintenanceVendor(descUpper);
-      if (vendor) {
+      // plumbers, etc. Always a DEBIT (negative amount).
+      if (cls?.kind === 'repair') {
         if (isInMonth(date, month) && amount < 0) {
-          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor });
+          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
@@ -539,7 +531,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    // cleaning_total folds cleaning + linens into one number (owner-facing
+    // single "Cleaning" line). owner_payout already deducts cleaning_total,
+    // so no payout-formula change is needed.
+    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal) * 100) / 100;
     const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Process reservations with channel logic.
@@ -808,29 +805,55 @@ export async function POST(request: NextRequest) {
       if (resErr) throw resErr;
     }
 
-    // 11. Insert cleaning events -- match to reservation checkouts (1:1 greedy
-    //     assignment; see matchCleaningsToReservations for the algorithm.)
+    // 11. Insert cleaning events. Cape Ann Elite cleanings get the 1:1
+    //     reservation-checkout match (see matchCleaningsToReservations).
+    //     Nor'East linen charges are appended as additive, vendor-tagged
+    //     rows that are NOT matched to a checkout -- a linen pickup isn't a
+    //     turnover, so it must not consume a match slot or inflate the
+    //     "N turns" count. Both vendors land in cleaning_total.
+    const toISO = (d: string) => {
+      const parts = d.split('/');
+      if (parts.length !== 3) return '';
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    };
+    type CleaningEventInsert = {
+      property_statement_id: string;
+      guest_name: string | null;
+      checkout_date: string | null;
+      bank_charge_amount: number;
+      bank_charge_date: string | null;
+      amount: number;
+      source: string;
+      vendor: string;
+    };
+    const cleaningInserts: CleaningEventInsert[] = [];
     if (cleaningCharges.length > 0) {
-      const toISO = (d: string) => {
-        const parts = d.split('/');
-        if (parts.length !== 3) return '';
-        return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
-      };
-      const cleaningInserts = matchCleaningsToReservations(cleaningCharges, processedReservations).map(m => ({
-        property_statement_id: stmt.id,
-        guest_name: m.matchedGuest,
-        checkout_date: m.matchedCheckout,
-        bank_charge_amount: m.charge.amount,
-        bank_charge_date: toISO(m.charge.date) || null,
-        amount: m.charge.amount,
-        source: m.matchedGuest ? 'matched' : 'bank',
-      }));
-
-      const { error: cleanErr } = await supabase
-        .from('cleaning_events')
-        .insert(cleaningInserts);
-      if (cleanErr) throw cleanErr;
+      for (const m of matchCleaningsToReservations(cleaningCharges, processedReservations)) {
+        cleaningInserts.push({
+          property_statement_id: stmt.id,
+          guest_name: m.matchedGuest,
+          checkout_date: m.matchedCheckout,
+          bank_charge_amount: m.charge.amount,
+          bank_charge_date: toISO(m.charge.date) || null,
+          amount: m.charge.amount,
+          source: m.matchedGuest ? 'matched' : 'bank',
+          vendor: CLEANING_VENDOR_DEFAULT,
+        });
+      }
     }
+    for (const c of linenCharges) {
+      cleaningInserts.push({
+        property_statement_id: stmt.id,
+        guest_name: null,
+        checkout_date: null,
+        bank_charge_amount: c.amount,
+        bank_charge_date: toISO(c.date) || null,
+        amount: c.amount,
+        source: 'bank-linen',
+        vendor: LINEN_VENDOR_NAME,
+      });
+    }
+    await insertCleaningEvents(supabase, cleaningInserts);
 
     // 11b. Insert repair events (handyman / vendor charges from the bank).
     // Tolerates the migration not having run yet.
