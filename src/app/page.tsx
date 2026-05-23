@@ -371,6 +371,16 @@ export default async function HelmHome() {
         </div>
       </section>
 
+      {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a
+          tab. Promoted above the calendar so the personal triage sits right
+          under Today's Signals. */}
+      <div>
+        <HomeFeedTabs
+          forMe={<ForMeFeed />}
+          recentActivity={<TeamActivity limit={20} hideHeading />}
+        />
+      </div>
+
       {/* OCCUPANCY CALENDAR — next 7 days, shared with the Turnovers page */}
       {ops?.calendar && ops.calendar.rows.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 64 }}>
@@ -397,13 +407,8 @@ export default async function HelmHome() {
         </section>
       )}
 
-      {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a tab */}
-      <div style={{ flex: 1 }}>
-        <HomeFeedTabs
-          forMe={<ForMeFeed />}
-          recentActivity={<TeamActivity limit={20} hideHeading />}
-        />
-      </div>
+      {/* Spacer keeps the footer pinned to the bottom whichever block is last. */}
+      <div style={{ flex: 1 }} />
 
       <HelmFooter
         left="Rising Tide · 85 Eastern Ave · Gloucester, MA 01930"
