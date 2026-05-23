@@ -140,16 +140,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     let inserted = 0;
+    let updated = 0;
     if (inserts.length > 0) {
-      // Upsert ignoring duplicates (idempotent re-uploads).
-      const { data, error } = await supabase
+      // Figure out which keys already exist so we can report new-vs-updated
+      // accurately. Then upsert with UPDATE-on-conflict so re-uploads
+      // re-categorize existing rows when the categorizer improves (not just
+      // skip them) -- the category column refreshes to the latest rules.
+      const keys = inserts.map(i => i.dedupe_key as string);
+      const existing = new Set<string>();
+      for (let i = 0; i < keys.length; i += 200) {
+        const slice = keys.slice(i, i + 200);
+        const { data: ex } = await supabase
+          .from('overhead_expenses')
+          .select('dedupe_key')
+          .in('dedupe_key', slice);
+        (ex || []).forEach(r => existing.add(r.dedupe_key as string));
+      }
+      const { error } = await supabase
         .from('overhead_expenses')
-        .upsert(inserts, { onConflict: 'dedupe_key', ignoreDuplicates: true })
-        .select('id');
+        .upsert(inserts, { onConflict: 'dedupe_key', ignoreDuplicates: false });
       if (error) {
         return NextResponse.json({ error: `DB write failed: ${error.message}` }, { status: 500 });
       }
-      inserted = data?.length ?? 0;
+      updated = inserts.filter(i => existing.has(i.dedupe_key as string)).length;
+      inserted = inserts.length - updated;
     }
 
     const months = inserts.map(i => i.month as string).filter(Boolean).sort();
@@ -159,7 +173,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       rows_in_file: rows.length,
       categorized: inserts.length,
       inserted_new: inserted,
-      already_present: inserts.length - inserted,
+      already_present: updated,
       dropped,
       by_category: byCategory,
       date_range: months.length ? { from: months[0], to: months[months.length - 1] } : null,

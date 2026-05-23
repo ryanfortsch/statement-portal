@@ -37,32 +37,42 @@ export type OverheadCategory =
   | 'Guest supplies'
   | 'Repairs & upkeep'
   | 'Insurance'
+  | 'Health benefits'
   | 'Rent & office'
   | 'Professional'
   | 'Payroll'
+  | 'Travel'
   | 'Bank fees'
   | 'Other';
 
 type Rule = { category: OverheadCategory; matches: string[] };
 
 // Vendor substring rules (upper-cased). Order matters only in that the
-// first match wins; lists are kept disjoint in practice.
+// first match wins; lists are kept disjoint in practice. Expanded after
+// inspecting the 2-yr card "Other" bucket (GEICO insurance, SQSP, Apple,
+// Lovable, Tempus Fugit law, Delta/Enterprise travel, Paone/Dash repairs).
 const VENDOR_RULES: Rule[] = [
-  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB'] },
+  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AWS', 'AMAZON WEB'] },
   { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP'] },
   { category: 'Listing platforms', matches: ['VRBO', 'HOMEAWAY', 'FURNISHED FINDER', 'FURNISHEDFINDER', 'EXPEDIA'] },
-  { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S"] },
-  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER'] },
-  { category: 'Insurance', matches: ['PHILLIPS', 'INSURANCE', 'INSUR'] },
+  { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S", 'CRATE&', 'CRATE &', 'CB2', 'POTTERY BARN', 'WILLIAMS SONOMA'] },
+  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC'] },
+  { category: 'Insurance', matches: ['PHILLIPS', 'INSURANCE', 'INSUR', 'GEICO', 'PROGRESSIVE', 'STATE FARM', 'LIBERTY MUT', 'TRAVELERS', 'HARTFORD'] },
+  { category: 'Health benefits', matches: ['COMMONWEALTH HEA', 'BLUE CROSS', 'BLUECROSS', 'BCBS', 'HARVARD PILGRIM', 'TUFTS HEALTH', 'UNITEDHEALTH', 'AETNA', 'CIGNA'] },
   { category: 'Rent & office', matches: ['85EASTERN', 'EASTERN LANDLORD', 'EASTERNLANDLORD', 'LANDLORD', 'STAPLES', 'OFFICE DEPOT', 'DUMPSTER', 'WASTE MGMT', 'WASTE MANAGEMENT', 'REPUBLIC SERVICES'] },
-  { category: 'Professional', matches: ['MSCONSULTANTS', 'MS CONSULTANTS', 'MH PARTNERS', 'MHPARTNERS', 'SUPPORTING STRATEGIES', 'LEGALZOOM', 'ATTORNEY', 'LAW OFFICE', 'CPA', 'ACCOUNTING'] },
+  { category: 'Professional', matches: ['MSCONSULTANTS', 'MS CONSULTANTS', 'MH PARTNERS', 'MHPARTNERS', 'SUPPORTING STRATEGIES', 'LEGALZOOM', 'ATTORNEY', 'LAW OFFICE', 'LAW LLC', 'TEMPUS FUGIT', 'CPA', 'ACCOUNTING'] },
   { category: 'Payroll', matches: ['GUSTO', 'ADP', 'PAYCHEX', 'PAYROLL'] },
+  { category: 'Travel', matches: ['DELTA AIR', 'JETBLUE', 'UNITED AIR', 'AMERICAN AIR', 'SOUTHWEST AIR', 'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'NATIONAL CAR', 'UBER', 'LYFT'] },
   { category: 'Bank fees', matches: ['STOP PAYMENT', 'SERVICE CHARGE', 'OVERDRAFT', 'WIRE FEE', 'RETURNED ITEM', 'NSF', 'MONTHLY SERVICE FEE'] },
 ];
 
 // Chase Category values (corporate card) that are personal/gray and get
 // dropped per the "hide personal" decision.
 const PERSONAL_CHASE_CATEGORIES = new Set(['Gas', 'Food & Drink', 'Entertainment', 'Health & Wellness', 'Personal']);
+
+// Explicitly-personal vendors to drop regardless of Chase category
+// (streaming, tuition, etc. -- the "Netflix mess" Ryan flagged).
+const PERSONAL_VENDORS = ['NETFLIX', 'SPOTIFY', 'HULU', 'DISNEY PLUS', 'DISNEY+', 'HBO MAX', 'PEACOCK', 'PARAMOUNT+', 'SNHU', 'AUDIBLE'];
 
 // Operating-account internal-transfer / non-expense signals. Any debit
 // whose description hits one of these is NOT an expense (it's moving money
@@ -102,6 +112,9 @@ export function categorizeOverhead(args: {
 
   const descUpper = (description || '').toUpperCase();
 
+  // Explicitly personal vendors are dropped on either account.
+  if (PERSONAL_VENDORS.some(v => descUpper.includes(v))) return null;
+
   if (account === 'card') {
     // Drop personal per Chase's own category.
     if (chaseCategory && PERSONAL_CHASE_CATEGORIES.has(chaseCategory)) return null;
@@ -128,6 +141,6 @@ export function categorizeOverhead(args: {
 
 export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
   'Software', 'Marketing', 'Listing platforms', 'Guest supplies',
-  'Repairs & upkeep', 'Insurance', 'Rent & office', 'Professional',
-  'Payroll', 'Bank fees', 'Other',
+  'Repairs & upkeep', 'Insurance', 'Health benefits', 'Rent & office',
+  'Professional', 'Payroll', 'Travel', 'Bank fees', 'Other',
 ];
