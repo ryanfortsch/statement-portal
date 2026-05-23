@@ -41,7 +41,11 @@ export const HELM_MODULES: HelmModule[] = [
   // start form + recent list, just not as a nav item.
   {
     id: 'financials',
-    href: '/statements',
+    // Default landing for the Financials section is Revenue (the
+    // portfolio at-a-glance), not Statements -- per Dotti, 2026-05-23.
+    // The FinancialsTabs strip still lets you jump to Statements /
+    // Forecast / Cost Analysis from there.
+    href: '/revenue',
     number: '01',
     title: 'Financials',
     description: 'Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
