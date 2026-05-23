@@ -70,3 +70,20 @@ export function touchSource(t: Pick<ContactTouchRow, 'gmail_message_id' | 'quo_m
   if (t.gmail_message_id) return 'gmail';
   return 'manual';
 }
+
+/**
+ * One row per inbound Quo phone number that isn't a known contact yet.
+ * Backs the "new numbers reaching out" triage queue on /crm.
+ */
+export type UnknownNumberRow = {
+  id: string;
+  phone: string;
+  last_message_at: string | null;
+  last_body: string | null;
+  last_direction: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  status: 'pending' | 'added' | 'dismissed';
+  contact_id: string | null;
+  created_at: string;
+};

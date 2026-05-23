@@ -3,10 +3,10 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { ContactRow, ContactType } from '@/lib/crm';
+import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { LastTouch } from './page';
-import { createContact } from './actions';
+import { createContact, addUnknownAsContact, dismissUnknownNumber } from './actions';
 import { SyncGmailButton } from './SyncGmailButton';
 import { SyncQuoButton } from './SyncQuoButton';
 
@@ -17,17 +17,36 @@ type Props = {
   properties: PropertyMini[];
   counts: Record<ContactType | 'all', number>;
   lastTouchByContact: Record<string, LastTouch>;
+  unknownNumbers: UnknownNumberRow[];
 };
 
 type FilterId = 'all' | ContactType;
 
-export function CrmListClient({ contacts, properties, counts, lastTouchByContact }: Props) {
+export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<FilterId>('all');
   const [query, setQuery] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [promotePhone, setPromotePhone] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [busyPhone, setBusyPhone] = useState<string | null>(null);
 
   const propertyMap = useMemo(() => new Map(properties.map((p) => [p.id, p.name])), [properties]);
+
+  const visibleUnknowns = useMemo(
+    () => unknownNumbers.filter((u) => !hidden.has(u.phone)),
+    [unknownNumbers, hidden],
+  );
+
+  async function onDismiss(phone: string) {
+    setBusyPhone(phone);
+    const res = await dismissUnknownNumber({ phone });
+    setBusyPhone(null);
+    if (res.ok) {
+      setHidden((h) => new Set(h).add(phone));
+      router.refresh();
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -49,6 +68,43 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
 
   return (
     <>
+      {/* NEW NUMBERS REACHING OUT — Quo triage queue */}
+      {visibleUnknowns.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
+          <div style={{ border: '1px solid var(--signal)', padding: '16px 18px' }}>
+            <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 12 }}>
+              New numbers reaching out · {visibleUnknowns.length}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {visibleUnknowns.map((u) => (
+                <div key={u.phone} style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+                  <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                    {formatPhone(u.phone)}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
+                    {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
+                    {u.last_message_at && (
+                      <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>
+                    )}
+                  </span>
+                  <button type="button" onClick={() => setPromotePhone(u.phone)} style={smallBtn(true)}>
+                    Add as contact
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyPhone === u.phone}
+                    onClick={() => onDismiss(u.phone)}
+                    style={smallBtn(false)}
+                  >
+                    {busyPhone === u.phone ? '…' : 'Dismiss'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* TAB ROW + SEARCH + NEW */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 16, width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -189,6 +245,34 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
           }}
         />
       )}
+
+      {promotePhone && (
+        <NewContactModal
+          properties={properties}
+          initialPhone={promotePhone}
+          initialType="lead"
+          title="Add as contact"
+          submitLabel="Add Contact"
+          onSubmit={(a) =>
+            addUnknownAsContact({
+              phone: promotePhone,
+              name: a.name,
+              type: a.type,
+              emails: a.emails,
+              organization: a.organization,
+              notes: a.notes,
+              tags: a.tags,
+              linked_property_ids: a.linked_property_ids,
+            })
+          }
+          onClose={() => setPromotePhone(null)}
+          onCreated={(id) => {
+            setHidden((h) => new Set(h).add(promotePhone));
+            setPromotePhone(null);
+            router.push(`/crm/${id}`);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -240,15 +324,34 @@ function NewContactModal({
   properties,
   onClose,
   onCreated,
+  initialPhone,
+  initialType,
+  title,
+  submitLabel,
+  onSubmit,
 }: {
   properties: PropertyMini[];
   onClose: () => void;
   onCreated: (id: string) => void;
+  initialPhone?: string;
+  initialType?: ContactType;
+  title?: string;
+  submitLabel?: string;
+  onSubmit?: (args: {
+    type: ContactType;
+    name: string;
+    emails?: string;
+    phone?: string | null;
+    organization?: string | null;
+    notes?: string | null;
+    tags?: string;
+    linked_property_ids?: string[];
+  }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
 }) {
-  const [type, setType] = useState<ContactType>('owner');
+  const [type, setType] = useState<ContactType>(initialType ?? 'owner');
   const [name, setName] = useState('');
   const [emails, setEmails] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(initialPhone ?? '');
   const [organization, setOrganization] = useState('');
   const [tags, setTags] = useState('');
   const [linkedPropertyIds, setLinkedPropertyIds] = useState<string[]>([]);
@@ -260,7 +363,8 @@ function NewContactModal({
     e.preventDefault();
     setErr(null);
     setSubmitting(true);
-    const res = await createContact({
+    const submitFn = onSubmit ?? createContact;
+    const res = await submitFn({
       type,
       name,
       emails,
@@ -309,7 +413,7 @@ function NewContactModal({
       >
         <div className="flex items-baseline justify-between" style={{ marginBottom: 20 }}>
           <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            New Contact
+            {title ?? 'New Contact'}
           </h2>
           <button
             type="button"
@@ -457,7 +561,7 @@ function NewContactModal({
                 cursor: submitting ? 'wait' : 'pointer',
               }}
             >
-              {submitting ? 'Creating…' : 'Create Contact'}
+              {submitting ? 'Saving…' : (submitLabel ?? 'Create Contact')}
             </button>
           </div>
         </form>
@@ -514,4 +618,26 @@ function formatRelative(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function formatPhone(p: string): string {
+  const d = p.replace(/\D/g, '');
+  const ten = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+  if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+  return p;
+}
+
+function smallBtn(primary: boolean): React.CSSProperties {
+  return {
+    background: primary ? 'var(--ink)' : 'transparent',
+    color: primary ? 'var(--paper)' : 'var(--ink-3)',
+    border: `1px solid ${primary ? 'var(--ink)' : 'var(--rule)'}`,
+    padding: '5px 10px',
+    fontSize: 10,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  };
 }

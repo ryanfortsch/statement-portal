@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { backfillTouchesForPhone } from '@/lib/quo-ingest';
 import type { ContactType, TouchChannel } from '@/lib/crm';
 
 const VALID_TYPES: ContactType[] = ['owner', 'vendor', 'lead', 'other'];
@@ -166,4 +167,86 @@ export async function deleteContactTouch(args: {
 
   revalidatePath(`/crm/${args.contact_id}`);
   return { ok: true };
+}
+
+// ── Unknown-number triage queue ────────────────────────────────────
+
+/** Hide an unknown Quo number from the triage queue (spam / wrong number). */
+export async function dismissUnknownNumber(
+  args: { phone: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const phone = args.phone?.trim();
+  if (!phone) return { ok: false, error: 'Phone is required' };
+
+  const { error } = await supabase
+    .from('quo_unknown_numbers')
+    .update({ status: 'dismissed' })
+    .eq('phone', phone);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/crm');
+  return { ok: true };
+}
+
+/**
+ * Promote an unknown Quo number to a real contact, then backfill the
+ * conversation: every captured Quo event for that phone is replayed
+ * through the ingest, which now matches the new contact and writes
+ * contact_touches. The triage row is marked resolved.
+ */
+export async function addUnknownAsContact(args: {
+  phone: string;
+  name: string;
+  type?: ContactType;
+  emails?: string;
+  organization?: string | null;
+  notes?: string | null;
+  tags?: string;
+  linked_property_ids?: string[];
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const phone = args.phone?.trim();
+  if (!phone) return { ok: false, error: 'Phone is required' };
+  if (!args.name?.trim()) return { ok: false, error: 'Name is required' };
+  const type = args.type ?? 'lead';
+  if (!VALID_TYPES.includes(type)) return { ok: false, error: 'Invalid type' };
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert({
+      type,
+      name: args.name.trim(),
+      emails: args.emails ? emailListFromInput(args.emails) : [],
+      phone,
+      organization: trimNull(args.organization),
+      notes: trimNull(args.notes),
+      tags: args.tags ? tagListFromInput(args.tags) : [],
+      linked_property_ids: args.linked_property_ids ?? [],
+      created_by_email: session.user.email,
+    })
+    .select('id')
+    .single();
+  if (error || !data) return { ok: false, error: error?.message || 'Failed to create contact' };
+  const contactId = (data as { id: string }).id;
+
+  // Mark the triage row resolved and link it to the new contact.
+  await supabase
+    .from('quo_unknown_numbers')
+    .update({ status: 'added', contact_id: contactId })
+    .eq('phone', phone);
+
+  // Backfill the conversation onto the new contact. Non-fatal: the contact
+  // exists regardless, and a later Sync Quo would also pick it up.
+  try {
+    await backfillTouchesForPhone(phone);
+  } catch (err) {
+    console.error('[addUnknownAsContact] backfill failed', err);
+  }
+
+  revalidatePath('/crm');
+  revalidatePath(`/crm/${contactId}`);
+  return { ok: true, id: contactId };
 }
