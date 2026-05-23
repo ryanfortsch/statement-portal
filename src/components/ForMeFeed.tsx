@@ -307,10 +307,13 @@ function inboundId(t: BriefInboundTouch): string {
 
 function MyWorkRow({ item }: { item: MyWork }) {
   const isHigh = (item.priority ?? '').toLowerCase() === 'high';
+  // Deep-link to the item's own page so clicking opens the slip/task itself
+  // instead of dumping you on the generic board.
+  const href = item.kind === 'slip' ? `/work/${item.id}` : `/work/tasks/${item.id}`;
   return (
     <div style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: isHigh ? 'var(--signal)' : 'var(--tide-deep)' }} />
-      <Link href="/work" style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+      <Link href={href} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
           <span
             style={{
@@ -394,10 +397,11 @@ function EmailItem({ email: e, dim = false }: { email: BriefEmail; dim?: boolean
 }
 
 function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
+  const href = t.contactId ? `/crm/${t.contactId}` : '/crm';
   return (
     <div style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: 'var(--tide-deep)' }} />
-      <Link href="/crm" style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+      <Link href={href} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
             {t.contactName || 'Contact'}
