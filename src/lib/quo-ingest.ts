@@ -80,6 +80,37 @@ export async function dispatchQuoEvent(ev: QuoEventEnvelope): Promise<void> {
   }
 }
 
+/**
+ * Replay every captured Quo event involving `phone` through the ingest.
+ * Called after promoting an unknown number to a contact: the events now
+ * match the new contact, so contact_touches backfill. Idempotent.
+ */
+export async function backfillTouchesForPhone(phone: string): Promise<{ dispatched: number }> {
+  const target = normalizePhone(phone);
+  if (!target) return { dispatched: 0 };
+
+  const { data } = await supabase
+    .from('quo_events')
+    .select('payload')
+    .eq('signature_valid', true)
+    .order('received_at', { ascending: true });
+
+  let dispatched = 0;
+  for (const row of (data ?? []) as { payload: QuoEventEnvelope }[]) {
+    const obj = row.payload?.data?.object as { from?: string | null; to?: string | string[] | null } | undefined;
+    if (!obj) continue;
+    const parties = [obj.from, ...(Array.isArray(obj.to) ? obj.to : [obj.to])].filter(Boolean) as string[];
+    if (!parties.some((p) => normalizePhone(p) === target)) continue;
+    try {
+      await dispatchQuoEvent(row.payload);
+      dispatched += 1;
+    } catch {
+      // skip non-attributable events
+    }
+  }
+  return { dispatched };
+}
+
 // ── Handlers ───────────────────────────────────────────────────────
 
 async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
@@ -139,7 +170,12 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
     if (contact.type === 'owner' && contact.linked_property_ids?.length) {
       await stampOwnerContact(contact.linked_property_ids, msg.createdAt, 'sms');
     }
+    return;
   }
+
+  // 3. Unknown-number path. Not a cleaner, not a contact — capture it in
+  // the triage queue so prospect/owner/vendor texts aren't dropped.
+  await captureUnknownInbound(fromPhone, msg.createdAt, body || null);
 }
 
 async function handleOutboundMessage(msg: WebhookMessage): Promise<void> {
@@ -177,10 +213,16 @@ async function handleCall(call: WebhookCall): Promise<void> {
   const otherParty = callOtherParty(call);
   if (!otherParty) return;
 
-  const contact = await findContactByPhone(otherParty);
-  if (!contact) return;
-
   const at = call.completedAt ?? call.createdAt;
+  const contact = await findContactByPhone(otherParty);
+  if (!contact) {
+    // An inbound call from an unknown number is also "reaching out".
+    if (call.direction === 'incoming') {
+      await captureUnknownInbound(otherParty, at, 'Inbound call');
+    }
+    return;
+  }
+
   const dur = call.duration ? ` (${Math.round(call.duration / 60)}m)` : '';
   const dir = call.direction === 'incoming' ? 'Inbound call' : 'Outbound call';
 
@@ -315,6 +357,28 @@ async function stampOwnerContact(
     .from('properties')
     .update({ owner_last_contacted_at: at, owner_last_contacted_via: via })
     .in('id', propertyIds);
+}
+
+// Upsert one row per unknown phone (last-write-wins on the latest message).
+// status/contact_id/first_seen_at are intentionally omitted so a dismissed
+// or promoted number keeps its state and its original first-seen time. Fails
+// safe (no throw) if the table doesn't exist yet (migration not applied).
+async function captureUnknownInbound(
+  phone: string,
+  at: string,
+  body: string | null,
+): Promise<void> {
+  if (!phone) return;
+  await supabase
+    .from('quo_unknown_numbers')
+    .upsert(
+      { phone, last_message_at: at, last_body: body, last_direction: 'inbound', last_seen_at: at },
+      { onConflict: 'phone' },
+    )
+    .then((r) => {
+      // 42P01 = undefined_table (pre-migration); 23505 = race on unique.
+      if (r.error && r.error.code !== '23505' && r.error.code !== '42P01') throw r.error;
+    });
 }
 
 function truncate(s: string, n: number): string {
