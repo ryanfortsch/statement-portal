@@ -629,6 +629,28 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                           {t.notes}
                         </div>
                       )}
+                      {t.quo_recording_url && (
+                        <div style={{ marginTop: 4 }}>
+                          <a
+                            href={t.quo_recording_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                          >
+                            Recording
+                          </a>
+                        </div>
+                      )}
+                      {t.quo_transcript && (
+                        <details style={{ marginTop: 4 }}>
+                          <summary style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em', cursor: 'pointer' }}>
+                            Transcript
+                          </summary>
+                          <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                            {t.quo_transcript}
+                          </div>
+                        </details>
+                      )}
                       <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                         {isInbound
                           ? <>{contact.name} replied &middot; {formatRelative(t.touched_at)}</>
