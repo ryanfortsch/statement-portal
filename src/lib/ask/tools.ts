@@ -130,7 +130,7 @@ export function createAskTools() {
 
     list_prospects: tool({
       description:
-        'Prospect / deal pipeline: each prospective property with its status, contract signing state, and onboarding state. Use for "who has not signed", "which deals are pending", contract or onboarding status, or projected new revenue.',
+        'Prospect / deal pipeline: each prospective property with its status, contract signing state, and onboarding state. Use for "who has not signed", "which deals are pending", contract or onboarding status, projected new revenue, or to look up where a specific prospective property or address stands (e.g. "where are we with 36 Granite") by matching the address or prospect name against the returned list.',
       inputSchema: z.object({}),
       execute: async () => {
         const { data, error } = await supabase
