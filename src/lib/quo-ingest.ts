@@ -118,34 +118,50 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
   const fromPhone = msg.from ?? '';
   const body = messageBody(msg);
 
-  // 1. Cleaner-completion path.
+  // 1. Cleaner path: a completion ping and/or a maintenance issue.
   const cleanerHit = await matchCleanerPhone(fromPhone);
   if (cleanerHit) {
     const propertyId = await attributeCleaningProperty(body, cleanerHit.property_ids);
+    const issue = looksLikeIssue(body);
+    const completion = looksLikeCompletion(body);
+
     if (propertyId) {
-      const checkoutDate = await mostRecentCheckout(propertyId, msg.createdAt);
-      await supabase
-        .from('cleaning_completions')
-        .insert({
-          property_id: propertyId,
-          checkout_date: checkoutDate,
-          completed_at: msg.createdAt,
-          source: 'quo',
-          source_message_id: msg.id,
-          source_phone: fromPhone,
-          raw_body: body,
-        })
-        .then((r) => {
-          if (r.error && r.error.code !== '23505') throw r.error;
-        });
+      // "the dishwasher at 53 is broken" / "found a phone" -> work slip.
+      if (issue) {
+        await createCleanerIssueSlip(propertyId, body, fromPhone, msg.id);
+      }
+      // Any attributable cleaner text that isn't purely an issue marks the
+      // turnover done (preserves the original completion behavior). A
+      // "done, but the faucet leaks" text logs both.
+      if (completion || !issue) {
+        const checkoutDate = await mostRecentCheckout(propertyId, msg.createdAt);
+        await supabase
+          .from('cleaning_completions')
+          .insert({
+            property_id: propertyId,
+            checkout_date: checkoutDate,
+            completed_at: msg.createdAt,
+            source: 'quo',
+            source_message_id: msg.id,
+            source_phone: fromPhone,
+            raw_body: body,
+          })
+          .then((r) => {
+            if (r.error && r.error.code !== '23505') throw r.error;
+          });
+      }
       return;
     }
-    // Cleaner phone matched but property couldn't be attributed (generic
-    // "all done" with no property name from a multi-property cleaner, or
-    // non-completion chatter). Surface it so an operator can fix it.
-    throw new Error(
-      `cleaner phone ${fromPhone} matched but property could not be attributed from body: ${body.slice(0, 80)}`,
-    );
+
+    // No property attributed. Surface only meaningful messages (a real
+    // completion/issue we couldn't place) so an operator can fix it; plain
+    // chatter ("OK I will") is a no-op so it stops polluting process_error.
+    if (issue || completion) {
+      throw new Error(
+        `cleaner phone ${fromPhone} matched but property could not be attributed from body: ${body.slice(0, 80)}`,
+      );
+    }
+    return;
   }
 
   // 2. Contact-touch path.
@@ -216,9 +232,11 @@ async function handleCall(call: WebhookCall): Promise<void> {
   const at = call.completedAt ?? call.createdAt;
   const contact = await findContactByPhone(otherParty);
   if (!contact) {
-    // An inbound call from an unknown number is also "reaching out".
+    // An inbound call from an unknown number is "reaching out" — but skip
+    // cleaners, who are recognized vendors, not CRM leads to triage.
     if (call.direction === 'incoming') {
-      await captureUnknownInbound(otherParty, at, 'Inbound call');
+      const cleaner = await matchCleanerPhone(otherParty);
+      if (!cleaner) await captureUnknownInbound(otherParty, at, 'Inbound call');
     }
     return;
   }
@@ -378,6 +396,60 @@ async function captureUnknownInbound(
     .then((r) => {
       // 42P01 = undefined_table (pre-migration); 23505 = race on unique.
       if (r.error && r.error.code !== '23505' && r.error.code !== '42P01') throw r.error;
+    });
+}
+
+const COMPLETION_RE = /\b(done|all set|all good|ready|finished|complete|cleaned|clean|good to go|set)\b/i;
+const ISSUE_RE = /\b(broke|broken|leak|leaking|not working|doesn'?t work|isn'?t working|won'?t|stuck|missing|ran out|run out|out of|low on|repair|repairs|damage|damaged|found|lost|clog|clogged|stain|mold|smell|smells|replace|cracked|jammed)\b/i;
+
+function looksLikeCompletion(body: string): boolean {
+  return COMPLETION_RE.test(body);
+}
+
+function looksLikeIssue(body: string): boolean {
+  return ISSUE_RE.test(body);
+}
+
+// Auto-open a maintenance slip from a cleaner's issue text. Idempotent on
+// from_quo_message_id so replays never duplicate. Fails safe if the column
+// isn't migrated yet.
+async function createCleanerIssueSlip(
+  propertyId: string,
+  body: string,
+  fromPhone: string,
+  messageId: string,
+): Promise<void> {
+  const { data: prop } = await supabase
+    .from('properties')
+    .select('name')
+    .eq('id', propertyId)
+    .maybeSingle();
+  const propertyName = (prop?.name as string | undefined) ?? propertyId;
+
+  await supabase
+    .from('work_slips')
+    .insert({
+      property_id: propertyId,
+      title: `${propertyName}: ${truncate(body, 60)}`,
+      description: [
+        'Reported by a cleaner via Quo text.',
+        '',
+        body,
+        '',
+        `From: ${fromPhone}`,
+        'Auto-created from a cleaner SMS. Recategorize, assign, or close as needed.',
+      ].join('\n'),
+      action_summary: truncate(body, 120),
+      category: 'maintenance',
+      priority: 'normal',
+      status: 'open',
+      from_quo_message_id: messageId,
+      created_by_email: 'quo@risingtidestr.com',
+    })
+    .then((r) => {
+      // 23505 dup (replay); 42703 column missing (pre-migration); 42P01
+      // table missing. All fail safe so the webhook never 500s.
+      if (r.error && !['23505', '42703', '42P01'].includes(r.error.code)) throw r.error;
     });
 }
 
