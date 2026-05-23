@@ -185,6 +185,67 @@ export type SamePropertyComparison = {
   };
 };
 
+/* --------------------------------------------------------------------- */
+/* Rising Tide overhead (corporate card + operating account)             */
+/* --------------------------------------------------------------------- */
+
+export type OverheadAnalysis = {
+  months: string[]; // sorted ascending
+  categories: string[]; // categories present, by total desc
+  byMonthCategory: Record<string, Record<string, number>>; // month -> category -> amount
+  byMonthTotal: Record<string, number>;
+  latestTxnDate: string | null; // most recent transaction date, for the "data through X" nudge
+  daysSinceLatest: number | null; // computed here (not in render) so the client control stays pure
+  hasData: boolean;
+};
+
+/**
+ * Pull categorized overhead from overhead_expenses (populated by
+ * /api/ingest-overhead). Resilient to the table not existing yet
+ * (migration unrun) -- returns empty so the UI shows an upload prompt.
+ */
+export async function getOverhead(): Promise<OverheadAnalysis> {
+  const empty: OverheadAnalysis = { months: [], categories: [], byMonthCategory: {}, byMonthTotal: {}, latestTxnDate: null, daysSinceLatest: null, hasData: false };
+  if (!supabaseUrl || !supabaseKey) return empty;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  const { data, error } = await supabase
+    .from('overhead_expenses')
+    .select('month, category, amount, txn_date');
+  if (error || !data || data.length === 0) return empty;
+
+  const byMonthCategory: Record<string, Record<string, number>> = {};
+  const byMonthTotal: Record<string, number> = {};
+  const catTotals: Record<string, number> = {};
+  let latestTxnDate: string | null = null;
+
+  for (const r of data as { month: string; category: string; amount: number; txn_date: string | null }[]) {
+    const m = r.month;
+    const cat = r.category;
+    const amt = Number(r.amount) || 0;
+    if (!m) continue;
+    (byMonthCategory[m] ||= {});
+    byMonthCategory[m][cat] = round2((byMonthCategory[m][cat] || 0) + amt);
+    byMonthTotal[m] = round2((byMonthTotal[m] || 0) + amt);
+    catTotals[cat] = round2((catTotals[cat] || 0) + amt);
+    if (r.txn_date && (!latestTxnDate || r.txn_date > latestTxnDate)) latestTxnDate = r.txn_date;
+  }
+
+  const daysSinceLatest = latestTxnDate
+    ? Math.floor((Date.now() - Date.parse(latestTxnDate + 'T00:00:00')) / 86400000)
+    : null;
+
+  return {
+    months: Object.keys(byMonthTotal).sort(),
+    categories: Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]),
+    byMonthCategory,
+    byMonthTotal,
+    latestTxnDate,
+    daysSinceLatest,
+    hasData: true,
+  };
+}
+
 export function compareSameProperties(ca: CostAnalysis, monthA: string, monthB: string): SamePropertyComparison {
   const aByProp = new Map(ca.cells.filter(c => c.month === monthA).map(c => [c.propertyId, c]));
   const bByProp = new Map(ca.cells.filter(c => c.month === monthB).map(c => [c.propertyId, c]));

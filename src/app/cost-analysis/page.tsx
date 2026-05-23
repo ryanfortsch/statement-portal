@@ -2,7 +2,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
-import { getCostAnalysis, compareSameProperties } from '@/lib/cost-analysis';
+import { OverheadUpload } from '@/components/OverheadUpload';
+import { getCostAnalysis, compareSameProperties, getOverhead } from '@/lib/cost-analysis';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,8 +23,23 @@ function fmtCompact(n: number): string {
 }
 
 export default async function CostAnalysisPage() {
-  const ca = await getCostAnalysis();
+  const [ca, overhead] = await Promise.all([getCostAnalysis(), getOverhead()]);
   const months = ca.months;
+  // Overhead trend: show the most recent 6 months so the table stays scannable.
+  const ohMonths = overhead.months.slice(-6);
+  const ohLatest = overhead.months[overhead.months.length - 1];
+  const ohPrior = overhead.months.length >= 2 ? overhead.months[overhead.months.length - 2] : null;
+  const ohLatestTotal = ohLatest ? overhead.byMonthTotal[ohLatest] : 0;
+  const ohPriorTotal = ohPrior ? overhead.byMonthTotal[ohPrior] : 0;
+  const ohDelta = ohLatest && ohPrior ? ohLatestTotal - ohPriorTotal : null;
+  const ohDeltaPct = ohDelta != null && ohPriorTotal > 0 ? (ohDelta / ohPriorTotal) * 100 : null;
+  // Staleness for the upload nudge -- days-old is computed in getOverhead()
+  // (the lib, not render) so nothing impure runs during component render.
+  const ohDaysOld = overhead.daysSinceLatest;
+  const ohStale = ohDaysOld != null && ohDaysOld > 35;
+  const ohHint = overhead.latestTxnDate == null
+    ? 'No overhead data yet — upload the card + operating exports.'
+    : `Data through ${new Date(overhead.latestTxnDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${ohStale ? ` — ${ohDaysOld} days old. Upload this month's exports.` : '.'}`;
   const latest = months[months.length - 1];
   const prior = months.length >= 2 ? months[months.length - 2] : null;
   const comparison = prior ? compareSameProperties(ca, prior, latest) : null;
@@ -43,10 +59,76 @@ export default async function CostAnalysisPage() {
         eyebrow="Helm · Financials"
         title="Cost"
         emphasis="analysis."
-        description="Per-property operating cost -- cleaning, linens, and repairs -- by property and month, normalized per turnover. Rising Tide overhead (insurance, legal, software) is a later addition."
+        description="Rising Tide overhead (software, marketing, insurance, supplies) plus per-property operating cost (cleaning, linens, repairs) per turnover -- by month, so you can see what's moving."
         paddingTop={40}
         paddingBottom={20}
       />
+
+      {/* ── RISING TIDE OVERHEAD ── company-wide costs (card + operating),
+          independent of per-property statements. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Rising Tide overhead</div>
+        <OverheadUpload hint={ohHint} stale={ohStale} />
+        {!overhead.hasData ? (
+          <div style={{ padding: 18, background: 'var(--paper-2)', border: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            No overhead loaded yet. Upload the Chase corporate-card (*3878) and operating-account (*5130) CSV exports above — personal/gray spend and internal transfers are dropped automatically, leaving real business overhead by category.
+          </div>
+        ) : (
+          <>
+            <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <CostStat
+                label={`${ohLatest ? monthLabel(ohLatest) : ''} overhead`}
+                value={fmtCompact(ohLatestTotal)}
+                sub={ohDelta != null ? `${ohDelta >= 0 ? '▲' : '▼'} ${fmtCompact(Math.abs(ohDelta))}${ohDeltaPct != null ? ` (${ohDeltaPct >= 0 ? '+' : ''}${ohDeltaPct.toFixed(0)}%)` : ''} vs ${ohPrior ? monthShort(ohPrior) : 'prior'}` : 'business overhead'}
+                accent={ohDelta != null && ohDelta > 0}
+              />
+              <CostStat
+                label="Trailing 12-mo"
+                value={fmtCompact(overhead.months.slice(-12).reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0))}
+                sub={`${Math.min(overhead.months.length, 12)} months`}
+              />
+              <CostStat label="Categories" value={String(overhead.categories.length)} sub="business buckets" last />
+            </div>
+
+            <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, marginTop: 20 }}>
+              <thead>
+                <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
+                  {ohMonths.map(m => (
+                    <th key={m} style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(m)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {overhead.categories.map(cat => (
+                  <tr key={cat} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                    <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{cat}</td>
+                    {ohMonths.map(m => {
+                      const v = overhead.byMonthCategory[m]?.[cat];
+                      return (
+                        <td key={m} style={{ padding: '8px 6px', textAlign: 'right', color: v ? 'var(--ink)' : 'var(--ink-4)' }}>
+                          {v ? fmtCompact(v) : '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1.5px solid var(--ink)', fontWeight: 600 }}>
+                  <td style={{ padding: '10px 6px' }}>Total</td>
+                  {ohMonths.map(m => (
+                    <td key={m} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>
+                      {fmtCompact(overhead.byMonthTotal[m] || 0)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+            <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 10, maxWidth: 720, lineHeight: 1.5 }}>
+              Card (*3878) + operating (*5130). Personal/gray spend (gas, meals) and internal transfers are excluded, so this is real business overhead only. The current month fills in as charges post.
+            </p>
+          </>
+        )}
+      </section>
 
       {months.length === 0 ? (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 60 }}>
@@ -199,7 +281,7 @@ export default async function CostAnalysisPage() {
           {/* Caveats */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
             <div style={{ padding: '12px 14px', borderLeft: '2px solid var(--signal)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-              <strong style={{ color: 'var(--ink-2)' }}>Scope:</strong> this is per-property operating cost (cleaning + linens + repairs), the cost to run each property. Rising Tide&apos;s own overhead -- insurance, legal, software, marketing -- isn&apos;t here yet; that&apos;s a later phase once its source is wired in.
+              <strong style={{ color: 'var(--ink-2)' }}>Scope:</strong> per-property operating cost is cleaning + linens + repairs (the cost to run each property); management fee is excluded since it&apos;s RT revenue. Rising Tide overhead above is company-wide (card + operating account).
               {!ca.hasLinenData && ' Nor’East linens aren’t tagged in the data yet — re-ingest the affected months to populate the cleaning-vs-linen split.'}
               {' '}The current month is partial until it closes, so its per-turnover figure keeps moving.
             </div>
