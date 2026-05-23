@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import { CalendarCellTooltip } from '@/app/operations/CalendarCellTooltip';
 import { channelAccent } from '@/lib/channel-style';
 import type { CalendarData } from '@/lib/operations';
@@ -215,7 +216,9 @@ function PropertyCalendarRow({
   const rowBorder = isLastRow ? 'none' : '1px solid var(--rule-soft)';
   return (
     <div style={rowGridStyle}>
-      <div
+      <Link
+        href={`/properties/${row.property.id}`}
+        title={`Open ${row.property.name}`}
         style={{
           boxSizing: 'border-box',
           height: rowHeight,
@@ -230,10 +233,11 @@ function PropertyCalendarRow({
           overflow: 'hidden',
           whiteSpace: 'nowrap',
           textOverflow: 'ellipsis',
+          textDecoration: 'none',
         }}
       >
         {row.property.name}
-      </div>
+      </Link>
       {row.cells.map((cell, i) => {
         const isToday = i === todayIndex;
         const occupied = !!cell.reservation;
