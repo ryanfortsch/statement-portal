@@ -277,7 +277,7 @@ export default async function HelmHome() {
         className="max-w-[1100px] mx-auto px-10"
         style={{ width: '100%', paddingTop: 44, paddingBottom: 44 }}
       >
-        <AskHelm showSuggestions={false} />
+        <AskHelm hero showSuggestions={false} />
       </section>
 
       {/* SIGNALS STRIP — what needs attention today, with the headline payout pinned right */}
