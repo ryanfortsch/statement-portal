@@ -1,5 +1,16 @@
 import Link from 'next/link';
+import { auth } from '@/auth';
+import { supabase } from '@/lib/supabase';
+import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
+
+type MyWork = {
+  id: string;
+  kind: 'slip' | 'task';
+  title: string;
+  priority: string | null;
+  propertyId: string | null;
+};
 
 /**
  * The "For Me" home feed: the signal worth surfacing, with the noise
@@ -7,9 +18,10 @@ import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/d
  * /today renders) read from cache — no live classification on page load.
  *
  * Order of attention:
- *   1. Needs your reply — emails the triage flagged needs_reply, plus
+ *   1. On your plate — work slips and tasks assigned to the signed-in user.
+ *   2. Needs your reply — emails the triage flagged needs_reply, plus
  *      inbound contact messages (texts/emails) still awaiting a response.
- *   2. FYI — emails worth a glance but not a reply.
+ *   3. Worth a glance — emails worth a glance but not a reply.
  *
  * Notifications / promotions never reach here; the triage drops them
  * before they'd ever clutter this view.
@@ -31,8 +43,10 @@ export async function ForMeFeed() {
     gmailConfigured = false;
   }
 
+  const myWork = await loadMyWork();
+
   const hasReplyItems = needsReply.length > 0 || inboundWaiting.length > 0;
-  const nothing = !hasReplyItems && fyi.length === 0;
+  const nothing = !hasReplyItems && fyi.length === 0 && myWork.length === 0;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -47,7 +61,7 @@ export async function ForMeFeed() {
           }}
         >
           {gmailConfigured
-            ? 'Inbox is quiet. Nothing needs your reply right now.'
+            ? 'All clear. Nothing on your plate and nothing needs your reply right now.'
             : 'Email triage is not configured yet.'}
           <div style={{ marginTop: 10 }}>
             <Link href="/today" style={openBriefLinkStyle}>
@@ -57,6 +71,21 @@ export async function ForMeFeed() {
         </div>
       ) : (
         <>
+          {/* ON YOUR PLATE — work assigned to the signed-in user */}
+          {myWork.length > 0 && (
+            <div style={{ marginBottom: hasReplyItems || fyi.length > 0 ? 36 : 12 }}>
+              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+                <h2 style={sectionHeadingStyle}>On your plate</h2>
+                <span className="eyebrow">{myWork.length} assigned</span>
+              </div>
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {myWork.map((w) => (
+                  <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* NEEDS YOUR REPLY */}
           {hasReplyItems && (
             <div style={{ marginBottom: fyi.length > 0 ? 36 : 12 }}>
@@ -77,11 +106,11 @@ export async function ForMeFeed() {
             </div>
           )}
 
-          {/* FYI */}
+          {/* WORTH A GLANCE */}
           {fyi.length > 0 && (
             <div>
               <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>FYI</h2>
+                <h2 style={sectionHeadingStyle}>Worth a glance</h2>
                 <span className="eyebrow">{fyi.length}</span>
               </div>
               <div style={{ borderTop: '1px solid var(--rule)' }}>
@@ -100,6 +129,100 @@ export async function ForMeFeed() {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Work slips and tasks assigned to the signed-in user. Active items only,
+ * un-snoozed, highest priority first. Empty when there's no session or
+ * nothing assigned, so the section hides itself.
+ */
+async function loadMyWork(): Promise<MyWork[]> {
+  try {
+    const session = await auth();
+    const email = session?.user?.email ?? '';
+    if (!email) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const [slipRes, taskRes] = await Promise.all([
+      supabase
+        .from('work_slips')
+        .select('id, property_id, title, priority, status')
+        .eq('assigned_to_email', email)
+        .in('status', ACTIVE_WORK_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
+        .order('priority', { ascending: false })
+        .limit(8),
+      supabase
+        .from('tasks')
+        .select('id, title, priority, status')
+        .eq('assigned_to_email', email)
+        .in('status', ACTIVE_TASK_STATUSES)
+        .order('priority', { ascending: false })
+        .limit(8),
+    ]);
+    const slips: MyWork[] = (
+      (slipRes.data ?? []) as Array<{ id: string; property_id: string | null; title: string; priority: string | null }>
+    ).map((s) => ({ id: s.id, kind: 'slip', title: s.title, priority: s.priority, propertyId: s.property_id }));
+    const tasks: MyWork[] = (
+      (taskRes.data ?? []) as Array<{ id: string; title: string; priority: string | null }>
+    ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null }));
+    return [...slips, ...tasks];
+  } catch {
+    return [];
+  }
+}
+
+function MyWorkRow({ item }: { item: MyWork }) {
+  const isHigh = (item.priority ?? '').toLowerCase() === 'high';
+  return (
+    <Link
+      href="/work"
+      style={{
+        display: 'flex',
+        gap: 12,
+        padding: '14px 0',
+        borderBottom: '1px solid var(--rule)',
+        alignItems: 'flex-start',
+        textDecoration: 'none',
+        color: 'inherit',
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          flexShrink: 0,
+          width: 6,
+          height: 6,
+          marginTop: 7,
+          borderRadius: 999,
+          background: isHigh ? 'var(--signal)' : 'var(--tide-deep)',
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 500,
+              color: 'var(--ink)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {item.title}
+          </span>
+          <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            {item.kind === 'slip' ? 'Work slip' : 'Task'}
+          </span>
+        </div>
+        {isHigh && (
+          <div style={{ marginTop: 3, fontSize: 11, color: 'var(--signal)', fontWeight: 500 }}>
+            High priority
+          </div>
+        )}
+      </div>
+    </Link>
   );
 }
 
