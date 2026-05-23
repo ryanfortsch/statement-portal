@@ -8,6 +8,8 @@ import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { loadOperationsData } from '@/lib/operations';
 import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
+import { HomeFeedTabs } from '@/components/HomeFeedTabs';
+import { ForMeFeed } from '@/components/ForMeFeed';
 import { AskHelm } from '@/components/AskHelm';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 
@@ -395,9 +397,12 @@ export default async function HelmHome() {
         </section>
       )}
 
-      {/* TEAM ACTIVITY */}
+      {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a tab */}
       <div style={{ flex: 1 }}>
-        <TeamActivity limit={20} />
+        <HomeFeedTabs
+          forMe={<ForMeFeed />}
+          recentActivity={<TeamActivity limit={20} hideHeading />}
+        />
       </div>
 
       <HelmFooter

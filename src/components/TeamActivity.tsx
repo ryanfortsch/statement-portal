@@ -52,6 +52,10 @@ type Props = {
   limit?: number;
   /** How many events render unfolded by default. Default 5. */
   initialVisible?: number;
+  /** Suppress the internal "Recent Activity" heading. Used when the
+   *  component is rendered inside the home feed tabs, where the tab label
+   *  already names the panel. */
+  hideHeading?: boolean;
 };
 
 /**
@@ -66,25 +70,37 @@ type Props = {
  * Compounds with #156 — clicking into a property still shows the
  * property-scoped feed; this is just the cross-property entry point.
  */
-export async function TeamActivity({ limit = 20, initialVisible = 5 }: Props) {
+export async function TeamActivity({ limit = 20, initialVisible = 5, hideHeading = false }: Props) {
   const events = await loadTeamActivity(limit);
 
   // Hide the whole section on quiet days. When activity is empty, the
   // "Recent Activity / no recent activity" wall is more noise than signal
   // on the home; the user knows where to find activity when there is some.
-  if (events.length === 0) return null;
+  // In tab mode we still show an empty note so the tab isn't blank.
+  if (events.length === 0) {
+    if (!hideHeading) return null;
+    return (
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
+        <div style={{ borderTop: '1px solid var(--ink)', padding: '28px 0', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+          No team activity in the past 7 days.
+        </div>
+      </section>
+    );
+  }
 
   const visible = events.slice(0, initialVisible);
   const hidden = events.slice(initialVisible);
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Recent Activity
-        </h2>
-        <span className="eyebrow">past 7 days</span>
-      </div>
+      {!hideHeading && (
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+            Recent Activity
+          </h2>
+          <span className="eyebrow">past 7 days</span>
+        </div>
+      )}
 
       <div style={{ borderTop: '1px solid var(--ink)' }}>
         {visible.map((e, i) => (
