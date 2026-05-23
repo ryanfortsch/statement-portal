@@ -107,7 +107,7 @@ export function HelmMobileMenu({ current }: Props) {
           </div>
 
           <nav className="rt-mobile-menu-list" aria-label="Modules">
-            {MOBILE_MODULES.map((m) => (
+            {MOBILE_MODULES.filter((m) => !m.hidden).map((m) => (
               <ModuleItem
                 key={m.id}
                 module={m}

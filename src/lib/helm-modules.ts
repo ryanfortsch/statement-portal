@@ -22,6 +22,14 @@ export type HelmModule = {
   description: string;
   status: 'active' | 'parked' | 'soon' | 'external';
   primary: boolean;
+  /**
+   * Hidden from the standalone nav lists (overflow dropdown + mobile
+   * menu) because the module is reached as a tab inside a parent section
+   * instead. Statements / Revenue / Forecast are tabs of Financials, so
+   * they're hidden here and surfaced via the FinancialsTabs strip. Routes
+   * and search still resolve; only the redundant nav entries are removed.
+   */
+  hidden?: boolean;
 };
 
 export const HELM_MODULES: HelmModule[] = [
@@ -32,6 +40,19 @@ export const HELM_MODULES: HelmModule[] = [
   // /inspections/[id]. The /inspections route still exists as the
   // start form + recent list, just not as a nav item.
   {
+    id: 'financials',
+    href: '/statements',
+    number: '01',
+    title: 'Financials',
+    description: 'Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
+    status: 'active',
+    primary: false,
+  },
+  // Statements / Revenue / Forecast are tabs inside Financials (see
+  // FinancialsTabs). Kept in the registry so their routes + search resolve,
+  // but hidden from the nav lists so they don't duplicate the Financials
+  // entry. current="financials" highlights the parent on all four pages.
+  {
     id: 'statements',
     href: '/statements',
     number: '01',
@@ -39,6 +60,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Monthly owner statements. Ingest data, reconcile bank deposits, send the deliverable.',
     status: 'active',
     primary: false,
+    hidden: true,
   },
   {
     id: 'operations',
@@ -93,6 +115,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Portfolio revenue snapshot. Stays, ADR, occupancy, owner payout. Pro-rated by nights from Guesty bookings.',
     status: 'active',
     primary: false,
+    hidden: true,
   },
   {
     id: 'marketing',
@@ -111,6 +134,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'The 2026 business plan as an interactive model. Slide the lever to see how new contracts move the year.',
     status: 'active',
     primary: false,
+    hidden: true,
   },
   {
     id: 'guests',
