@@ -60,6 +60,21 @@ type WebhookCallSummary = {
   nextSteps?: string[] | null;
 };
 
+type WebhookCallTranscript = {
+  callId?: string;
+  id?: string;
+  dialogue?: Array<{ identifier?: string | null; content?: string | null }>;
+  transcript?: string | null;
+};
+
+type WebhookCallRecording = {
+  callId?: string;
+  id?: string;
+  url?: string | null;
+  recordingUrl?: string | null;
+  media?: Array<{ url?: string | null }>;
+};
+
 export async function dispatchQuoEvent(ev: QuoEventEnvelope): Promise<void> {
   switch (ev.type) {
     case 'message.received':
@@ -74,8 +89,14 @@ export async function dispatchQuoEvent(ev: QuoEventEnvelope): Promise<void> {
     case 'call.summary.completed':
       await handleCallSummary(ev.data.object as WebhookCallSummary);
       return;
+    case 'call.transcript.completed':
+      await handleCallTranscript(ev.data.object as WebhookCallTranscript);
+      return;
+    case 'call.recording.completed':
+      await handleCallRecording(ev.data.object as WebhookCallRecording);
+      return;
     default:
-      // call.recording.completed, call.transcript.completed, call.ringing: ignored
+      // call.ringing etc.: ignored
       return;
   }
 }
@@ -279,6 +300,39 @@ async function handleCallSummary(obj: WebhookCallSummary): Promise<void> {
     .from('contact_touches')
     .update({ notes: note, summary: truncate(obj.summary || note, 140) })
     .eq('quo_call_id', obj.callId);
+}
+
+// call.transcript.completed lands separately, keyed by callId. Store the
+// full transcript on the touch the earlier call.completed created.
+async function handleCallTranscript(obj: WebhookCallTranscript): Promise<void> {
+  const callId = obj?.callId ?? obj?.id;
+  if (!callId) return;
+  const text =
+    obj.transcript ??
+    (obj.dialogue?.length
+      ? obj.dialogue
+          .map(d => `${d.identifier ? `${d.identifier}: ` : ''}${d.content ?? ''}`.trim())
+          .filter(Boolean)
+          .join('\n')
+      : '');
+  if (!text) return;
+  await supabase
+    .from('contact_touches')
+    .update({ quo_transcript: text })
+    .eq('quo_call_id', callId);
+}
+
+// call.recording.completed lands separately, keyed by callId. Store the
+// recording URL on the touch the earlier call.completed created.
+async function handleCallRecording(obj: WebhookCallRecording): Promise<void> {
+  const callId = obj?.callId ?? obj?.id;
+  if (!callId) return;
+  const url = obj.recordingUrl ?? obj.url ?? obj.media?.find(m => m.url)?.url ?? '';
+  if (!url) return;
+  await supabase
+    .from('contact_touches')
+    .update({ quo_recording_url: url })
+    .eq('quo_call_id', callId);
 }
 
 // ── Matching helpers ───────────────────────────────────────────────

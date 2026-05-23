@@ -54,6 +54,8 @@ export type ContactTouchRow = {
   gmail_message_id: string | null;
   quo_message_id: string | null;
   quo_call_id: string | null;
+  quo_transcript?: string | null;
+  quo_recording_url?: string | null;
   created_at: string;
 };
 
