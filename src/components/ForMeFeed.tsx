@@ -21,21 +21,18 @@ type MyWork = {
  *   1. On your plate — work slips and tasks assigned to the signed-in user.
  *   2. Needs your reply — emails the triage flagged needs_reply, plus
  *      inbound contact messages (texts/emails) still awaiting a response.
- *   3. Worth a glance — emails worth a glance but not a reply.
  *
- * Notifications / promotions never reach here; the triage drops them
- * before they'd ever clutter this view.
+ * Notifications, promotions, and FYI-only mail never reach here; the
+ * triage drops them before they'd ever clutter this view.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
-  let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
   let gmailConfigured = true;
 
   try {
     const brief = await loadDailyBrief();
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
-    fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
     gmailConfigured = brief.gmailConfigured;
   } catch {
@@ -46,7 +43,7 @@ export async function ForMeFeed() {
   const myWork = await loadMyWork();
 
   const hasReplyItems = needsReply.length > 0 || inboundWaiting.length > 0;
-  const nothing = !hasReplyItems && fyi.length === 0 && myWork.length === 0;
+  const nothing = !hasReplyItems && myWork.length === 0;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -73,7 +70,7 @@ export async function ForMeFeed() {
         <>
           {/* ON YOUR PLATE — work assigned to the signed-in user */}
           {myWork.length > 0 && (
-            <div style={{ marginBottom: hasReplyItems || fyi.length > 0 ? 36 : 12 }}>
+            <div style={{ marginBottom: hasReplyItems ? 36 : 12 }}>
               <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
                 <h2 style={sectionHeadingStyle}>On your plate</h2>
                 <span className="eyebrow">{myWork.length} assigned</span>
@@ -88,7 +85,7 @@ export async function ForMeFeed() {
 
           {/* NEEDS YOUR REPLY */}
           {hasReplyItems && (
-            <div style={{ marginBottom: fyi.length > 0 ? 36 : 12 }}>
+            <div style={{ marginBottom: 12 }}>
               <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
                 <h2 style={sectionHeadingStyle}>Needs your reply</h2>
                 <span className="eyebrow">
@@ -101,21 +98,6 @@ export async function ForMeFeed() {
                 ))}
                 {inboundWaiting.map((t) => (
                   <InboundItem key={`${t.contactId}-${t.touchedAt}`} touch={t} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* WORTH A GLANCE */}
-          {fyi.length > 0 && (
-            <div>
-              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>Worth a glance</h2>
-                <span className="eyebrow">{fyi.length}</span>
-              </div>
-              <div style={{ borderTop: '1px solid var(--rule)' }}>
-                {fyi.map((e) => (
-                  <EmailItem key={e.id} email={e} dim />
                 ))}
               </div>
             </div>
