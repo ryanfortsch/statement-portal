@@ -11,11 +11,12 @@ type MyWork = {
   title: string;
   priority: string | null;
   propertyId: string | null;
+  propertyName: string | null;
 };
 
 // How many items each section shows at once. The query pulls a deeper pool,
 // so clearing one item backfills the next from beyond the window.
-const WORK_WINDOW = 6;
+const WORK_WINDOW = 4;
 const REPLY_WINDOW = 6;
 const GLANCE_WINDOW = 6;
 
@@ -59,9 +60,10 @@ export async function ForMeFeed() {
     loadDismissals(email),
   ]);
 
-  // Drop cleared items, then take a window so clearing one reveals the next.
+  // Drop cleared items, then pick the window (tasks first, slips spread
+  // across properties) so clearing one reveals the next.
   const workFiltered = allWork.filter((w) => !dismissed.has(`${w.kind}:${w.id}`));
-  const myWork = workFiltered.slice(0, WORK_WINDOW);
+  const myWork = pickForFeed(workFiltered, workMode, WORK_WINDOW);
 
   const emailsFiltered = needsReply.filter((e) => !dismissed.has(`email:${e.id}`));
   const inboundFiltered = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
@@ -174,21 +176,32 @@ type WorkMode = 'assigned' | 'unassigned';
  */
 async function loadMyWork(email: string): Promise<{ work: MyWork[]; mode: WorkMode }> {
   try {
+    const propertyNames = await loadPropertyNames();
     if (email) {
-      const mine = await fetchWork({ kind: 'assigned', email });
+      const mine = await fetchWork({ kind: 'assigned', email }, propertyNames);
       if (mine.length > 0) return { work: mine, mode: 'assigned' };
     }
     // Nothing assigned to this user: surface unassigned work instead.
-    const orphans = await fetchWork({ kind: 'unassigned' });
+    const orphans = await fetchWork({ kind: 'unassigned' }, propertyNames);
     return { work: orphans, mode: 'unassigned' };
   } catch {
     return { work: [], mode: 'assigned' };
   }
 }
 
+/** property id -> display name, so a slip can show which property it's on. */
+async function loadPropertyNames(): Promise<Map<string, string>> {
+  try {
+    const { data } = await supabase.from('properties').select('id, name');
+    return new Map(((data ?? []) as Array<{ id: string; name: string }>).map((p) => [p.id, p.name]));
+  } catch {
+    return new Map();
+  }
+}
+
 type WorkFilter = { kind: 'assigned'; email: string } | { kind: 'unassigned' };
 
-async function fetchWork(filter: WorkFilter): Promise<MyWork[]> {
+async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>): Promise<MyWork[]> {
   const today = new Date().toISOString().slice(0, 10);
 
   let slipQ = supabase
@@ -216,11 +229,59 @@ async function fetchWork(filter: WorkFilter): Promise<MyWork[]> {
   const [slipRes, taskRes] = await Promise.all([slipQ, taskQ]);
   const slips: MyWork[] = (
     (slipRes.data ?? []) as Array<{ id: string; property_id: string | null; title: string; priority: string | null }>
-  ).map((s) => ({ id: s.id, kind: 'slip', title: s.title, priority: s.priority, propertyId: s.property_id }));
+  ).map((s) => ({
+    id: s.id,
+    kind: 'slip',
+    title: s.title,
+    priority: s.priority,
+    propertyId: s.property_id,
+    propertyName: s.property_id ? propertyNames.get(s.property_id) ?? null : null,
+  }));
   const tasks: MyWork[] = (
     (taskRes.data ?? []) as Array<{ id: string; title: string; priority: string | null }>
-  ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null }));
-  return [...slips, ...tasks];
+  ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null, propertyName: null }));
+  // Tasks before slips.
+  return [...tasks, ...slips];
+}
+
+/**
+ * Choose which work items to show. Tasks come first. In the unassigned
+ * fallback, slips are spread across properties (one per property before a
+ * second from any) so the list isn't several items from a single house.
+ */
+function pickForFeed(items: MyWork[], mode: WorkMode, limit: number): MyWork[] {
+  const tasks = items.filter((i) => i.kind === 'task');
+  const slips = items.filter((i) => i.kind === 'slip');
+
+  const out: MyWork[] = tasks.slice(0, limit);
+  if (out.length >= limit) return out.slice(0, limit);
+
+  if (mode === 'assigned') {
+    out.push(...slips.slice(0, limit - out.length));
+    return out.slice(0, limit);
+  }
+
+  // Unassigned: round-robin slips by property so no one house dominates.
+  const byProperty = new Map<string, MyWork[]>();
+  for (const s of slips) {
+    const key = s.propertyId ?? s.id;
+    const bucket = byProperty.get(key) ?? [];
+    bucket.push(s);
+    byProperty.set(key, bucket);
+  }
+  while (out.length < limit) {
+    let addedOne = false;
+    for (const bucket of byProperty.values()) {
+      if (out.length >= limit) break;
+      const next = bucket.shift();
+      if (next) {
+        out.push(next);
+        addedOne = true;
+      }
+    }
+    if (!addedOne) break;
+  }
+  return out.slice(0, limit);
 }
 
 /** The per-user set of cleared items, keyed "type:id". */
@@ -267,8 +328,12 @@ function MyWorkRow({ item }: { item: MyWork }) {
             {item.kind === 'slip' ? 'Work slip' : 'Task'}
           </span>
         </div>
-        {isHigh && (
-          <div style={{ marginTop: 3, fontSize: 11, color: 'var(--signal)', fontWeight: 500 }}>High priority</div>
+        {(item.propertyName || isHigh) && (
+          <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500 }}>
+            {item.propertyName && <span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>}
+            {item.propertyName && isHigh && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+            {isHigh && <span style={{ color: 'var(--signal)' }}>High priority</span>}
+          </div>
         )}
       </Link>
       <FeedClearButton itemType={item.kind} itemId={item.id} />
