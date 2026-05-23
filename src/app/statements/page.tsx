@@ -37,6 +37,7 @@ type CleaningEvent = {
   bank_charge_date: string | null;
   amount: number;
   source: string;
+  vendor: string | null;
 };
 
 type RepairEvent = {
@@ -1213,8 +1214,15 @@ function PropertyCard({
                         fontStyle: ce.guest_name ? 'normal' : 'italic',
                         color: ce.guest_name ? 'var(--ink)' : 'var(--ink-4)',
                       }}>
-                        {ce.guest_name || (ce.invoice_no ? `Invoice ${ce.invoice_no}` : 'Unmatched charge')}
+                        {ce.source === 'bank-linen'
+                          ? 'Linen service'
+                          : (ce.guest_name || (ce.invoice_no ? `Invoice ${ce.invoice_no}` : 'Unmatched charge'))}
                       </span>
+                      {ce.source === 'bank-linen' && (
+                        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--tide)' }}>
+                          {ce.vendor || "Nor'East"} · Linens
+                        </span>
+                      )}
                       {ce.source === 'corroborated' && (
                         <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--positive)' }}>
                           Verified

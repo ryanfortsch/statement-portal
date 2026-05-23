@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -78,17 +79,6 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-// Mirror of /api/ingest's MAINTENANCE_VENDORS list. Keep in sync.
-const MAINTENANCE_VENDORS: { name: string; matches: string[] }[] = [
-  { name: 'Ian Drometer', matches: ['DROMETER'] },
-];
-
-function matchMaintenanceVendor(descUpper: string): string | null {
-  for (const v of MAINTENANCE_VENDORS) {
-    if (v.matches.some(m => descUpper.includes(m))) return v.name;
-  }
-  return null;
-}
 
 function isInMonth(dateStr: string, month: string): boolean {
   // Chase format: MM/DD/YYYY
@@ -623,7 +613,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bank CSV appears empty or malformed' }, { status: 400 });
     }
 
-    const cleaningCharges: { date: string; amount: number; description: string }[] = [];
+    // Cleaning (Cape Ann Elite) and linen (Nor'East) tracked separately;
+    // both fold into cleaning_total. Linens are additive cost, never matched
+    // to a checkout. Mirrors /api/ingest via the shared classifier.
+    const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     for (const row of bankRows) {
@@ -633,19 +627,23 @@ export async function POST(request: NextRequest) {
       const amount = parseFloat(amountStr.replace(/[,$]/g, '')) || 0;
       const descUpper = desc.toUpperCase();
 
-      if (descUpper.includes('CAPE ANN ELITE')) {
+      const cls = classifyBankRow(descUpper);
+
+      if (cls?.kind === 'cleaning') {
         if (isInMonth(date, month)) {
-          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc });
+          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
-
-      // Maintenance / repair vendors (Ian Drometer-style handyman charges).
-      // Keep this list in sync with /api/ingest's MAINTENANCE_VENDORS.
-      const vendor = matchMaintenanceVendor(descUpper);
-      if (vendor) {
+      if (cls?.kind === 'linen') {
+        if (isInMonth(date, month)) {
+          linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
+        }
+        continue;
+      }
+      if (cls?.kind === 'repair') {
         if (isInMonth(date, month) && amount < 0) {
-          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor });
+          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
@@ -659,7 +657,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const cleaningTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal) * 100) / 100;
     const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Re-run the deposit matching pass. Same algorithm as /api/ingest, but
@@ -745,21 +745,46 @@ export async function POST(request: NextRequest) {
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
     if (repDelErr && repDelErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repDelErr.message || '')) throw repDelErr;
 
-    if (cleaningCharges.length > 0) {
-      const cleaningInserts = matchCleaningsToReservations(
-        cleaningCharges,
-        reservations || [],
-      ).map(m => ({
-        property_statement_id: stmt.id,
-        guest_name: m.matchedGuest,
-        checkout_date: m.matchedCheckout,
-        bank_charge_amount: m.charge.amount,
-        bank_charge_date: isoFromMMDDYYYY(m.charge.date) || null,
-        amount: m.charge.amount,
-        source: m.matchedGuest ? 'matched' : 'bank',
-      }));
-      const { error: cleanErr } = await supabase.from('cleaning_events').insert(cleaningInserts);
-      if (cleanErr) throw cleanErr;
+    {
+      type CleaningEventInsert = {
+        property_statement_id: string;
+        guest_name: string | null;
+        checkout_date: string | null;
+        bank_charge_amount: number;
+        bank_charge_date: string | null;
+        amount: number;
+        source: string;
+        vendor: string;
+      };
+      const cleaningInserts: CleaningEventInsert[] = [];
+      if (cleaningCharges.length > 0) {
+        for (const m of matchCleaningsToReservations(cleaningCharges, reservations || [])) {
+          cleaningInserts.push({
+            property_statement_id: stmt.id,
+            guest_name: m.matchedGuest,
+            checkout_date: m.matchedCheckout,
+            bank_charge_amount: m.charge.amount,
+            bank_charge_date: isoFromMMDDYYYY(m.charge.date) || null,
+            amount: m.charge.amount,
+            source: m.matchedGuest ? 'matched' : 'bank',
+            vendor: CLEANING_VENDOR_DEFAULT,
+          });
+        }
+      }
+      // Nor'East linen charges: additive, vendor-tagged, never matched to a checkout.
+      for (const c of linenCharges) {
+        cleaningInserts.push({
+          property_statement_id: stmt.id,
+          guest_name: null,
+          checkout_date: null,
+          bank_charge_amount: c.amount,
+          bank_charge_date: isoFromMMDDYYYY(c.date) || null,
+          amount: c.amount,
+          source: 'bank-linen',
+          vendor: LINEN_VENDOR_NAME,
+        });
+      }
+      await insertCleaningEvents(supabase, cleaningInserts);
     }
 
     if (repairCharges.length > 0) {
@@ -913,7 +938,7 @@ export async function POST(request: NextRequest) {
       summary: {
         cleaning_total: cleaningTotal,
         owner_payout: postSyncOwnerPayout ?? newOwnerPayout,
-        cleaning_events: cleaningCharges.length,
+        cleaning_events: cleaningCharges.length + linenCharges.length,
         reservations_matched: resUpdates.filter(u => u.bank_match_status === 'matched').length,
         reservations_unmatched: resUpdates.filter(u => u.bank_match_status === 'unmatched').length,
         new_gaps: newGaps.length,

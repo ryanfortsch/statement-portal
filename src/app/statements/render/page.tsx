@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES } from '@/lib/properties';
+import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -255,7 +256,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
-  const cleans = cleaningEvents?.length || numStays;
+  // "N turns" counts cleaning turnovers only -- exclude Nor'East linen rows,
+  // which are additive cost folded into cleaning_total but aren't turnovers.
+  const cleans = (cleaningEvents?.filter(e => e.vendor !== LINEN_VENDOR_NAME).length || 0) || numStays;
 
   // Guest Rating: month-scoped only. Historical averages are misleading on a
   // monthly statement (we don't want a January review padding April's numbers).
