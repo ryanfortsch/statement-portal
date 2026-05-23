@@ -17,6 +17,7 @@ type MyWork = {
 // so clearing one item backfills the next from beyond the window.
 const WORK_WINDOW = 6;
 const REPLY_WINDOW = 6;
+const GLANCE_WINDOW = 6;
 
 /**
  * The "For Me" home feed: the signal worth surfacing, with the noise
@@ -27,20 +28,23 @@ const REPLY_WINDOW = 6;
  *   1. On your plate — work slips and tasks assigned to the signed-in user.
  *   2. Needs your reply — emails the triage flagged needs_reply, plus
  *      inbound contact messages (texts/emails) still awaiting a response.
+ *   3. A headingless run of glance-worthy emails (triage 'fyi') underneath.
  *
  * Each item has a × to clear it from the feed (view-only; recorded per user
  * in home_feed_dismissals). Cleared items drop out and the next from the
- * pool backfills. Notifications, promotions, and FYI-only mail never reach
- * here; the triage drops them upstream.
+ * pool backfills. Notifications and promotions never reach here; the triage
+ * drops them upstream.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
+  let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
   let gmailConfigured = true;
 
   try {
     const brief = await loadDailyBrief();
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
+    fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
     gmailConfigured = brief.gmailConfigured;
   } catch {
@@ -62,8 +66,10 @@ export async function ForMeFeed() {
   const replyEmails = emailsFiltered.slice(0, REPLY_WINDOW);
   const replyInbound = inboundFiltered.slice(0, Math.max(0, REPLY_WINDOW - replyEmails.length));
 
+  const glance = fyi.filter((e) => !dismissed.has(`email:${e.id}`)).slice(0, GLANCE_WINDOW);
+
   const hasReplyItems = replyTotal > 0;
-  const nothing = !hasReplyItems && workFiltered.length === 0;
+  const nothing = !hasReplyItems && workFiltered.length === 0 && glance.length === 0;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -118,6 +124,21 @@ export async function ForMeFeed() {
                   <InboundItem key={inboundId(t)} touch={t} />
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Glance-worthy mail — same items that used to live under
+              "Worth a glance", now with no heading per request. */}
+          {glance.length > 0 && (
+            <div
+              style={{
+                marginTop: hasReplyItems || myWork.length > 0 ? 28 : 0,
+                borderTop: '1px solid var(--rule)',
+              }}
+            >
+              {glance.map((e) => (
+                <EmailItem key={e.id} email={e} dim />
+              ))}
             </div>
           )}
 
@@ -223,12 +244,12 @@ function MyWorkRow({ item }: { item: MyWork }) {
   );
 }
 
-function EmailItem({ email: e }: { email: BriefEmail }) {
+function EmailItem({ email: e, dim = false }: { email: BriefEmail; dim?: boolean }) {
   const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
   const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
   return (
     <div style={feedRowStyle}>
-      <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />
+      <span aria-hidden style={{ ...dotStyle, background: dim ? 'var(--rule)' : 'var(--signal)' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
           <a
@@ -249,24 +270,26 @@ function EmailItem({ email: e }: { email: BriefEmail }) {
           </a>
           <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>{formatAge(e.ageHours)}</span>
         </div>
-        <div style={{ marginTop: 3, fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>
+        <div style={{ marginTop: 3, fontSize: dim ? 13 : 14, color: dim ? 'var(--ink-3)' : 'var(--ink)', lineHeight: 1.4 }}>
           {e.triageSummary || e.subject}
         </div>
-        <div className="flex items-baseline" style={{ gap: 12, marginTop: 4 }}>
-          <span style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {e.subject}
-          </span>
-          {e.draftId && (
-            <a
-              href={`https://mail.google.com/mail/u/0/#drafts/${e.draftId}`}
-              target="_blank"
-              rel="noreferrer"
-              style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', textDecoration: 'none' }}
-            >
-              Reply drafted →
-            </a>
-          )}
-        </div>
+        {!dim && (
+          <div className="flex items-baseline" style={{ gap: 12, marginTop: 4 }}>
+            <span style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {e.subject}
+            </span>
+            {e.draftId && (
+              <a
+                href={`https://mail.google.com/mail/u/0/#drafts/${e.draftId}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', textDecoration: 'none' }}
+              >
+                Reply drafted →
+              </a>
+            )}
+          </div>
+        )}
       </div>
       <FeedClearButton itemType="email" itemId={e.id} />
     </div>
