@@ -1,0 +1,249 @@
+'use client';
+
+import { useState } from 'react';
+import type { OverheadAnalysis } from '@/lib/cost-analysis';
+
+/**
+ * Rising Tide overhead dashboard (Financials > Cost Analysis).
+ *
+ * High-level by default, drill-down on click: category -> vendor -> the
+ * individual charges. Figures are shown as exact actuals (no rounding). A
+ * proactive "Opportunities" panel surfaces costs worth trimming, computed in
+ * getOverhead() so this component stays a pure renderer.
+ */
+
+function fmt(n: number): string {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function monthShort(m: string): string {
+  return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+function monthLong(m: string): string {
+  return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+const SEVERITY: Record<string, { color: string; label: string }> = {
+  high: { color: 'var(--signal)', label: 'Check' },
+  medium: { color: 'var(--tide-deep, #2f6f7b)', label: 'Trim' },
+  low: { color: 'var(--ink-3)', label: 'Note' },
+};
+
+export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) {
+  const months = overhead.months;
+  const trendMonths = months.slice(-6);
+  const latest = months[months.length - 1] || null;
+  const prior = months.length >= 2 ? months[months.length - 2] : null;
+  const latestTotal = latest ? overhead.byMonthTotal[latest] || 0 : 0;
+  const priorTotal = prior ? overhead.byMonthTotal[prior] || 0 : 0;
+  const delta = latest && prior ? latestTotal - priorTotal : null;
+  const trailing12 = months.slice(-12).reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0);
+
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set());
+  const [openVendors, setOpenVendors] = useState<Set<string>>(new Set());
+  const toggle = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  };
+
+  return (
+    <div>
+      {/* Headline stats — exact actuals */}
+      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <Stat
+          label={latest ? `${monthShort(latest)} overhead` : 'This month'}
+          value={fmt(latestTotal)}
+          sub={delta != null
+            ? `${delta >= 0 ? '▲' : '▼'} ${fmt(Math.abs(delta))} vs ${prior ? monthShort(prior) : 'prior'}`
+            : 'business overhead'}
+          accent={delta != null && delta > 0}
+        />
+        <Stat label="Trailing 12-mo" value={fmt(trailing12)} sub={`${Math.min(months.length, 12)} months`} />
+        <Stat label="All-time total" value={fmt(overhead.total)} sub={`${months.length} months on file`} last />
+      </div>
+
+      {/* Proactive opportunities */}
+      {overhead.insights.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Opportunities to reduce</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
+            {overhead.insights.map(ins => {
+              const sev = SEVERITY[ins.severity] || SEVERITY.low;
+              return (
+                <div key={ins.id} style={{ border: '1px solid var(--rule)', borderLeft: `2px solid ${sev.color}`, background: 'var(--paper-2)', padding: '12px 14px' }}>
+                  <div className="flex items-center justify-between" style={{ gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: sev.color }}>{sev.label}</span>
+                    {ins.annual != null && (
+                      <span className="tabular-nums" style={{ fontSize: 11, color: 'var(--ink-3)' }}>~${ins.annual.toLocaleString('en-US')}/yr</span>
+                    )}
+                  </div>
+                  <div className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2, marginBottom: 4 }}>{ins.title}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{ins.detail}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Where it goes — interactive drill-down with the 6-month trend inline */}
+      <div style={{ marginTop: 26 }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 8 }}>
+          <div className="eyebrow">Where it goes</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-4)' }}>click a category, then a vendor, to drill in</div>
+        </div>
+        <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
+              {trendMonths.map(m => (
+                <th key={m} style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(m)}</th>
+              ))}
+              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>All-time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {overhead.detail.map(cat => {
+              const catOpen = openCats.has(cat.category);
+              return (
+                <CategoryGroup
+                  key={cat.category}
+                  cat={cat}
+                  trendMonths={trendMonths}
+                  byMonthCategory={overhead.byMonthCategory}
+                  open={catOpen}
+                  onToggle={() => setOpenCats(s => toggle(s, cat.category))}
+                  openVendors={openVendors}
+                  onToggleVendor={(vk) => setOpenVendors(s => toggle(s, vk))}
+                />
+              );
+            })}
+            <tr style={{ borderTop: '1.5px solid var(--ink)', fontWeight: 600 }}>
+              <td style={{ padding: '10px 6px' }}>Total</td>
+              {trendMonths.map(m => (
+                <td key={m} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(overhead.byMonthTotal[m] || 0)}</td>
+              ))}
+              <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(overhead.total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, maxWidth: 760, lineHeight: 1.5 }}>
+        Card (*3878) + operating (*5130), exact actuals. Personal/gray spend (gas, meals, streaming) and internal
+        transfers are excluded, so this is real business overhead only. The most recent month is partial until it
+        closes{latest ? ` (data through ${overhead.latestTxnDate ? monthLong(overhead.latestTxnDate) : monthShort(latest)})` : ''}.
+      </p>
+    </div>
+  );
+}
+
+function CategoryGroup({
+  cat, trendMonths, byMonthCategory, open, onToggle, openVendors, onToggleVendor,
+}: {
+  cat: OverheadAnalysis['detail'][number];
+  trendMonths: string[];
+  byMonthCategory: Record<string, Record<string, number>>;
+  open: boolean;
+  onToggle: () => void;
+  openVendors: Set<string>;
+  onToggleVendor: (key: string) => void;
+}) {
+  const span = trendMonths.length + 2;
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        style={{ borderBottom: '1px solid var(--rule-soft)', cursor: 'pointer', background: open ? 'var(--paper-2)' : 'transparent' }}
+      >
+        <td style={{ padding: '9px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>
+          <span style={{ display: 'inline-block', width: 12, color: 'var(--ink-3)' }}>{open ? '−' : '+'}</span>
+          {cat.category}
+          <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--ink-4)', fontFamily: 'var(--font-inter, inherit)' }}>{cat.vendors.length} vendors</span>
+        </td>
+        {trendMonths.map(m => {
+          const v = byMonthCategory[m]?.[cat.category];
+          return (
+            <td key={m} style={{ padding: '9px 6px', textAlign: 'right', color: v ? 'var(--ink-2)' : 'var(--ink-4)' }}>
+              {v ? fmt(v) : '—'}
+            </td>
+          );
+        })}
+        <td style={{ padding: '9px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)', color: 'var(--ink)' }}>{fmt(cat.total)}</td>
+      </tr>
+
+      {open && cat.vendors.map(v => {
+        const vkey = `${cat.category}::${v.vendor}`;
+        const vOpen = openVendors.has(vkey);
+        return (
+          <CategoryVendor
+            key={vkey}
+            vendor={v}
+            span={span}
+            colSpanMid={trendMonths.length}
+            open={vOpen}
+            onToggle={() => onToggleVendor(vkey)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function CategoryVendor({
+  vendor, span, colSpanMid, open, onToggle,
+}: {
+  vendor: OverheadAnalysis['detail'][number]['vendors'][number];
+  span: number;
+  colSpanMid: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr onClick={onToggle} style={{ borderBottom: '1px dotted var(--rule)', cursor: 'pointer' }}>
+        <td style={{ padding: '7px 6px 7px 22px', color: 'var(--ink-2)' }}>
+          <span style={{ display: 'inline-block', width: 12, color: 'var(--ink-4)' }}>{open ? '−' : '+'}</span>
+          {vendor.vendor}
+          <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--ink-4)' }}>{vendor.count}×</span>
+        </td>
+        <td colSpan={colSpanMid} style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--ink-4)', fontSize: 10 }}>
+          {open ? 'charges below' : ''}
+        </td>
+        <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(vendor.total)}</td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={span} style={{ padding: 0 }}>
+            <div style={{ background: 'var(--paper-2)', borderBottom: '1px solid var(--rule)', padding: '6px 6px 8px 22px' }}>
+              <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+                <tbody>
+                  {vendor.txns.map((t, i) => (
+                    <tr key={i} style={{ borderBottom: i < vendor.txns.length - 1 ? '1px dotted var(--rule-soft)' : 'none' }}>
+                      <td style={{ padding: '4px 8px 4px 0', color: 'var(--ink-3)', whiteSpace: 'nowrap', width: 88 }}>{t.date || '—'}</td>
+                      <td style={{ padding: '4px 8px', color: 'var(--ink-2)' }}>
+                        {t.description}
+                        <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{t.account === 'card' ? 'card' : 'oper'}</span>
+                      </td>
+                      <td style={{ padding: '4px 0', textAlign: 'right', color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(t.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function Stat({ label, value, sub, accent, last }: { label: string; value: string; sub?: string; accent?: boolean; last?: boolean }) {
+  return (
+    <div style={{ padding: '18px 20px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
+      <div className="font-serif tabular-nums" style={{ fontSize: 24, fontWeight: 400, color: accent ? 'var(--signal)' : 'var(--ink)', lineHeight: 1.05 }}>{value}</div>
+      {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
+    </div>
+  );
+}

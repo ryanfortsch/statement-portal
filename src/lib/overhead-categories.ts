@@ -144,3 +144,83 @@ export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
   'Repairs & upkeep', 'Insurance', 'Health benefits', 'Rent & office',
   'Professional', 'Payroll', 'Travel', 'Bank fees', 'Other',
 ];
+
+/* --------------------------------------------------------------------- */
+/* Vendor display-grouping for the dashboard drill-down                   */
+/* --------------------------------------------------------------------- */
+
+// Collapses the noisy Chase description into one clean merchant name so the
+// drill-down groups variants together (AMAZON MKTPL + AMZN MKTP -> "Amazon",
+// the two ways Anthropic bills -> "Anthropic"). Names are chosen to read well
+// in the UI; order doesn't matter since matches are disjoint in practice.
+const CANONICAL_VENDORS: { name: string; match: string[] }[] = [
+  { name: 'Amazon', match: ['AMAZON', 'AMZN'] },
+  { name: 'Gusto (payroll)', match: ['GUSTO'] },
+  { name: 'Guesty', match: ['GUESTY'] },
+  { name: 'PriceLabs', match: ['PRICELABS', 'PRICE LABS'] },
+  { name: 'AirDNA', match: ['AIRDNA'] },
+  { name: 'Adobe', match: ['ADOBE'] },
+  { name: 'Squarespace', match: ['SQSP', 'SQUARESPACE'] },
+  { name: 'QuickBooks (Intuit)', match: ['INTUIT', 'QUICKBOOKS', 'QBOOKS'] },
+  { name: 'OpenAI', match: ['OPENAI'] },
+  { name: 'Anthropic', match: ['ANTHROPIC', 'CLAUDE'] },
+  { name: 'Cursor', match: ['CURSOR'] },
+  { name: 'Lovable', match: ['LOVABLE'] },
+  { name: 'Runway', match: ['RUNWAY'] },
+  { name: 'GitHub', match: ['GITHUB'] },
+  { name: 'Vercel', match: ['VERCEL'] },
+  { name: 'Google', match: ['GOOGLE', 'GSUITE'] },
+  { name: 'Apple', match: ['APPLE'] },
+  { name: 'Microsoft', match: ['MICROSOFT'] },
+  { name: 'Quo (OpenPhone)', match: ['QUO', 'OPENPHONE'] },
+  { name: 'Meta / Facebook ads', match: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM'] },
+  { name: 'Mailchimp', match: ['MAILCHIMP'] },
+  { name: 'VRBO', match: ['VRBO', 'HOMEAWAY'] },
+  { name: 'Furnished Finder', match: ['FURNISHED FINDER', 'FURNISHEDFINDER'] },
+  { name: 'GEICO (auto)', match: ['GEICO'] },
+  { name: 'Phillips Insurance', match: ['PHILLIPS'] },
+  { name: 'Arbella Insurance', match: ['ARBELLA'] },
+  { name: 'Commonwealth Health', match: ['COMMONWEALTH HEA'] },
+  { name: 'MS Consultants (accounting)', match: ['MSCONSULTANTS', 'MS CONSULTANTS'] },
+  { name: 'MH Partners', match: ['MH PARTNERS', 'MHPARTNERS'] },
+  { name: 'Supporting Strategies', match: ['SUPPORTING STRATEGIES'] },
+  { name: 'Tempus Fugit Law', match: ['TEMPUS FUGIT'] },
+  { name: 'Fix Linens', match: ['FIX LINENS', 'FIXLINENS'] },
+  { name: 'Home Depot', match: ['HOME DEPOT', 'HOMEDEPOT'] },
+  { name: "Rocky's Ace Hardware", match: ["ROCKY'S ACE", 'ROCKYS ACE', 'ROCKY'] },
+  { name: 'Paone Mechanical', match: ['PAONE'] },
+  { name: 'Dash Drains', match: ['DASH DRAINS'] },
+  { name: 'Delta Air Lines', match: ['DELTA AIR'] },
+  { name: 'Enterprise Rent-A-Car', match: ['ENTERPRISE RENT'] },
+  { name: 'Target', match: ['TARGET'] },
+  { name: 'Walmart', match: ['WALMART'] },
+  { name: 'Staples', match: ['STAPLES'] },
+];
+
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/\b([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+/**
+ * Turn a raw bank description into a clean, groupable merchant name for the
+ * drill-down. Known merchants map to a curated label; everything else gets a
+ * best-effort cleanup (ACH originator name, stripped processor prefixes, no
+ * trailing store/transaction numbers).
+ */
+export function canonicalVendor(description: string): string {
+  const s = (description || '').toUpperCase().trim();
+  if (!s) return 'Unknown';
+  for (const v of CANONICAL_VENDORS) {
+    if (v.match.some(m => s.includes(m))) return v.name;
+  }
+  // ACH lines carry the real payee after "ORIG CO NAME:".
+  const orig = s.match(/ORIG CO NAME:\s*([A-Z0-9 &'.]+?)\s{2,}/);
+  if (orig) return titleCase(orig[1].trim());
+  let t = s;
+  for (const p of ['TST* ', 'SQ *', 'SP ', 'PY *', 'PAYPAL *', 'WWW.', 'CKE*', 'DD *', 'IN *']) {
+    if (t.startsWith(p)) t = t.slice(p.length);
+  }
+  t = t.split(/\*| {2,}/)[0];
+  t = t.replace(/\s+#?\d[\d\-.]*$/, '').trim();
+  return titleCase(t.slice(0, 28)) || 'Unknown';
+}

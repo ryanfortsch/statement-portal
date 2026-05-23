@@ -37,7 +37,7 @@ export function OverheadUpload({ hint, stale }: { hint: string; stale: boolean }
           return;
         }
         summaries.push(
-          `${data.account === 'card' ? 'Card' : 'Operating'}: ${data.inserted_new} new, ${data.already_present} already on file, ${data.dropped} dropped`,
+          `${data.account === 'card' ? 'Card' : 'Operating'}: ${data.inserted_new} new, ${data.already_present} already on file, ${data.dropped} dropped${data.pruned ? `, ${data.pruned} removed` : ''}`,
         );
       }
       setResult(summaries.join(' · '));
