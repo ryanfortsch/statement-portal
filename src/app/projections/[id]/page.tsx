@@ -18,6 +18,9 @@ import {
   lockedReason,
 } from '@/components/projections/Pipeline';
 import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+import { normalizePhone } from '@/lib/quo';
+import { ProspectTexts, type ProspectText } from './ProspectTexts';
 import type { ProjectionRow } from '@/lib/projections-types';
 import {
   computeProjection,
@@ -43,10 +46,58 @@ async function getProjection(id: string): Promise<ProjectionRow | null> {
   return data as ProjectionRow;
 }
 
+// Read-only: surface this prospect's Quo SMS on the deal (matched by
+// phone). Service role because quo_events is an audit table. Never writes
+// or advances the deal stage.
+async function getProspectTexts(phone: string): Promise<ProspectText[]> {
+  const target = normalizePhone(phone);
+  if (!target) return [];
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const sb = createClient(url, key);
+  const { data } = await sb
+    .from('quo_events')
+    .select('payload, received_at')
+    .in('event_type', ['message.received', 'message.delivered'])
+    .order('received_at', { ascending: false })
+    .limit(500);
+  type Row = {
+    payload: {
+      data?: {
+        object?: {
+          from?: string | null;
+          to?: string | string[] | null;
+          body?: string | null;
+          text?: string | null;
+          direction?: string | null;
+          createdAt?: string | null;
+        };
+      };
+    };
+    received_at: string;
+  };
+  const out: ProspectText[] = [];
+  for (const row of (data ?? []) as Row[]) {
+    const obj = row.payload?.data?.object;
+    if (!obj) continue;
+    const to = Array.isArray(obj.to) ? obj.to[0] : obj.to;
+    if (normalizePhone(obj.from) !== target && normalizePhone(to) !== target) continue;
+    out.push({
+      direction: obj.direction === 'incoming' ? 'inbound' : 'outbound',
+      body: (obj.body ?? obj.text ?? '') || '',
+      at: obj.createdAt ?? row.received_at,
+    });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 export default async function ProjectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const projection = await getProjection(id);
   if (!projection) notFound();
+
+  const prospectTexts = projection.prospect_phone ? await getProspectTexts(projection.prospect_phone) : [];
 
   const computed = computeProjection(projection);
   const update = updateProjection.bind(null, id);
@@ -186,6 +237,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           <CloseLikelihoodWidget projectionId={id} value={projection.close_likelihood_pct} size="large" />
         </div>
       </section>
+
+      <ProspectTexts texts={prospectTexts} name={projection.prospect_first_name ?? projection.prospect_name} />
 
       {/* ─── Pipeline ───────────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32, width: '100%' }}>
