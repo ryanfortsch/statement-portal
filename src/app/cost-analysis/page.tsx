@@ -28,6 +28,12 @@ export default async function CostAnalysisPage() {
   const prior = months.length >= 2 ? months[months.length - 2] : null;
   const comparison = prior ? compareSameProperties(ca, prior, latest) : null;
 
+  const latestT = latest ? ca.byMonth[latest] : undefined;
+  const priorT = prior ? ca.byMonth[prior] : undefined;
+  const totalDelta = latestT && priorT ? latestT.operating - priorT.operating : null;
+  const totalDeltaPct = totalDelta != null && priorT && priorT.operating > 0
+    ? (totalDelta / priorT.operating) * 100 : null;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="financials" />
@@ -37,7 +43,7 @@ export default async function CostAnalysisPage() {
         eyebrow="Helm · Financials"
         title="Cost"
         emphasis="analysis."
-        description="All-in housekeeping cost -- cleaning (Cape Ann Elite) and linens (Nor'East Cleaners) -- by property and month, normalized per turnover so the May 2026 vendor split is an apples-to-apples read."
+        description="Per-property operating cost -- cleaning, linens, and repairs -- by property and month, normalized per turnover. Rising Tide overhead (insurance, legal, software) is a later addition."
         paddingTop={40}
         paddingBottom={20}
       />
@@ -50,92 +56,50 @@ export default async function CostAnalysisPage() {
         </section>
       ) : (
         <>
-          {/* Latest-month split */}
-          <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
-            <div className="eyebrow" style={{ marginBottom: 14 }}>{latest ? monthLabel(latest) : ''} · housekeeping</div>
+          {/* This month at a glance: total operating cost + trend vs last month */}
+          <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 12 }}>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>{latest ? monthLabel(latest) : ''} · operating cost</div>
             <div
               style={{
                 borderTop: '1px solid var(--ink)',
                 borderBottom: '1px solid var(--ink)',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: 'repeat(3, 1fr)',
               }}
             >
-              {(() => {
-                const t = latest ? ca.byMonth[latest] : undefined;
-                if (!t) return null;
-                return (
-                  <>
-                    <CostStat label="All-in cleaning" value={fmtCompact(t.allIn)} sub={`${t.turnovers} turnovers`} />
-                    <CostStat label="Cleaning (CAE)" value={fmtCompact(t.cleaning)} sub="Cape Ann Elite" />
-                    <CostStat label="Linens (Nor'East)" value={fmtCompact(t.linens)} sub={ca.hasLinenData ? 'tagged from bank' : 'not yet ingested'} accent={t.linens > 0} />
-                    <CostStat label="Per turnover" value={t.allInPerTurn != null ? fmt(t.allInPerTurn) : '—'} sub="all-in / turnover" last />
-                  </>
-                );
-              })()}
+              {latestT && (
+                <>
+                  <CostStat
+                    label="Total operating"
+                    value={fmtCompact(latestT.operating)}
+                    sub={
+                      totalDelta != null
+                        ? `${totalDelta >= 0 ? '▲' : '▼'} ${fmtCompact(Math.abs(totalDelta))}${totalDeltaPct != null ? ` (${totalDeltaPct >= 0 ? '+' : ''}${totalDeltaPct.toFixed(0)}%)` : ''} vs ${prior ? monthShort(prior) : 'prior'}`
+                        : 'cleaning + linens + repairs'
+                    }
+                    accent={totalDelta != null && totalDelta > 0}
+                  />
+                  <CostStat label="Per turnover" value={latestT.operatingPerTurn != null ? fmt(latestT.operatingPerTurn) : '—'} sub={`${latestT.turnovers} turnovers`} />
+                  <CostStat label="Properties" value={String(ca.cells.filter(c => c.month === latest && c.operating > 0).length)} sub="with cost this month" last />
+                </>
+              )}
             </div>
           </section>
 
-          {/* Before / after, same-property */}
-          {comparison && comparison.rows.length > 0 && (
+          {/* Category split for the latest month */}
+          {latestT && (
             <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
-              <div className="eyebrow" style={{ marginBottom: 6 }}>Same-property comparison</div>
-              <h2 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: '0 0 4px' }}>
-                {monthLabel(comparison.monthA)} vs <em style={{ color: 'var(--tide-deep)' }}>{monthLabel(comparison.monthB)}</em>
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 16px', maxWidth: 640, lineHeight: 1.5 }}>
-                Only properties with a statement in both months, so the average reflects the same set.
-                {comparison.rows.length} propert{comparison.rows.length === 1 ? 'y' : 'ies'} qualify.
-              </p>
-
-              <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Property</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthA)} all-in</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthA)} /turn</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthB)} all-in</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthB)} /turn</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparison.rows.map((r) => {
-                    const aPer = r.aTurns > 0 ? r.aAllIn / r.aTurns : null;
-                    const bPer = r.bTurns > 0 ? r.bAllIn / r.bTurns : null;
-                    return (
-                      <tr key={r.propertyId} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
-                        <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{r.propertyName}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{fmt(r.aAllIn)}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{aPer != null ? fmt(aPer) : '—'}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(r.bAllIn)}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{bPer != null ? fmt(bPer) : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: '1.5px solid var(--ink)', fontWeight: 600 }}>
-                    <td style={{ padding: '10px 6px' }}>Average per property</td>
-                    <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(comparison.avg.aPerProperty)}</td>
-                    <td />
-                    <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(comparison.avg.bPerProperty)}</td>
-                    <td />
-                  </tr>
-                  <tr style={{ fontWeight: 600 }}>
-                    <td style={{ padding: '4px 6px 10px' }}>Average per turnover</td>
-                    <td style={{ padding: '4px 6px 10px', textAlign: 'right' }} />
-                    <td style={{ padding: '4px 6px 10px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{comparison.avg.aPerTurn != null ? fmt(comparison.avg.aPerTurn) : '—'}</td>
-                    <td />
-                    <td style={{ padding: '4px 6px 10px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{comparison.avg.bPerTurn != null ? fmt(comparison.avg.bPerTurn) : '—'}</td>
-                  </tr>
-                </tfoot>
-              </table>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 32, paddingTop: 14 }}>
+                <CatLine label="Cleaning (Cape Ann Elite)" value={fmt(latestT.cleaning)} prior={priorT?.cleaning} />
+                <CatLine label="Linens (Nor'East)" value={fmt(latestT.linens)} prior={priorT?.linens} />
+                <CatLine label="Repairs" value={fmt(latestT.repairs)} prior={priorT?.repairs} />
+              </div>
             </section>
           )}
 
-          {/* Property x month grid: all-in per turnover */}
+          {/* Per-property, per-turnover grid */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
-            <div className="eyebrow" style={{ marginBottom: 14 }}>All-in cleaning per turnover · by property</div>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Operating cost per turnover · by property</div>
             <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
@@ -153,22 +117,91 @@ export default async function CostAnalysisPage() {
                       const cell = ca.cells.find(c => c.propertyId === p.id && c.month === m);
                       return (
                         <td key={m} style={{ padding: '8px 6px', textAlign: 'right', color: cell ? 'var(--ink)' : 'var(--ink-4)' }}>
-                          {cell && cell.allInPerTurn != null ? fmt(cell.allInPerTurn) : '—'}
+                          {cell && cell.operatingPerTurn != null ? fmt(cell.operatingPerTurn) : '—'}
                         </td>
                       );
                     })}
                   </tr>
                 ))}
+                {latestT && (
+                  <tr style={{ borderTop: '1.5px solid var(--ink)', fontWeight: 600 }}>
+                    <td style={{ padding: '10px 6px' }}>Portfolio /turn</td>
+                    {months.map(m => {
+                      const t = ca.byMonth[m];
+                      return (
+                        <td key={m} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>
+                          {t && t.operatingPerTurn != null ? fmt(t.operatingPerTurn) : '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
               </tbody>
             </table>
           </section>
 
+          {/* Same-property before/after */}
+          {comparison && comparison.rows.length > 0 && (
+            <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Same-property comparison</div>
+              <h2 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: '0 0 4px' }}>
+                {monthLabel(comparison.monthA)} vs <em style={{ color: 'var(--tide-deep)' }}>{monthLabel(comparison.monthB)}</em>
+              </h2>
+              <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 16px', maxWidth: 640, lineHeight: 1.5 }}>
+                Operating cost on the {comparison.rows.length} propert{comparison.rows.length === 1 ? 'y' : 'ies'} with a statement in both months, so the average reflects the same set.
+              </p>
+
+              <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Property</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthA)} total</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthA)} /turn</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthB)} total</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(comparison.monthB)} /turn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparison.rows.map((r) => {
+                    const aPer = r.aTurns > 0 ? r.aOperating / r.aTurns : null;
+                    const bPer = r.bTurns > 0 ? r.bOperating / r.bTurns : null;
+                    return (
+                      <tr key={r.propertyId} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                        <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{r.propertyName}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{fmt(r.aOperating)}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{aPer != null ? fmt(aPer) : '—'}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(r.bOperating)}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{bPer != null ? fmt(bPer) : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '1.5px solid var(--ink)', fontWeight: 600 }}>
+                    <td style={{ padding: '10px 6px' }}>Average per property</td>
+                    <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(comparison.avg.aPerProperty)}</td>
+                    <td />
+                    <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(comparison.avg.bPerProperty)}</td>
+                    <td />
+                  </tr>
+                  <tr style={{ fontWeight: 600 }}>
+                    <td style={{ padding: '4px 6px 10px' }}>Average per turnover</td>
+                    <td />
+                    <td style={{ padding: '4px 6px 10px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{comparison.avg.aPerTurn != null ? fmt(comparison.avg.aPerTurn) : '—'}</td>
+                    <td />
+                    <td style={{ padding: '4px 6px 10px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{comparison.avg.bPerTurn != null ? fmt(comparison.avg.bPerTurn) : '—'}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </section>
+          )}
+
           {/* Caveats */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
             <div style={{ padding: '12px 14px', borderLeft: '2px solid var(--signal)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-              <strong style={{ color: 'var(--ink-2)' }}>Reading this:</strong> before May 2026, Cape Ann Elite bundled cleaning + linens into one invoice, so the &ldquo;before&rdquo; all-in can&apos;t be split. The honest comparison is total all-in per turnover.
-              {!ca.hasLinenData && ' Nor’East linen charges aren’t tagged in the data yet — run the cleaning-vendor migration and re-ingest the affected months to populate the cleaning-vs-linen split.'}
-              {' '}The current month is partial until it closes, so its per-turnover figure will keep moving.
+              <strong style={{ color: 'var(--ink-2)' }}>Scope:</strong> this is per-property operating cost (cleaning + linens + repairs), the cost to run each property. Rising Tide&apos;s own overhead -- insurance, legal, software, marketing -- isn&apos;t here yet; that&apos;s a later phase once its source is wired in.
+              {!ca.hasLinenData && ' Nor’East linens aren’t tagged in the data yet — re-ingest the affected months to populate the cleaning-vs-linen split.'}
+              {' '}The current month is partial until it closes, so its per-turnover figure keeps moving.
             </div>
           </section>
         </>
@@ -185,6 +218,26 @@ function CostStat({ label, value, sub, accent, last }: { label: string; value: s
       <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       <div className="font-serif tabular-nums" style={{ fontSize: 26, fontWeight: 400, color: accent ? 'var(--signal)' : 'var(--ink)', lineHeight: 1.05 }}>{value}</div>
       {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+/** A single cost-category line with the month figure and an optional
+ *  vs-prior-month delta underneath. */
+function CatLine({ label, value, prior }: { label: string; value: string; prior?: number }) {
+  const current = Number(value.replace(/[$,]/g, ''));
+  const delta = prior != null ? current - prior : null;
+  return (
+    <div className="flex items-baseline justify-between" style={{ padding: '8px 0', borderBottom: '1px dotted var(--rule)' }}>
+      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{label}</span>
+      <span style={{ textAlign: 'right' }}>
+        <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>{value}</span>
+        {delta != null && Math.abs(delta) >= 0.01 && (
+          <span style={{ marginLeft: 8, fontSize: 10, color: delta > 0 ? 'var(--signal)' : 'var(--positive)' }}>
+            {delta > 0 ? '▲' : '▼'} {fmtCompact(Math.abs(delta))}
+          </span>
+        )}
+      </span>
     </div>
   );
 }
