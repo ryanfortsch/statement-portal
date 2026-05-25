@@ -22,21 +22,19 @@ function monthLong(m: string): string {
   return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const SEVERITY: Record<string, { color: string; label: string }> = {
-  high: { color: 'var(--signal)', label: 'Check' },
-  medium: { color: 'var(--tide-deep, #2f6f7b)', label: 'Trim' },
-  low: { color: 'var(--ink-3)', label: 'Note' },
-};
-
 export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) {
   const months = overhead.months;
   const trendMonths = months.slice(-6);
-  const latest = months[months.length - 1] || null;
-  const prior = months.length >= 2 ? months[months.length - 2] : null;
-  const latestTotal = latest ? overhead.byMonthTotal[latest] || 0 : 0;
-  const priorTotal = prior ? overhead.byMonthTotal[prior] || 0 : 0;
-  const delta = latest && prior ? latestTotal - priorTotal : null;
-  const trailing12 = months.slice(-12).reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0);
+  // Run-rate KPIs use COMPLETE months only -- the current calendar month is
+  // partial (data lands mid-month), so including it would understate the rate
+  // and a month-over-month delta against it would be meaningless.
+  const completeMonths = months.filter(m => m < overhead.currentMonth);
+  const t12 = completeMonths.slice(-12);
+  const trailing12 = t12.reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0);
+  const avgPerMonth = t12.length ? trailing12 / t12.length : 0;
+  const ytdYear = overhead.currentMonth.slice(0, 4);
+  const ytdMonths = months.filter(m => m.startsWith(ytdYear));
+  const ytd = ytdMonths.reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0);
 
   const [openCats, setOpenCats] = useState<Set<string>>(new Set());
   const [openVendors, setOpenVendors] = useState<Set<string>>(new Set());
@@ -48,41 +46,34 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
 
   return (
     <div>
-      {/* Headline stats — exact actuals */}
+      {/* Headline KPIs — exact actuals, complete months only (no partial-month
+          headline, no all-time total). */}
       <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <Stat
-          label={latest ? `${monthShort(latest)} overhead` : 'This month'}
-          value={fmt(latestTotal)}
-          sub={delta != null
-            ? `${delta >= 0 ? '▲' : '▼'} ${fmt(Math.abs(delta))} vs ${prior ? monthShort(prior) : 'prior'}`
-            : 'business overhead'}
-          accent={delta != null && delta > 0}
-        />
-        <Stat label="Trailing 12-mo" value={fmt(trailing12)} sub={`${Math.min(months.length, 12)} months`} />
-        <Stat label="All-time total" value={fmt(overhead.total)} sub={`${months.length} months on file`} last />
+        <Stat label="Avg / month" value={fmt(avgPerMonth)} sub={`last ${t12.length} full month${t12.length === 1 ? '' : 's'}`} />
+        <Stat label="Trailing 12-mo" value={fmt(trailing12)} sub={`${t12.length} full month${t12.length === 1 ? '' : 's'}`} />
+        <Stat label={`${ytdYear} to date`} value={fmt(ytd)} sub={`${ytdMonths.length} month${ytdMonths.length === 1 ? '' : 's'}`} last />
       </div>
 
-      {/* Proactive opportunities */}
+      {/* Notable / recurring costs — factual readout (actual totals over the
+          period on file), no advice, no annualized estimates. */}
       {overhead.insights.length > 0 && (
         <div style={{ marginTop: 22 }}>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Opportunities to reduce</div>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Notable & recurring costs</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
-            {overhead.insights.map(ins => {
-              const sev = SEVERITY[ins.severity] || SEVERITY.low;
-              return (
-                <div key={ins.id} style={{ border: '1px solid var(--rule)', borderLeft: `2px solid ${sev.color}`, background: 'var(--paper-2)', padding: '12px 14px' }}>
-                  <div className="flex items-center justify-between" style={{ gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: sev.color }}>{sev.label}</span>
-                    {ins.annual != null && (
-                      <span className="tabular-nums" style={{ fontSize: 11, color: 'var(--ink-3)' }}>~${ins.annual.toLocaleString('en-US')}/yr</span>
-                    )}
-                  </div>
-                  <div className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2, marginBottom: 4 }}>{ins.title}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{ins.detail}</div>
+            {overhead.insights.map(ins => (
+              <div key={ins.id} style={{ border: '1px solid var(--rule)', borderLeft: '2px solid var(--ink-3)', background: 'var(--paper-2)', padding: '12px 14px' }}>
+                <div className="flex items-baseline justify-between" style={{ gap: 8, marginBottom: 4 }}>
+                  <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}>{ins.title}</span>
+                  <span className="font-serif tabular-nums" style={{ fontSize: 15, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ins.amount)}</span>
                 </div>
-              );
-            })}
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                  <span style={{ textTransform: 'uppercase', letterSpacing: '.08em', fontSize: 9, color: 'var(--ink-4)' }}>{ins.timeframe}</span>
+                  {' · '}{ins.detail}
+                </div>
+              </div>
+            ))}
           </div>
+          <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 8 }}>Actual totals over the {completeMonths.length + (months.length > completeMonths.length ? 1 : 0)} months on file. Not annualized.</div>
         </div>
       )}
 
@@ -97,9 +88,11 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
             <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
               <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
               {trendMonths.map(m => (
-                <th key={m} style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>{monthShort(m)}</th>
+                <th key={m} style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>
+                  {monthShort(m)}{m === overhead.currentMonth ? <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> mtd</span> : ''}
+                </th>
               ))}
-              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>All-time</th>
+              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Total</th>
             </tr>
           </thead>
           <tbody>
@@ -131,8 +124,7 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
 
       <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, maxWidth: 760, lineHeight: 1.5 }}>
         Card (*3878) + operating (*5130), exact actuals. Personal/gray spend (gas, meals, streaming) and internal
-        transfers are excluded, so this is real business overhead only. The most recent month is partial until it
-        closes{latest ? ` (data through ${overhead.latestTxnDate ? monthLong(overhead.latestTxnDate) : monthShort(latest)})` : ''}.
+        transfers are excluded, so this is real business overhead only.{overhead.latestTxnDate ? ` Data through ${monthLong(overhead.latestTxnDate)}; the current month (mtd) is still filling in.` : ''}
       </p>
     </div>
   );
