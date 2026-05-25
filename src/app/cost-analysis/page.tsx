@@ -60,7 +60,6 @@ export default async function CostAnalysisPage() {
       {/* ── RISING TIDE OVERHEAD ── company-wide costs (card + operating),
           independent of per-property statements. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Rising Tide overhead</div>
         <OverheadUpload hint={ohHint} stale={ohStale} />
         {!overhead.hasData ? (
           <div style={{ padding: 18, background: 'var(--paper-2)', border: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>

@@ -196,24 +196,26 @@ export type OverheadTxn = { date: string; description: string; amount: number; a
 export type OverheadVendor = { vendor: string; total: number; count: number; txns: OverheadTxn[] };
 /** A category with its vendor breakdown, for click-to-expand. */
 export type OverheadCategoryDetail = { category: string; total: number; count: number; vendors: OverheadVendor[] };
-/** A proactive, plain-English flag about a cost worth reducing or checking. */
+/** A factual readout of a notable / recurring cost -- no advice, no
+ *  extrapolation. Just the real amount and what it is. */
 export type OverheadInsight = {
   id: string;
-  severity: 'high' | 'medium' | 'low';
   title: string;
-  detail: string;
-  annual: number | null; // estimated yearly $ at stake, when meaningful
+  amount: number;     // actual total over the period (not annualized)
+  timeframe: string;  // short factual qualifier, e.g. "23 tools", "242 orders"
+  detail: string;     // plain factual context
 };
 
 export type OverheadAnalysis = {
   months: string[]; // sorted ascending
+  currentMonth: string; // YYYY-MM for "now" -- the last data month is partial when it equals this
   categories: string[]; // categories present, by total desc
   byMonthCategory: Record<string, Record<string, number>>; // month -> category -> amount
   byMonthTotal: Record<string, number>;
   categoryTotals: Record<string, number>; // category -> all-time total
   total: number; // all-time grand total
   detail: OverheadCategoryDetail[]; // category -> vendors -> txns, totals desc
-  insights: OverheadInsight[]; // proactive savings/trend flags
+  insights: OverheadInsight[]; // factual notable-cost readouts
   latestTxnDate: string | null; // most recent transaction date, for the "data through X" nudge
   daysSinceLatest: number | null; // computed here (not in render) so the client control stays pure
   hasData: boolean;
@@ -232,7 +234,8 @@ type OverheadRow = { month: string; category: string; amount: number; txn_date: 
  */
 export async function getOverhead(): Promise<OverheadAnalysis> {
   const empty: OverheadAnalysis = {
-    months: [], categories: [], byMonthCategory: {}, byMonthTotal: {}, categoryTotals: {},
+    months: [], currentMonth: new Date(Date.now()).toISOString().slice(0, 7),
+    categories: [], byMonthCategory: {}, byMonthTotal: {}, categoryTotals: {},
     total: 0, detail: [], insights: [], latestTxnDate: null, daysSinceLatest: null, hasData: false,
   };
   if (!supabaseUrl || !supabaseKey) return empty;
@@ -297,7 +300,7 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
 
   const months = Object.keys(byMonthTotal).sort();
   const total = round2(Object.values(catTotals).reduce((s, v) => s + v, 0));
-  const insights = computeOverheadInsights(detail, byMonthCategory, months);
+  const insights = computeOverheadInsights(detail);
 
   const daysSinceLatest = latestTxnDate
     ? Math.floor((Date.now() - Date.parse(latestTxnDate + 'T00:00:00')) / 86400000)
@@ -305,6 +308,7 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
 
   return {
     months,
+    currentMonth: new Date(Date.now()).toISOString().slice(0, 7),
     categories: Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]),
     byMonthCategory,
     byMonthTotal,
@@ -319,20 +323,14 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
 }
 
 /**
- * Proactive overhead insights -- the "things you could trim" panel. All
- * heuristic and directional; each is phrased as a prompt to check, not a
- * command. Annual estimates extrapolate the observed run-rate over the
- * months of data we have.
+ * Notable / recurring costs -- a factual readout, not advice. Each entry is
+ * the real total over the period with a plain description. No trends are
+ * inferred (lumpy annual bills like insurance would create false ones) and
+ * nothing is annualized or editorialized. The dashboard shows these so the
+ * biggest recurring commitments are visible without hunting through the tree.
  */
-function computeOverheadInsights(
-  detail: OverheadCategoryDetail[],
-  byMonthCategory: Record<string, Record<string, number>>,
-  months: string[],
-): OverheadInsight[] {
+function computeOverheadInsights(detail: OverheadCategoryDetail[]): OverheadInsight[] {
   const out: OverheadInsight[] = [];
-  const nMonths = Math.max(months.length, 1);
-  const annualize = (total: number) => Math.round((total / nMonths) * 12);
-
   const findVendor = (name: string): OverheadVendor | undefined => {
     for (const c of detail) {
       const v = c.vendors.find(v => v.vendor === name);
@@ -342,89 +340,57 @@ function computeOverheadInsights(
   };
   const byCat = (cat: string) => detail.find(c => c.category === cat);
 
-  // 1. Overlapping AI tools -- the easiest subscription overlap to consolidate.
-  const aiNames = ['OpenAI', 'Anthropic', 'Cursor', 'Lovable', 'Runway'];
-  const aiVendors = aiNames.map(findVendor).filter(Boolean) as OverheadVendor[];
-  if (aiVendors.length >= 2) {
-    const aiTotal = aiVendors.reduce((s, v) => s + v.total, 0);
+  // Recurring software subscriptions -- the genuinely recurring, reducible set.
+  const sw = byCat('Software');
+  if (sw && sw.total > 0) {
     out.push({
-      id: 'ai-overlap',
-      severity: 'medium',
-      title: `${aiVendors.length} overlapping AI subscriptions`,
-      detail: `You're paying ${aiVendors.map(v => v.vendor).join(', ')}. Consolidating to one or two could trim the rest.`,
-      annual: annualize(aiTotal),
+      id: 'software',
+      title: 'Software subscriptions',
+      amount: sw.total,
+      timeframe: `${sw.vendors.length} tools`,
+      detail: sw.vendors.slice(0, 5).map(v => v.vendor).join(', ') + (sw.vendors.length > 5 ? ', …' : ''),
     });
   }
 
-  // 2. Auto insurance sitting in business overhead -- reclassify or confirm.
+  // AI tools, called out as their own line within software.
+  const aiVendors = ['OpenAI', 'Anthropic', 'Cursor', 'Lovable', 'Runway']
+    .map(findVendor).filter(Boolean) as OverheadVendor[];
+  if (aiVendors.length >= 2) {
+    out.push({
+      id: 'ai-tools',
+      title: 'AI tools',
+      amount: aiVendors.reduce((s, v) => s + v.total, 0),
+      timeframe: `${aiVendors.length} services`,
+      detail: aiVendors.map(v => v.vendor).join(', '),
+    });
+  }
+
+  // GEICO auto on the corporate card -- stated as a fact (it is vehicle, not
+  // property, insurance), no recommendation attached.
   const geico = findVendor('GEICO (auto)');
   if (geico) {
     out.push({
-      id: 'auto-insurance',
-      severity: 'high',
-      title: 'Auto insurance is in business overhead',
-      detail: `GEICO auto runs ~${fmtUSD(annualize(geico.total))}/yr on the card. Confirm it belongs in the business, otherwise reclassify it as personal.`,
-      annual: annualize(geico.total),
+      id: 'geico',
+      title: 'Auto insurance (GEICO)',
+      amount: geico.total,
+      timeframe: 'on the card',
+      detail: 'Vehicle insurance running through the corporate card (separate from property coverage).',
     });
   }
 
-  // 3. Software subscription stack -- the single most reducible bucket.
-  const sw = byCat('Software');
-  if (sw && sw.total > 0) {
-    const top = sw.vendors.slice(0, 4).map(v => v.vendor).join(', ');
-    out.push({
-      id: 'software-stack',
-      severity: 'medium',
-      title: `Software is a ~${fmtUSD(annualize(sw.total))}/yr stack`,
-      detail: `${sw.vendors.length} tools, led by ${top}. Worth an annual subscription audit for ones you've outgrown.`,
-      annual: annualize(sw.total),
-    });
-  }
-
-  // 4. Amazon concentration -- many small orders add up; a spend policy helps.
+  // Amazon -- the second-largest spend area, stated plainly.
   const amzn = findVendor('Amazon');
-  if (amzn && amzn.count >= 20) {
+  if (amzn) {
     out.push({
-      id: 'amazon-concentration',
-      severity: 'low',
-      title: `Amazon is ~${fmtUSD(annualize(amzn.total))}/yr across ${amzn.count} orders`,
-      detail: 'A business account with a simple approval step (or a per-property budget) usually trims impulse buys here.',
-      annual: annualize(amzn.total),
+      id: 'amazon',
+      title: 'Amazon',
+      amount: amzn.total,
+      timeframe: `${amzn.count} orders`,
+      detail: 'Guest supplies and small furnishings.',
     });
   }
 
-  // 5. Fastest-rising category: last 3 months vs the 3 before.
-  if (months.length >= 6) {
-    const recent = months.slice(-3);
-    const prior = months.slice(-6, -3);
-    const sumCat = (ms: string[], cat: string) => ms.reduce((s, m) => s + (byMonthCategory[m]?.[cat] || 0), 0);
-    let best: { cat: string; deltaPerMo: number; pct: number } | null = null;
-    for (const c of detail) {
-      const r = sumCat(recent, c.category) / 3;
-      const p = sumCat(prior, c.category) / 3;
-      if (p < 50) continue; // ignore tiny/noisy bases
-      const deltaPerMo = r - p;
-      const pct = (deltaPerMo / p) * 100;
-      if (deltaPerMo >= 150 && pct >= 20 && (!best || deltaPerMo > best.deltaPerMo)) {
-        best = { cat: c.category, deltaPerMo, pct };
-      }
-    }
-    if (best) {
-      out.push({
-        id: 'rising-category',
-        severity: 'medium',
-        title: `${best.cat} is trending up`,
-        detail: `Up ~${fmtUSD(Math.round(best.deltaPerMo))}/mo (+${best.pct.toFixed(0)}%) over the last quarter vs the prior one. Worth a look before it sets a new baseline.`,
-        annual: Math.round(best.deltaPerMo * 12),
-      });
-    }
-  }
-
-  return out.sort((a, b) => (b.annual || 0) - (a.annual || 0));
-}
-
-function fmtUSD(n: number): string {
-  return '$' + Math.round(n).toLocaleString('en-US');
+  return out.sort((a, b) => b.amount - a.amount);
 }
 
 export function compareSameProperties(ca: CostAnalysis, monthA: string, monthB: string): SamePropertyComparison {
