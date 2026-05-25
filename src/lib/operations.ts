@@ -12,7 +12,6 @@
 import { supabase } from './supabase';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
-import { isPlaceholderGuestName } from './ical';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -254,39 +253,12 @@ export async function loadOperationsData(
 
   const rawBookings = (resData ?? []) as BookingRaw[];
 
-  // Stopgap reconciliation (proper fix tracked for the Guesty-takeover
-  // session). `bookings` is fed by two un-reconciled sources — the Guesty
-  // API sync and the iCal sync. A cancellation that lands in one source can
-  // leave a stale `confirmed` row from the other for the SAME booking (both
-  // with duplicate_of NULL), so the calendar shows a phantom stay for a
-  // guest who cancelled. Until the sync dedups properly, drop any confirmed
-  // booking that has a `cancelled` twin — matched by booking id or
-  // confirmation code — anywhere in the window. A genuine cancel-then-rebook
-  // gets a fresh code/id from Guesty, so this won't hide the rebooked stay.
-  const { data: cancelledData } = await supabase
-    .from('bookings')
-    .select('external_booking_id, external_confirmation_code')
-    .eq('status', 'cancelled')
-    .lte('check_in', fetchEnd)
-    .gte('check_out', fetchStart);
-
-  const cancelledBookingIds = new Set<string>();
-  const cancelledConfCodes = new Set<string>();
-  for (const c of (cancelledData ?? []) as Array<{
-    external_booking_id: string | null;
-    external_confirmation_code: string | null;
-  }>) {
-    if (c.external_booking_id) cancelledBookingIds.add(c.external_booking_id);
-    if (c.external_confirmation_code) cancelledConfCodes.add(c.external_confirmation_code);
-  }
-  const hasCancelledTwin = (b: BookingRaw): boolean =>
-    (!!b.external_booking_id && cancelledBookingIds.has(b.external_booking_id)) ||
-    (!!b.external_confirmation_code && cancelledConfCodes.has(b.external_confirmation_code));
-
   // Map booking rows into the ReservationRow shape the rest of this module and
   // the Operations page already consume. booking.id becomes the per-stay key.
+  // `bookings` is reconciled at the source now (lib/ical-sync dedup collapses
+  // each stay to one canonical row and a trusted cancellation wins), so the
+  // read path just trusts duplicate_of + status from the query above.
   const reservations: ReservationRow[] = rawBookings
-    .filter((b) => !hasCancelledTwin(b))
     .map((b) => ({
       guesty_reservation_id: b.id,
       property_id: b.property_id,
@@ -308,45 +280,6 @@ export async function loadOperationsData(
         !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
         (!propertyId || r.property_id === propertyId)
     );
-
-  // Guest-name fallback. Airbnb stays enter `bookings` via iCal, which
-  // never carries the real guest: the feed's SUMMARY is either empty or a
-  // placeholder like "Reservation HMZXM5WP5C" (the confirmation code), so
-  // ~30% of bookings render as "Reservation …" or "Unnamed guest." The
-  // legacy guesty_reservations mirror (still synced every ~10 min) DOES
-  // have those names, matchable by (property_id, check_in, check_out).
-  // Bridge it at read time so the next iCal re-sync can't clobber the fill;
-  // remove once the Channels pipeline sources Airbnb guest names directly.
-  const placeholderReservations = reservations.filter((r) =>
-    isPlaceholderGuestName(r.guest_name)
-  );
-  if (placeholderReservations.length > 0) {
-    const { data: guestyData } = await supabase
-      .from('guesty_reservations')
-      .select('property_id, check_in, check_out, guest_name')
-      .lte('check_in', fetchEnd)
-      .gte('check_out', fetchStart);
-
-    const guestyNameByKey = new Map<string, string>();
-    for (const g of (guestyData ?? []) as Array<{
-      property_id: string;
-      check_in: string;
-      check_out: string;
-      guest_name: string | null;
-    }>) {
-      // Only fill from a real Guesty name — never from another placeholder.
-      if (!isPlaceholderGuestName(g.guest_name)) {
-        guestyNameByKey.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g.guest_name!.trim());
-      }
-    }
-
-    for (const r of placeholderReservations) {
-      const match = guestyNameByKey.get(`${r.property_id}|${r.check_in}|${r.check_out}`);
-      // Found a real name → use it. No match → null it out so the UI shows
-      // a clean "Guest" rather than the raw "Reservation HMZXM5WP5C" code.
-      r.guest_name = match ?? null;
-    }
-  }
 
   // Pull inspections in the same window for matching.
   const { data: inspData, error: inspErr } = await supabase
