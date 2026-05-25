@@ -657,6 +657,20 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 }
 .rt-mobile-menu-row:hover { background: var(--paper-2); }
 
+/* Section divider between the primary trio and the "More" set, so the
+   mobile sheet reads with the same two-tier hierarchy as the desktop
+   nav (primary tabs + a demoted overflow group) instead of one flat
+   ranked list. */
+.rt-mobile-menu-group-label {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-4);
+  padding: 24px 20px 6px;
+}
+
 /* ─── Auth page ship-wheel: portal animation ─────────────────────────
    Three-stage choreography:
      DRIFT  (0 - 65%): halves slide in from ±90px offscreen.
