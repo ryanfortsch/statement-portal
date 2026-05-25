@@ -22,16 +22,6 @@ export function HelmModuleNavMore({ current }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // Everything that isn't already a tab on the masthead, minus modules
-  // hidden because they're tabs of a parent section (e.g. Statements /
-  // Revenue / Forecast live under Financials).
-  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow: HelmModule[] = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
-  if (overflow.length === 0) return null;
-
-  // Mark "More" as active if the current page is in the overflow set.
-  const activeInMore = !!(current && overflow.some((m) => m.id === current));
-
   useEffect(() => {
     if (!open) return;
     function onDocMouseDown(e: MouseEvent) {
@@ -47,6 +37,16 @@ export function HelmModuleNavMore({ current }: Props) {
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  // Everything that isn't already a tab on the masthead, minus modules
+  // hidden because they're tabs of a parent section (e.g. Statements /
+  // Revenue / Forecast live under Financials).
+  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
+  const overflow: HelmModule[] = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
+  if (overflow.length === 0) return null;
+
+  // Mark "More" as active if the current page is in the overflow set.
+  const activeInMore = !!(current && overflow.some((m) => m.id === current));
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
@@ -111,7 +111,6 @@ function ModuleItem({
   // 'parked' is a real route just like 'active' — it just renders
   // dimmer and sorts to the bottom of the dropdown. Only true 'soon'
   // (no page built yet) is unreachable.
-  const reachable = m.status === 'active' || m.status === 'external' || m.status === 'parked';
   const dim = m.status === 'soon' || m.status === 'parked';
 
   // Numbers were dropped from the More dropdown - the canonical module
