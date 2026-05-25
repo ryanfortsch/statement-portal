@@ -137,6 +137,21 @@ export function isBookingEvent(event: IcalEvent): boolean {
 }
 
 /**
+ * True when a guest_name isn't a real person's name but a feed placeholder.
+ * Airbnb's iCal carries no guest, so the SUMMARY arrives empty or as
+ * "Reservation <confirmation-code>"; VRBO/Airbnb blocks come through as
+ * "Reserved", "Not available", "Blocked". Treat all of these as "no name" so
+ * a real name from another source (e.g. the Guesty mirror) can take over and
+ * the UI never prints a raw confirmation code as if it were a guest.
+ */
+export function isPlaceholderGuestName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  const t = name.trim();
+  if (!t) return true;
+  return /^(reservation|reserved|not available|unavailable|blocked|block|airbnb|guest)\b/i.test(t);
+}
+
+/**
  * Some OTAs leak the guest name in DESCRIPTION even when they redact it
  * from SUMMARY. Try a couple of common patterns.
  */

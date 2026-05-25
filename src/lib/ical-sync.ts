@@ -10,7 +10,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { parseIcal, isBookingEvent, guessGuestNameFromIcal } from '@/lib/ical';
+import { parseIcal, isBookingEvent, guessGuestNameFromIcal, isPlaceholderGuestName } from '@/lib/ical';
 import { CHANNEL_LABELS, type BookingChannel, type BookingSource } from '@/lib/channels-types';
 
 let _service: SupabaseClient | null = null;
@@ -307,6 +307,11 @@ type DedupRow = {
   check_out: string;
   duplicate_of: string | null;
   created_at: string;
+  cancelled_at: string | null;
+  // Which channel_listings feed this row arrived on. Used to tell a direct OTA
+  // feed (reliable cancel signal) apart from the Guesty aggregate feed (which
+  // can transiently drop a still-confirmed reservation).
+  channel_listing_id: string | null;
   // Enrichment fields: a deduped cluster pools these onto the canonical row,
   // since no single source has all of them (Airbnb/Guesty iCal lack the guest
   // name; the guesty_legacy backfill lacks the confirmation code, etc).
@@ -354,12 +359,85 @@ function sameStay(a: DedupRow, b: DedupRow): boolean {
   return dayGap(a.check_in, b.check_in) <= 1 && dayGap(a.check_out, b.check_out) <= 1;
 }
 
+/** Trim to null so an empty external id never matches another empty one. */
+function normId(v: string | null): string | null {
+  if (v == null) return null;
+  const t = v.trim();
+  return t === '' ? null : t;
+}
+
 /**
- * Pick the canonical row of a same-stay cluster: a real booking beats a
- * block, then higher source priority wins, then the earliest-created row.
+ * Two rows are the SAME reservation when they share a non-empty confirmation
+ * code or booking id. This is the reliable cross-source join: a single Airbnb
+ * stay arrives as a direct-feed iCal row, a Guesty aggregate-feed iCal row,
+ * and a guesty_legacy row, all carrying the same channel confirmation code.
  */
-function pickCanonical(cluster: DedupRow[]): DedupRow {
+function shareIdentity(a: DedupRow, b: DedupRow): boolean {
+  const ca = normId(a.external_confirmation_code);
+  const cb = normId(b.external_confirmation_code);
+  if (ca && cb && ca === cb) return true;
+  const ia = normId(a.external_booking_id);
+  const ib = normId(b.external_booking_id);
+  return !!(ia && ib && ia === ib);
+}
+
+/**
+ * Two rows are EXPLICITLY different reservations when both carry a code (or
+ * both a booking id) and they differ. Such a pair must never be merged by a
+ * bare date overlap -- that's what keeps a cancel-then-rebook (fresh code on
+ * the same dates) and a genuine same-date double-booking as separate stays.
+ */
+function conflictingIdentity(a: DedupRow, b: DedupRow): boolean {
+  const ca = normId(a.external_confirmation_code);
+  const cb = normId(b.external_confirmation_code);
+  if (ca && cb && ca !== cb) return true;
+  const ia = normId(a.external_booking_id);
+  const ib = normId(b.external_booking_id);
+  return !!(ia && ib && ia !== ib);
+}
+
+// Positive (non-cancelled) statuses, most-live first. Used to pick a cluster's
+// effective status when no trustworthy cancellation is present.
+const POSITIVE_STATUS_ORDER = ['completed', 'confirmed', 'pending', 'inquiry', 'block'];
+
+/**
+ * The effective status of a same-reservation cluster.
+ *
+ * A cancellation only "wins" when it comes from a TRUSTED source: a direct OTA
+ * feed (Airbnb's own calendar export), or a Helm-native / Guesty-API row. The
+ * Guesty per-listing AGGREGATE feed is excluded -- it has been observed to drop
+ * a still-confirmed reservation (the direct Airbnb feed and the Guesty API both
+ * kept showing it), so an aggregate-only disappearance must not hide a real
+ * stay. When nothing trustworthy says cancelled, the most-live positive status
+ * present wins; a cluster of nothing but aggregate cancellations is treated as
+ * cancelled because there's no positive signal left.
+ */
+function clusterEffectiveStatus(
+  cluster: DedupRow[],
+  isFromAggregateFeed: (r: DedupRow) => boolean,
+): string {
+  const trustedCancel = cluster.some(
+    (r) => r.status === 'cancelled' && !isFromAggregateFeed(r),
+  );
+  if (trustedCancel) return 'cancelled';
+  for (const s of POSITIVE_STATUS_ORDER) {
+    if (cluster.some((r) => r.status === s)) return s;
+  }
+  return 'cancelled';
+}
+
+/**
+ * Pick the canonical row of a cluster. It must carry the cluster's effective
+ * status so downstream reads (which filter on status) see the right thing
+ * without us mutating any source row: prefer rows whose status equals the
+ * effective status, then a real booking over a block, then higher source
+ * priority, then the earliest-created row.
+ */
+function pickCanonical(cluster: DedupRow[], effectiveStatus: string): DedupRow {
   return [...cluster].sort((a, b) => {
+    const aMatch = a.status === effectiveStatus ? 0 : 1;
+    const bMatch = b.status === effectiveStatus ? 0 : 1;
+    if (aMatch !== bMatch) return aMatch - bMatch;           // effective-status first
     const aBlock = a.status === 'block' ? 1 : 0;
     const bBlock = b.status === 'block' ? 1 : 0;
     if (aBlock !== bBlock) return aBlock - bBlock;            // non-block first
@@ -371,20 +449,43 @@ function pickCanonical(cluster: DedupRow[]): DedupRow {
 }
 
 /**
- * Portfolio-wide cross-source dedup. Loads every non-cancelled booking,
- * clusters same-stay rows per property with union-find, and writes
- * `duplicate_of` so each physical stay is counted once downstream.
+ * Portfolio-wide cross-source reconciliation. Loads EVERY booking (cancelled
+ * included), clusters rows that represent the same physical stay per property
+ * with union-find, and writes `duplicate_of` so each stay is counted once and
+ * the canonical row carries the cluster's effective status + a real guest name.
  *
- * Idempotent: only rows whose `duplicate_of` actually changes are written,
- * so a steady-state re-run is a near no-op.
+ * Cancelled rows are loaded too: a stay that one source still reports
+ * `confirmed` but a trusted source reports `cancelled` must collapse onto the
+ * cancelled row, or it lingers as a phantom on the turnover calendar. Status is
+ * never mutated -- the cancelled row is simply chosen as canonical so its stale
+ * twin becomes a hidden duplicate.
+ *
+ * Idempotent: only rows whose `duplicate_of` (or pooled fields) actually change
+ * are written, so a steady-state re-run is a near no-op.
  */
 export async function dedupeAllBookings(): Promise<DedupResult> {
   const sb = getServiceClient();
   const { data, error } = await sb
     .from('bookings')
-    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
-    .neq('status', 'cancelled');
+    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests');
   if (error) throw new Error(`dedupe load: ${error.message}`);
+
+  // The Guesty per-listing feed (channel_listings.channel = 'guesty') is an
+  // aggregate of every channel and has been seen to drop a still-confirmed
+  // reservation. A cancellation that exists ONLY on the aggregate feed is not
+  // trusted to hide a stay (a direct OTA feed or the Guesty API would still
+  // show it); see clusterEffectiveStatus.
+  const { data: listingData, error: listingErr } = await sb
+    .from('channel_listings')
+    .select('id, channel');
+  if (listingErr) throw new Error(`dedupe load listings: ${listingErr.message}`);
+  const aggregateListingIds = new Set(
+    (listingData ?? []).filter((l) => l.channel === 'guesty').map((l) => l.id as string),
+  );
+  const isFromAggregateFeed = (r: DedupRow): boolean =>
+    r.source === 'ical_import' &&
+    r.channel_listing_id != null &&
+    aggregateListingIds.has(r.channel_listing_id);
 
   const rows = (data ?? []) as DedupRow[];
   const byProperty = new Map<string, DedupRow[]>();
@@ -423,7 +524,21 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
 
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
-        if (sameStay(list[i], list[j])) union(list[i].id, list[j].id);
+        const a = list[i];
+        const b = list[j];
+        // Same reservation across sources -> always one stay.
+        if (shareIdentity(a, b)) {
+          union(a.id, b.id);
+          continue;
+        }
+        // Blocks (owner holds) are distinct calendar entities; only ever fold
+        // them in by a shared id, never by a bare date overlap.
+        if (a.status === 'block' || b.status === 'block') continue;
+        // Don't let a date overlap merge two explicitly-different reservations.
+        if (conflictingIdentity(a, b)) continue;
+        // Same dates, no conflicting identity -> same stay (covers a direct-feed
+        // row that lacks the channel code lining up with its Guesty twin).
+        if (sameStay(a, b)) union(a.id, b.id);
       }
     }
 
@@ -441,7 +556,8 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
         continue;
       }
       clusterCount += 1;
-      const canonical = pickCanonical(cluster);
+      const effective = clusterEffectiveStatus(cluster, isFromAggregateFeed);
+      const canonical = pickCanonical(cluster, effective);
       for (const r of cluster) {
         if (r.id === canonical.id) {
           desired.set(r.id, null);
@@ -451,10 +567,20 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
         }
       }
 
-      // Pool enrichment fields onto the canonical: for each field the
-      // canonical is missing, take the first non-null value from a duplicate.
+      // Pool enrichment fields onto the canonical: for each field the canonical
+      // is missing, take the first value from a duplicate. guest_name is special
+      // -- a placeholder ("Reservation HM…") counts as missing so a real name
+      // from the Guesty side overwrites the iCal code.
       const patch: Record<string, unknown> = {};
       for (const field of ENRICH_FIELDS) {
+        if (field === 'guest_name') {
+          if (!isPlaceholderGuestName(canonical.guest_name)) continue;
+          const donor = cluster.find(
+            (r) => r.id !== canonical.id && !isPlaceholderGuestName(r.guest_name),
+          );
+          if (donor) patch.guest_name = (donor.guest_name as string).trim();
+          continue;
+        }
         if (canonical[field] != null) continue;
         const donor = cluster.find((r) => r.id !== canonical.id && r[field] != null);
         if (donor) patch[field] = donor[field];

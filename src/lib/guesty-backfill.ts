@@ -34,7 +34,9 @@ export type BackfillResult = {
   skipped_invalid: number;
   skipped_unknown_property: number;
   to_insert: number;
+  to_update: number;
   inserted: number;
+  updated: number;
   deduped: number;
 };
 
@@ -49,12 +51,32 @@ export async function backfillGuestyToBookings(
     .select('guesty_reservation_id, property_id, guest_name, confirmation_code, check_in, check_out, nights, channel, status, host_payout');
   if (grErr) throw new Error(`read guesty_reservations: ${grErr.message}`);
 
+  // Existing guesty_legacy rows, with the fields we mirror from
+  // guesty_reservations, so we can update a row in place when Guesty changes a
+  // reservation (status, guest name, dates, payout). Keyed by
+  // external_booking_id. INSERT-only would freeze a row at its first-seen
+  // state: a later cancellation or rename in Guesty would never reach
+  // `bookings`, leaving a stale `confirmed` row behind.
   const { data: existing, error: exErr } = await sb
     .from('bookings')
-    .select('external_booking_id')
+    .select('external_booking_id, channel, external_confirmation_code, check_in, check_out, nights, status, guest_name, payout')
     .eq('source', 'guesty_legacy');
   if (exErr) throw new Error(`read bookings: ${exErr.message}`);
-  const haveIds = new Set((existing ?? []).map((r) => r.external_booking_id as string));
+  type ExistingRow = {
+    external_booking_id: string;
+    channel: BookingChannel;
+    external_confirmation_code: string | null;
+    check_in: string;
+    check_out: string;
+    nights: number | null;
+    status: BookingStatus;
+    guest_name: string | null;
+    payout: number | null;
+  };
+  const existingByBid = new Map<string, ExistingRow>();
+  for (const e of (existing ?? []) as ExistingRow[]) {
+    if (e.external_booking_id) existingByBid.set(e.external_booking_id, e);
+  }
 
   // Only properties Helm actually manages -- guesty_reservations can reference
   // personal listings absent from `properties`, which the FK would reject.
@@ -76,19 +98,18 @@ export async function backfillGuestyToBookings(
     payout: number | null;
   };
 
-  const rows: Row[] = [];
-  let skippedExisting = 0;
+  const toInsert: Row[] = [];
+  const toUpdate: Array<{ external_booking_id: string; patch: Partial<Row> }> = [];
   let skippedInvalid = 0;
   let skippedUnknownProperty = 0;
 
   for (const r of (gr ?? [])) {
     const id = r.guesty_reservation_id as string | null;
     if (!id) { skippedInvalid++; continue; }
-    if (haveIds.has(id)) { skippedExisting++; continue; }
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
     if (!knownPropertyIds.has(r.property_id as string)) { skippedUnknownProperty++; continue; }
 
-    rows.push({
+    const desired: Row = {
       property_id: r.property_id as string,
       channel: mapChannel(r.channel as string | null),
       source: 'guesty_legacy',
@@ -100,33 +121,70 @@ export async function backfillGuestyToBookings(
       status: mapStatus(r.status as string | null),
       guest_name: (r.guest_name as string | null) ?? null,
       payout: r.host_payout != null ? Number(r.host_payout) : null,
-    });
+    };
+
+    const prior = existingByBid.get(id);
+    if (!prior) {
+      toInsert.push(desired);
+      continue;
+    }
+
+    // Mirror only the fields Guesty owns, and only when they changed. Never
+    // downgrade a real guest name to null -- a previous run (or dedup
+    // enrichment) may hold a better value than a momentarily-blank API row.
+    const patch: Partial<Row> = {};
+    if (prior.channel !== desired.channel) patch.channel = desired.channel;
+    if ((prior.external_confirmation_code ?? null) !== desired.external_confirmation_code)
+      patch.external_confirmation_code = desired.external_confirmation_code;
+    if (prior.check_in?.slice(0, 10) !== desired.check_in) patch.check_in = desired.check_in;
+    if (prior.check_out?.slice(0, 10) !== desired.check_out) patch.check_out = desired.check_out;
+    if ((prior.nights ?? null) !== desired.nights) patch.nights = desired.nights;
+    if (prior.status !== desired.status) patch.status = desired.status;
+    if (desired.guest_name != null && prior.guest_name !== desired.guest_name)
+      patch.guest_name = desired.guest_name;
+    if (Number(prior.payout ?? NaN) !== Number(desired.payout ?? NaN))
+      patch.payout = desired.payout;
+
+    if (Object.keys(patch).length > 0) toUpdate.push({ external_booking_id: id, patch });
   }
 
   const base = {
     ok: true as const,
     total_guesty_reservations: gr?.length ?? 0,
-    already_backfilled: skippedExisting,
+    already_backfilled: (gr?.length ?? 0) - toInsert.length - skippedInvalid - skippedUnknownProperty,
     skipped_invalid: skippedInvalid,
     skipped_unknown_property: skippedUnknownProperty,
-    to_insert: rows.length,
+    to_insert: toInsert.length,
+    to_update: toUpdate.length,
   };
 
   if (dryRun) {
-    return { ...base, dryRun: true, inserted: 0, deduped: 0 };
+    return { ...base, dryRun: true, inserted: 0, updated: 0, deduped: 0 };
   }
 
   let inserted = 0;
   const chunkSize = 500;
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize);
+  for (let i = 0; i < toInsert.length; i += chunkSize) {
+    const chunk = toInsert.slice(i, i + chunkSize);
     const { error: insErr } = await sb.from('bookings').insert(chunk);
     if (insErr) throw new Error(`insert chunk ${i / chunkSize}: ${insErr.message}`);
     inserted += chunk.length;
   }
 
-  // Newly inserted guesty_legacy rows are duplicates of any iCal-imported rows
-  // for the same stays. Reconcile so each physical stay counts once.
+  let updated = 0;
+  for (const u of toUpdate) {
+    const { error: updErr } = await sb
+      .from('bookings')
+      .update(u.patch)
+      .eq('source', 'guesty_legacy')
+      .eq('external_booking_id', u.external_booking_id);
+    if (updErr) throw new Error(`update ${u.external_booking_id}: ${updErr.message}`);
+    updated += 1;
+  }
+
+  // Newly inserted / refreshed guesty_legacy rows are duplicates of any
+  // iCal-imported rows for the same stays. Reconcile so each physical stay
+  // counts once and a fresh cancellation collapses its stale twin.
   let deduped = 0;
   try {
     const d = await dedupeAllBookings();
@@ -135,7 +193,7 @@ export async function backfillGuestyToBookings(
     console.error('[guesty-backfill] dedupe failed:', err);
   }
 
-  return { ...base, dryRun: false, inserted, deduped };
+  return { ...base, dryRun: false, inserted, updated, deduped };
 }
 
 function mapChannel(raw: string | null): BookingChannel {
