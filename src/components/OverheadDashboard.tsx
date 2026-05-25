@@ -18,9 +18,6 @@ function fmt(n: number): string {
 function monthShort(m: string): string {
   return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
-function monthLong(m: string): string {
-  return new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) {
   const months = overhead.months;
@@ -43,6 +40,20 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   };
+
+  // The drill-down table covers exactly the months shown (the window), so every
+  // row's months sum to its Total. Categories/vendors with nothing in the
+  // window are dropped, and ordering follows windowed spend.
+  const windowMonths = trendMonths;
+  const sumWindow = (byMonth: Record<string, number>) => windowMonths.reduce((s, m) => s + (byMonth[m] || 0), 0);
+  const rangeLabel = windowMonths.length
+    ? `${monthShort(windowMonths[0])} – ${monthShort(windowMonths[windowMonths.length - 1])}`
+    : '';
+  const grandWindow = windowMonths.reduce((s, m) => s + (overhead.byMonthTotal[m] || 0), 0);
+  const catRows = overhead.detail
+    .map(c => ({ cat: c, win: windowMonths.reduce((s, m) => s + (overhead.byMonthCategory[m]?.[c.category] || 0), 0) }))
+    .filter(r => r.win > 0.005)
+    .sort((a, b) => b.win - a.win);
 
   return (
     <div>
@@ -92,18 +103,23 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
                   {monthShort(m)}{m === overhead.currentMonth ? <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> mtd</span> : ''}
                 </th>
               ))}
-              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Total</th>
+              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>
+                Total
+                {rangeLabel && <div style={{ fontSize: 8, fontWeight: 400, letterSpacing: '.04em', color: 'var(--ink-4)' }}>{rangeLabel}</div>}
+              </th>
             </tr>
           </thead>
           <tbody>
-            {overhead.detail.map(cat => {
+            {catRows.map(({ cat, win }) => {
               const catOpen = openCats.has(cat.category);
               return (
                 <CategoryGroup
                   key={cat.category}
                   cat={cat}
+                  winTotal={win}
                   trendMonths={trendMonths}
                   byMonthCategory={overhead.byMonthCategory}
+                  sumWindow={sumWindow}
                   open={catOpen}
                   onToggle={() => setOpenCats(s => toggle(s, cat.category))}
                   openVendors={openVendors}
@@ -116,32 +132,40 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
               {trendMonths.map(m => (
                 <td key={m} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(overhead.byMonthTotal[m] || 0)}</td>
               ))}
-              <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(overhead.total)}</td>
+              <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)' }}>{fmt(grandWindow)}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, maxWidth: 760, lineHeight: 1.5 }}>
-        Card (*3878) + operating (*5130), exact actuals. Personal/gray spend (gas, meals, streaming) and internal
-        transfers are excluded, so this is real business overhead only.{overhead.latestTxnDate ? ` Data through ${monthLong(overhead.latestTxnDate)}; the current month (mtd) is still filling in.` : ''}
+        Card (*3878) + operating (*5130), exact actuals. Columns and Total cover the months shown
+        ({rangeLabel}); each row adds across to its Total. Personal/gray spend (gas, meals, streaming) and internal
+        transfers are excluded, so this is real business overhead only.{overhead.latestTxnDate ? ` The current month (mtd) is still filling in.` : ''}
       </p>
     </div>
   );
 }
 
 function CategoryGroup({
-  cat, trendMonths, byMonthCategory, open, onToggle, openVendors, onToggleVendor,
+  cat, winTotal, trendMonths, byMonthCategory, sumWindow, open, onToggle, openVendors, onToggleVendor,
 }: {
   cat: OverheadAnalysis['detail'][number];
+  winTotal: number;
   trendMonths: string[];
   byMonthCategory: Record<string, Record<string, number>>;
+  sumWindow: (byMonth: Record<string, number>) => number;
   open: boolean;
   onToggle: () => void;
   openVendors: Set<string>;
   onToggleVendor: (key: string) => void;
 }) {
   const span = trendMonths.length + 2;
+  // Only vendors with spend in the visible window, biggest first.
+  const vendorsInWindow = cat.vendors
+    .map(v => ({ v, win: sumWindow(v.byMonth) }))
+    .filter(x => x.win > 0.005)
+    .sort((a, b) => b.win - a.win);
   return (
     <>
       <tr
@@ -151,7 +175,7 @@ function CategoryGroup({
         <td style={{ padding: '9px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>
           <span style={{ display: 'inline-block', width: 12, color: 'var(--ink-3)' }}>{open ? '−' : '+'}</span>
           {cat.category}
-          <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--ink-4)', fontFamily: 'var(--font-inter, inherit)' }}>{cat.vendors.length} vendors</span>
+          <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--ink-4)', fontFamily: 'var(--font-inter, inherit)' }}>{vendorsInWindow.length} vendor{vendorsInWindow.length === 1 ? '' : 's'}</span>
         </td>
         {trendMonths.map(m => {
           const v = byMonthCategory[m]?.[cat.category];
@@ -161,18 +185,19 @@ function CategoryGroup({
             </td>
           );
         })}
-        <td style={{ padding: '9px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)', color: 'var(--ink)' }}>{fmt(cat.total)}</td>
+        <td style={{ padding: '9px 6px', textAlign: 'right', fontFamily: 'var(--font-fraunces)', color: 'var(--ink)' }}>{fmt(winTotal)}</td>
       </tr>
 
-      {open && cat.vendors.map(v => {
+      {open && vendorsInWindow.map(({ v, win }) => {
         const vkey = `${cat.category}::${v.vendor}`;
         const vOpen = openVendors.has(vkey);
         return (
           <CategoryVendor
             key={vkey}
             vendor={v}
+            winTotal={win}
+            trendMonths={trendMonths}
             span={span}
-            colSpanMid={trendMonths.length}
             open={vOpen}
             onToggle={() => onToggleVendor(vkey)}
           />
@@ -183,26 +208,34 @@ function CategoryGroup({
 }
 
 function CategoryVendor({
-  vendor, span, colSpanMid, open, onToggle,
+  vendor, winTotal, trendMonths, span, open, onToggle,
 }: {
   vendor: OverheadAnalysis['detail'][number]['vendors'][number];
+  winTotal: number;
+  trendMonths: string[];
   span: number;
-  colSpanMid: number;
   open: boolean;
   onToggle: () => void;
 }) {
+  const windowSet = new Set(trendMonths);
+  // Charges within the visible window only, so they sum to the row's Total.
+  const txns = vendor.txns.filter(t => t.date && windowSet.has(t.date.slice(0, 7)));
   return (
     <>
       <tr onClick={onToggle} style={{ borderBottom: '1px dotted var(--rule)', cursor: 'pointer' }}>
         <td style={{ padding: '7px 6px 7px 22px', color: 'var(--ink-2)' }}>
           <span style={{ display: 'inline-block', width: 12, color: 'var(--ink-4)' }}>{open ? '−' : '+'}</span>
           {vendor.vendor}
-          <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--ink-4)' }}>{vendor.count}×</span>
         </td>
-        <td colSpan={colSpanMid} style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--ink-4)', fontSize: 10 }}>
-          {open ? 'charges below' : ''}
-        </td>
-        <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(vendor.total)}</td>
+        {trendMonths.map(m => {
+          const v = vendor.byMonth[m];
+          return (
+            <td key={m} style={{ padding: '7px 6px', textAlign: 'right', color: v ? 'var(--ink-2)' : 'var(--ink-4)', fontSize: 11 }}>
+              {v ? fmt(v) : '—'}
+            </td>
+          );
+        })}
+        <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(winTotal)}</td>
       </tr>
       {open && (
         <tr>
@@ -210,8 +243,8 @@ function CategoryVendor({
             <div style={{ background: 'var(--paper-2)', borderBottom: '1px solid var(--rule)', padding: '6px 6px 8px 22px' }}>
               <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 11 }}>
                 <tbody>
-                  {vendor.txns.map((t, i) => (
-                    <tr key={i} style={{ borderBottom: i < vendor.txns.length - 1 ? '1px dotted var(--rule-soft)' : 'none' }}>
+                  {txns.map((t, i) => (
+                    <tr key={i} style={{ borderBottom: i < txns.length - 1 ? '1px dotted var(--rule-soft)' : 'none' }}>
                       <td style={{ padding: '4px 8px 4px 0', color: 'var(--ink-3)', whiteSpace: 'nowrap', width: 88 }}>{t.date || '—'}</td>
                       <td style={{ padding: '4px 8px', color: 'var(--ink-2)' }}>
                         {t.description}
