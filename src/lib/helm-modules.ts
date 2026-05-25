@@ -140,6 +140,20 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
   },
+  // LLC Accounting ("Books") is a tab inside Financials (see FinancialsTabs),
+  // like Statements/Revenue/Forecast/Cost Analysis. Hidden from the nav
+  // lists so it doesn't duplicate the Financials entry; route + search
+  // still resolve.
+  {
+    id: 'books',
+    href: '/books',
+    number: '01',
+    title: 'LLC Accounting',
+    description: 'In-house bookkeeping for the three LLCs. Categorize bank + card transactions, produce quarterly P&Ls and 1099 prep.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+  },
   {
     id: 'guests',
     href: '/guests',

@@ -15,13 +15,14 @@ import Link from 'next/link';
 export function FinancialsTabs({
   current,
 }: {
-  current: 'statements' | 'revenue' | 'forecast' | 'cost-analysis';
+  current: 'statements' | 'revenue' | 'forecast' | 'cost-analysis' | 'books';
 }) {
   const tabs = [
     { id: 'statements', label: 'Statements', href: '/statements' },
     { id: 'revenue', label: 'Revenue', href: '/revenue' },
     { id: 'forecast', label: 'Forecast', href: '/forecast' },
     { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },
+    { id: 'books', label: 'LLC Accounting', href: '/books' },
   ] as const;
 
   return (
