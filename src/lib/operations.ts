@@ -268,9 +268,39 @@ export async function loadOperationsData(
 
   const rawBookings = (resData ?? []) as BookingRaw[];
 
+  // Stopgap reconciliation (proper fix tracked for the Guesty-takeover
+  // session). `bookings` is fed by two un-reconciled sources — the Guesty
+  // API sync and the iCal sync. A cancellation that lands in one source can
+  // leave a stale `confirmed` row from the other for the SAME booking (both
+  // with duplicate_of NULL), so the calendar shows a phantom stay for a
+  // guest who cancelled. Until the sync dedups properly, drop any confirmed
+  // booking that has a `cancelled` twin — matched by booking id or
+  // confirmation code — anywhere in the window. A genuine cancel-then-rebook
+  // gets a fresh code/id from Guesty, so this won't hide the rebooked stay.
+  const { data: cancelledData } = await supabase
+    .from('bookings')
+    .select('external_booking_id, external_confirmation_code')
+    .eq('status', 'cancelled')
+    .lte('check_in', fetchEnd)
+    .gte('check_out', fetchStart);
+
+  const cancelledBookingIds = new Set<string>();
+  const cancelledConfCodes = new Set<string>();
+  for (const c of (cancelledData ?? []) as Array<{
+    external_booking_id: string | null;
+    external_confirmation_code: string | null;
+  }>) {
+    if (c.external_booking_id) cancelledBookingIds.add(c.external_booking_id);
+    if (c.external_confirmation_code) cancelledConfCodes.add(c.external_confirmation_code);
+  }
+  const hasCancelledTwin = (b: BookingRaw): boolean =>
+    (!!b.external_booking_id && cancelledBookingIds.has(b.external_booking_id)) ||
+    (!!b.external_confirmation_code && cancelledConfCodes.has(b.external_confirmation_code));
+
   // Map booking rows into the ReservationRow shape the rest of this module and
   // the Operations page already consume. booking.id becomes the per-stay key.
   const reservations: ReservationRow[] = rawBookings
+    .filter((b) => !hasCancelledTwin(b))
     .map((b) => ({
       guesty_reservation_id: b.id,
       property_id: b.property_id,
