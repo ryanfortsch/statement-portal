@@ -192,8 +192,10 @@ export type SamePropertyComparison = {
 
 /** One charge, for the deepest drill-down level. */
 export type OverheadTxn = { date: string; description: string; amount: number; account: string };
-/** A merchant within a category: its total, count, and the charges behind it. */
-export type OverheadVendor = { vendor: string; total: number; count: number; txns: OverheadTxn[] };
+/** A merchant within a category: its total, count, per-month spend, and the
+ *  charges behind it. `total`/`count` are all-time; `byMonth` lets the UI sum
+ *  over whatever window it shows. */
+export type OverheadVendor = { vendor: string; total: number; count: number; byMonth: Record<string, number>; txns: OverheadTxn[] };
 /** A category with its vendor breakdown, for click-to-expand. */
 export type OverheadCategoryDetail = { category: string; total: number; count: number; vendors: OverheadVendor[] };
 /** A factual readout of a notable / recurring cost -- no advice, no
@@ -277,9 +279,10 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
 
     const vendor = canonicalVendor(r.description || '');
     (vendorAcc[cat] ||= {});
-    const v = (vendorAcc[cat][vendor] ||= { vendor, total: 0, count: 0, txns: [] });
+    const v = (vendorAcc[cat][vendor] ||= { vendor, total: 0, count: 0, byMonth: {}, txns: [] });
     v.total = round2(v.total + amt);
     v.count += 1;
+    v.byMonth[m] = round2((v.byMonth[m] || 0) + amt);
     v.txns.push({ date: r.txn_date || '', description: r.description || '', amount: round2(amt), account: r.account });
   }
 
