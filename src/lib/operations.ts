@@ -12,6 +12,7 @@
 import { supabase } from './supabase';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
+import { isPlaceholderGuestName } from './ical';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -78,21 +79,6 @@ function addDaysStr(base: string, days: number): string {
   const d = new Date(`${base}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split('T')[0];
-}
-
-/**
- * True when a guest_name isn't a real person's name but a feed placeholder.
- * Airbnb's iCal carries no guest, so the SUMMARY arrives empty or as
- * "Reservation <confirmation-code>"; VRBO/Airbnb blocks come through as
- * "Reserved", "Not available", "Blocked". Treat all of these as "no name"
- * so the guesty_reservations fallback kicks in (and so the UI never prints
- * a raw confirmation code as if it were a guest).
- */
-export function isPlaceholderGuestName(name: string | null | undefined): boolean {
-  if (!name) return true;
-  const t = name.trim();
-  if (!t) return true;
-  return /^(reservation|reserved|not available|unavailable|blocked|block|airbnb|guest)\b/i.test(t);
 }
 
 export type InspectionStatus = 'not_started' | 'complete';
