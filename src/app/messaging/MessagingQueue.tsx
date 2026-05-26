@@ -77,6 +77,13 @@ function RefreshChip({ onClick }: { onClick: () => void }) {
   );
 }
 
+// Which button on the card is currently mid-flight. Drives the per-button
+// "working" label so the user can see which action they actually pressed,
+// instead of every button just going equally faded via `disabled`. Stays
+// set after a successful action too, so the button keeps reading as
+// in-progress right up until router.refresh remounts the card.
+type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
+
 function ApprovalCard({
   approval,
   onResolved,
@@ -88,7 +95,7 @@ function ApprovalCard({
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const [coachQueued, setCoachQueued] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   const propertyLabel =
     approval.listing_name ||
@@ -109,12 +116,20 @@ function ApprovalCard({
           ? `${approval.age_minutes} min ago`
           : `${Math.floor(approval.age_minutes / 60)}h ${approval.age_minutes % 60}m ago`;
 
+  // Each handler sets pendingAction BEFORE the await so the corresponding
+  // button flips to its "working" label immediately. On error we clear it
+  // so the buttons re-enable; on success we leave it set, because the
+  // following router.refresh() will remount the list and the in-progress
+  // state should read as continuous (no flicker back to "ready") until
+  // that happens.
   const handleApprove = () => {
     setError(null);
+    setPendingAction('approve');
     startTransition(async () => {
       const res = await approveDraft(approval.id);
       if (!res.ok) {
         setError(res.error);
+        setPendingAction(null);
         return;
       }
       onResolved();
@@ -123,10 +138,12 @@ function ApprovalCard({
 
   const handleReject = () => {
     setError(null);
+    setPendingAction('reject');
     startTransition(async () => {
       const res = await rejectDraft(approval.id);
       if (!res.ok) {
         setError(res.error);
+        setPendingAction(null);
         return;
       }
       onResolved();
@@ -135,10 +152,12 @@ function ApprovalCard({
 
   const handleMarkHandled = () => {
     setError(null);
+    setPendingAction('mark-handled');
     startTransition(async () => {
       const res = await markHandled(approval.id);
       if (!res.ok) {
         setError(res.error);
+        setPendingAction(null);
         return;
       }
       onResolved();
@@ -147,19 +166,27 @@ function ApprovalCard({
 
   const handleCoach = () => {
     setError(null);
+    setPendingAction('coach');
+    // Collapse the textarea immediately so the in-flight state reads
+    // cleanly: button says "Regenerating", the inline message below
+    // explains why, and the input drawer is out of the way.
+    setShowCoach(false);
     startTransition(async () => {
       const res = await coachDraft(approval.id, feedback);
       if (!res.ok) {
         setError(res.error);
+        setPendingAction(null);
+        // Re-open the textarea so the user can revise their note instead
+        // of having to re-type it after a transient error.
+        setShowCoach(true);
         return;
       }
-      setCoachQueued(true);
       setFeedback('');
-      setShowCoach(false);
-      setTimeout(() => {
-        setCoachQueued(false);
-        onResolved();
-      }, 1500);
+      // Refresh immediately. The previous 1500ms hold was there so the
+      // "Regenerating" message had time to be seen, but that message
+      // already showed for the full duration of the await above (driven
+      // by pendingAction === 'coach'), so we no longer need the buffer.
+      onResolved();
     });
   };
 
@@ -232,7 +259,7 @@ function ApprovalCard({
         </p>
       )}
 
-      {coachQueued && (
+      {pendingAction === 'coach' && (
         <p
           style={{
             marginTop: 14,
@@ -240,8 +267,11 @@ function ApprovalCard({
             color: 'var(--ink-3)',
             fontStyle: 'italic',
           }}
+          role="status"
+          aria-live="polite"
         >
-          Regenerating with your coaching. New draft appears below in a few seconds.
+          Coaching the AI with your note. The rewritten draft appears below
+          in a few seconds.
         </p>
       )}
 
@@ -254,15 +284,27 @@ function ApprovalCard({
           alignItems: 'center',
         }}
       >
-        <PrimaryButton onClick={handleApprove} disabled={isPending}>
+        <PrimaryButton
+          onClick={handleApprove}
+          disabled={isPending}
+          loading={pendingAction === 'approve'}
+          loadingLabel="Sending"
+        >
           Approve & send
         </PrimaryButton>
-        <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+        <SecondaryButton
+          onClick={() => setShowCoach((v) => !v)}
+          disabled={isPending}
+          loading={pendingAction === 'coach'}
+          loadingLabel="Regenerating"
+        >
           {showCoach ? 'Cancel coaching' : 'Coach the AI'}
         </SecondaryButton>
         <SecondaryButton
           onClick={handleMarkHandled}
           disabled={isPending}
+          loading={pendingAction === 'mark-handled'}
+          loadingLabel="Marking"
           title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
         >
           Mark handled
@@ -270,6 +312,8 @@ function ApprovalCard({
         <SecondaryButton
           onClick={handleReject}
           disabled={isPending}
+          loading={pendingAction === 'reject'}
+          loadingLabel="Rejecting"
           title="This guest message doesn't need a reply. Drops the draft."
         >
           Reject
@@ -303,7 +347,12 @@ function ApprovalCard({
             }}
           />
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <PrimaryButton onClick={handleCoach} disabled={isPending || !feedback.trim()}>
+            <PrimaryButton
+              onClick={handleCoach}
+              disabled={isPending || !feedback.trim()}
+              loading={pendingAction === 'coach'}
+              loadingLabel="Regenerating"
+            >
               Regenerate with this note
             </PrimaryButton>
             <SecondaryButton
@@ -354,18 +403,28 @@ function PrimaryButton({
   children,
   onClick,
   disabled,
+  loading,
+  loadingLabel,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
 }) {
+  // When this button is the one doing work, keep it dark + full opacity
+  // (so it reads as the active surface, not as "disabled like the others")
+  // and swap the label for "<loadingLabel>" + animated dots.
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-busy={loading || undefined}
       style={{
-        background: disabled ? 'var(--ink-4)' : 'var(--ink)',
+        // The loading button keeps full ink; only the non-loading
+        // buttons fade to ink-4 while another action runs.
+        background: disabled && !loading ? 'var(--ink-4)' : 'var(--ink)',
         color: 'var(--paper)',
         border: '2px solid var(--ink)',
         padding: '13px 22px',
@@ -374,10 +433,10 @@ function PrimaryButton({
         textTransform: 'uppercase',
         fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
+        opacity: disabled && !loading ? 0.7 : 1,
       }}
     >
-      {children}
+      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
     </button>
   );
 }
@@ -386,11 +445,15 @@ function SecondaryButton({
   children,
   onClick,
   disabled,
+  loading,
+  loadingLabel,
   title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
   title?: string;
 }) {
   return (
@@ -398,21 +461,41 @@ function SecondaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-busy={loading || undefined}
       title={title}
       style={{
-        background: 'var(--paper)',
-        color: 'var(--ink-2)',
-        border: '1px solid var(--ink-3)',
+        background: loading ? 'var(--paper-2)' : 'var(--paper)',
+        color: loading ? 'var(--ink)' : 'var(--ink-2)',
+        border: loading ? '1px solid var(--ink)' : '1px solid var(--ink-3)',
         padding: '10px 16px',
         fontSize: 11,
         letterSpacing: '0.18em',
         textTransform: 'uppercase',
         fontWeight: 500,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
+        // The loading button stays full opacity; only the non-loading
+        // buttons fade while another action runs.
+        opacity: disabled && !loading ? 0.5 : 1,
       }}
     >
-      {children}
+      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
     </button>
+  );
+}
+
+// Inline working indicator: the action verb (e.g. "Sending") followed by
+// three pulsing dots. Used inside the primary/secondary buttons so the
+// user can see exactly which action is in-flight instead of every button
+// just looking equally faded.
+function LoadingLabel({ label }: { label: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      {label}
+      <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 6, gap: 3 }}>
+        <span className="rt-loading-dot" />
+        <span className="rt-loading-dot" />
+        <span className="rt-loading-dot" />
+      </span>
+    </span>
   );
 }
