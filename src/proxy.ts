@@ -59,6 +59,24 @@ const PROPERTY_NOTICE_RE = /^\/properties\/[a-z0-9_-]+\/notice\/[0-9a-f-]+(\/.*)
 const INSPECTION_RENDER_RE = /^\/inspections\/[0-9a-f-]+\/render(\/.*)?$/;
 
 export default auth((req) => {
+  /**
+   * Canonicalize statements.risingtidestr.com to helm.risingtidestr.com.
+   *
+   * `AUTH_URL` is pinned to helm, so any sign-in initiated from statements
+   * bounces statements → helm → Google → helm → statements. iOS Safari's
+   * tracking protection treats a cross-host cookie set mid-bounce on a host
+   * the user never lands on as bounce-tracking, and was purging the session
+   * cookie between launches, which forced a fresh Google sign-in (and 2FA)
+   * every visit. Collapsing to one host removes the bounce.
+   *
+   * The apex session cookie above stays useful for any future subdomain.
+   */
+  if (req.nextUrl.hostname === "statements.risingtidestr.com") {
+    const target = req.nextUrl.clone();
+    target.hostname = "helm.risingtidestr.com";
+    return NextResponse.redirect(target, 308);
+  }
+
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
