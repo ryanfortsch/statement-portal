@@ -31,6 +31,7 @@ import {
 import { archiveContractToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
+import { buildInitialLaunchSteps } from '@/lib/launch-checklist';
 
 /**
  * Build an absolute origin URL for use by server-side Puppeteer renders.
@@ -593,10 +594,26 @@ export async function promoteToProperty(projectionId: string) {
     .eq('id', projectionId);
   if (linkErr) throw new Error(linkErr.message);
 
+  // Seed the post-promotion launch checklist. One row per canonical step in
+  // lib/launch-checklist.ts; the property_created step is pre-completed since
+  // the row above just landed. Best-effort: if the seed fails (e.g. the
+  // migration hasn't run yet on a preview env) we still let the promote
+  // succeed so we don't strand the operator.
+  try {
+    const seedRows = buildInitialLaunchSteps(propertyId, session.user.email);
+    const { error: seedErr } = await sb.from('property_launch_steps').insert(seedRows);
+    if (seedErr) console.warn('[promoteToProperty] launch-checklist seed skipped:', seedErr.message);
+  } catch (err) {
+    console.warn('[promoteToProperty] launch-checklist seed threw:', err);
+  }
+
   revalidatePath(`/projections/${projectionId}`);
   revalidatePath('/properties');
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  // First stop after promotion is the launch checklist — there's a stack of
+  // integrations to wire (Quo cleaner, Seam lock, Guesty match, bank last4,
+  // listing copy, Airbnb live) before the property is truly operational.
+  redirect(`/properties/${propertyId}/launch`);
 }
 
 /**
