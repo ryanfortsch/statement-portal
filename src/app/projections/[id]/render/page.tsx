@@ -505,21 +505,22 @@ function SlideOwnerControl({
 }
 
 /**
- * Mini owner statement personalized to the prospect. The Owner Payout in
- * the hero matches the prospect's projected Year 1 monthly net (an easter
- * egg: refresh the deck, refresh the preview, the number you'll see on
- * your real statement is the same number you see here). Revenue is worked
- * back from that target so every line reconciles:
+ * Mini owner statement personalized to the prospect. The example statement
+ * is for the projection's presentation month (so a deck dated May 2026
+ * shows a May 2026 statement), and the Owner Payout in the hero matches
+ * the model's projected net for that specific month — not the year
+ * average. Easter egg: prospects see the seasonal payout for the month
+ * the deck is going out.
  *
- *   target net = year1MonthlyAvg
+ *   target net = computed.monthlyYear1[<presentation_month>].netPayout
  *   cleaning   = 4 turns × per-turn (capped at $325, same as the model)
  *   revenue    = (target net + cleaning) / (1 − mgmt fee %)
  *   mgmt fee   = revenue × mgmt fee %
  *
- * Reservations are split across 4 stays (3+3+6+4 = 16 nights of 30) using
- * fixed share percentages so the visual doesn't shift between properties.
- * The last reservation absorbs the rounding remainder so individual rows
- * sum exactly to the revenue line.
+ * Reservations are split across 4 stays (3+3+6+4 = 16 nights) using fixed
+ * share percentages so the visual doesn't shift between properties. The
+ * last reservation absorbs the rounding remainder so individual rows sum
+ * exactly to the revenue line.
  */
 function StatementPreview({
   projection,
@@ -528,12 +529,28 @@ function StatementPreview({
   projection: ProjectionRow;
   computed: ProjectionComputed;
 }) {
-  const targetNet = computed.year1MonthlyAvg;
+  // ─── Pick the example month from the projection's presentation date ───
+  // presentation_month is "YYYY-MM". Default to May 2026 if absent/invalid
+  // so the preview always has something to render.
+  const [presYearStr, presMonthStr] = (projection.presentation_month ?? '2026-05').split('-');
+  const presYear = Number(presYearStr) || 2026;
+  const presMonth1 = Math.min(12, Math.max(1, Number(presMonthStr) || 5));
+  const monthIdx = presMonth1 - 1;
+  const monthDate = new Date(presYear, monthIdx, 1);
+  const monthLong = monthDate.toLocaleDateString('en-US', { month: 'long' });
+  const monthShort = monthDate.toLocaleDateString('en-US', { month: 'short' });
+  const monthNum = String(presMonth1).padStart(2, '0');
+  const daysInMonth = new Date(presYear, monthIdx + 1, 0).getDate();
+  // Issued on the 5th of the following month (typical owner-payout cadence).
+  const issuedLabel = new Date(presYear, monthIdx + 1, 5).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  // ─── Anchor: that month's projected net from the model ─────────────────
+  const targetNet = computed.monthlyYear1[monthIdx].netPayout;
   const mgmtFeePct = projection.mgmt_fee_pct;
   const mgmtFeePctDisplay = Math.round(mgmtFeePct * 100);
 
-  // Cleaning: per-turn from the property's own settings, capped at the
-  // model's $325 ceiling, × 4 turns for an April month.
+  // Cleaning: per-turn from the property's own settings, capped at $325 to
+  // match the model, × 4 turns (typical month).
   const perTurn = Math.min(
     325,
     projection.base_cleaning + Math.max(0, projection.bedrooms - 2) * projection.addl_cleaning_per_br,
@@ -541,17 +558,19 @@ function StatementPreview({
   const turnoverCount = 4;
   const cleaning = perTurn * turnoverCount;
 
-  // Work back: revenue → mgmt → cleaning → target net.
+  // Work back from targetNet so every line reconciles to the month's net.
   const revenue = (targetNet + cleaning) / (1 - mgmtFeePct);
   const mgmtFee = revenue * mgmtFeePct;
 
-  // Reservation distribution. Shares sum to 1.00. The last one absorbs
-  // the rounding remainder so amounts sum to revenue exactly.
+  // Reservation date pattern: 4 stays, 16 nights, spread across the month.
+  // Pattern works for months with ≥ 30 days; for shorter months (Feb) the
+  // last stay clamps to the end of the month so we don't overrun.
+  const endDay = Math.min(30, daysInMonth);
   const stays: { guest: string; dates: string; channel: string; share: number }[] = [
-    { guest: 'Sofia G.', dates: 'Apr 4 → 7',   channel: 'Vrbo',   share: 0.18 },
-    { guest: 'James K.', dates: 'Apr 11 → 14', channel: 'Airbnb', share: 0.20 },
-    { guest: 'Priya S.', dates: 'Apr 18 → 24', channel: 'Airbnb', share: 0.39 },
-    { guest: 'Mike R.',  dates: 'Apr 26 → 30', channel: 'Direct', share: 0.23 },
+    { guest: 'Sofia G.', dates: `${monthShort} 4 → 7`,           channel: 'Vrbo',   share: 0.18 },
+    { guest: 'James K.', dates: `${monthShort} 11 → 14`,         channel: 'Airbnb', share: 0.20 },
+    { guest: 'Priya S.', dates: `${monthShort} 18 → 24`,         channel: 'Airbnb', share: 0.39 },
+    { guest: 'Mike R.',  dates: `${monthShort} 26 → ${endDay}`,  channel: 'Direct', share: 0.23 },
   ];
   const partial = stays.slice(0, -1).map((s) => Math.round(revenue * s.share * 100) / 100);
   const last = Math.round((revenue - partial.reduce((a, b) => a + b, 0)) * 100) / 100;
@@ -559,8 +578,9 @@ function StatementPreview({
 
   // Display helpers
   const totalNights = 16;
-  const occupancy = Math.round((totalNights / 30) * 100);
+  const occupancy = Math.round((totalNights / daysInMonth) * 100);
   const adr = Math.round(revenue / totalNights);
+  const adrLabel = '$' + adr.toLocaleString('en-US');  // commas for >= $1,000
   const f2 = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   // Hero net: split into whole dollars + cents superscript
   const netWhole = Math.floor(targetNet);
@@ -576,7 +596,7 @@ function StatementPreview({
       {/* Masthead */}
       <div className="rt-stmt-mast">
         <span><b>Rising Tide</b> &middot; Vacation Rentals</span>
-        <span>Owner Statement &middot; No. 04 / 2026</span>
+        <span>Owner Statement &middot; No. {monthNum} / {presYear}</span>
         <span>allie@risingtidestr.com</span>
       </div>
 
@@ -585,8 +605,8 @@ function StatementPreview({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/rising-tide-logo.png" alt="" className="rt-stmt-logo" />
         <div className="rt-stmt-headline">
-          <div className="rt-stmt-kicker">April &middot; 2026</div>
-          <div className="rt-stmt-display">April <em>Statement</em></div>
+          <div className="rt-stmt-kicker">{monthLong} &middot; {presYear}</div>
+          <div className="rt-stmt-display">{monthLong} <em>Statement</em></div>
           <div className="rt-stmt-display-sub">{propertyHeader}</div>
         </div>
       </div>
@@ -600,12 +620,12 @@ function StatementPreview({
         </div>
         <div>
           <div className="rt-stmt-cell-label">Period</div>
-          <div className="rt-stmt-cell-val">Apr 1 to Apr 30, 2026</div>
+          <div className="rt-stmt-cell-val">{`${monthShort} 1 to ${monthShort} ${daysInMonth}, ${presYear}`}</div>
           <div className="rt-stmt-cell-sub">30 days &middot; {totalNights} nights booked</div>
         </div>
         <div>
           <div className="rt-stmt-cell-label">Issued &middot; Payout</div>
-          <div className="rt-stmt-cell-val">May 5</div>
+          <div className="rt-stmt-cell-val">{issuedLabel}</div>
           <div className="rt-stmt-cell-sub">Direct deposit</div>
         </div>
       </div>
@@ -627,12 +647,12 @@ function StatementPreview({
           </div>
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">Nights</div>
-            <div className="rt-stmt-mini-val">{totalNights}<span className="rt-stmt-mini-u">/30</span></div>
+            <div className="rt-stmt-mini-val">{totalNights}<span className="rt-stmt-mini-u">/{daysInMonth}</span></div>
             <div className="rt-stmt-mini-sub">{occupancy}% occupancy</div>
           </div>
           <div className="rt-stmt-mini">
             <div className="rt-stmt-mini-label">ADR</div>
-            <div className="rt-stmt-mini-val">${adr}</div>
+            <div className="rt-stmt-mini-val">{adrLabel}</div>
           </div>
         </div>
       </div>
@@ -1552,7 +1572,9 @@ const deckCss = `
     line-height: 1;
     margin-top: 2px;
   }
-  .rt-stmt-mini-u { font-size: 8px; color: var(--ink-4); margin-left: 1px; font-weight: 400; }
+  /* /<days> sits in line with the main number. Same font-size as parent
+     so baselines align; muted color carries the visual subordination. */
+  .rt-stmt-mini-u { color: var(--ink-4); margin-left: 1px; font-weight: 400; }
   .rt-stmt-mini-sub { font-size: 5.5px; color: var(--ink-3); margin-top: 1px; }
 
   /* Two-column: reservations + financials */
