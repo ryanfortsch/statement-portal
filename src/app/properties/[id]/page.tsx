@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
+import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomizeForm';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
@@ -1130,6 +1131,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               ))}
             </div>
           )}
+
+          {/* Per-cell free-form overrides for the home guide. Collapsed
+              by default; expanded state lets staff replace any cell's
+              auto-populated body with custom prose for properties that
+              need variability the structured fields can't express. */}
+          <HomeGuideCustomizeForm propertyId={p.id} overrides={p.home_guide_overrides} />
         </div>
       </CollapsibleSection>
 
