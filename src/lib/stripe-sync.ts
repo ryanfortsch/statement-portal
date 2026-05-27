@@ -398,6 +398,26 @@ export async function syncPropertyStripe(opts: {
         .from('data_gaps')
         .insert(newGaps.map(g => ({ property_statement_id: stmt.id, ...g })));
     }
+
+    // Auto-resolve missing_guest_gross gaps once the sync proves we have
+    // real Stripe data for every Manual/VRBO stay on the statement. The
+    // gap was raised at ingest when a reservation lacked TOTAL_PAID, so
+    // stripe_fee fell back to a 3.9%-on-net approximation. Once
+    // sync-stripe matches every Manual/VRBO reservation to its real Stripe
+    // charge (i.e. reservations_missing_charge is empty), the
+    // approximation has been replaced with balance_transaction.fee and
+    // the warning is stale -- exactly the phantom flag pattern we hit on
+    // 21 Horton's Karen Bandy (GY-VfmMf3z4): Guesty never populated
+    // total_paid for that direct booking, so the suggested CSV re-upload
+    // can't help, but the real Stripe fee is already on the reservation.
+    if (result.reservations_missing_charge.length === 0) {
+      await supabase
+        .from('data_gaps')
+        .update({ resolved: true })
+        .eq('property_statement_id', stmt.id)
+        .eq('gap_type', 'missing_guest_gross')
+        .eq('resolved', false);
+    }
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
   }
