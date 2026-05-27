@@ -375,7 +375,7 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '48px 1fr auto auto',
+          gridTemplateColumns: '48px 1fr auto 90px auto',
           gap: 20,
           alignItems: 'baseline',
           padding: '14px 0',
@@ -416,6 +416,18 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
           )}
         </div>
         <span
+          className="tabular-nums"
+          title={contact.created_at ? new Date(contact.created_at).toLocaleString('en-US') : ''}
+          style={{
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            whiteSpace: 'nowrap',
+            textAlign: 'right',
+          }}
+        >
+          {formatAdded(contact.created_at)}
+        </span>
+        <span
           style={{
             fontSize: 10,
             letterSpacing: '.18em',
@@ -453,6 +465,28 @@ function Stat({
       {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
     </div>
   );
+}
+
+/**
+ * "Added" column format. Compact and scannable.
+ *   today / yesterday / "3d ago" for the last week
+ *   "May 14"                 for current year
+ *   "May 14 '25"             for older years
+ * Hover shows the full timestamp via the title attribute.
+ */
+function formatAdded(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const now = new Date();
+  const ms = now.getTime() - d.getTime();
+  const days = Math.floor(ms / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return sameYear ? monthDay : `${monthDay} '${String(d.getFullYear()).slice(-2)}`;
 }
 
 function formatRelativeTime(iso: string): string {
