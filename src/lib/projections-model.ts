@@ -148,21 +148,43 @@ function airdnaThreeYearWindow(market: AirDnaMarket, br: number) {
 }
 
 // ─── Seasonality (% of annual total per month, 3-yr window) ────────────────
-function airdnaSeasonality(market: AirDnaMarket, br: number, lastFullYear: number): number[] {
+/**
+ * Seasonality shape for Cape Ann is driven by tourism patterns (summer
+ * peak, deep-shoulder winter, October leaf peeping) not unit size. We pool
+ * all bedroom counts across the 3-year window so the curve is computed
+ * from the largest possible sample and isn't whipsawed by sparse data at
+ * the high-BR end.
+ *
+ * Why this matters: raw Gloucester 5BR data is so thin (handful of
+ * properties, each with their own quirks) that one weird Feb 2025 listing
+ * can push the 3-year Feb avg above April. The monthly-net chart then
+ * shows Feb earning more than April, which is wrong about the market.
+ * Pooling 1BR–6+BR smooths that out.
+ *
+ * `br` is still accepted for compatibility but no longer affects the
+ * shape. The MAGNITUDE of monthly net is still BR-specific (driven by
+ * the BR-specific 3-year annual total elsewhere in the model).
+ */
+function airdnaSeasonality(market: AirDnaMarket, _br: number, lastFullYear: number): number[] {
   const months = Array(12).fill(0);
-  let counted = 0;
+  const monthCounts = Array(12).fill(0);
   for (let y = lastFullYear - 2; y <= lastFullYear; y++) {
     for (let m = 0; m < 12; m++) {
       const date = `${y}-${String(m + 1).padStart(2, '0')}`;
       const row = AIRDNA[market].find((r) => r.date === date);
       if (!row) continue;
-      months[m] += airdnaValue(row, br);
+      // Pool every BR field that has a value for this (year, month)
+      const brVals = [row.br1, row.br2, row.br3, row.br4, row.br5, row.br6plus]
+        .filter((v): v is number => v != null);
+      if (!brVals.length) continue;
+      const monthAvg = brVals.reduce((a, b) => a + b, 0) / brVals.length;
+      months[m] += monthAvg;
+      monthCounts[m] += 1;
     }
-    counted++;
   }
-  if (counted === 0) return Array(12).fill(1 / 12);
-  // Average each month across the years, then normalize to 1.0
-  const avgMonths = months.map((m) => m / counted);
+  // Average across the years that contributed for each month, then
+  // normalize so the 12 monthly weights sum to 1.0.
+  const avgMonths = months.map((s, m) => (monthCounts[m] > 0 ? s / monthCounts[m] : 0));
   const total = avgMonths.reduce((s, x) => s + x, 0);
   return total > 0 ? avgMonths.map((m) => m / total) : Array(12).fill(1 / 12);
 }
