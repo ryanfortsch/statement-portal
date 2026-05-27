@@ -189,6 +189,66 @@ function airdnaSeasonality(market: AirDnaMarket, _br: number, lastFullYear: numb
   return total > 0 ? avgMonths.map((m) => m / total) : Array(12).fill(1 / 12);
 }
 
+// ─── Premium-tier seasonality overlay ──────────────────────────────────────
+/**
+ * Cape Ann demand is bimodal by price tier. Mass-market vacation rentals
+ * follow the pooled AirDNA curve (broad shoulders, ~29% of revenue in
+ * Jul/Aug). But trophy properties — the ones renting for $15K+ a week —
+ * are renting to a different buyer who only wants peak summer. Those
+ * homes effectively don't book in Jan–Mar, and Jul/Aug compresses to
+ * ~50% of the year's revenue.
+ *
+ * We don't have enough premium-tier listings in AirDNA to derive this
+ * curve from data (the platform aggregates broadly), so it's a hand-
+ * calibrated shape based on Rising Tide's experience with trophy stock.
+ * Sums to 1.0; Jul + Aug = 0.50.
+ */
+const PREMIUM_SEASONALITY: number[] = [
+  0.015, // Jan
+  0.015, // Feb
+  0.020, // Mar
+  0.025, // Apr
+  0.040, // May
+  0.100, // Jun
+  0.250, // Jul
+  0.250, // Aug
+  0.110, // Sep
+  0.080, // Oct
+  0.040, // Nov
+  0.055, // Dec
+];
+
+/**
+ * Where the curve transitions from pooled (mass-market) to premium
+ * (trophy). Aligned with the tiered % rule's $2.5M+ break — that's the
+ * "trophy" tier where mgmt fee drops to 10%.
+ *
+ *   home_value ≤ $1.5M  → 100% pooled curve
+ *   $1.5M → $2.5M       → linear blend
+ *   home_value ≥ $2.5M  → 100% premium curve
+ */
+const PREMIUM_BLEND_LOW = 1_500_000;
+const PREMIUM_BLEND_HIGH = 2_500_000;
+
+function premiumBlendFactor(homeValue: number): number {
+  if (homeValue <= PREMIUM_BLEND_LOW) return 0;
+  if (homeValue >= PREMIUM_BLEND_HIGH) return 1;
+  return (homeValue - PREMIUM_BLEND_LOW) / (PREMIUM_BLEND_HIGH - PREMIUM_BLEND_LOW);
+}
+
+/**
+ * Blend the pooled AirDNA curve with the premium overlay based on
+ * home value. Returns a 12-month weight vector summing to 1.0.
+ */
+function blendedSeasonality(base: number[], homeValue: number): number[] {
+  const f = premiumBlendFactor(homeValue);
+  if (f === 0) return base;
+  const blended = base.map((w, m) => (1 - f) * w + f * PREMIUM_SEASONALITY[m]);
+  // Re-normalize defensively; both inputs already sum to ~1, but FP rounding.
+  const total = blended.reduce((s, x) => s + x, 0);
+  return total > 0 ? blended.map((m) => m / total) : base;
+}
+
 // ─── Cleaning expense (annual) ──────────────────────────────────────────────
 /**
  * Per-turnover cleaning fees stay in a $200–$325 range across Rising Tide's
@@ -251,7 +311,12 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
   // Method 2
   const { years: airdnaYears, avg: airdna3YrAvg } = airdnaThreeYearWindow(inputs.market, inputs.bedrooms);
   const lastFullYear = airdnaYears.length ? airdnaYears[airdnaYears.length - 1].year : 0;
-  const seasonality = lastFullYear ? airdnaSeasonality(inputs.market, inputs.bedrooms, lastFullYear) : Array(12).fill(1 / 12);
+  const baseSeasonality = lastFullYear
+    ? airdnaSeasonality(inputs.market, inputs.bedrooms, lastFullYear)
+    : Array(12).fill(1 / 12);
+  // Trophy properties ($2.5M+) book disproportionately in Jul/Aug. Blend
+  // the pooled curve toward a premium overlay based on home value.
+  const seasonality = blendedSeasonality(baseSeasonality, inputs.home_value);
 
   // Blended (or override)
   const blendedGrossRevenue = (tRevenue + airdna3YrAvg) / 2;
