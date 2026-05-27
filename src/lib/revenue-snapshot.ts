@@ -634,8 +634,32 @@ async function applyStatementsAndPacing(
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
         : 0;
     const historicalAvgPct = HISTORICAL_AVG_RECENT[seg.month] ?? 0;
-    const multiplier =
+    const rawMultiplier =
       pacingPct > 0 && historicalAvgPct > pacingPct ? historicalAvgPct / pacingPct : 1;
+
+    // When the segment is the *current* calendar month, the raw multiplier
+    // assumes the whole month is still bookable up to the historical
+    // benchmark. That's wrong late in the month: only the days remaining
+    // can absorb new bookings. Cap the multiplier by what last-minute
+    // supply can plausibly add (remaining_days × mgmt_props × historical
+    // fill rate). For future months we leave the raw multiplier alone —
+    // the whole month is ahead of us.
+    let multiplier = rawMultiplier;
+    const isCurrentMonthSeg = seg.monthKey === todayYM;
+    if (isCurrentMonthSeg && rawMultiplier > 1 && pacingPct > 0) {
+      const dayOfMonth = now.getDate();
+      const daysRemaining = Math.max(0, daysThisMonth - dayOfMonth);
+      const maxAdditionalNights =
+        daysRemaining * mgmtProps.length * (historicalAvgPct / 100);
+      const cappedExpectedNights = portfolioNightsBooked + maxAdditionalNights;
+      const cappedPct =
+        portfolioNightsPossible > 0
+          ? (cappedExpectedNights / portfolioNightsPossible) * 100
+          : 0;
+      const cappedMultiplier = cappedPct / pacingPct;
+      multiplier = Math.max(1, Math.min(rawMultiplier, cappedMultiplier));
+    }
+
     pacingByMonth.set(seg.monthKey, { pacingPct, historicalAvgPct, multiplier });
   }
 
