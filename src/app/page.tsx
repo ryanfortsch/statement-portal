@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
+import { MonthlyIngestCard } from '@/components/MonthlyIngestCard';
 import { Stat } from '@/components/Stat';
 import { computeDateRange } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
@@ -370,6 +371,11 @@ export default async function HelmHome() {
           />
         </div>
       </section>
+
+      {/* MONTHLY INGEST — one upload of the Guesty reservations spreadsheet
+          fans out to every property's statement for the chosen month. Replaces
+          the per-property monthly upload grind. */}
+      <MonthlyIngestCard />
 
       {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a
           tab. Promoted above the calendar so the personal triage sits right
