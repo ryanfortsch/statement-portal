@@ -67,8 +67,8 @@ export const LLC_ENTITIES: Record<string, LlcEntity> = {
     name: 'Goose of Calderwood LLC',
     short: 'Goose of Calderwood',
     kind: 'holding',
-    property_ids: ['65_calderwood', '11_rockholm'],
-    blurb: 'Holding entity — owns 65 Calderwood Lane (Fairfield CT) and 11 Rockholm.',
+    property_ids: ['65_calderwood'],
+    blurb: 'Holding entity — owns 65 Calderwood Lane (Fairfield CT). 11 Rockholm appears on the 2025 QB books (its own ~$52.7k mortgage interest) but is no longer owned by this entity, so it stays in the chart of accounts for historical categorization only.',
     sort: 2,
   },
 };
@@ -80,7 +80,10 @@ export const BOOKS_PROPERTY_LABELS: Record<string, string> = {
   '3246_ne_27th': '3246 NE 27th Terrace, Lighthouse Point FL',
   '3_locust': '3 Locust Lane, Gloucester MA',
   '65_calderwood': '65 Calderwood Lane, Fairfield CT',
-  '11_rockholm': '11 Rockholm (per QB books — confirm address with Ryan)',
+  // 11 Rockholm (Gloucester MA 01930) was on Goose of Calderwood's books
+  // through 2025 but is no longer owned. Kept here for historical labels
+  // if the 2025 ledger imports surface it; not in any active property_ids.
+  '11_rockholm': '11 Rockholm, Gloucester MA 01930',
 };
 
 // ── Bank + credit-card account inventory ─────────────────────────────────
