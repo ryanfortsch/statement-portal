@@ -208,6 +208,13 @@ type PropertyMonthBuckets = {
    * for revenue or any display metric.
    */
   calendarNightsByMonth: Map<string, number>;
+  /**
+   * Nights blocked by zero-payout reservations (owner stays, holds,
+   * cancelled-but-not-deleted rows). These represent inventory that's
+   * unavailable to guests, so they should be subtracted from the
+   * denominator of occupancy and pacing, not just ignored.
+   */
+  blockedNightsByMonth: Map<string, number>;
 };
 
 /**
@@ -397,6 +404,10 @@ export async function computeRevenueSnapshot(
     // nights in this month are booked"), so it stays calendar-based even
     // though the display metrics use checkout attribution.
     const calendarNightsByMonth = new Map<string, number>();
+    // Owner blocks / 0-payout reservations bucketed by month. Used to reduce
+    // the denominator of occupancy and pacing — those nights aren't unsold
+    // inventory, they're unavailable.
+    const blockedNightsByMonth = new Map<string, number>();
 
     for (const r of propReservations) {
       const checkIn = r.check_in!;
@@ -406,10 +417,28 @@ export async function computeRevenueSnapshot(
 
       const fullPayout = resolveGrossPayout(r, mgmtFeeFraction);
 
-      // Skip rows with no money — owner blocks, holds, or cancelled rows
-      // that linger in guesty_reservations. They shouldn't count toward
-      // any of stays/nights/occupancy/revenue.
-      if (fullPayout <= 0) continue;
+      // Zero-payout rows are owner blocks, holds, or cancelled rows that
+      // linger in guesty_reservations. They don't count toward
+      // stays/nights/revenue, but the nights they occupy are unavailable —
+      // bucket them per month so we can subtract from the denominator.
+      if (fullPayout <= 0) {
+        const blockedStart = checkIn > propStart ? checkIn : propStart;
+        const blockedEnd = checkOut < periodEndExclusive ? checkOut : periodEndExclusive;
+        let cursor = blockedStart;
+        while (cursor < blockedEnd) {
+          const cy = parseInt(cursor.slice(0, 4), 10);
+          const cm = parseInt(cursor.slice(5, 7), 10) - 1;
+          const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
+          const segEnd = monthEndExclusive < blockedEnd ? monthEndExclusive : blockedEnd;
+          const segNights = nightsBetween(cursor, segEnd);
+          if (segNights > 0) {
+            const k = monthKey(cy, cm);
+            blockedNightsByMonth.set(k, (blockedNightsByMonth.get(k) ?? 0) + segNights);
+          }
+          cursor = monthEndExclusive;
+        }
+        continue;
+      }
 
       // Pacing-only bookkeeping: walk the calendar months this stay
       // physically occupies, regardless of where the checkout falls.
@@ -460,13 +489,20 @@ export async function computeRevenueSnapshot(
       staysByMonth,
       cleaningByMonth,
       calendarNightsByMonth,
+      blockedNightsByMonth,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
     const ownerPayout = totalRevenue - cleaningCost - managementFee;
     const ADR = nightsSold > 0 && totalRevenue > 0 ? totalRevenue / nightsSold : null;
     const propTotalNights = nightsBetween(propStart, periodEndExclusive);
-    const occupancyPct = propTotalNights > 0 ? (nightsSold / propTotalNights) * 100 : null;
+    // Subtract owner-block nights so per-property occupancy reads against
+    // bookable inventory, not raw calendar days.
+    let propBlockedNights = 0;
+    for (const v of blockedNightsByMonth.values()) propBlockedNights += v;
+    const propBookableNights = Math.max(0, propTotalNights - propBlockedNights);
+    const occupancyPct =
+      propBookableNights > 0 ? (nightsSold / propBookableNights) * 100 : null;
 
     return {
       propertyId: prop.id,
@@ -541,6 +577,13 @@ export async function computeRevenueSnapshot(
       totalPossibleNights += nightsBetween(propStart, periodEndExclusive);
     }
   }
+  // Subtract owner-block nights so portfolio occupancy reads against
+  // bookable inventory.
+  let totalBlockedNights = 0;
+  for (const buckets of monthBucketsByProperty.values()) {
+    for (const v of buckets.blockedNightsByMonth.values()) totalBlockedNights += v;
+  }
+  totalPossibleNights = Math.max(0, totalPossibleNights - totalBlockedNights);
   const avgOccupancy = totalPossibleNights > 0 ? (totalNights / totalPossibleNights) * 100 : null;
 
   return {
@@ -648,15 +691,22 @@ async function applyStatementsAndPacing(
         (!p.activated_at || p.activated_at.slice(0, 10) <= `${seg.monthKey}-01`),
     );
     let portfolioNightsBooked = 0;
+    let portfolioBlockedNights = 0;
     const mgmtIds = new Set(mgmtProps.map((p) => p.id));
     for (const [propId, buckets] of monthBucketsByProperty.entries()) {
       if (!mgmtIds.has(propId)) continue;
       // Pacing % needs calendar (physical-occupancy) nights, not the
       // checkout-attributed nights the dashboard displays.
       portfolioNightsBooked += buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0;
+      portfolioBlockedNights += buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0;
     }
     const daysThisMonth = daysInMonth(seg.year, seg.month + 1);
-    const portfolioNightsPossible = daysThisMonth * mgmtProps.length;
+    // Subtract owner blocks from possible nights so pacing % reads against
+    // bookable inventory (not raw days × props).
+    const portfolioNightsPossible = Math.max(
+      0,
+      daysThisMonth * mgmtProps.length - portfolioBlockedNights,
+    );
     const pacingPct =
       portfolioNightsPossible > 0
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
@@ -776,10 +826,16 @@ async function applyStatementsAndPacing(
     const newPayout =
       newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) - repairsTaxDelta : null;
     const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
-    const newOccupancy =
-      totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null) > 0
-        ? (newNights / totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null)) * 100
-        : null;
+    const propBuckets = monthBucketsByProperty.get(s.propertyId);
+    let propBlocked = 0;
+    if (propBuckets) {
+      for (const v of propBuckets.blockedNightsByMonth.values()) propBlocked += v;
+    }
+    const occDenom = Math.max(
+      0,
+      totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null) - propBlocked,
+    );
+    const newOccupancy = occDenom > 0 ? (newNights / occDenom) * 100 : null;
 
     const source: SnapshotSource =
       // Multi-month with at least one Statement-overridden month: prefer the
