@@ -241,37 +241,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const propConfig = PROPERTIES[propertyId];
       if (!propConfig) continue;
 
-      // Per-reservation revenue math -- identical formula to /api/ingest, just
-      // sourced directly from the CSV's money columns instead of cross-referencing
-      // a separately-uploaded reservations cache.
+      // Per-reservation revenue math -- identical formula to /api/ingest.
+      //
+      // Important: the CSV's OWNER NET REVENUE (ACCOUNTING) column is
+      // post-management-fee (Guesty multiplies by 1 - fee_pct under the
+      // hood), so we DON'T use it as the per-stay rental_income. The PDF's
+      // "rental income" is the pre-mgmt-fee, channel-net amount, which we
+      // reconstruct from TOTAL_PAID - TAXES - effective_commission. The mgmt
+      // fee is then applied once at the property_statement level below.
       const processed = propRows.map(r => {
         const platform = normalizePlatform(r.platform_raw) || 'Unknown';
         const pu = platform.toUpperCase();
         const isStripeChannel = pu.includes('HOMEAWAY') || pu === 'VRBO' || pu === 'MANUAL';
         const totalPaid = r.total_paid ?? 0;
-        const isHomeownerStay = pu === 'MANUAL' && totalPaid === 0 && (r.owner_net ?? 0) === 0;
+        const totalTaxes = r.total_taxes ?? 0;
+        const rawCommission = r.commission ?? 0;
+        const { effective: effCommission } = stripLegacyCommissionKludge({
+          platform, totalPaid, totalTaxes, commission: rawCommission,
+        });
+        const preStripeRevenue = round2(totalPaid - totalTaxes - effCommission);
+        const isHomeownerStay = pu === 'MANUAL' && totalPaid === 0 && preStripeRevenue === 0;
 
         let stripeFee = 0;
-        let rentalIncome = r.owner_net ?? 0;
-        let adjustedRevenue = rentalIncome;
+        let rentalIncome = preStripeRevenue;
+        let adjustedRevenue = preStripeRevenue;
 
         if (isHomeownerStay) {
           rentalIncome = 0;
           adjustedRevenue = 0;
         } else if (isStripeChannel && totalPaid > 0) {
-          const totalTaxes = r.total_taxes ?? 0;
-          const rawCommission = r.commission ?? 0;
-          const { effective: effCommission } = stripLegacyCommissionKludge({
-            platform, totalPaid, totalTaxes, commission: rawCommission,
-          });
           stripeFee = calcStripeFee(totalPaid);
-          adjustedRevenue = round2(totalPaid - totalTaxes - effCommission - stripeFee);
-          rentalIncome = round2(r.owner_net ?? (totalPaid - totalTaxes - effCommission));
-        } else {
-          // Airbnb / Booking.com: owner_net already nets channel fees.
-          rentalIncome = round2(r.owner_net ?? (totalPaid - (r.total_taxes ?? 0) - (r.commission ?? 0)));
-          adjustedRevenue = rentalIncome;
+          adjustedRevenue = round2(preStripeRevenue - stripeFee);
         }
+        // Airbnb / Booking.com: channel processes payment + nets its commission,
+        // so adjustedRevenue == preStripeRevenue (no Stripe fee on our side).
 
         return {
           guest_name: r.guest_name,
