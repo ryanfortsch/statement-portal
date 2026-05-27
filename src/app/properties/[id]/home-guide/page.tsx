@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { HelmPropertyRow } from '@/lib/properties';
+import type { HelmPropertyRow, HomeGuideOverrides } from '@/lib/properties';
 import { civicForProperty } from '@/lib/civic';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,10 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
   const stayName = p.title || `Stay at ${p.name}`;
   const cityShort = (p.city || '').split(',')[0] || 'Cape Ann';
   const civic = civicForProperty(p);
+  // Per-cell free-form overrides. Any key with non-empty text replaces
+  // the auto-populated cell body. Missing / empty keys fall through to
+  // the structured default below.
+  const ov: HomeGuideOverrides = p.home_guide_overrides ?? {};
 
   return (
     <>
@@ -50,10 +54,14 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
             </p>
           </header>
 
-          {/* Six-cell grid of essential info */}
+          {/* Six-cell grid of essential info. Each cell body falls
+              through to the auto-populated default unless an override
+              is present in home_guide_overrides for that key. */}
           <div className="rt-grid">
             <Cell num="01" title="Wi-Fi">
-              {p.wifi_name || p.wifi_password ? (
+              {ov.wifi?.trim() ? (
+                <FreeFormProse text={ov.wifi} />
+              ) : p.wifi_name || p.wifi_password ? (
                 <>
                   {p.wifi_name && (
                     <p>
@@ -75,55 +83,85 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
             </Cell>
 
             <Cell num="02" title="Climate">
-              <p>
-                {p.heating || p.cooling ? (
-                  <>
-                    Heat: {humanize(p.heating) || 'central'}.{' '}
-                    Cool: {humanize(p.cooling) || 'central'}.
-                  </>
-                ) : (
-                  'Thermostats control each floor independently.'
-                )}
-              </p>
-              <p className="rt-aside">
-                All thermostats must be set to the same mode (heat / cool) to function correctly.
-              </p>
+              {ov.climate?.trim() ? (
+                <FreeFormProse text={ov.climate} />
+              ) : (
+                <>
+                  <p>
+                    {p.heating || p.cooling ? (
+                      <>
+                        Heat: {humanize(p.heating) || 'central'}.{' '}
+                        Cool: {humanize(p.cooling) || 'central'}.
+                      </>
+                    ) : (
+                      'Thermostats control each floor independently.'
+                    )}
+                  </p>
+                  <p className="rt-aside">
+                    All thermostats must be set to the same mode (heat / cool) to function correctly.
+                  </p>
+                </>
+              )}
             </Cell>
 
             <Cell num="03" title="Bathrooms">
-              <p>
-                Use the bathroom fan while showering — the button may not depress, but the fan
-                still runs and shuts off automatically.
-              </p>
-              <p className="rt-aside">
-                Please limit any flushed items to toilet paper.
-              </p>
+              {ov.bathrooms?.trim() ? (
+                <FreeFormProse text={ov.bathrooms} />
+              ) : (
+                <>
+                  <p>
+                    Use the bathroom fan while showering — the button may not depress, but the fan
+                    still runs and shuts off automatically.
+                  </p>
+                  <p className="rt-aside">
+                    Please limit any flushed items to toilet paper.
+                  </p>
+                </>
+              )}
             </Cell>
 
             <Cell num="04" title="Parking">
-              <p>{p.parking ? humanize(p.parking) : civic.parking}</p>
-              <p className="rt-aside">
-                Please keep shared driveway access clear.
-              </p>
+              {ov.parking?.trim() ? (
+                <FreeFormProse text={ov.parking} />
+              ) : (
+                <>
+                  <p>{p.parking ? humanize(p.parking) : civic.parking}</p>
+                  <p className="rt-aside">
+                    Please keep shared driveway access clear.
+                  </p>
+                </>
+              )}
             </Cell>
 
             <Cell num="05" title="Kitchen">
-              <p><strong>Coffee.</strong> Fill the water tank, insert a pod, choose your size, brew.</p>
-              <p><strong>Cooktop.</strong> Slide out the hood to operate the fan; use only the pans we&rsquo;ve provided on the burners.</p>
-              <p className="rt-aside">
-                Counter tops stain easily — please blot dark drinks and oils right away.
-              </p>
+              {ov.kitchen?.trim() ? (
+                <FreeFormProse text={ov.kitchen} />
+              ) : (
+                <>
+                  <p><strong>Coffee.</strong> Fill the water tank, insert a pod, choose your size, brew.</p>
+                  <p><strong>Cooktop.</strong> Slide out the hood to operate the fan; use only the pans we&rsquo;ve provided on the burners.</p>
+                  <p className="rt-aside">
+                    Counter tops stain easily — please blot dark drinks and oils right away.
+                  </p>
+                </>
+              )}
             </Cell>
 
             <Cell num="06" title="Trash & Recycling">
-              <p>
-                Indoor bins are in the kitchen. When full, empty into the outdoor bins behind
-                the home.
-                {civic.trashDay
-                  ? ` Pickup is on ${civic.trashDay}${civic.recyclingDay && civic.recyclingDay !== civic.trashDay ? ` (recycling on ${civic.recyclingDay})` : ''}.`
-                  : ' Pickup runs weekly.'}
-              </p>
-              <p className="rt-aside">No need to take bins to the curb on departure.</p>
+              {ov.trash?.trim() ? (
+                <FreeFormProse text={ov.trash} />
+              ) : (
+                <>
+                  <p>
+                    Indoor bins are in the kitchen. When full, empty into the outdoor bins behind
+                    the home.
+                    {civic.trashDay
+                      ? ` Pickup is on ${civic.trashDay}${civic.recyclingDay && civic.recyclingDay !== civic.trashDay ? ` (recycling on ${civic.recyclingDay})` : ''}.`
+                      : ' Pickup runs weekly.'}
+                  </p>
+                  <p className="rt-aside">No need to take bins to the curb on departure.</p>
+                </>
+              )}
             </Cell>
           </div>
 
@@ -146,6 +184,38 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
           </footer>
         </article>
       </div>
+    </>
+  );
+}
+
+/**
+ * Render a free-form text override as paragraphs. Blank lines split
+ * paragraphs. The LAST paragraph is styled as an aside (smaller,
+ * italic, dimmer) IF it starts with "Note:" or "Aside:" prefix; the
+ * operator can opt into that style by leading their final paragraph
+ * with one of those markers. Otherwise everything reads as body.
+ *
+ * This preserves visual consistency with the auto-populated cells
+ * (which have a body line + an italic aside underneath) without
+ * forcing every override to have one.
+ */
+function FreeFormProse({ text }: { text: string }) {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return (
+    <>
+      {paragraphs.map((para, i) => {
+        // [\s\S]* in place of the s-flag .* keeps this regex valid for
+        // pre-es2018 lib targets while still matching multi-line aside
+        // bodies inside one paragraph block.
+        const m = /^(note|aside)\s*:\s*([\s\S]*)$/i.exec(para);
+        if (m) {
+          return <p key={i} className="rt-aside">{m[2]}</p>;
+        }
+        return <p key={i}>{para}</p>;
+      })}
     </>
   );
 }

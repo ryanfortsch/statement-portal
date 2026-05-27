@@ -119,6 +119,39 @@ export async function updateProperty(id: string, formData: FormData) {
   redirect(`/properties/${id}`);
 }
 
+/**
+ * Save free-form per-cell overrides for the Stay Cape Ann home guide.
+ * Each cell (wifi/climate/bathrooms/parking/kitchen/trash) has an optional
+ * plain-text override that REPLACES the auto-populated default in the
+ * rendered guide. Empty / whitespace-only fields are stored as missing
+ * (so the auto-populated default kicks back in).
+ */
+export async function updateHomeGuideOverrides(id: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const keys = ['wifi', 'climate', 'bathrooms', 'parking', 'kitchen', 'trash'] as const;
+  const overrides: Record<string, string> = {};
+  for (const k of keys) {
+    const v = String(formData.get(`override_${k}`) ?? '').trim();
+    if (v) overrides[k] = v;
+  }
+
+  // Store `null` (not `{}`) when every cell is back to the default — keeps
+  // the column tidy and the renderer's `?? {}` fallback fires uniformly.
+  const payload = Object.keys(overrides).length > 0 ? overrides : null;
+
+  const { error } = await supabase
+    .from('properties')
+    .update({ home_guide_overrides: payload })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${id}`);
+  revalidatePath(`/properties/${id}/home-guide`);
+  redirect(`/properties/${id}#home-guide-customize`);
+}
+
 export type OwnerContactChannel = 'email' | 'phone' | 'sms' | 'in_person' | 'other';
 
 const VALID_CHANNELS: OwnerContactChannel[] = ['email', 'phone', 'sms', 'in_person', 'other'];

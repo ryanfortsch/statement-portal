@@ -144,6 +144,24 @@ export function getProperty(id: string): Property | undefined {
  * Row shape from Helm's `properties` table. Mirrors the SQL schema 1:1.
  * Used by /properties pages and the home dashboard.
  */
+/**
+ * Free-form per-cell overrides for the Stay Cape Ann "Welcome Home" guide
+ * (renderer at /properties/<id>/home-guide). Each value is plain text;
+ * blank lines split paragraphs at render time. An empty / missing key
+ * means "use the auto-populated default".
+ */
+export type HomeGuideOverrides = {
+  wifi?: string;
+  climate?: string;
+  bathrooms?: string;
+  parking?: string;
+  kitchen?: string;
+  trash?: string;
+};
+
+export const HOME_GUIDE_CELL_KEYS = ['wifi', 'climate', 'bathrooms', 'parking', 'kitchen', 'trash'] as const;
+export type HomeGuideCellKey = (typeof HOME_GUIDE_CELL_KEYS)[number];
+
 export type HelmPropertyRow = {
   id: string;
   perfection_id: string | null;
@@ -235,6 +253,12 @@ export type HelmPropertyRow = {
   smoke_detector_locations: string | null;
   fire_exit_locations: string | null;
   str_permit_expires: string | null;
+
+  // Per-cell free-form overrides for the Stay Cape Ann home guide.
+  // Each key (wifi/climate/bathrooms/parking/kitchen/trash) is optional;
+  // when present, the renderer drops the auto-populated cell body and
+  // prints the override prose. See 20260527_home_guide_overrides.sql.
+  home_guide_overrides: HomeGuideOverrides | null;
 
   // Funnel link: which prospect record promoted into this property
   projection_id: string | null;
