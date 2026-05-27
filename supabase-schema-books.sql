@@ -90,12 +90,19 @@ CREATE TABLE IF NOT EXISTS ledger_transactions (
   category_key   TEXT,
   ai_category_key TEXT,
   ai_confidence  TEXT,
+  ai_reasoning   TEXT,
   reviewed       BOOLEAN NOT NULL DEFAULT FALSE,
+  reviewed_at    TIMESTAMPTZ,
   source         TEXT,
   raw            JSONB,
   dedupe_hash    TEXT UNIQUE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Added 2026-05-27 for the Phase 1b-ii categorizer: store the AI's
+-- per-transaction explanation so the operator can hover/inspect why a
+-- category was suggested.
+ALTER TABLE ledger_transactions ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
+ALTER TABLE ledger_transactions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_ledger_entity_date ON ledger_transactions(entity_id, txn_date);
 CREATE INDEX IF NOT EXISTS idx_ledger_reviewed ON ledger_transactions(entity_id, reviewed);
 
