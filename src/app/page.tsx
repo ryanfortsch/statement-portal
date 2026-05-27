@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
 import { Stat } from '@/components/Stat';
 import { computeDateRange } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
@@ -371,12 +370,6 @@ export default async function HelmHome() {
           />
         </div>
       </section>
-
-      {/* RESERVATIONS CSV — one home-page upload of the Guesty reservations
-          spreadsheet. Caches the file (every property's upload page shows it
-          on file for the month) and freshens the per-stay reservations cache.
-          Doesn't touch property_statements -- /api/ingest stays the only path. */}
-      <PlatformCSVUploadCard />
 
       {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a
           tab. Promoted above the calendar so the personal triage sits right

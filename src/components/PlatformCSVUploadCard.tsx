@@ -15,9 +15,10 @@ import { useRouter } from 'next/navigation';
  * property_statements.
  */
 
-function defaultMonth(): string {
+function computeDefaultMonth(): string {
   // Most operators run last month's statements early in the new month, so
-  // default the picker to the previous calendar month.
+  // default the picker to the previous calendar month when the parent
+  // doesn't pass an explicit month.
   const d = new Date();
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() - 1);
@@ -32,9 +33,9 @@ type Result = {
   reservations_error: string | null;
 };
 
-export function PlatformCSVUploadCard() {
+export function PlatformCSVUploadCard({ defaultMonth }: { defaultMonth?: string } = {}) {
   const router = useRouter();
-  const [month, setMonth] = useState(defaultMonth());
+  const [month, setMonth] = useState(defaultMonth || computeDefaultMonth());
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);

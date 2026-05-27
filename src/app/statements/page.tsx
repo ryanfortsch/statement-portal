@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
+import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -2528,6 +2529,13 @@ function DashboardContent() {
           </div>
         </div>
       </section>
+
+      {/* ─── RESERVATIONS CSV UPLOAD ─── one upload, cached for every property
+           in the selected month. Caches the file to platform-csvs Storage
+           (so every property's /statements/upload page sees "ON FILE") and
+           refreshes the per-stay guesty_reservations cache. Does NOT modify
+           property_statements -- /api/ingest stays the only statement path. */}
+      <PlatformCSVUploadCard defaultMonth={selectedMonth || undefined} />
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>
