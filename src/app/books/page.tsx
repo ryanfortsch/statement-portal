@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -128,9 +129,12 @@ export default async function BooksPage() {
             const banks = accts.filter((a) => a.kind === 'bank');
             const cards = accts.filter((a) => a.kind === 'credit_card');
             return (
-              <div key={e.id} style={{
+              <Link key={e.id} href={`/books/${e.id}`} style={{
+                display: 'block',
                 padding: '20px 0',
                 borderBottom: '1px solid var(--rule)',
+                textDecoration: 'none',
+                color: 'inherit',
               }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'baseline' }}>
                   <div>
@@ -218,7 +222,7 @@ export default async function BooksPage() {
                     )}
                   </div>
                 )}
-              </div>
+              </Link>
             );
           })}
         </div>
