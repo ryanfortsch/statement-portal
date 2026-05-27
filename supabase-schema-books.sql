@@ -108,13 +108,16 @@ ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name, short = EXCLUDED.short, kind = EXCLUDED.kind, sort = EXCLUDED.sort;
 
 -- ── Seed property ownership (audited from QB exports 2026-05-27) ─────
--- 11 Rockholm is on Goose of Calderwood's books with its own mortgage
--- ($52.7k interest in 2025) -- pending address confirmation from Ryan.
+-- 11 Rockholm appeared on Goose of Calderwood's 2025 books (its own
+-- $52.7k mortgage interest) but is no longer owned by the entity per
+-- Dotti 2026-05-27, so it's intentionally NOT seeded as an active link.
+-- The mortgage_interest_11_rockholm category is still in the COA for
+-- historical 2025 categorization. Drop any stale link from earlier seeds.
+DELETE FROM llc_property_links WHERE entity_id = 'goose_calderwood' AND property_id = '11_rockholm';
 INSERT INTO llc_property_links (entity_id, property_id, property_label) VALUES
   ('goose_astoria',    '3246_ne_27th', '3246 NE 27th Terrace, Lighthouse Point FL'),
   ('goose_astoria',    '3_locust',     '3 Locust Lane, Gloucester MA'),
-  ('goose_calderwood', '65_calderwood','65 Calderwood Lane, Fairfield CT'),
-  ('goose_calderwood', '11_rockholm',  '11 Rockholm (per QB books — confirm address)')
+  ('goose_calderwood', '65_calderwood','65 Calderwood Lane, Fairfield CT')
 ON CONFLICT (entity_id, property_id) DO UPDATE SET property_label = EXCLUDED.property_label;
 
 -- ── Seed bank + credit-card accounts (audited from QB exports) ───────
