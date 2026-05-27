@@ -16,6 +16,7 @@ import type {
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
+import { geocodeAddress } from '@/lib/geocode';
 import {
   interpretContractRedlines,
   applyEditsToProjection,
@@ -552,6 +553,15 @@ export async function promoteToProperty(projectionId: string) {
 
   const ownerEmails = ob.email ? [ob.email] : [];
 
+  // Geocode the property address up-front so it lands on the
+  // /properties map the moment the promotion finishes — without this
+  // the new row has null lat/lng and the map silently skips its pin
+  // until someone backfills the coords manually. Best-effort: a
+  // Nominatim failure returns null and the property still gets
+  // created; can be backfilled later.
+  const fullAddr = [projRow.property_address, projRow.property_city].filter(Boolean).join(', ');
+  const coords = await geocodeAddress(fullAddr);
+
   const propertyPayload = {
     id: propertyId,
     name: String(projRow.property_address),
@@ -560,6 +570,8 @@ export async function promoteToProperty(projectionId: string) {
     type_of_unit: projRow.property_type || null,
     is_active: true,
     is_rising_tide_owned: false,
+    latitude: coords?.lat ?? null,
+    longitude: coords?.lng ?? null,
 
     owner_last: ownerLast,
     owner_full: ownerFull,

@@ -18,34 +18,13 @@
  * generic 10-minute positioning when drive_time_minutes is null.
  */
 
+import { geocodeAddress, type Coords } from '@/lib/geocode';
+
 const HQ_LAT = 42.6209;
 const HQ_LNG = -70.6450;
-const USER_AGENT = 'Helm-Projections/1.0 (https://helm.risingtidestr.com)';
 
-type Coords = { lat: number; lng: number };
-
-async function geocode(address: string): Promise<Coords | null> {
-  const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.searchParams.set('q', address);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('limit', '1');
-  url.searchParams.set('countrycodes', 'us');
-  try {
-    const r = await fetch(url, {
-      headers: { 'User-Agent': USER_AGENT },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!r.ok) return null;
-    const data = (await r.json()) as Array<{ lat: string; lon: string }>;
-    if (!data?.length) return null;
-    const lat = parseFloat(data[0].lat);
-    const lng = parseFloat(data[0].lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { lat, lng };
-  } catch {
-    return null;
-  }
-}
+const geocode = geocodeAddress;
+export type { Coords };
 
 async function osrmDriveMinutes(dest: Coords): Promise<number | null> {
   const url = `https://router.project-osrm.org/route/v1/driving/${HQ_LNG},${HQ_LAT};${dest.lng},${dest.lat}?overview=false`;
