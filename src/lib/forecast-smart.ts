@@ -388,6 +388,13 @@ export function computeSmartForecast(
     ? knownAnnuals.reduce((s, v) => s + v, 0) / knownAnnuals.length
     : 0;
 
+  // The current calendar month is special: most of it is already realized
+  // by the time the page renders. The pacing scale-up + Part B blend used
+  // for future months assumes there is still room to book — for days
+  // already past, there isn't. Use what's actually on the books instead.
+  const today = new Date();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
   // ── Pass 2 — blend Part A and Part B per property × month ───────────
   const propsForecast: SmartPropertyForecast[] = mgmtProps.map((p) => {
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
@@ -420,17 +427,29 @@ export function computeSmartForecast(
       const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
       const monthIdx = m - 1;
 
-      const a = partA.get(ym) ?? null;
-      const partB = annualGross * (revenueShare[monthIdx] ?? 0);
-      // 50/50 when the month has bookings; 100% Part B when it doesn't.
-      let projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
+      let projectedGross: number;
+      if (ym === currentMonthKey) {
+        // Current month — use booked-so-far directly. Late-booking
+        // upside for the days remaining is small and unpredictable; we
+        // do not scale up by pacing (which would assume future booking
+        // capacity that doesn't exist for days already past) and we do
+        // not layer Part B (which would double-count what's already on
+        // the books). cell.revenue already excludes pre-activation
+        // nights for mid-month activations, so no activation pro-rate.
+        projectedGross = cell.revenue;
+      } else {
+        const a = partA.get(ym) ?? null;
+        const partB = annualGross * (revenueShare[monthIdx] ?? 0);
+        // 50/50 when the month has bookings; 100% Part B when it doesn't.
+        projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
 
-      // Activation month: a mid-month activation only earns from the
-      // activation day onward, so pro-rate by the days remaining.
-      if (activated && activatedYM != null && ym === activatedYM) {
-        const dim = daysInMonth(y, m);
-        const factor = Math.max(0, (dim - activated.getDate() + 1) / dim);
-        projectedGross *= factor;
+        // Activation month: a mid-month activation only earns from the
+        // activation day onward, so pro-rate by the days remaining.
+        if (activated && activatedYM != null && ym === activatedYM) {
+          const dim = daysInMonth(y, m);
+          const factor = Math.max(0, (dim - activated.getDate() + 1) / dim);
+          projectedGross *= factor;
+        }
       }
 
       return {
