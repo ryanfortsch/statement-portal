@@ -449,13 +449,18 @@ export async function loadOperationsData(
 
     const isSameDayTurnover = previousCheckout === checkInDate;
 
-    // Match an inspection: same property, started_at between
-    //   (previousCheckout - 1 day) and checkInDate (inclusive).
-    // If there's no previous checkout, allow inspections from the day before
-    // check-in onward so an old, unrelated inspection doesn't get mis-attached.
-    const prepStart = previousCheckout
-      ? addDaysStr(previousCheckout, -1)
-      : addDaysStr(checkInDate, -1);
+    // Match an inspection: same property, started_at inside the prep
+    // window for THIS turnover. The window starts at the LATER of:
+    //   - one day before the previous guest checked out, OR
+    //   - PREP_WINDOW_DAYS before this check-in.
+    // Capping at PREP_WINDOW_DAYS before check-in prevents an orphan walk
+    // done long ago (e.g. prep for a guest who later cancelled, leaving a
+    // 10+ day gap) from drifting onto the next confirmed turnover. With no
+    // previous checkout we fall back to the same N-day cap.
+    const PREP_WINDOW_DAYS = 3;
+    const tightStart = addDaysStr(checkInDate, -PREP_WINDOW_DAYS);
+    const looseStart = previousCheckout ? addDaysStr(previousCheckout, -1) : null;
+    const prepStart = looseStart && looseStart > tightStart ? looseStart : tightStart;
 
     const matchingInspection =
       inspections.find((i) => {
