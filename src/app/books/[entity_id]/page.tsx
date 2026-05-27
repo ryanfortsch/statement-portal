@@ -7,11 +7,13 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import {
   LLC_ENTITIES,
+  CHART_OF_ACCOUNTS,
   BOOKS_PROPERTY_LABELS,
   accountsListForEntity,
   currentQuarter,
 } from '@/lib/books';
 import { UploadCsv } from './UploadCsv';
+import { BooksReviewSection } from './BooksReviewSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +50,7 @@ type TxnRow = {
   category_key: string | null;
   ai_category_key: string | null;
   ai_confidence: string | null;
+  ai_reasoning: string | null;
   reviewed: boolean;
   source: string | null;
 };
@@ -71,12 +74,13 @@ async function loadAccountsForEntity(entityId: string): Promise<{ accounts: Acco
   }
 }
 
-async function loadRecentTransactions(entityId: string, limit = 60): Promise<TxnRow[]> {
+async function loadRecentTransactions(entityId: string, limit = 100): Promise<TxnRow[]> {
   try {
     const { data } = await supabase
       .from('ledger_transactions')
-      .select('id, account_id, txn_date, description, amount, category_key, ai_category_key, ai_confidence, reviewed, source')
+      .select('id, account_id, txn_date, description, amount, category_key, ai_category_key, ai_confidence, ai_reasoning, reviewed, source')
       .eq('entity_id', entityId)
+      .order('reviewed', { ascending: true })       // unreviewed first
       .order('txn_date', { ascending: false })
       .limit(limit);
     return (data || []) as TxnRow[];
@@ -85,28 +89,30 @@ async function loadRecentTransactions(entityId: string, limit = 60): Promise<Txn
   }
 }
 
-async function loadEntitySummary(entityId: string): Promise<{ total: number; unreviewed: number; uncategorized: number; date_range: { min: string; max: string } | null }> {
+async function loadEntitySummary(entityId: string): Promise<{
+  total: number;
+  unreviewed: number;
+  uncategorized: number;
+  pending_high_confidence: number;
+  date_range: { min: string; max: string } | null;
+}> {
   const { data } = await supabase
     .from('ledger_transactions')
-    .select('reviewed, category_key, txn_date')
+    .select('reviewed, category_key, ai_category_key, ai_confidence, txn_date')
     .eq('entity_id', entityId);
-  const rows = (data || []) as { reviewed: boolean; category_key: string | null; txn_date: string }[];
+  const rows = (data || []) as { reviewed: boolean; category_key: string | null; ai_category_key: string | null; ai_confidence: string | null; txn_date: string }[];
   const total = rows.length;
   const unreviewed = rows.filter((r) => !r.reviewed).length;
-  const uncategorized = rows.filter((r) => !r.category_key).length;
+  const uncategorized = rows.filter((r) => !r.ai_category_key && !r.category_key).length;
+  const pendingHighConfidence = rows.filter((r) => !r.reviewed && !r.category_key && r.ai_confidence === 'high' && !!r.ai_category_key).length;
   const dates = rows.map((r) => r.txn_date).sort();
   return {
     total,
     unreviewed,
     uncategorized,
+    pending_high_confidence: pendingHighConfidence,
     date_range: dates.length > 0 ? { min: dates[0], max: dates[dates.length - 1] } : null,
   };
-}
-
-function fmtAmount(n: number): string {
-  const abs = Math.abs(n);
-  const s = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return n < 0 ? `−$${s}` : `$${s}`;
 }
 
 function fmtDate(iso: string): string {
@@ -140,8 +146,28 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
       }));
 
   const txns = tableReady ? await loadRecentTransactions(entity_id) : [];
-  const summary = tableReady ? await loadEntitySummary(entity_id) : { total: 0, unreviewed: 0, uncategorized: 0, date_range: null };
+  const summary = tableReady
+    ? await loadEntitySummary(entity_id)
+    : { total: 0, unreviewed: 0, uncategorized: 0, pending_high_confidence: 0, date_range: null };
   const quarter = currentQuarter();
+
+  // Account lookup map for the review table's bank-column rendering.
+  const accountInfoMap: Record<string, { last4: string | null; label: string | null }> = {};
+  for (const a of accounts) {
+    accountInfoMap[a.id] = { last4: a.last4, label: a.label };
+  }
+
+  // Chart-of-accounts options for this entity (server-built so the
+  // client component doesn't need to import the full COA list).
+  const coaOptions = CHART_OF_ACCOUNTS
+    .filter((a) => a.scope === 'shared' || a.scope === entity_id)
+    .map((a) => ({
+      key: a.key,
+      name: a.name,
+      type: a.type,
+      parent_key: a.parent_key ?? null,
+      pass_through: !!a.pass_through,
+    }));
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -213,57 +239,20 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
         </div>
       </section>
 
-      {/* ── RECENT TRANSACTIONS ── */}
+      {/* ── REVIEW TABLE + ACTION BAR ── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 40, flex: 1 }}>
-        <div className="eyebrow" style={{ marginBottom: 10 }}>Recent transactions</div>
-        {txns.length === 0 ? (
-          <div style={{
-            padding: 16, background: 'var(--paper-2)',
-            fontSize: 12, color: 'var(--ink-4)',
-            textAlign: 'center',
-            border: '1px dashed var(--rule)',
-          }}>
-            No transactions yet. Upload a Chase CSV above to get started.
-          </div>
-        ) : (
-          <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Date</th>
-                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Description</th>
-                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Account</th>
-                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Amount</th>
-                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
-              </tr>
-            </thead>
-            <tbody>
-              {txns.map((t) => {
-                const acct = accounts.find((a) => a.id === t.account_id);
-                const acctLabel = acct ? `⋯${acct.last4}` : '—';
-                const catLabel = t.category_key || t.ai_category_key || '—';
-                return (
-                  <tr key={t.id} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
-                    <td style={{ padding: '6px 6px', whiteSpace: 'nowrap', color: 'var(--ink-3)' }}>{fmtDate(t.txn_date)}</td>
-                    <td style={{ padding: '6px 6px', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 480 }}>{t.description}</td>
-                    <td style={{ padding: '6px 6px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>{acctLabel}</td>
-                    <td style={{ padding: '6px 6px', textAlign: 'right', color: t.amount < 0 ? 'var(--negative)' : 'var(--positive)' }}>{fmtAmount(t.amount)}</td>
-                    <td style={{ padding: '6px 6px', fontSize: 11, color: t.category_key ? 'var(--ink-2)' : t.ai_category_key ? 'var(--ink-3)' : 'var(--ink-4)' }}>
-                      {catLabel}
-                      {!t.category_key && t.ai_category_key && (
-                        <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-                          (ai · {t.ai_confidence || '?'})
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-        {txns.length === 60 && (
-          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, fontStyle: 'italic' }}>
-            Showing the 60 most recent. Phase 1b-ii adds pagination + the review editor.
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Categorize &amp; review</div>
+        <BooksReviewSection
+          entityId={entity_id}
+          initialTransactions={txns}
+          accounts={accountInfoMap}
+          coaOptions={coaOptions}
+          pendingUncategorized={summary.uncategorized}
+          pendingHighConfidence={summary.pending_high_confidence}
+        />
+        {txns.length >= 100 && (
+          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 10, fontStyle: 'italic' }}>
+            Showing the 100 most recent (unreviewed first). Categorize cycles through everything; the table refreshes between batches.
           </div>
         )}
       </section>
