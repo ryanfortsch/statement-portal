@@ -342,6 +342,28 @@ export async function computeRevenueSnapshot(
     resByProperty.set(r.property_id, arr);
   }
 
+  // 4b. Calendar-driven blocks (seasonal closures, manual date blocks in
+  //     Guesty). Bucketed by property + YYYY-MM so the per-property loop
+  //     can seed blockedNightsByMonth with them alongside owner-stay
+  //     reservations. Synced into property_calendar_blocks by
+  //     /api/sync-guesty.
+  const { data: blockData } = await supabase
+    .from('property_calendar_blocks')
+    .select('property_id, date')
+    .gte('date', rangeStart)
+    .lte('date', rangeEnd);
+  const calendarBlocksByProperty = new Map<string, Map<string, number>>();
+  for (const row of (blockData ?? []) as { property_id: string | null; date: string | null }[]) {
+    if (!row.property_id || !row.date) continue;
+    const mKey = row.date.slice(0, 7); // YYYY-MM
+    let m = calendarBlocksByProperty.get(row.property_id);
+    if (!m) {
+      m = new Map();
+      calendarBlocksByProperty.set(row.property_id, m);
+    }
+    m.set(mKey, (m.get(mKey) ?? 0) + 1);
+  }
+
   // 5. Per-property pro-rated math. Each property also accumulates per-month
   //    buckets (revenue/nights/stays/cleaning) so the post-pass layer can
   //    override closed months with Statement values and apply per-month
@@ -404,10 +426,20 @@ export async function computeRevenueSnapshot(
     // nights in this month are booked"), so it stays calendar-based even
     // though the display metrics use checkout attribution.
     const calendarNightsByMonth = new Map<string, number>();
-    // Owner blocks / 0-payout reservations bucketed by month. Used to reduce
-    // the denominator of occupancy and pacing — those nights aren't unsold
-    // inventory, they're unavailable.
+    // Unavailable nights bucketed by month. Sources:
+    //   (1) Calendar-driven blocks (Guesty calendar status='blocked'):
+    //       seasonal closures, manual date blocks. Seeded here.
+    //   (2) Zero-payout reservations (owner stays, holds): added below
+    //       inside the reservation loop.
+    // Used to reduce the denominator of occupancy and pacing — these
+    // nights aren't unsold inventory, they're unavailable.
     const blockedNightsByMonth = new Map<string, number>();
+    const calBlocks = calendarBlocksByProperty.get(prop.id);
+    if (calBlocks) {
+      for (const [mKey, count] of calBlocks.entries()) {
+        blockedNightsByMonth.set(mKey, (blockedNightsByMonth.get(mKey) ?? 0) + count);
+      }
+    }
 
     for (const r of propReservations) {
       const checkIn = r.check_in!;
