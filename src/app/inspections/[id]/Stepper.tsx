@@ -16,6 +16,7 @@ import type {
 } from '@/lib/inspections-types';
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
+import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 
 /**
  * One deck card. For zone-mapped properties the same template item can
@@ -106,6 +107,19 @@ export function Stepper({
   // Modal state
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showWorkSlipModal, setShowWorkSlipModal] = useState(false);
+
+  // Supplies Check (shown on the review screen). Each toggle defaults to
+  // OK; flipping it ON marks that supply as low, which becomes a restock
+  // work slip on Complete Inspection. State holds the keys currently low.
+  const [suppliesLow, setSuppliesLow] = useState<Set<string>>(() => new Set());
+  function toggleSupply(key: string) {
+    setSuppliesLow((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const total = cards.length;
   const markedCount = results.size;
@@ -234,7 +248,7 @@ export function Stepper({
     setError(null);
     setIsCompleting(true);
     try {
-      await completeInspection(inspectionId);
+      await completeInspection(inspectionId, { suppliesLow: Array.from(suppliesLow) });
       router.push(`/inspections/${inspectionId}/summary`);
     } catch (e) {
       setIsCompleting(false);
@@ -315,6 +329,10 @@ export function Stepper({
               );
             })}
           </div>
+
+          {/* SUPPLIES CHECK — defaults to all OK; flipped toggles become
+              one Rising Tide restock work slip per supply on Complete. */}
+          <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} />
 
           {error && <ErrorBlock error={error} />}
         </section>
@@ -751,6 +769,120 @@ function primaryBtn(): React.CSSProperties {
     minHeight: 48,
     flex: 1,
   };
+}
+
+function SuppliesCheck({
+  low,
+  onToggle,
+}: {
+  low: Set<string>;
+  onToggle: (key: string) => void;
+}) {
+  const lowCount = low.size;
+  return (
+    <div style={{ marginTop: 40 }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+        <h2
+          className="font-serif"
+          style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}
+        >
+          Supplies Check
+        </h2>
+        <span
+          className="eyebrow"
+          style={{ color: lowCount > 0 ? 'var(--signal)' : 'var(--ink-4)' }}
+        >
+          {lowCount === 0 ? 'all stocked' : `${lowCount} low — restock slip${lowCount === 1 ? '' : 's'} on complete`}
+        </span>
+      </div>
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)' }}>
+        Mark anything we&rsquo;re low on so we can restock. Each flagged item creates a work slip on this property.
+      </p>
+      <div style={{ borderTop: '1px solid var(--ink)' }}>
+        {INSPECTION_SUPPLIES.map((s) => {
+          const isLow = low.has(s.key);
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onToggle(s.key)}
+              aria-pressed={isLow}
+              style={{
+                width: '100%',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '14px 0',
+                borderBottom: '1px solid var(--rule)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
+                {s.label}
+              </span>
+              <SupplyToggle isLow={isLow} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SupplyToggle({ isLow }: { isLow: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 10,
+        userSelect: 'none',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          color: isLow ? 'var(--signal)' : 'var(--ink-4)',
+          minWidth: 26,
+          textAlign: 'right',
+        }}
+      >
+        {isLow ? 'Low' : 'OK'}
+      </span>
+      <span
+        style={{
+          position: 'relative',
+          width: 38,
+          height: 22,
+          borderRadius: 11,
+          background: isLow ? 'var(--signal)' : 'var(--rule)',
+          transition: 'background 120ms',
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute',
+            top: 2,
+            left: isLow ? 18 : 2,
+            width: 18,
+            height: 18,
+            borderRadius: 9,
+            background: 'var(--paper)',
+            transition: 'left 120ms',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+          }}
+        />
+      </span>
+    </span>
+  );
 }
 
 function StatusBadge({ status }: { status: InspectionStatus | null }) {
