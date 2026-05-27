@@ -7,6 +7,7 @@ import type {
   PropertyZoneRow,
 } from '@/lib/inspections-types';
 import { PrintButton } from './PrintButton';
+import { suppliesLabel } from '@/lib/inspection-supplies';
 
 export const dynamic = 'force-dynamic';
 
@@ -393,6 +394,56 @@ export default async function InspectionRenderPage({
               ))}
             </PrintSection>
           )}
+
+          {/* SUPPLIES — always print so the report shows the outcome of
+              the Supplies Check (all stocked, or which items went low). */}
+          <PrintSection
+            title="Supplies"
+            eyebrow={
+              (inspection.supplies_low ?? []).length === 0
+                ? 'all stocked'
+                : `${inspection.supplies_low.length} low`
+            }
+          >
+            {(inspection.supplies_low ?? []).length === 0 ? (
+              <div className="ins-pdf-section" style={{ padding: '12px 0', fontSize: 12, color: 'var(--ink-3)' }}>
+                All supplies marked OK. No restocks needed.
+              </div>
+            ) : (
+              inspection.supplies_low.map((key) => (
+                <div
+                  key={key}
+                  className="ins-pdf-section"
+                  style={{
+                    padding: '10px 0',
+                    borderBottom: '1px solid var(--rule)',
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 14,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 9,
+                      letterSpacing: '.18em',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                      color: 'var(--signal)',
+                      minWidth: 34,
+                    }}
+                  >
+                    Low
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    {suppliesLabel(key)}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--ink-4)', marginLeft: 'auto' }}>
+                    Restock slip
+                  </span>
+                </div>
+              ))
+            )}
+          </PrintSection>
 
           {/* WORK SLIPS */}
           {workSlips.length > 0 && (

@@ -17,6 +17,11 @@ export type InspectionRow = {
   na_count: number;
   ordered_item_ids: string[] | null;
   ordered_cards: OrderedCard[] | null;
+  /** Keys (from src/lib/inspection-supplies.ts) that the inspector flipped
+   *  to "Low" on the Supplies Check at the end of the walk. Empty array =
+   *  all supplies stocked. Each entry already produced a Rising Tide
+   *  restock work slip on this property at completion. */
+  supplies_low: string[];
   // Google Drive archive link for the completed inspection report PDF.
   // Stamped by /api/archive-inspection after the inspection completes.
   drive_url: string | null;

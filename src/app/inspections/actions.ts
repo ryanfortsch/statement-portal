@@ -13,6 +13,7 @@ import {
 } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
+import { suppliesLabel } from '@/lib/inspection-supplies';
 
 export async function startInspection(formData: FormData) {
   const session = await auth();
@@ -96,9 +97,22 @@ export async function saveResult(args: {
  * per-property history, bumps or resets the spacing counter, and
  * redirects to the summary page.
  */
-export async function completeInspection(inspectionId: string) {
+export async function completeInspection(
+  inspectionId: string,
+  opts: { suppliesLow?: string[] } = {},
+) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
+  // Pin to a local so TS keeps the narrowing past the async fanouts below.
+  const sessionEmail: string = session.user.email;
+
+  // Stepper sends the list of supply keys the inspector flipped to LOW
+  // on the review screen. Empty array (or omitted for back-compat) means
+  // every supply is OK. We persist this verbatim on the inspections row
+  // and create one Rising Tide restock work_slip per low supply below.
+  const suppliesLow = Array.from(
+    new Set((opts.suppliesLow ?? []).map((k) => k.trim()).filter((k) => k.length > 0)),
+  );
 
   const [{ data: results }, { data: insp }] = await Promise.all([
     supabase
@@ -172,10 +186,35 @@ export async function completeInspection(inspectionId: string) {
       pass_count: passCount,
       issue_count: issueCount,
       na_count: naCount,
+      supplies_low: suppliesLow,
     })
     .eq('id', inspectionId);
 
   if (updateError) throw new Error(updateError.message);
+
+  // Fan out one Rising Tide restock work slip per low supply, attributed
+  // to the property + this inspection so it threads back from the slip's
+  // Source section. Done after the inspection row is finalized so a slip
+  // never exists for an incomplete inspection. Errors per slip are
+  // logged-and-swallowed so a single failure doesn't block completion.
+  if (suppliesLow.length > 0 && insp) {
+    const propertyId = (insp as { property_id: string }).property_id;
+    const rows = suppliesLow.map((key) => ({
+      property_id: propertyId,
+      inspection_id: inspectionId,
+      inspection_item_id: null,
+      title: `Restock: ${suppliesLabel(key)}`,
+      description: `Marked low on the Supplies Check at the end of this inspection.`,
+      location: null,
+      category: 'rising_tide' as const,
+      priority: 'normal' as const,
+      status: 'open' as const,
+      created_by_email: sessionEmail,
+      photo_urls: [],
+    }));
+    const { error: slipErr } = await supabase.from('work_slips').insert(rows);
+    if (slipErr) console.warn('[completeInspection] restock slip insert failed', slipErr);
+  }
 
   // Fan the finalized report out to Allie + Ryan. Errors are swallowed inside
   // the helper so a Resend hiccup never blocks the inspector from finishing.

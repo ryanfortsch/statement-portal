@@ -7,6 +7,7 @@ import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { ArchiveTrigger } from './ArchiveTrigger';
 import { supabase } from '@/lib/supabase';
+import { suppliesLabel } from '@/lib/inspection-supplies';
 import type {
   InspectionRow,
   InspectionItemRow,
@@ -255,6 +256,59 @@ export default async function InspectionSummaryPage({
           {issues.map((row) => (
             <IssueRow key={row.result.id} row={row} />
           ))}
+        </div>
+      </Section>
+
+      {/* SUPPLIES CHECK — each "low" item already became a Rising Tide
+          restock work slip on completion (visible in the section below). */}
+      <Section
+        title="Supplies"
+        eyebrow={
+          (inspection.supplies_low ?? []).length === 0
+            ? 'all stocked'
+            : `${inspection.supplies_low.length} low`
+        }
+        empty={false}
+        emptyMessage=""
+      >
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {(inspection.supplies_low ?? []).length === 0 ? (
+            <div style={{ padding: '18px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+              All supplies marked OK. No restocks needed.
+            </div>
+          ) : (
+            inspection.supplies_low.map((key) => (
+              <div
+                key={key}
+                style={{
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 14,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    fontWeight: 600,
+                    color: 'var(--signal)',
+                    minWidth: 38,
+                  }}
+                >
+                  Low
+                </span>
+                <span style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
+                  {suppliesLabel(key)}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 'auto' }}>
+                  Restock slip created
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </Section>
 
