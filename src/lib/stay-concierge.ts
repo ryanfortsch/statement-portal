@@ -28,6 +28,9 @@ export type Approval = {
   status: string;
   created_at: string;
   resolved_at: string | null;
+  /** When the guest actually sent the message (from messages_log.created_at).
+   * Distinct from created_at, which is when the AI drafted/regenerated. */
+  guest_received_at: string | null;
   age_minutes: number | null;
   module: string;
 };

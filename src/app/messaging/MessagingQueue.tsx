@@ -5,7 +5,13 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
 import { approveDraft, rejectDraft, coachDraft, markHandled } from './actions';
-import { prettifySlug, prettifyTopic, guestFirstFromDraft, ageToneColor } from './format';
+import {
+  prettifySlug,
+  prettifyTopic,
+  guestFirstFromDraft,
+  ageToneColor,
+  relativeTimeShort,
+} from './format';
 
 type Props = {
   initialPending: Approval[];
@@ -219,7 +225,12 @@ function ApprovalCard({
             {topicLabel}
           </span>
         </div>
-        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+        <span
+          className="eyebrow"
+          style={{ color: 'var(--ink-4)' }}
+          title={approval.created_at}
+        >
+          {'drafted '}
           <span
             style={{
               color: ageToneColor(approval.age_minutes),
@@ -237,7 +248,11 @@ function ApprovalCard({
         className="rt-msg-grid"
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}
       >
-        <FieldBlock label="Guest said">
+        <FieldBlock
+          label="Guest said"
+          subLabel={guestReceivedSubLabel(approval.guest_received_at, approval.created_at)}
+          subLabelTitle={approval.guest_received_at || approval.created_at || undefined}
+        >
           <BodyText>{approval.guest_text || '(empty)'}</BodyText>
         </FieldBlock>
         <FieldBlock label="Proposed reply">
@@ -371,15 +386,73 @@ function ApprovalCard({
   );
 }
 
-function FieldBlock({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldBlock({
+  label,
+  subLabel,
+  subLabelTitle,
+  children,
+}: {
+  label: string;
+  subLabel?: string;
+  subLabelTitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--ink-4)' }}>
-        {label}
+      <div
+        className="eyebrow"
+        style={{
+          marginBottom: 6,
+          color: 'var(--ink-4)',
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span>{label}</span>
+        {subLabel && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 400,
+              letterSpacing: '0.10em',
+              color: 'var(--ink-3)',
+              textTransform: 'none',
+            }}
+            title={subLabelTitle}
+          >
+            {subLabel}
+          </span>
+        )}
       </div>
       {children}
     </div>
   );
+}
+
+/** Human-readable "sent X ago" for the GUEST SAID block. Returns '' when
+ * the message arrival time isn't distinguishable from the draft time (avoid
+ * redundant labels on first-draft cards where guest_sent == drafted). */
+function guestReceivedSubLabel(
+  guestReceivedAt: string | null,
+  draftedAt: string,
+): string {
+  if (!guestReceivedAt) return '';
+  // If the guest send and the draft are within ~90 seconds (the AI usually
+  // drafts within seconds of the webhook), the timestamp adds noise. Skip
+  // it. The top-right "drafted X ago" already covers that case.
+  try {
+    const gd = new Date(guestReceivedAt).getTime();
+    const dd = draftedAt ? new Date(draftedAt).getTime() : gd;
+    if (!Number.isNaN(gd) && !Number.isNaN(dd) && Math.abs(dd - gd) < 90_000) {
+      return '';
+    }
+  } catch {
+    // fall through
+  }
+  const rel = relativeTimeShort(guestReceivedAt);
+  return rel ? `sent ${rel}` : '';
 }
 
 function BodyText({ children, emphasis = false }: { children: React.ReactNode; emphasis?: boolean }) {
