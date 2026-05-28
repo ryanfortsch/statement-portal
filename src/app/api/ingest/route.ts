@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { getActivePropertyForStatements } from '@/lib/properties';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -14,18 +15,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Property config (internal naming convention: address without suffix)
-const PROPERTIES: Record<string, { name: string; owner: string; fee_pct: number; bank_last4: string }> = {
-  '3_south_st': { name: '3 South', owner: 'Bailey', fee_pct: 25, bank_last4: '5622' },
-  '21_horton': { name: '21 Horton', owner: 'Kittredge', fee_pct: 22, bank_last4: '1323' },
-  '53_rocky_neck': { name: '53 Rocky Neck', owner: 'Prudenzi', fee_pct: 25, bank_last4: '9910' },
-  '4_brier_neck': { name: '4 Brier Neck', owner: 'Armstrong', fee_pct: 20, bank_last4: '7876' },
-  '30_woodward': { name: '30 Woodward', owner: 'McWethy', fee_pct: 25, bank_last4: '8221' },
-  '20_hammond': { name: '20 Hammond', owner: 'Ramsey', fee_pct: 25, bank_last4: '9969' },
-  '20_enon': { name: '20 Enon', owner: 'Snyder', fee_pct: 25, bank_last4: '1307' },
-  '73_rocky_neck': { name: '73 Rocky Neck', owner: 'Moynahan', fee_pct: 25, bank_last4: '3227' },
-  '17_beach_rd': { name: '17 Beach', owner: 'Nolan', fee_pct: 22, bank_last4: '5621' },
-};
+// Property config is now sourced from public.properties at the start of
+// each POST (see getActivePropertyForStatements). Promoting a prospect
+// in Helm is sufficient to make the new property eligible for monthly
+// statement ingest — no code edit + redeploy required.
 
 // Parse Guesty Owner Statement PDF text into reservations
 // pdf-parse v1 concatenates fields without spaces, e.g.:
@@ -300,10 +293,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'month and property_id are required' }, { status: 400 });
     }
 
-    const propConfig = PROPERTIES[propertyId];
-    if (!propConfig) {
+    const propRow = await getActivePropertyForStatements(propertyId);
+    if (!propRow) {
       return NextResponse.json({ error: 'Unknown property: ' + propertyId }, { status: 400 });
     }
+    // Shape kept identical to the prior local PROPERTIES const so the
+    // downstream parsers don't notice the source change.
+    const propConfig = {
+      name: propRow.name,
+      owner: propRow.owner_last,
+      fee_pct: propRow.fee_pct,
+      bank_last4: propRow.bank_last4 ?? '',
+    };
 
     // 1. Parse Guesty PDF
     interface GuestyReservation {
