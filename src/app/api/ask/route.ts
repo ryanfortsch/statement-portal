@@ -84,10 +84,63 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ answer, sources: getSources() });
   } catch (err) {
-    console.error('[ask] generateText failed:', err instanceof Error ? err.message : String(err));
+    // Surface enough detail to diagnose AI-Gateway / model / tool failures
+    // from the log line itself, without having to bisect by hand. The
+    // generic "generateText failed" we had before told us nothing about
+    // whether it was an auth issue, a missing model, a tool throw, or a
+    // schema reject.
+    console.error('[ask] generateText failed:', describeAskError(err, question));
     return NextResponse.json(
       { error: 'Ask Helm hit an error. Try again in a moment.' },
       { status: 500 },
     );
   }
+}
+
+/**
+ * Flatten an AI-SDK / fetch / generic Error into a single log-friendly
+ * object. The AI SDK throws several distinct error classes (AI_APICallError,
+ * AI_NoSuchModelError, AI_LoadAPIKeyError, AI_InvalidArgumentError,
+ * AI_NoOutputGeneratedError, AI_ToolExecutionError, etc.) and each has its
+ * own useful fields; we grab them best-effort.
+ */
+function describeAskError(err: unknown, question: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    question: question.length > 200 ? question.slice(0, 200) + '…' : question,
+  };
+  if (!(err instanceof Error)) {
+    out.error = String(err);
+    return out;
+  }
+  out.name = err.name;
+  out.message = err.message;
+  // Optional AI-SDK fields. Use `unknown` indexing so we don't pull in the
+  // entire SDK type surface just to capture diagnostics.
+  const anyErr = err as unknown as Record<string, unknown>;
+  for (const key of [
+    'url',
+    'statusCode',
+    'responseHeaders',
+    'responseBody',
+    'modelId',
+    'modelType',
+    'toolName',
+    'parameter',
+    'value',
+    'isRetryable',
+    'data',
+  ]) {
+    if (anyErr[key] !== undefined) out[key] = anyErr[key];
+  }
+  if (err.cause) {
+    out.cause =
+      err.cause instanceof Error
+        ? { name: err.cause.name, message: err.cause.message, stack: err.cause.stack?.split('\n').slice(0, 5).join('\n') }
+        : String(err.cause);
+  }
+  if (err.stack) {
+    // First few frames are usually enough to pinpoint the throw site.
+    out.stack = err.stack.split('\n').slice(0, 6).join('\n');
+  }
+  return out;
 }
