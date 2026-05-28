@@ -2,33 +2,20 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
-import type {
-  PropertyZoneRow,
-  InspectionItemRow,
-} from '@/lib/inspections-types';
+import type { PropertyZoneRow } from '@/lib/inspections-types';
 import type { HelmPropertyRow } from '@/lib/properties';
-import {
-  createZoneFromForm,
-  updateZoneFromForm,
-  deleteZoneFromForm,
-  moveZoneFromForm,
-  setZoneItemsFromForm,
-} from './actions';
+import { deleteZoneFromForm, moveZoneFromForm } from './actions';
 import { LayoutProseInput } from './LayoutProseInput';
 
 export const dynamic = 'force-dynamic';
 
 type Params = { id: string };
 
-type ZoneWithItems = PropertyZoneRow & {
-  item_ids: Set<string>;
-};
+type ZoneSummary = PropertyZoneRow & { item_count: number };
 
 async function getData(propertyId: string): Promise<{
   property: HelmPropertyRow;
-  zones: ZoneWithItems[];
-  items: InspectionItemRow[];
+  zones: ZoneSummary[];
 } | null> {
   if (!isHelmConfigured) return null;
 
@@ -39,52 +26,40 @@ async function getData(propertyId: string): Promise<{
     .maybeSingle();
   if (!property) return null;
 
-  const [{ data: zoneRows }, { data: itemRows }] = await Promise.all([
-    supabase
-      .from('property_zones')
-      .select('*')
-      .eq('property_id', propertyId)
-      .order('walk_order', { ascending: true }),
-    supabase
-      .from('inspection_items')
-      .select('id, template_id, category, title, description, sort_order, item_category, interval_days, priority, season_constraint')
-      .eq('template_id', HELM_CORE_TEMPLATE_ID)
-      .order('sort_order', { ascending: true }),
-  ]);
-
+  const { data: zoneRows } = await supabase
+    .from('property_zones')
+    .select('*')
+    .eq('property_id', propertyId)
+    .order('walk_order', { ascending: true });
   const zones = (zoneRows ?? []) as PropertyZoneRow[];
-  const items = (itemRows ?? []) as InspectionItemRow[];
 
-  const zoneIds = zones.map((z) => z.id);
-  const itemAssignments: Map<string, Set<string>> = new Map();
-  for (const z of zones) itemAssignments.set(z.id, new Set());
-
-  if (zoneIds.length > 0) {
+  // Count assigned items per zone so each card can show "N items" without
+  // having to load the full inspection_items template (the per-zone Manage
+  // Items UI is gone; re-run Parse to remap).
+  const itemCounts = new Map<string, number>();
+  if (zones.length > 0) {
     const { data: assignments } = await supabase
       .from('property_zone_items')
-      .select('property_zone_id, inspection_item_id')
-      .in('property_zone_id', zoneIds);
-    for (const a of (assignments ?? []) as {
-      property_zone_id: string;
-      inspection_item_id: string;
-    }[]) {
-      itemAssignments.get(a.property_zone_id)?.add(a.inspection_item_id);
+      .select('property_zone_id')
+      .in('property_zone_id', zones.map((z) => z.id));
+    for (const a of (assignments ?? []) as { property_zone_id: string }[]) {
+      itemCounts.set(a.property_zone_id, (itemCounts.get(a.property_zone_id) ?? 0) + 1);
     }
   }
 
-  const zonesWithItems: ZoneWithItems[] = zones.map((z) => ({
+  const zonesSummary: ZoneSummary[] = zones.map((z) => ({
     ...z,
-    item_ids: itemAssignments.get(z.id) ?? new Set(),
+    item_count: itemCounts.get(z.id) ?? 0,
   }));
 
-  return { property: property as HelmPropertyRow, zones: zonesWithItems, items };
+  return { property: property as HelmPropertyRow, zones: zonesSummary };
 }
 
 export default async function PropertyLayoutPage({ params }: { params: Promise<Params> }) {
   const { id } = await params;
   const data = await getData(id);
   if (!data) notFound();
-  const { property, zones, items } = data;
+  const { property, zones } = data;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -130,47 +105,10 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
         </p>
       </section>
 
-      {/* ─── Bulk: describe the house in prose, Claude maps zones ─── */}
+      {/* ─── Describe the house — Claude maps the whole layout ─── */}
       <LayoutProseInput propertyId={property.id} existingZoneCount={zones.length} />
 
-      {/* ─── Add zone (manual, one at a time) ─── */}
-      <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
-        <form
-          action={createZoneFromForm}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 200px auto',
-            gap: 10,
-            alignItems: 'end',
-            padding: 16,
-            border: '1px solid var(--rule)',
-            background: 'var(--paper-2)',
-          }}
-        >
-          <input type="hidden" name="property_id" value={property.id} />
-          <Field name="name" label="Zone name" placeholder="e.g. Upstairs bath" required />
-          <Field name="floor_label" label="Floor" placeholder="e.g. Third floor" />
-          <button
-            type="submit"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              padding: '12px 18px',
-              border: 'none',
-              cursor: 'pointer',
-              alignSelf: 'end',
-            }}
-          >
-            + Add zone
-          </button>
-        </form>
-      </section>
-
-      {/* ─── Zones ─── */}
+      {/* ─── Zones (read-only summary; re-run Parse to re-map) ─── */}
       <section
         className="max-w-[900px] mx-auto px-10"
         style={{ paddingBottom: 80, width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}
@@ -186,7 +124,6 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
               zone={zone}
               isFirst={idx === 0}
               isLast={idx === zones.length - 1}
-              allItems={items}
             />
           ))
         )}
@@ -201,21 +138,12 @@ function ZoneCard({
   zone,
   isFirst,
   isLast,
-  allItems,
 }: {
-  zone: ZoneWithItems;
+  zone: ZoneSummary;
   isFirst: boolean;
   isLast: boolean;
-  allItems: InspectionItemRow[];
 }) {
-  const itemCount = zone.item_ids.size;
-
-  // Group items by category for a less-overwhelming checkbox grid.
-  const itemsByCategory = new Map<string, InspectionItemRow[]>();
-  for (const it of allItems) {
-    if (!itemsByCategory.has(it.category)) itemsByCategory.set(it.category, []);
-    itemsByCategory.get(it.category)!.push(it);
-  }
+  const itemCount = zone.item_count;
 
   return (
     <article
@@ -304,171 +232,24 @@ function ZoneCard({
       </header>
 
       {/* Edit form */}
-      <details style={{ borderBottom: '1px solid var(--rule-soft)' }}>
-        <summary
-          style={{
-            padding: '10px 18px',
-            cursor: 'pointer',
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            userSelect: 'none',
-          }}
+      {/* Inline delete — escape hatch so a bad zone can be dropped without
+          re-parsing the whole layout. No edit form, no checkbox lists:
+          if items or naming need tweaking, re-run Parse. */}
+      <form
+        action={deleteZoneFromForm}
+        style={{ padding: '8px 18px 14px', display: 'flex', justifyContent: 'flex-end' }}
+      >
+        <input type="hidden" name="zone_id" value={zone.id} />
+        <button
+          type="submit"
+          className="rt-btn-danger"
+          aria-label={`Delete zone ${zone.name}`}
+          title="Delete this zone"
         >
-          Edit name / floor / notes
-        </summary>
-        <div
-          style={{
-            padding: '14px 18px 18px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <form
-            action={updateZoneFromForm}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1fr',
-              gap: 12,
-            }}
-          >
-            <input type="hidden" name="zone_id" value={zone.id} />
-            <Field name="name" label="Zone name" defaultValue={zone.name} required />
-            <Field name="floor_label" label="Floor" defaultValue={zone.floor_label ?? ''} />
-            <div style={{ gridColumn: '1 / -1' }}>
-              <Field name="notes" label="Notes (optional)" defaultValue={zone.notes ?? ''} textarea />
-            </div>
-            <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-              <button type="submit" className="rt-btn-primary">
-                Save zone
-              </button>
-            </div>
-          </form>
-          <form action={deleteZoneFromForm} style={{ alignSelf: 'flex-end' }}>
-            <input type="hidden" name="zone_id" value={zone.id} />
-            <button type="submit" className="rt-btn-danger">
-              Delete zone
-            </button>
-          </form>
-        </div>
-      </details>
-
-      {/* Items assignment */}
-      <details open={itemCount === 0}>
-        <summary
-          style={{
-            padding: '10px 18px',
-            cursor: 'pointer',
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            userSelect: 'none',
-          }}
-        >
-          Manage items ({itemCount})
-        </summary>
-        <form action={setZoneItemsFromForm} style={{ padding: '6px 18px 18px' }}>
-          <input type="hidden" name="zone_id" value={zone.id} />
-          {Array.from(itemsByCategory.entries()).map(([category, list]) => (
-            <div key={category} style={{ marginTop: 12 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: 'var(--signal)',
-                  fontWeight: 600,
-                  marginBottom: 6,
-                }}
-              >
-                {category}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4 }}>
-                {list.map((it) => (
-                  <label
-                    key={it.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                      padding: '6px 4px',
-                      fontSize: 13,
-                      color: 'var(--ink)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      name="item_id"
-                      value={it.id}
-                      defaultChecked={zone.item_ids.has(it.id)}
-                      style={{ marginTop: 3 }}
-                    />
-                    <span>
-                      <span style={{ fontWeight: 500 }}>{it.title}</span>
-                      {it.description && (
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: 11,
-                            color: 'var(--ink-4)',
-                            marginTop: 2,
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {it.description}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div style={{ marginTop: 16 }}>
-            <button type="submit" className="rt-btn-primary">
-              Save items
-            </button>
-          </div>
-        </form>
-      </details>
+          × Delete zone
+        </button>
+      </form>
     </article>
-  );
-}
-
-function Field({
-  name,
-  label,
-  defaultValue,
-  placeholder,
-  required,
-  textarea,
-}: {
-  name: string;
-  label: string;
-  defaultValue?: string;
-  placeholder?: string;
-  required?: boolean;
-  textarea?: boolean;
-}) {
-  return (
-    <label className="rt-edit-field">
-      <span className="rt-edit-label">{label}</span>
-      {textarea ? (
-        <textarea name={name} defaultValue={defaultValue ?? ''} rows={2} placeholder={placeholder} />
-      ) : (
-        <input
-          name={name}
-          type="text"
-          defaultValue={defaultValue ?? ''}
-          placeholder={placeholder}
-          required={required}
-        />
-      )}
-    </label>
   );
 }
 
