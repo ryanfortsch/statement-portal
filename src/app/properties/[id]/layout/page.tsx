@@ -15,6 +15,7 @@ import {
   moveZoneFromForm,
   setZoneItemsFromForm,
 } from './actions';
+import { LayoutProseInput } from './LayoutProseInput';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +130,10 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
         </p>
       </section>
 
-      {/* ─── Add zone ─── */}
+      {/* ─── Bulk: describe the house in prose, Claude maps zones ─── */}
+      <LayoutProseInput propertyId={property.id} />
+
+      {/* ─── Add zone (manual, one at a time) ─── */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         <form
           action={createZoneFromForm}
