@@ -43,6 +43,11 @@ export function AskHelm({
   const [answer, setAnswer] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // When /api/ask hits the AI Gateway free-tier wall it returns a
+  // structured response with the team-scoped top-up URL. We render that
+  // as a clickable call to action under the error message, instead of
+  // making the operator hunt the Vercel dashboard for the right team.
+  const [topUpUrl, setTopUpUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -54,6 +59,7 @@ export function AskHelm({
     if (!trimmed || loading) return;
     setLoading(true);
     setError(null);
+    setTopUpUrl(null);
     setAnswer(null);
     setSources([]);
     try {
@@ -65,6 +71,7 @@ export function AskHelm({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data?.error || 'Something went wrong.');
+        if (typeof data?.topUpUrl === 'string') setTopUpUrl(data.topUpUrl);
         return;
       }
       setAnswer(String(data?.answer ?? ''));
@@ -276,18 +283,32 @@ export function AskHelm({
       )}
 
       {error && (
-        <p
+        <div
           role="alert"
           style={{
             marginTop: 18,
-            fontSize: 13,
-            color: 'var(--negative)',
             borderLeft: '3px solid var(--negative)',
             paddingLeft: 12,
           }}
         >
-          {error}
-        </p>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)' }}>{error}</p>
+          {topUpUrl && (
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
+              <a
+                href={topUpUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--signal)',
+                  textDecoration: 'underline',
+                  fontWeight: 600,
+                }}
+              >
+                Top up AI Gateway credits →
+              </a>
+            </p>
+          )}
+        </div>
       )}
 
       {answer && !loading && (

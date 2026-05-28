@@ -90,11 +90,58 @@ export async function POST(req: NextRequest) {
     // whether it was an auth issue, a missing model, a tool throw, or a
     // schema reject.
     console.error('[ask] generateText failed:', describeAskError(err, question));
+
+    // Vercel AI Gateway returns a 403 GatewayInternalServerError when the
+    // team's free-tier credits don't cover the requested model (Anthropic
+    // models in particular are paid-only). The generic "try again" message
+    // we showed before was actively misleading — retrying won't help; the
+    // operator needs to top up. Surface the billing case explicitly with
+    // a direct link to the Vercel AI Gateway top-up modal.
+    const billing = detectBillingError(err);
+    if (billing) {
+      return NextResponse.json(
+        {
+          error:
+            'Ask Helm is out of AI Gateway credits for this model. Top up at Vercel and try again.',
+          topUpUrl: billing.topUpUrl,
+          kind: 'gateway-billing',
+        },
+        { status: 402 },
+      );
+    }
+
     return NextResponse.json(
       { error: 'Ask Helm hit an error. Try again in a moment.' },
       { status: 500 },
     );
   }
+}
+
+/**
+ * Detect the "AI Gateway billing / quota" failure shape. The SDK throws
+ * a GatewayInternalServerError (or an AI_APICallError) with statusCode
+ * 402/403 and a message mentioning "free tier" or "credits". When that
+ * pattern matches, returns a top-up URL so the UI can render a useful
+ * call to action; otherwise returns null and the caller falls through to
+ * the generic 500.
+ */
+function detectBillingError(err: unknown): { topUpUrl: string } | null {
+  if (!(err instanceof Error)) return null;
+  const status = (err as unknown as { statusCode?: number }).statusCode;
+  const msg = err.message || '';
+  const looksBilling =
+    (status === 402 || status === 403) &&
+    /free tier|credits|upgrade|payment|quota/i.test(msg);
+  if (!looksBilling) return null;
+  // The Gateway's own error message embeds the team-scoped top-up URL,
+  // e.g. https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%3Fmodal%3Dtop-up.
+  // Prefer it when present; otherwise fall back to the generic deep link.
+  const urlMatch = msg.match(/https?:\/\/vercel\.com\/[^\s)"']+/);
+  return {
+    topUpUrl:
+      urlMatch?.[0] ||
+      'https://vercel.com/dashboard/ai',
+  };
 }
 
 /**
