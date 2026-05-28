@@ -4,7 +4,9 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { OverheadUpload } from '@/components/OverheadUpload';
 import { OverheadDashboard } from '@/components/OverheadDashboard';
+import { Vendor1099Table } from '@/components/Vendor1099Table';
 import { getCostAnalysis, compareSameProperties, getOverhead } from '@/lib/cost-analysis';
+import { getVendor1099Report, IRS_1099_THRESHOLD } from '@/lib/vendor-1099';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +26,7 @@ function fmtCompact(n: number): string {
 }
 
 export default async function CostAnalysisPage() {
-  const [ca, overhead] = await Promise.all([getCostAnalysis(), getOverhead()]);
+  const [ca, overhead, report1099] = await Promise.all([getCostAnalysis(), getOverhead(), getVendor1099Report()]);
   const months = ca.months;
   // Staleness for the upload nudge -- days-old is computed in getOverhead()
   // (the lib, not render) so nothing impure runs during component render.
@@ -228,6 +230,45 @@ export default async function CostAnalysisPage() {
           </section>
         </>
       )}
+
+      {/* ── 1099 CANDIDATES ── year-end signal: every vendor paid > $600 YTD
+          across cleaning, repairs, and overhead, with a W9-on-file toggle so
+          nothing slips through year-end now that the bookkeeper is going
+          away. The W9 itself stays in QuickBooks; this is just the nudge. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <div className="eyebrow">1099 candidates · {report1099.year}</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+            IRS threshold: ${IRS_1099_THRESHOLD} YTD
+          </div>
+        </div>
+        {report1099.totals.vendors === 0 ? (
+          <div style={{ padding: 18, background: 'var(--paper-2)', border: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)' }}>
+            No vendor payments yet this year across cleaning, repairs, or overhead.
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                borderTop: '1px solid var(--ink)',
+                borderBottom: '1px solid var(--ink)',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                marginBottom: 18,
+              }}
+            >
+              <CostStat label="Vendors paid" value={String(report1099.totals.vendors)} sub="any amount" />
+              <CostStat label="Over $600 YTD" value={String(report1099.totals.over600)} sub="1099 candidates" />
+              <CostStat label="Without W9" value={String(report1099.totals.over600WithoutW9)} sub="action items" accent={report1099.totals.over600WithoutW9 > 0} />
+              <CostStat label="Spend over $600" value={fmtCompact(report1099.totals.spendOver600)} sub={`${report1099.year} YTD`} last />
+            </div>
+            <Vendor1099Table rows={report1099.rows} />
+            <div style={{ marginTop: 14, padding: '10px 14px', borderLeft: '2px solid var(--rule)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+              <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong> totals roll up YTD payments across <em>cleaning_events</em>, <em>repair_events</em>, and <em>overhead_expenses</em>. The W9 document itself stays in QuickBooks under the vendor record &mdash; tick the box here once you&apos;ve confirmed it&apos;s on file. Corporations don&apos;t actually need a 1099 (W9 entity type tells you), so &ldquo;candidate&rdquo; means &ldquo;over the threshold; verify W9 + entity type, then act.&rdquo;
+            </div>
+          </>
+        )}
+      </section>
 
       <HelmFooter right={latest ? `Latest: ${monthLabel(latest)}` : undefined} />
     </div>
