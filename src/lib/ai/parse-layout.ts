@@ -1,22 +1,27 @@
 /**
- * Free-form house description → structured inspection zones in walk order.
+ * Free-form house description → fully-mapped inspection layout
+ * (zones in walk order, each pre-populated with the right items from the
+ * Helm Core template). The operator never has to click an item checkbox.
  *
- * The /properties/[id]/layout page has a manual "Add Zone" form, but
- * typing 10-15 rooms one at a time is painful for a fresh property.
- * This helper lets an operator describe the house in prose ("Main floor
- * has a kitchen, living room, half-bath; upstairs there's the primary
- * bedroom with an ensuite, two more bedrooms, and a shared bath; basement
- * has a laundry and a media room") and gets back an ordered list of
- * (name, floor) zones the server action can insert directly.
+ * Input:
+ *   - prose: "Main floor kitchen, living room, half-bath; upstairs primary
+ *     with ensuite, two more bedrooms, shared bath; basement laundry."
+ *   - templateItems: the inspection_items for this property's template.
  *
- * Walking order is critical — inspectors do a physical walk and the
- * deck renders in the order zones are listed. We instruct the model to
- * preserve the order implied by the prose ("first the main floor, then
- * upstairs, then basement") rather than alphabetize.
+ * Output: zones in physical walking order, each with the `itemTitles` that
+ * belong to that room type. The server action maps titles back to ids and
+ * inserts property_zones + property_zone_items in one shot.
  */
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
+
+export type LayoutTemplateItem = {
+  id: string;
+  category: string;
+  title: string;
+  description: string | null;
+};
 
 export const ParsedZoneSchema = z.object({
   name: z
@@ -31,6 +36,11 @@ export const ParsedZoneSchema = z.object({
     .describe(
       'Floor label like "Main floor", "Second floor", "Basement", "Upstairs". null if the prose does not say.',
     ),
+  itemTitles: z
+    .array(z.string())
+    .describe(
+      'Exact titles of inspection_items (from the provided list) that belong in this zone. Must match the provided titles exactly — do not invent items. Empty array allowed for general/transition zones with nothing to check.',
+    ),
 });
 
 export const ParsedLayoutSchema = z.object({
@@ -42,31 +52,62 @@ export const ParsedLayoutSchema = z.object({
 export type ParsedZone = z.infer<typeof ParsedZoneSchema>;
 export type ParsedLayout = z.infer<typeof ParsedLayoutSchema>;
 
-const SYSTEM_PROMPT = `You convert a free-form description of a vacation-rental house into a structured list of inspection zones in physical walking order.
+const SYSTEM_PROMPT = `You convert a free-form description of a vacation-rental house into a fully-mapped inspection layout: zones in physical walking order, each pre-populated with the right inspection items from a fixed template.
 
-Rules:
-- One zone per distinct room or check-able area (kitchen, living room, each bedroom separately, each bathroom separately, deck/patio, basement laundry, etc.). A property with three bathrooms produces three zone entries, not one.
-- Preserve the walking order implied by the prose. If the operator describes the main floor first then upstairs, list main-floor zones first. Do not alphabetize.
-- name = short label, title-case, no floor included (good: "Primary bedroom"; bad: "Upstairs primary bedroom").
-- floor = the floor label the operator used ("Main floor", "Second floor", "Basement", "Upstairs"), or null if not specified.
-- Skip non-zone content (notes about the property, owner preferences, supplies, codes). Only include actual physical zones to walk.
-- If a room appears with no clear name, infer the cleanest one (e.g. "kitchen / dining area" → "Kitchen", or split into two zones if they are clearly distinct).
-- Output at least one zone; if the prose is too vague to extract anything, return a single best-guess zone rather than empty.`;
+Inputs:
+1. A house description in prose ("Main floor has a kitchen, living room, …").
+2. A fixed list of inspection items (id, category, title, description). The operator NEVER edits these — they are the checklist for every property in the team's standard.
+
+Output rules:
+- ONE ZONE per distinct room or check-able area. A house with three bathrooms produces three bathroom zones, NOT one. A house with three bedrooms produces three bedroom zones.
+- Preserve walking order from the prose. If main floor is described first then upstairs, the zone list goes main floor → upstairs. Do not alphabetize.
+- name = short label, title-case, no floor baked in. ("Primary bedroom", not "Upstairs primary bedroom".)
+- floor = the floor label the operator used ("Main floor", "Second floor", "Basement"), or null if not specified.
+- itemTitles per zone = the EXACT titles (verbatim) of inspection items from the provided list that belong in that room type. Match by category and meaning:
+    * Kitchen zone → kitchen-category items
+    * Bathroom zone → bathroom-category items
+    * Bedroom zone → bedroom-category items
+    * Living/family room → living-category items
+    * Entry / foyer / mudroom → entry-category items
+    * Outdoor / deck / patio / yard → outdoor-category items
+    * Laundry / utility → laundry/utility-category items
+    * Safety items (smoke alarms etc.) → attach to the first zone the inspector walks (typically the entry) so they get checked once, not per-room.
+- Each general-purpose item (Floors + Hidden Areas Scan, etc.) goes on a zone where it's most useful (e.g. living room or each bedroom).
+- DO NOT invent items. Use only titles from the provided list, copied verbatim.
+- If the prose mentions a room type the template has no items for (e.g. "wine cellar"), include the zone with an empty itemTitles array — better to surface the zone than drop it.`;
 
 /**
- * Parse a free-form house description into an ordered list of zones.
- * Throws on AI failure; the calling server action should catch and
- * return a user-friendly error.
+ * Parse prose + the property's template items into a fully-mapped layout.
+ * Throws on AI failure; calling server action should catch.
  */
-export async function parseLayoutProse(prose: string): Promise<ParsedZone[]> {
+export async function parseLayoutProse(
+  prose: string,
+  templateItems: LayoutTemplateItem[],
+): Promise<ParsedZone[]> {
   const trimmed = prose.trim();
   if (!trimmed) return [];
+  if (templateItems.length === 0) return [];
+
+  // Pass the available items so Claude can match by title verbatim.
+  // Grouped by category for legibility; the model still has to pick by exact title.
+  const itemsByCategory = new Map<string, LayoutTemplateItem[]>();
+  for (const it of templateItems) {
+    const arr = itemsByCategory.get(it.category) ?? [];
+    arr.push(it);
+    itemsByCategory.set(it.category, arr);
+  }
+  const itemsBlock = Array.from(itemsByCategory.entries())
+    .map(([cat, items]) => {
+      const lines = items.map((it) => `  - "${it.title}"${it.description ? ` — ${it.description}` : ''}`);
+      return `${cat}:\n${lines.join('\n')}`;
+    })
+    .join('\n\n');
 
   const { object } = await generateObject({
     model: 'anthropic/claude-haiku-4.5',
     schema: ParsedLayoutSchema,
     system: SYSTEM_PROMPT,
-    prompt: `Convert this house description into ordered inspection zones:\n\n${trimmed}`,
+    prompt: `Available inspection items (use these exact titles):\n\n${itemsBlock}\n\nHouse description:\n\n${trimmed}\n\nReturn zones in walking order, each with the itemTitles that belong to that zone.`,
   });
 
   return object.zones;

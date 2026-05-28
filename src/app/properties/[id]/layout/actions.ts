@@ -265,16 +265,21 @@ export async function setZoneItemsFromForm(formData: FormData): Promise<void> {
 }
 
 /**
- * Parse a free-form house description (Claude) and append the resulting
- * zones to this property's layout at the END of the walk order. Existing
- * zones are untouched — the operator can delete or rearrange afterward.
- * Returns the number of zones added so the UI can confirm. Failures from
- * the model or DB bubble up as a clean error string rather than throw.
+ * Parse a free-form house description (Claude) and REPLACE this property's
+ * inspection layout in one shot — zones in walking order, each pre-populated
+ * with the right Helm Core items. The operator never touches an item
+ * checkbox.
+ *
+ * "Replace" not "append": running Parse wipes the existing zones (and their
+ * item assignments) before inserting the fresh layout, so re-running with a
+ * better description gives a clean result instead of duplicates. Returns
+ * the number of zones + items mapped, plus the names of any item titles the
+ * model hallucinated (we drop those rather than insert garbage).
  */
 export async function parseLayoutFromProseAction(args: {
   propertyId: string;
   prose: string;
-}): Promise<ActionResult<{ added: number }>> {
+}): Promise<ActionResult<{ zonesAdded: number; itemsAttached: number; unknownTitles: string[] }>> {
   const gate = await requireSession();
   if (!gate.ok) return gate;
 
@@ -284,9 +289,29 @@ export async function parseLayoutFromProseAction(args: {
     return { ok: false, error: 'Description is too long (4000 char max)' };
   }
 
+  // Load the template items the property uses so Claude can match real
+  // titles. Same template the layout page already reads from.
+  const { HELM_CORE_TEMPLATE_ID } = await import('@/lib/inspections-types');
+  const { data: templateItemRows, error: itemsErr } = await supabase
+    .from('inspection_items')
+    .select('id, category, title, description')
+    .eq('template_id', HELM_CORE_TEMPLATE_ID);
+  if (itemsErr) return { ok: false, error: `Failed to load template items: ${itemsErr.message}` };
+  const templateItems = (templateItemRows ?? []) as Array<{
+    id: string;
+    category: string;
+    title: string;
+    description: string | null;
+  }>;
+  if (templateItems.length === 0) {
+    return { ok: false, error: 'No inspection items found for this template.' };
+  }
+  const itemIdByTitle = new Map<string, string>();
+  for (const it of templateItems) itemIdByTitle.set(it.title.trim(), it.id);
+
   let parsed;
   try {
-    parsed = await parseLayoutProse(prose);
+    parsed = await parseLayoutProse(prose, templateItems);
   } catch (err) {
     console.error('[parseLayoutFromProseAction] AI error', err);
     return { ok: false, error: 'Could not parse the description. Try rephrasing it.' };
@@ -295,30 +320,67 @@ export async function parseLayoutFromProseAction(args: {
     return { ok: false, error: 'No zones found in the description.' };
   }
 
-  // Append to the end of the current walk order so existing zones keep
-  // their positions and the new ones land after them.
-  const { data: existing } = await supabase
+  // Wipe the current layout for this property. property_zone_items has FK
+  // on property_zone_id with ON DELETE CASCADE, so deleting zones takes
+  // their item assignments with them.
+  const { error: wipeErr } = await supabase
     .from('property_zones')
-    .select('walk_order')
-    .eq('property_id', args.propertyId)
-    .order('walk_order', { ascending: false })
-    .limit(1);
-  const startOrder =
-    existing && existing.length > 0
-      ? (existing[0] as { walk_order: number }).walk_order + 1
-      : 1;
+    .delete()
+    .eq('property_id', args.propertyId);
+  if (wipeErr) return { ok: false, error: `Failed to clear existing zones: ${wipeErr.message}` };
 
-  const rows = parsed.map((z, i) => ({
+  // Insert the new zones in walk order; collect their ids.
+  const zoneRows = parsed.map((z, i) => ({
     property_id: args.propertyId,
     name: z.name.trim(),
     floor_label: z.floor?.trim() || null,
     notes: null,
-    walk_order: startOrder + i,
+    walk_order: i + 1,
   }));
+  const { data: insertedZones, error: zoneErr } = await supabase
+    .from('property_zones')
+    .insert(zoneRows)
+    .select('id, walk_order');
+  if (zoneErr || !insertedZones) {
+    return { ok: false, error: zoneErr?.message || 'Failed to insert zones' };
+  }
 
-  const { error } = await supabase.from('property_zones').insert(rows);
-  if (error) return { ok: false, error: error.message };
+  // Attach items per zone. Match each parsed itemTitle to a template item
+  // by exact title (after trim). Unknown titles get logged and reported so
+  // the operator knows something didn't land — usually a model hallucination.
+  const unknown = new Set<string>();
+  const itemRows: Array<{ property_zone_id: string; inspection_item_id: string }> = [];
+  for (let i = 0; i < parsed.length; i += 1) {
+    const z = parsed[i];
+    const zoneId = (insertedZones[i] as { id: string }).id;
+    for (const rawTitle of z.itemTitles) {
+      const t = (rawTitle || '').trim();
+      if (!t) continue;
+      const itemId = itemIdByTitle.get(t);
+      if (!itemId) {
+        unknown.add(t);
+        continue;
+      }
+      itemRows.push({ property_zone_id: zoneId, inspection_item_id: itemId });
+    }
+  }
+  if (itemRows.length > 0) {
+    const { error: itemsInsertErr } = await supabase
+      .from('property_zone_items')
+      .insert(itemRows);
+    if (itemsInsertErr) {
+      // Zones are in; surface the partial-success state with the item error.
+      return { ok: false, error: `Zones saved, but items failed: ${itemsInsertErr.message}` };
+    }
+  }
 
   revalidatePath(`/properties/${args.propertyId}/layout`);
-  return { ok: true, data: { added: rows.length } };
+  return {
+    ok: true,
+    data: {
+      zonesAdded: zoneRows.length,
+      itemsAttached: itemRows.length,
+      unknownTitles: Array.from(unknown),
+    },
+  };
 }
