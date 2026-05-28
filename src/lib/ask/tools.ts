@@ -194,6 +194,192 @@ export function createAskTools() {
       },
     }),
 
+    get_upcoming_bookings: tool({
+      description:
+        'Forward booking calendar for a property: per-month rollup (paid nights, owner-blocked nights, open nights, occupancy %, payout on the books, stay count) plus every upcoming reservation in the window. THIS is what to call for "what do the next few months look like", "what is on the books", "booking pacing", "how is summer looking", "any gaps in July", or any owner-meeting prep about a specific property\'s future. Owner-occupied periods (channel "block", or channel "direct" with $0 payout) are NOT pacing problems — they are nights the owner pulled off the market. Call those out separately from softness in paid demand.',
+      inputSchema: z.object({
+        propertyId: z
+          .string()
+          .describe('Property id like "20_enon". Resolve names via search_helm or list_properties first if unsure.'),
+        monthsAhead: z
+          .number()
+          .int()
+          .min(1)
+          .max(12)
+          .optional()
+          .describe('How many months of forward window to include, starting with the current month. Default 4.'),
+      }),
+      execute: async ({
+        propertyId,
+        monthsAhead = 4,
+      }: {
+        propertyId: string;
+        monthsAhead?: number;
+      }) => {
+        // Window = today through the LAST day of (current_month + monthsAhead - 1).
+        // bookings.check_in/check_out are exclusive checkout dates, so a stay
+        // overlaps the window iff check_in < windowEnd AND check_out > windowStart.
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        const startIso = today.toISOString().slice(0, 10);
+        const windowEndDate = new Date(
+          Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + monthsAhead, 1),
+        );
+        const endIso = windowEndDate.toISOString().slice(0, 10);
+
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(
+            'id, check_in, check_out, nights, channel, source, status, gross_amount, payout, guest_name, raw_url',
+          )
+          .eq('property_id', propertyId)
+          .is('duplicate_of', null)
+          .neq('status', 'cancelled')
+          .lt('check_in', endIso)
+          .gt('check_out', startIso)
+          .order('check_in', { ascending: true })
+          .limit(200);
+        if (error) return { error: error.message };
+
+        type BookingRow = {
+          id: string;
+          check_in: string;
+          check_out: string;
+          nights: number | null;
+          channel: string | null;
+          source: string | null;
+          status: string | null;
+          gross_amount: string | null;
+          payout: string | null;
+          guest_name: string | null;
+          raw_url: string | null;
+        };
+        const rows = (data ?? []) as BookingRow[];
+
+        function isOwnerBlock(r: BookingRow): boolean {
+          // Two shapes carry the same meaning: a calendar block (channel
+          // "block") and a direct booking the owner enters for themselves
+          // at $0 payout. We treat both as owner-occupied, not paid demand.
+          if (r.channel === 'block' || r.status === 'block') return true;
+          if (r.channel === 'direct' && (r.payout == null || Number(r.payout) === 0)) return true;
+          return false;
+        }
+
+        const reservations = rows.map((r) => ({
+          checkIn: r.check_in,
+          checkOut: r.check_out,
+          nights: r.nights,
+          channel: r.channel,
+          source: r.source,
+          status: r.status,
+          guestName: r.guest_name,
+          payout: r.payout != null ? Number(r.payout) : null,
+          grossAmount: r.gross_amount != null ? Number(r.gross_amount) : null,
+          isOwnerBlock: isOwnerBlock(r),
+          rawUrl: r.raw_url,
+        }));
+
+        // Per-month rollup. Walk each booking and credit nights to whichever
+        // month they fall in, splitting cross-month stays at the boundary.
+        type MonthRow = {
+          month: string;
+          daysInMonth: number;
+          nightsPaid: number;
+          nightsOwnerBlocked: number;
+          nightsOpen: number;
+          paidStays: number;
+          ownerBlocks: number;
+          payoutOnBooks: number;
+        };
+        const months = new Map<string, MonthRow>();
+        const monthCursor = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+        for (let i = 0; i < monthsAhead; i++) {
+          const ym = monthCursor.toISOString().slice(0, 7);
+          const dim = new Date(
+            Date.UTC(monthCursor.getUTCFullYear(), monthCursor.getUTCMonth() + 1, 0),
+          ).getUTCDate();
+          months.set(ym, {
+            month: ym,
+            daysInMonth: dim,
+            nightsPaid: 0,
+            nightsOwnerBlocked: 0,
+            nightsOpen: 0,
+            paidStays: 0,
+            ownerBlocks: 0,
+            payoutOnBooks: 0,
+          });
+          monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+        }
+
+        for (const r of rows) {
+          const ci = new Date(`${r.check_in}T00:00:00Z`);
+          const co = new Date(`${r.check_out}T00:00:00Z`); // exclusive
+          const block = isOwnerBlock(r);
+          // Walk each month the stay touches and credit overlapping nights.
+          const walk = new Date(Date.UTC(ci.getUTCFullYear(), ci.getUTCMonth(), 1));
+          while (walk < co) {
+            const ym = walk.toISOString().slice(0, 7);
+            const m = months.get(ym);
+            if (m) {
+              const mStart = new Date(Date.UTC(walk.getUTCFullYear(), walk.getUTCMonth(), 1));
+              const mEnd = new Date(Date.UTC(walk.getUTCFullYear(), walk.getUTCMonth() + 1, 1));
+              const oStart = ci > mStart ? ci : mStart;
+              const oEnd = co < mEnd ? co : mEnd;
+              const overlap = Math.max(
+                0,
+                Math.round((oEnd.getTime() - oStart.getTime()) / 86_400_000),
+              );
+              if (block) m.nightsOwnerBlocked += overlap;
+              else m.nightsPaid += overlap;
+            }
+            walk.setUTCMonth(walk.getUTCMonth() + 1);
+          }
+          // Stay-count + payout attribute to the check-in month.
+          const checkInYm = r.check_in.slice(0, 7);
+          const m = months.get(checkInYm);
+          if (m) {
+            if (block) m.ownerBlocks += 1;
+            else {
+              m.paidStays += 1;
+              if (r.payout != null) m.payoutOnBooks += Number(r.payout);
+            }
+          }
+        }
+
+        // Cap totals at days-in-month (owner blocks can be double-counted
+        // when the same window appears as both a block and a $0 direct
+        // booking) and compute occupancy / open nights.
+        const monthly = Array.from(months.values()).map((m) => {
+          const nightsOwnerBlocked = Math.min(m.nightsOwnerBlocked, m.daysInMonth);
+          const nightsPaid = Math.min(m.nightsPaid, m.daysInMonth - nightsOwnerBlocked);
+          const available = m.daysInMonth - nightsOwnerBlocked;
+          const nightsOpen = Math.max(0, available - nightsPaid);
+          const occupancyPctOfAvailable =
+            available > 0 ? Math.round((nightsPaid / available) * 100) : null;
+          return {
+            month: m.month,
+            daysInMonth: m.daysInMonth,
+            nightsPaid,
+            nightsOwnerBlocked,
+            nightsOpen,
+            occupancyPctOfAvailable,
+            paidStays: m.paidStays,
+            ownerBlocks: m.ownerBlocks,
+            payoutOnBooks: Math.round(m.payoutOnBooks * 100) / 100,
+          };
+        });
+
+        addSource(`Bookings · ${propertyId}`, `/properties/${propertyId}`);
+        return {
+          propertyId,
+          window: { start: startIso, end: endIso, monthsAhead },
+          monthly,
+          reservations,
+          reservationCount: reservations.length,
+        };
+      },
+    }),
+
     list_work: tool({
       description:
         'Active work slips (per-property maintenance / owner-action items) and team tasks. Use for "what needs attention", high-priority work, owner-action backlog, or work on a specific property. Returns only active items (open / in progress / scheduled).',
