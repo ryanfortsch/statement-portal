@@ -7,6 +7,9 @@ import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
+import { supabase } from '@/lib/supabase';
+
+type PropertyOption = { id: string; name: string; owner: string; location: string };
 
 /**
  * Default month for a fresh upload. Until 2026-05-14 this was hardcoded
@@ -21,7 +24,12 @@ function currentMonthString(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-const PROPERTIES = [
+// Hardcoded fallback used only when the live `public.properties` fetch
+// fails (network blip, RLS misconfig). Keeps the dropdown usable on the
+// 10 legacy properties even when the DB is unreachable. The real list
+// is loaded on mount inside UploadPageInner so prospect-promoted
+// properties show up automatically.
+const FALLBACK_PROPERTIES: PropertyOption[] = [
   { id: '3_south_st', name: '3 South', owner: 'Bailey', location: 'Rockport' },
   { id: '21_horton', name: '21 Horton', owner: 'Kittredge', location: 'Gloucester' },
   { id: '53_rocky_neck', name: '53 Rocky Neck', owner: 'Prudenzi', location: 'Gloucester' },
@@ -423,11 +431,38 @@ function UploadPageInner() {
   })();
   // Pre-select the property too when the dashboard passes ?property=<id>.
   // The PropertyCard's "Re-upload Data" link uses this so the operator
-  // lands on the right property + month combo with one click.
-  const initialPropertyId = (() => {
-    const fromQuery = searchParams.get('property');
-    return fromQuery && PROPERTIES.some(p => p.id === fromQuery) ? fromQuery : '';
-  })();
+  // lands on the right property + month combo with one click. We trust
+  // the query value here without validating against the property list
+  // because the list is fetched async; the dropdown's selected state
+  // self-corrects once the fetch completes.
+  const initialPropertyId = searchParams.get('property') ?? '';
+
+  // Live list of active properties. Loaded from public.properties on
+  // mount so newly-promoted prospect properties land in the dropdown
+  // automatically. Starts seeded from the FALLBACK list so the UI is
+  // usable while the fetch is in flight.
+  const [properties, setProperties] = useState<PropertyOption[]>(FALLBACK_PROPERTIES);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('properties')
+        .select('id, name, owner_last, city')
+        .eq('is_active', true)
+        .order('name');
+      if (cancelled || error || !data) return;
+      const rows = data as Array<{ id: string; name: string; owner_last: string | null; city: string | null }>;
+      setProperties(rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        owner: r.owner_last ?? '',
+        // city is stored as "Gloucester, MA" — keep just the town label
+        // for the option display, matching the legacy hardcoded shape.
+        location: (r.city ?? '').split(',')[0].trim(),
+      })));
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [month, setMonth] = useState(initialMonth);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [guestyPDF, setGuestyPDF] = useState<File | null>(null);
@@ -450,7 +485,7 @@ function UploadPageInner() {
   const platRef = useRef<HTMLInputElement>(null);
   const bankRef = useRef<HTMLInputElement>(null);
 
-  const selectedProp = PROPERTIES.find(p => p.id === propertyId);
+  const selectedProp = properties.find(p => p.id === propertyId);
   // The Platform CSV slot counts as "ready" when EITHER a fresh file
   // is selected OR there's a cached CSV the server will fall back to.
   const platformSlotReady = !!platformCSV || !!cachedPlatformCSV;
@@ -838,7 +873,7 @@ function UploadPageInner() {
                     }}
                   >
                     <option value="">Select property…</option>
-                    {PROPERTIES.map(p => (
+                    {properties.map(p => (
                       <option key={p.id} value={p.id}>{p.name} · {p.owner} ({p.location})</option>
                     ))}
                   </select>

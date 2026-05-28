@@ -1,22 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
-import { PROPERTIES } from '@/lib/properties';
+import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const PROPERTY_DETAILS: Record<string, { name: string; address: string; city: string; owner_full: string; fee_pct: number; listing_match: string }> = {
-  '3_south_st':    { name: '3 South',       address: '3 South Street',       city: 'Rockport, MA',    owner_full: 'Marci & Paul Bailey', fee_pct: 25, listing_match: '3 south' },
-  '21_horton':     { name: '21 Horton',     address: '21 Horton Street',     city: 'Gloucester, MA',  owner_full: 'Claudia Kittredge', fee_pct: 22, listing_match: '21 horton' },
-  '53_rocky_neck': { name: '53 Rocky Neck', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'Simon Prudenzi', fee_pct: 25, listing_match: '53 rocky neck' },
-  '4_brier_neck':  { name: '4 Brier Neck',  address: '4 Brier Neck Road',    city: 'Gloucester, MA',  owner_full: 'The Armstrong Family', fee_pct: 20, listing_match: '4 brier neck' },
-  '30_woodward':   { name: '30 Woodward',   address: '30 Woodward Avenue',   city: 'Gloucester, MA',  owner_full: 'The McWethy Family', fee_pct: 25, listing_match: '30 woodward' },
-  '20_hammond':    { name: '20 Hammond',    address: '20 Hammond Street',    city: 'Gloucester, MA',  owner_full: 'The Ramsey Family', fee_pct: 25, listing_match: '20 hammond' },
-  '20_enon':       { name: '20 Enon',       address: '20 Enon Road',         city: 'Beverly, MA',     owner_full: 'The Snyder Family', fee_pct: 25, listing_match: '20 enon' },
-  '73_rocky_neck': { name: '73 Rocky Neck', address: '73 Rocky Neck Avenue', city: 'Gloucester, MA',  owner_full: 'The Moynahan Family', fee_pct: 25, listing_match: '73 rocky neck' },
-  '17_beach_rd':   { name: '17 Beach',      address: '17 Beach Road',        city: 'Gloucester, MA',  owner_full: 'Susan & London Nolan', fee_pct: 22, listing_match: '17 beach' },
+// Display details for the statement header. Used to be a hardcoded
+// const matching only the legacy 10 properties — new prospect-promoted
+// properties would render with prop.property_name as their address
+// (i.e. just the short name). Now sourced from public.properties
+// via getActivePropertyForStatements at render time, so the 13+ row
+// portfolio renders correctly without code edits.
+type PropertyDetails = {
+  name: string;
+  address: string;
+  city: string;
+  owner_full: string;
+  fee_pct: number;
+  listing_match: string;
 };
 
 // ---- helpers ----
@@ -236,7 +239,17 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     // 4 real guest bookings to show.
     .limit(30);
 
-  const d = PROPERTY_DETAILS[prop.property_id] || { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
+  const dbProp = await getActivePropertyForStatements(prop.property_id);
+  const d: PropertyDetails = dbProp
+    ? {
+        name: dbProp.name,
+        address: dbProp.address,
+        city: dbProp.city,
+        owner_full: dbProp.owner_full || prop.owner_name || 'Owner',
+        fee_pct: dbProp.fee_pct,
+        listing_match: dbProp.listing_match || '',
+      }
+    : { name: prop.property_name, address: prop.property_name, city: 'Gloucester, MA', owner_full: prop.owner_name || 'Owner', fee_pct: 25, listing_match: '' };
   const numStays = prop.num_stays || (reservations?.length || 0);
   const nightsBooked = prop.nights_booked || 0;
   const totalDays = daysInMonth(month);
@@ -316,7 +329,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // whose guest name contains the owner's last name is an owner blocking
   // their own property, not a real rental. Those shouldn't appear in the
   // "On the horizon" display.
-  const ownerLast = (PROPERTIES[prop.property_id]?.owner_last || '').toLowerCase();
+  // Owner-stay filter: hide upcoming bookings on Direct/Manual whose
+  // guest name contains the owner's last name. dbProp is the DB row;
+  // fall back to the legacy const for properties not yet in DB.
+  const ownerLast = (dbProp?.owner_last || PROPERTIES[prop.property_id]?.owner_last || '').toLowerCase();
   const looksLikeOwnerStay = (r: {
     guest_name?: string | null;
     channel?: string | null;
