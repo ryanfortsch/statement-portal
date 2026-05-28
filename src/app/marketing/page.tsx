@@ -14,6 +14,7 @@ import {
   type SiteFilter,
 } from '@/lib/marketing/queries';
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
+import Link from 'next/link';
 import { FilterBar } from './FilterBar';
 import { TrafficLineChart } from './Charts';
 import { InfoTip } from './InfoTip';
@@ -66,6 +67,14 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
           currentRange={String(days)}
           lastUpdatedISO={lastUpdated}
         />
+        <div style={{ marginTop: 12, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          <Link
+            href="/marketing/airdna"
+            style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
+          >
+            AirDNA market data →
+          </Link>
+        </div>
       </section>
 
       {/* HERO STATS */}
