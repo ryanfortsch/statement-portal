@@ -10,8 +10,17 @@ type MyWork = {
   kind: 'slip' | 'task';
   title: string;
   priority: string | null;
+  // Slip-side: the single property the slip is filed under.
   propertyId: string | null;
   propertyName: string | null;
+  // Task-side context. Tasks can live across multiple properties (or none,
+  // for "corporate" / team tasks like "Order supplies"), and the meat is
+  // often in the description, not the title — so surface a one-line
+  // summary + the property list + due date in the feed row.
+  actionSummary?: string | null;
+  dueDate?: string | null;
+  propertyNames?: string[];
+  scope?: string | null;
 };
 
 // How many items each section shows at once. The query pulls a deeper pool,
@@ -100,19 +109,27 @@ export async function ForMeFeed() {
       ) : (
         <>
           {/* ON YOUR PLATE — work assigned to you, or unassigned work as a
-              fallback when you have nothing assigned. */}
+              fallback when you have nothing assigned. The whole header row
+              is a link to the broader view (/work filtered to "mine" or
+              "unclaimed") so a click goes to the full backlog. The cleared
+              feed shows 4 at a time; dismissing one revalidates the page
+              and the next from the 20-item pool slides in. */}
           {myWork.length > 0 && (
             <div style={{ marginBottom: hasReplyItems ? 36 : 12 }}>
-              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>
-                  {workMode === 'assigned' ? 'On your plate' : 'Unassigned work'}
-                </h2>
-                <span className="eyebrow">
-                  {workMode === 'assigned'
+              <SectionHeaderLink
+                href={workMode === 'assigned' ? '/work?filter=mine' : '/work?filter=unclaimed'}
+                title={workMode === 'assigned' ? 'On your plate' : 'Unassigned work'}
+                eyebrow={
+                  workMode === 'assigned'
                     ? `${workFiltered.length} assigned`
-                    : `${workFiltered.length} unassigned`}
-                </span>
-              </div>
+                    : `${workFiltered.length} unassigned`
+                }
+                subline={
+                  workMode === 'unassigned'
+                    ? "Nothing assigned to you right now. Showing the team's unclaimed backlog."
+                    : undefined
+                }
+              />
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {myWork.map((w) => (
                   <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
@@ -124,10 +141,11 @@ export async function ForMeFeed() {
           {/* NEEDS YOUR REPLY */}
           {hasReplyItems && (
             <div style={{ marginBottom: 12 }}>
-              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>Needs your reply</h2>
-                <span className="eyebrow">{replyTotal} waiting</span>
-              </div>
+              <SectionHeaderLink
+                href="/today"
+                title="Needs your reply"
+                eyebrow={`${replyTotal} waiting`}
+              />
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {replyEmails.map((e) => (
                   <EmailItem key={e.id} email={e} />
@@ -213,7 +231,7 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
     .limit(20);
   let taskQ = supabase
     .from('tasks')
-    .select('id, title, priority, status')
+    .select('id, title, priority, status, scope, description, action_summary, due_date, property_ids')
     .in('status', ACTIVE_TASK_STATUSES)
     .order('priority', { ascending: false })
     .limit(20);
@@ -238,10 +256,43 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
     propertyName: s.property_id ? propertyNames.get(s.property_id) ?? null : null,
   }));
   const tasks: MyWork[] = (
-    (taskRes.data ?? []) as Array<{ id: string; title: string; priority: string | null }>
-  ).map((t) => ({ id: t.id, kind: 'task', title: t.title, priority: t.priority, propertyId: null, propertyName: null }));
+    (taskRes.data ?? []) as Array<{
+      id: string;
+      title: string;
+      priority: string | null;
+      scope: string | null;
+      description: string | null;
+      action_summary: string | null;
+      due_date: string | null;
+      property_ids: string[] | null;
+    }>
+  ).map((t) => ({
+    id: t.id,
+    kind: 'task',
+    title: t.title,
+    priority: t.priority,
+    propertyId: null,
+    propertyName: null,
+    // action_summary is the curated one-liner when present; otherwise
+    // fall back to the first non-empty line of the description so the
+    // row stops reading as just a bare title ("Allie order supplies"
+    // → "King pillows -17 beach extra for both main and guest house").
+    actionSummary: t.action_summary?.trim() || firstNonEmptyLine(t.description),
+    dueDate: t.due_date,
+    scope: t.scope,
+    propertyNames: (t.property_ids ?? [])
+      .map((pid) => propertyNames.get(pid))
+      .filter((n): n is string => !!n),
+  }));
   // Tasks before slips.
   return [...tasks, ...slips];
+}
+
+function firstNonEmptyLine(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const line = s.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+  if (!line) return null;
+  return line.length > 90 ? line.slice(0, 90).trimEnd() + '…' : line;
 }
 
 /**
@@ -310,6 +361,29 @@ function MyWorkRow({ item }: { item: MyWork }) {
   // Deep-link to the item's own page so clicking opens the slip/task itself
   // instead of dumping you on the generic board.
   const href = item.kind === 'slip' ? `/work/${item.id}` : `/work/tasks/${item.id}`;
+
+  // Tasks live across multiple properties (or none) and the meat is often
+  // in the description, so build a richer subline: action-summary, then
+  // property list, then due date, then High priority. Slips stay as
+  // before (single property + High priority).
+  const sublineBits: React.ReactNode[] = [];
+  if (item.kind === 'task') {
+    if (item.actionSummary) {
+      sublineBits.push(<span style={{ color: 'var(--ink-2)' }}>{item.actionSummary}</span>);
+    }
+    const propLabel = formatPropertyList(item.propertyNames);
+    if (propLabel) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{propLabel}</span>);
+    else if (item.scope && item.scope !== 'property') {
+      // Corporate / team task with no property: label it so the row
+      // doesn't read as missing context.
+      sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{prettyScope(item.scope)}</span>);
+    }
+    if (item.dueDate) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
+  } else if (item.propertyName) {
+    sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>);
+  }
+  if (isHigh) sublineBits.push(<span style={{ color: 'var(--signal)' }}>High priority</span>);
+
   return (
     <div style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: isHigh ? 'var(--signal)' : 'var(--tide-deep)' }} />
@@ -331,17 +405,94 @@ function MyWorkRow({ item }: { item: MyWork }) {
             {item.kind === 'slip' ? 'Work slip' : 'Task'}
           </span>
         </div>
-        {(item.propertyName || isHigh) && (
-          <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500 }}>
-            {item.propertyName && <span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>}
-            {item.propertyName && isHigh && <span style={{ color: 'var(--ink-4)' }}> · </span>}
-            {isHigh && <span style={{ color: 'var(--signal)' }}>High priority</span>}
+        {sublineBits.length > 0 && (
+          <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500, lineHeight: 1.4 }}>
+            {sublineBits.map((bit, i) => (
+              <span key={i}>
+                {i > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+                {bit}
+              </span>
+            ))}
           </div>
         )}
       </Link>
       <FeedClearButton itemType={item.kind} itemId={item.id} />
     </div>
   );
+}
+
+/**
+ * Clickable section header for the For Me feed. The whole header row
+ * (title + count eyebrow with arrow) is one link to the broader view; an
+ * optional subline sits beneath the title to explain unusual states (e.g.
+ * "nothing assigned to you — showing unclaimed"). The link uses
+ * inherited color so it reads as a heading, not a blue underlined link.
+ */
+function SectionHeaderLink({
+  href,
+  title,
+  eyebrow,
+  subline,
+}: {
+  href: string;
+  title: string;
+  eyebrow: string;
+  subline?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{ display: 'block', textDecoration: 'none', color: 'inherit', marginBottom: 12 }}
+    >
+      <div className="flex items-baseline justify-between">
+        <h2 style={sectionHeadingStyle}>{title}</h2>
+        <span className="eyebrow">{eyebrow} →</span>
+      </div>
+      {subline && (
+        <p
+          style={{
+            margin: '4px 0 0',
+            fontSize: 12,
+            color: 'var(--ink-4)',
+            fontStyle: 'italic',
+          }}
+        >
+          {subline}
+        </p>
+      )}
+    </Link>
+  );
+}
+
+function formatPropertyList(names: string[] | undefined): string | null {
+  if (!names || names.length === 0) return null;
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} + 1 other`;
+  return `${names[0]} + ${names.length - 1} others`;
+}
+
+function prettyScope(scope: string): string {
+  if (scope === 'corporate') return 'Team';
+  if (scope === 'team') return 'Team';
+  return scope.charAt(0).toUpperCase() + scope.slice(1);
+}
+
+/**
+ * Date-only formatter. Parses YYYY-MM-DD as local midnight (NOT UTC,
+ * which would shift to the day-before in ET) and renders as "today",
+ * "tomorrow", "in 3d", "2d overdue", or "Jun 4" for things further out.
+ */
+function formatDueDate(iso: string): string {
+  const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const today = new Date(`${todayIso}T00:00:00`);
+  const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days === -1) return 'yesterday';
+  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days <= 7) return `in ${days}d`;
+  return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function EmailItem({ email: e, dim = false }: { email: BriefEmail; dim?: boolean }) {
