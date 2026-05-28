@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { parseLayoutProse } from '@/lib/ai/parse-layout';
 
 type ActionResult<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -261,4 +262,63 @@ export async function setZoneItemsFromForm(formData: FormData): Promise<void> {
     zoneId: String(formData.get('zone_id') || ''),
     inspectionItemIds: ids,
   });
+}
+
+/**
+ * Parse a free-form house description (Claude) and append the resulting
+ * zones to this property's layout at the END of the walk order. Existing
+ * zones are untouched — the operator can delete or rearrange afterward.
+ * Returns the number of zones added so the UI can confirm. Failures from
+ * the model or DB bubble up as a clean error string rather than throw.
+ */
+export async function parseLayoutFromProseAction(args: {
+  propertyId: string;
+  prose: string;
+}): Promise<ActionResult<{ added: number }>> {
+  const gate = await requireSession();
+  if (!gate.ok) return gate;
+
+  const prose = args.prose.trim();
+  if (!prose) return { ok: false, error: 'Describe the house first' };
+  if (prose.length > 4000) {
+    return { ok: false, error: 'Description is too long (4000 char max)' };
+  }
+
+  let parsed;
+  try {
+    parsed = await parseLayoutProse(prose);
+  } catch (err) {
+    console.error('[parseLayoutFromProseAction] AI error', err);
+    return { ok: false, error: 'Could not parse the description. Try rephrasing it.' };
+  }
+  if (parsed.length === 0) {
+    return { ok: false, error: 'No zones found in the description.' };
+  }
+
+  // Append to the end of the current walk order so existing zones keep
+  // their positions and the new ones land after them.
+  const { data: existing } = await supabase
+    .from('property_zones')
+    .select('walk_order')
+    .eq('property_id', args.propertyId)
+    .order('walk_order', { ascending: false })
+    .limit(1);
+  const startOrder =
+    existing && existing.length > 0
+      ? (existing[0] as { walk_order: number }).walk_order + 1
+      : 1;
+
+  const rows = parsed.map((z, i) => ({
+    property_id: args.propertyId,
+    name: z.name.trim(),
+    floor_label: z.floor?.trim() || null,
+    notes: null,
+    walk_order: startOrder + i,
+  }));
+
+  const { error } = await supabase.from('property_zones').insert(rows);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/properties/${args.propertyId}/layout`);
+  return { ok: true, data: { added: rows.length } };
 }
