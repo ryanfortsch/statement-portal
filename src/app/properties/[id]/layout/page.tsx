@@ -131,7 +131,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
       </section>
 
       {/* ─── Bulk: describe the house in prose, Claude maps zones ─── */}
-      <LayoutProseInput propertyId={property.id} />
+      <LayoutProseInput propertyId={property.id} existingZoneCount={zones.length} />
 
       {/* ─── Add zone (manual, one at a time) ─── */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
