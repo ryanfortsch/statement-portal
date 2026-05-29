@@ -213,10 +213,10 @@ function buildRemittanceList(args: {
     lines.push('  (no tax collected this month)');
   } else {
     taxRows.forEach(r => {
-      // Show the cert ID inline for the accountant to file under. If the
-      // property doesn't have one (e.g. 17 Beach Rd uses Airbnb's remittance),
-      // flag it so they don't try to file something that doesn't apply.
-      const cert = r.taxCertId || 'NO CERT (Airbnb remits direct)';
+      // Show the cert ID inline for the accountant to file under. Properties
+      // without one fall back to a plain "no cert on file" so the line still
+      // formats cleanly.
+      const cert = r.taxCertId || 'no cert on file';
       lines.push(`  ${r.propertyShort.padEnd(22)} ${dollars(r.taxToRemit).padStart(11)}   Cert: ${cert}`);
     });
     lines.push('-'.repeat(72));

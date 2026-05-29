@@ -118,9 +118,10 @@ export const PROPERTIES: Record<string, Property> = {
     // London's email still pending; using Susan's until we have both.
     owner_emails: ['jupitersusan153@gmail.com'],
     fee_pct: 22, bank_last4: '5621', listing_match: '17 beach',
-    // Airbnb collects + remits MA occupancy tax on our behalf for this
-    // listing -- no direct MassTaxConnect filing required.
-    tax_cert_id: null,
+    // MassTaxConnect cert added 2026-05-29. Airbnb collects + remits its own
+    // stays' MA occupancy tax directly; this cert covers VRBO / Manual /
+    // Booking stays that we file on the *9928 tax account.
+    tax_cert_id: 'C0585051070',
   },
   '3_locust': {
     id: '3_locust', name: '3 Locust', address: '3 Locust Lane', city: 'Gloucester, MA',
