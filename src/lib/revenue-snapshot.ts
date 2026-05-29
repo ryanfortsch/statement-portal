@@ -170,6 +170,34 @@ function normalizeStatus(s: string | null): string {
   return (s || '').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
 }
 
+/**
+ * Collapse duplicate reservations that represent the same stay. Guesty
+ * sometimes ends up with two rows for one booking — a CSV-ingested row +
+ * an API-synced row, a modification where the new reservation_id didn't
+ * replace the old one, etc. They share (property_id, check_in, check_out)
+ * but have different guesty_reservation_id, so the upsert doesn't catch
+ * them. Verified case: 20 Hammond / Catherine Stevens May 28 - Jun 1.
+ *
+ * Keep the row with the largest non-null payout signal (host_payout |
+ * owner_net_revenue_guesty | total_paid) — it's the one with the most
+ * complete money data.
+ */
+function dedupeReservations(rows: ReservationRow[]): ReservationRow[] {
+  const payoutSignal = (r: ReservationRow): number =>
+    Math.max(
+      Number(r.host_payout ?? 0),
+      Number(r.owner_net_revenue_guesty ?? 0),
+      Number(r.total_paid ?? 0),
+    );
+  const byKey = new Map<string, ReservationRow>();
+  for (const r of rows) {
+    const key = `${r.property_id ?? ''}|${r.check_in ?? ''}|${r.check_out ?? ''}`;
+    const cur = byKey.get(key);
+    if (!cur || payoutSignal(r) > payoutSignal(cur)) byKey.set(key, r);
+  }
+  return Array.from(byKey.values());
+}
+
 function isAllowed(status: string | null): boolean {
   const n = normalizeStatus(status);
   return (
@@ -305,8 +333,10 @@ export async function computeRevenueSnapshot(
     throw new Error(`Failed to load reservations: ${resErr.message}`);
   }
 
-  const reservations = ((resData ?? []) as ReservationRow[]).filter(
-    (r) => r.check_in && r.check_out && isAllowed(r.status),
+  const reservations = dedupeReservations(
+    ((resData ?? []) as ReservationRow[]).filter(
+      (r) => r.check_in && r.check_out && isAllowed(r.status),
+    ),
   );
 
   // 3. Forward reservations: today through +30d, count turnovers per property.
