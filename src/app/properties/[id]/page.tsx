@@ -14,6 +14,7 @@ import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
+import { TaxCertEditor } from './TaxCertEditor';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
@@ -739,7 +740,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               <MarkContactedButton propertyId={p.id} />
             </dd>
           </div>
-          <Detail term="Tax Cert ID" definition={p.tax_cert_id || '—'} mono />
+          <div>
+            <dt className="eyebrow" style={{ marginBottom: 4 }}>Tax Cert ID</dt>
+            <dd style={{ margin: 0 }}>
+              <TaxCertEditor propertyId={p.id} initial={p.tax_cert_id} />
+            </dd>
+          </div>
         </dl>
 
         {/* The "In CRM" chip block that used to live here was lifted out

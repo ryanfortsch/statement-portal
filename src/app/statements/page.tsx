@@ -1897,6 +1897,17 @@ function DashboardContent() {
       const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
       (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
 
+      // DB-backed tax cert lookup. The /properties/[id] page now lets the
+      // operator edit tax_cert_id in place, so the DB is authoritative;
+      // lib/properties.ts stays as a fallback for properties that haven't
+      // been touched in the UI yet.
+      const propIds = props.map(p => p.property_id);
+      const { data: certRows } = propIds.length
+        ? await supabase.from('properties').select('id, tax_cert_id').in('id', propIds)
+        : { data: [] as Array<{ id: string; tax_cert_id: string | null }> };
+      const certByPid = new Map<string, string | null>();
+      (certRows || []).forEach(r => certByPid.set(r.id, r.tax_cert_id));
+
       const rows = props.map(p => {
         let taxToRemit = 0;
         let vrboCommissionSweep = 0;
@@ -1924,7 +1935,7 @@ function DashboardContent() {
         return {
           propertyName: p.property_name,
           propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
-          taxCertId: PROPERTIES[p.property_id]?.tax_cert_id ?? null,
+          taxCertId: certByPid.get(p.property_id) ?? PROPERTIES[p.property_id]?.tax_cert_id ?? null,
           taxToRemit: Math.round(taxToRemit * 100) / 100,
           vrboCommissionSweep: Math.round(vrboCommissionSweep * 100) / 100,
           bookingAutoDebit: Math.round(bookingAutoDebit * 100) / 100,
