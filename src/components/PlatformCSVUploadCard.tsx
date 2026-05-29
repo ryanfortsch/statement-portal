@@ -29,7 +29,7 @@ type Result = {
   success: boolean;
   month: string;
   cached: { filename: string; uploaded_at: string; size: number | null } | null;
-  reservations: { parsed: number; unmatched_listings: number; reservations_upserted: number; reviews_upserted: number } | null;
+  reservations: { parsed: number; unmatched_listings: number; reservations_upserted: number; api_rows_backfilled: number; reviews_upserted: number } | null;
   reservations_error: string | null;
 };
 
@@ -125,7 +125,9 @@ export function PlatformCSVUploadCard({ defaultMonth }: { defaultMonth?: string 
             </div>
             {result.reservations && (
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
-                {result.reservations.reservations_upserted} reservations refreshed in the cache · {result.reservations.parsed} parsed · {result.reservations.unmatched_listings} unmatched listings
+                {result.reservations.reservations_upserted} reservations refreshed in the cache
+                {result.reservations.api_rows_backfilled > 0 && ` · ${result.reservations.api_rows_backfilled} api rows backfilled (taxes / fees)`}
+                {' · '}{result.reservations.parsed} parsed · {result.reservations.unmatched_listings} unmatched listings
               </div>
             )}
             {result.reservations_error && (

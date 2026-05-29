@@ -64,6 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         parsed: ingestSummary.parsed,
         unmatched_listings: ingestSummary.unmatched_listings,
         reservations_upserted: ingestSummary.reservations_upserted,
+        api_rows_backfilled: ingestSummary.api_rows_backfilled,
         reviews_upserted: ingestSummary.reviews_upserted,
       } : null,
       reservations_error: ingestRes.ok && ingestSummary.success ? null : (ingestSummary.error || 'reservations cache update failed'),

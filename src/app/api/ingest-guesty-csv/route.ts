@@ -197,24 +197,54 @@ export async function POST(request: NextRequest) {
 
     const sb = getSupabase();
 
-    // Upsert reservations. Skip rows that would overwrite a Guesty-API-sourced
-    // reservation (API data is always more complete than CSV data).
+    // Upsert reservations. When an API-sourced row already exists for a code,
+    // skip the CSV row to preserve API metadata (channel ids, status, etc.) --
+    // BUT also gap-fill the money columns (TOTAL_PAID, TOTAL_TAXES,
+    // CHANNEL_COMMISSION, OWNER_NET) from the CSV when the API row left them
+    // at 0/null. In practice Guesty's API regularly returns 0 for these on
+    // VRBO/Booking/Manual stays (and even some Airbnb), so the CSV is the
+    // reliable source for that subset of fields. Gap-fill only -- never
+    // overwrite a real positive API value.
     let reservationsUpserted = 0;
+    let apiRowsBackfilled = 0;
     if (reservationRows.length > 0) {
-      // Which confirmation codes already have API-sourced rows?
       const codes = reservationRows.map(r => r.confirmation_code).filter(Boolean);
       const { data: apiExisting } = codes.length
         ? await sb.from('guesty_reservations')
-            .select('confirmation_code')
+            .select('confirmation_code, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
             .eq('source', 'guesty-api')
             .in('confirmation_code', codes)
-        : { data: [] as { confirmation_code: string }[] };
-      const apiCodes = new Set((apiExisting || []).map(r => r.confirmation_code));
+        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null; owner_net_revenue_guesty: number | null }> };
+      const apiByCode = new Map((apiExisting || []).map(r => [r.confirmation_code, r]));
+      const apiCodes = new Set(apiByCode.keys());
+
+      // CSV rows whose code is NOT already API-sourced -> upsert as csv-fallback.
       const filtered = reservationRows.filter(r => !r.confirmation_code || !apiCodes.has(r.confirmation_code));
       if (filtered.length > 0) {
         const { error } = await sb.from('guesty_reservations').upsert(filtered, { onConflict: 'guesty_reservation_id' });
         if (error) throw new Error(`reservations upsert failed: ${error.message}`);
         reservationsUpserted = filtered.length;
+      }
+
+      // Money-column gap-fill on existing API rows.
+      const csvByCode = new Map(reservationRows.filter(r => r.confirmation_code).map(r => [r.confirmation_code, r]));
+      for (const code of apiCodes) {
+        const api = apiByCode.get(code); const csv = csvByCode.get(code);
+        if (!api || !csv) continue;
+        const updates: Record<string, unknown> = {};
+        const fill = (col: 'total_paid' | 'total_taxes' | 'channel_commission' | 'owner_net_revenue_guesty') => {
+          const apiVal = Number(api[col] ?? 0);
+          const csvVal = csv[col];
+          if (apiVal === 0 && csvVal != null && csvVal > 0) updates[col] = csvVal;
+        };
+        fill('total_paid'); fill('total_taxes'); fill('channel_commission'); fill('owner_net_revenue_guesty');
+        if (Object.keys(updates).length > 0) {
+          const { error } = await sb.from('guesty_reservations')
+            .update(updates)
+            .eq('confirmation_code', code)
+            .eq('source', 'guesty-api');
+          if (!error) apiRowsBackfilled++;
+        }
       }
     }
 
@@ -248,6 +278,7 @@ export async function POST(request: NextRequest) {
       parsed,
       unmatched_listings: unmatched,
       reservations_upserted: reservationsUpserted,
+      api_rows_backfilled: apiRowsBackfilled,
       reviews_upserted: reviewsUpserted,
     });
   } catch (err) {
