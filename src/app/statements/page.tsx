@@ -12,6 +12,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
 import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
+import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -2609,6 +2610,12 @@ function DashboardContent() {
           );
         })()}
       </section>
+
+      {/* ─── CLOSE-OUT NOTES ─── per-month freeform notepad the operator
+           drops context into throughout the month (cancellations, refunds,
+           weird charges, follow-ups) so it's all in one place at close-out.
+           Stored in period_notes (supabase-schema-period-notes.sql). */}
+      {selectedMonth && <PeriodNotesCard month={selectedMonth} />}
 
       {/* ─── CLOSE-OUT PANEL ─── */}
       {props.length > 0 && (
