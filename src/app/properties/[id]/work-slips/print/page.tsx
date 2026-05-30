@@ -2,11 +2,9 @@ import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
-import {
-  ACTIVE_WORK_SLIP_STATUSES,
-  WORK_SLIP_CATEGORY_LABELS,
-} from '@/lib/work-types';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { PrintButton } from './PrintButton';
+import { SlipRow } from './SlipRow';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,7 +66,13 @@ export default async function WorkSlipsPrintPage({
           [data-no-print] { display: none !important; }
           .ws-pdf-sheet { box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
           .ws-pdf-page { background: white !important; }
-          .ws-pdf-row { break-inside: avoid; }
+          .ws-pdf-row { break-inside: avoid; opacity: 1 !important; }
+          /* Paper always prints pristine — tick boxes empty, no strikethrough,
+             regardless of what got tapped on screen. */
+          .ws-pdf-row-done { opacity: 1 !important; }
+          .ws-pdf-row-body { text-decoration: none !important; }
+          .ws-tick { background: transparent !important; color: transparent !important; }
+          .ws-tick-mark { display: none !important; }
         }
         .ws-pdf-page {
           background: var(--paper-2);
@@ -248,129 +252,3 @@ export default async function WorkSlipsPrintPage({
   );
 }
 
-/**
- * One slip on the printed checklist. A 22px square checkbox on the left
- * for the inspector to tick, then the title, location, description, and
- * a thin metadata strip (category + priority + slip-id stub) on the
- * right so the operator can find the slip in /work later.
- */
-function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number }) {
-  const priorityColor =
-    slip.priority === 'high'
-      ? 'var(--negative)'
-      : slip.priority === 'low'
-        ? 'var(--ink-4)'
-        : 'var(--ink-3)';
-  return (
-    <div
-      className="ws-pdf-row"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '34px 1fr auto',
-        gap: 18,
-        padding: '14px 0',
-        borderBottom: '1px solid var(--rule)',
-        alignItems: 'flex-start',
-      }}
-    >
-      {/* Tick box */}
-      <div
-        style={{
-          width: 22,
-          height: 22,
-          border: '1.5px solid var(--ink)',
-          marginTop: 2,
-        }}
-        aria-hidden
-      />
-      <div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 10,
-          }}
-        >
-          <span
-            className="font-mono"
-            style={{
-              fontSize: 10,
-              letterSpacing: '.06em',
-              color: 'var(--ink-4)',
-            }}
-          >
-            {String(number).padStart(2, '0')}
-          </span>
-          <span
-            style={{
-              fontSize: 14,
-              color: 'var(--ink)',
-              fontWeight: 500,
-              lineHeight: 1.35,
-            }}
-          >
-            {slip.title}
-          </span>
-        </div>
-        {slip.location && (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
-            Location: {slip.location}
-          </div>
-        )}
-        {slip.action_summary && (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--signal)', fontWeight: 600 }}>
-            {slip.action_summary}
-          </div>
-        )}
-        {slip.description && (
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              color: 'var(--ink-3)',
-              lineHeight: 1.45,
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {slip.description}
-          </div>
-        )}
-      </div>
-      <div style={{ textAlign: 'right' }}>
-        <div
-          style={{
-            fontSize: 9,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            color: priorityColor,
-          }}
-        >
-          {slip.priority}
-        </div>
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 9,
-            letterSpacing: '.14em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          {WORK_SLIP_CATEGORY_LABELS[slip.category] ?? slip.category}
-        </div>
-        <div
-          className="font-mono"
-          style={{
-            marginTop: 8,
-            fontSize: 9,
-            color: 'var(--ink-4)',
-            letterSpacing: '.04em',
-          }}
-        >
-          /work/{slip.id.slice(0, 8)}
-        </div>
-      </div>
-    </div>
-  );
-}
