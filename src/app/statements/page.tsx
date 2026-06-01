@@ -13,6 +13,7 @@ import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
 import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
+import { BankDepositReview } from '@/components/BankDepositReview';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -1274,6 +1275,16 @@ function PropertyCard({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Unattributed bank deposits -- operator review queue. Shows
+              nothing if there are no pending deposits for this property+month. */}
+          {month && (
+            <BankDepositReview
+              propertyId={prop.property_id}
+              month={month}
+              reservations={(prop.reservations || []).map(r => ({ confirmation_code: r.confirmation_code, guest_name: r.guest_name }))}
+            />
           )}
 
           {/* Data Gaps */}
