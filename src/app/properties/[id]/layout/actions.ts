@@ -306,8 +306,29 @@ export async function parseLayoutFromProseAction(args: {
   if (templateItems.length === 0) {
     return { ok: false, error: 'No inspection items found for this template.' };
   }
+  // Title-matching: we lookup model-returned itemTitles against the real
+  // template titles. We index BOTH the exact-trimmed form AND a normalized
+  // form so a Claude paraphrase ("Kitchen Surfaces and Sink" vs the real
+  // "Kitchen Surfaces + Sink", or "Bathroom Reset" vs "Bathroom Reset (All
+  // Baths)") still resolves. Normalization: lowercase, strip parenthesized
+  // suffixes, collapse "+" / "and" / "&" to a single space, strip remaining
+  // punctuation, collapse whitespace. Built once before the matching loop.
+  const normalizeTitle = (s: string): string =>
+    s
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[+&]/g, ' ')
+      .replace(/\b(and|with)\b/g, ' ')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   const itemIdByTitle = new Map<string, string>();
-  for (const it of templateItems) itemIdByTitle.set(it.title.trim(), it.id);
+  const itemIdByNorm = new Map<string, string>();
+  for (const it of templateItems) {
+    const t = it.title.trim();
+    itemIdByTitle.set(t, it.id);
+    itemIdByNorm.set(normalizeTitle(t), it.id);
+  }
 
   let parsed;
   try {
@@ -345,9 +366,11 @@ export async function parseLayoutFromProseAction(args: {
     return { ok: false, error: zoneErr?.message || 'Failed to insert zones' };
   }
 
-  // Attach items per zone. Match each parsed itemTitle to a template item
-  // by exact title (after trim). Unknown titles get logged and reported so
-  // the operator knows something didn't land — usually a model hallucination.
+  // Attach items per zone. Try exact match first, then a normalized lookup
+  // (handles Claude paraphrasing punctuation / casing / parenthesized
+  // suffixes). Anything still unmatched goes into `unknown` so the UI can
+  // tell the operator something didn't land — instead of silently dropping
+  // items and leaving every zone empty.
   const unknown = new Set<string>();
   const itemRows: Array<{ property_zone_id: string; inspection_item_id: string }> = [];
   for (let i = 0; i < parsed.length; i += 1) {
@@ -356,13 +379,24 @@ export async function parseLayoutFromProseAction(args: {
     for (const rawTitle of z.itemTitles) {
       const t = (rawTitle || '').trim();
       if (!t) continue;
-      const itemId = itemIdByTitle.get(t);
+      const itemId = itemIdByTitle.get(t) ?? itemIdByNorm.get(normalizeTitle(t));
       if (!itemId) {
         unknown.add(t);
         continue;
       }
       itemRows.push({ property_zone_id: zoneId, inspection_item_id: itemId });
     }
+  }
+  // If the model returned zones but no items mapped at all, surface that
+  // loudly so the operator isn't left with an empty layout silently.
+  if (itemRows.length === 0 && parsed.length > 0) {
+    const sample = Array.from(unknown).slice(0, 3).join('", "');
+    console.warn(
+      '[parseLayoutFromProseAction] 0 items matched across',
+      parsed.length,
+      'zones. Unknown titles sample:',
+      sample,
+    );
   }
   if (itemRows.length > 0) {
     const { error: itemsInsertErr } = await supabase
