@@ -1057,6 +1057,12 @@ function WorkSlipModal({
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Photos are deferred behind a toggle so the default form is short
+  // enough to see all of (Title, Category/Priority, Location, Description)
+  // above the iOS keyboard. Most slips don't need a photo — the operator
+  // taps "+ Add photo" when they do. Starts expanded if any photo already
+  // exists (e.g. after re-opening the modal mid-flow).
+  const [photosOpen, setPhotosOpen] = useState(false);
 
   async function handleSubmit() {
     if (!title.trim()) return;
@@ -1131,13 +1137,35 @@ function WorkSlipModal({
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <FieldLabel>Photos (optional)</FieldLabel>
-        <PhotoUploader
-          value={photos}
-          onChange={setPhotos}
-          folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
-          disabled={submitting}
-        />
+        {photosOpen || photos.length > 0 ? (
+          <>
+            <FieldLabel>Photos (optional)</FieldLabel>
+            <PhotoUploader
+              value={photos}
+              onChange={setPhotos}
+              folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
+              disabled={submitting}
+            />
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPhotosOpen(true)}
+            style={{
+              background: 'transparent',
+              border: '1px dashed var(--rule)',
+              padding: '10px 14px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            + Add photo (optional)
+          </button>
+        )}
       </div>
 
       {err && <ErrorBlock error={err} />}
@@ -1165,6 +1193,8 @@ function ModalShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+
   // Stop scroll on body while modal is open
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -1172,6 +1202,35 @@ function ModalShell({
     return () => {
       document.body.style.overflow = prev;
     };
+  }, []);
+
+  // When an input inside the modal gains focus, slide it into the middle
+  // of the visible scroll area. iOS won't reliably do this on its own
+  // once the soft keyboard takes over the bottom of the screen, which is
+  // why typing into the Description box used to drift it off-screen and
+  // make scrolling feel broken (Dotti's "very hard to scroll up or down"
+  // complaint). The setTimeout gives the keyboard a beat to come up so
+  // we measure against the shrunken viewport, not the pre-keyboard one.
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+    function onFocusIn(e: FocusEvent) {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const tag = t.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+      setTimeout(() => {
+        try {
+          t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } catch {
+          // Older Safari can throw on smooth scroll inside contained
+          // overflow; the fallthrough is fine, the input is at worst
+          // where iOS originally placed it.
+        }
+      }, 240);
+    }
+    el.addEventListener('focusin', onFocusIn);
+    return () => el.removeEventListener('focusin', onFocusIn);
   }, []);
 
   return (
@@ -1193,19 +1252,28 @@ function ModalShell({
       }}
     >
       <div
+        ref={sheetRef}
         style={{
           width: '100%',
           maxWidth: 520,
           background: 'var(--paper)',
           borderTop: '1px solid var(--ink)',
           padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
-          // dvh = "dynamic viewport height": on iOS Safari 15.4+ it shrinks
-          // when the soft keyboard opens, so the modal sheet stays the
-          // right size and the sticky action bar (see ModalActions below)
-          // remains tappable instead of hiding under the keyboard. vh
-          // is the fallback for older WebKit; the larger of the two wins.
-          maxHeight: '92dvh',
+          // 82dvh (was 92dvh) leaves ~18% of the screen showing the dimmed
+          // background, so the modal reads as a popup instead of swallowing
+          // the screen, AND gives a visible "tap here to dismiss" zone
+          // above the sheet (Dotti's "takes up the whole screen" complaint).
+          // dvh = dynamic viewport height: shrinks with the iOS soft
+          // keyboard on Safari 15.4+ so the sticky action bar stays inside
+          // the visible area. Older WebKit falls back via the cascade.
+          maxHeight: '82dvh',
           overflowY: 'auto',
+          // Keep scroll touches inside the modal — otherwise iOS Safari
+          // sometimes propagates the touch to the page underneath and the
+          // modal stops scrolling mid-gesture. Pair with -webkit momentum
+          // scroll so the gesture feels native.
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
         }}
       >
         <div className="flex items-start justify-between" style={{ marginBottom: 14 }}>
