@@ -8,6 +8,7 @@
  *   - Contacts (name, organization)
  *   - Work slips (title, description, location)
  *   - Tasks (title, description)
+ *   - Playbook entries (title, summary, body)
  *
  * Pages are matched in-memory (no DB hit); the rest run in parallel as
  * permissive ILIKE queries against Supabase. Limit per group keeps the
@@ -20,6 +21,7 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import type { ContactRow } from '@/lib/crm';
+import type { PlaybookEntryRow } from '@/lib/playbook';
 
 export type PageMatch = {
   id: string;
@@ -36,10 +38,11 @@ export type SearchResults = {
   contacts: ContactRow[];
   slips: SlipMatch[];
   tasks: TaskRow[];
+  playbook: PlaybookEntryRow[];
   total: number;
 };
 
-const EMPTY: SearchResults = { pages: [], properties: [], contacts: [], slips: [], tasks: [], total: 0 };
+const EMPTY: SearchResults = { pages: [], properties: [], contacts: [], slips: [], tasks: [], playbook: [], total: 0 };
 
 /** Return up to N module pages matching the query against title / description / id. */
 function searchPages(q: string, limit = 6): PageMatch[] {
@@ -76,7 +79,7 @@ export async function searchEverything(q: string, opts?: { perGroup?: number }):
   const escaped = trimmed.replace(/[%_,]/g, ' ');
   const like = `%${escaped}%`;
 
-  const [propRes, contactRes, slipRes, taskRes, propMapRes] = await Promise.all([
+  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes] = await Promise.all([
     supabase
       .from('properties')
       .select('*')
@@ -103,6 +106,13 @@ export async function searchEverything(q: string, opts?: { perGroup?: number }):
       .or(`title.ilike.${like},description.ilike.${like}`)
       .order('priority', { ascending: false })
       .limit(perGroup),
+    supabase
+      .from('playbook_entries')
+      .select('*')
+      .eq('status', 'published')
+      .or(`title.ilike.${like},summary.ilike.${like},body_md.ilike.${like}`)
+      .order('updated_at', { ascending: false })
+      .limit(perGroup),
     supabase.from('properties').select('id, name'),
   ]);
 
@@ -119,10 +129,11 @@ export async function searchEverything(q: string, opts?: { perGroup?: number }):
     .slice(0, perGroup)
     .map((s) => ({ ...s, property_name: propertyMap.get(s.property_id) ?? s.property_id }));
   const tasks = (taskRes.data ?? []) as TaskRow[];
+  const playbook = (playbookRes.data ?? []) as PlaybookEntryRow[];
 
-  const total = pages.length + properties.length + contacts.length + slips.length + tasks.length;
+  const total = pages.length + properties.length + contacts.length + slips.length + tasks.length + playbook.length;
 
-  return { pages, properties, contacts, slips, tasks, total };
+  return { pages, properties, contacts, slips, tasks, playbook, total };
 }
 
 /** Page-only search. Cheap, in-memory, no DB. Used as an instant pre-flight. */

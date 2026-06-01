@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { SearchResults } from '@/lib/search';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import { categoryLabel, excerptFor } from '@/lib/playbook';
 
 type FlatItem = {
   group: string;
@@ -40,6 +41,7 @@ const EMPTY: SearchResults = {
   contacts: [],
   slips: [],
   tasks: [],
+  playbook: [],
   total: 0,
 };
 
@@ -131,6 +133,16 @@ export function UniversalSearch({ placeholder = 'Search Helm or jump to a pageâ€
         secondary: t.scope === 'corporate' ? 'Corporate' : 'Property',
         pill: t.priority,
         pillColor: t.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)',
+      });
+    }
+    for (const e of results.playbook) {
+      items.push({
+        group: 'Playbook',
+        href: `/playbook/${e.slug}`,
+        primary: e.title,
+        secondary: excerptFor(e, 90),
+        pill: categoryLabel(e.category),
+        pillColor: 'var(--tide-deep)',
       });
     }
     return items;

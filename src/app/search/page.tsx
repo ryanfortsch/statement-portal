@@ -8,6 +8,7 @@ import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-type
 import type { ContactRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
+import { categoryLabel, excerptFor, type PlaybookEntryRow } from '@/lib/playbook';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,17 +17,18 @@ type SearchResults = {
   contacts: ContactRow[];
   slips: (WorkSlipRow & { property_name: string })[];
   tasks: TaskRow[];
+  playbook: PlaybookEntryRow[];
 };
 
 async function search(q: string): Promise<SearchResults> {
   if (!isHelmConfigured || !q || q.length < 2) {
-    return { properties: [], contacts: [], slips: [], tasks: [] };
+    return { properties: [], contacts: [], slips: [], tasks: [], playbook: [] };
   }
 
   const escaped = q.replace(/[%_,]/g, ' ').trim();
   const like = `%${escaped}%`;
 
-  const [propRes, contactRes, slipRes, taskRes, propMapRes] = await Promise.all([
+  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes] = await Promise.all([
     supabase
       .from('properties')
       .select('*')
@@ -53,6 +55,13 @@ async function search(q: string): Promise<SearchResults> {
       .or(`title.ilike.${like},description.ilike.${like}`)
       .order('priority', { ascending: false })
       .limit(20),
+    supabase
+      .from('playbook_entries')
+      .select('*')
+      .eq('status', 'published')
+      .or(`title.ilike.${like},summary.ilike.${like},body_md.ilike.${like}`)
+      .order('updated_at', { ascending: false })
+      .limit(20),
     supabase.from('properties').select('id, name'),
   ]);
 
@@ -72,6 +81,7 @@ async function search(q: string): Promise<SearchResults> {
         property_name: propertyMap.get(s.property_id) ?? s.property_id,
       })),
     tasks: (taskRes.data ?? []) as TaskRow[],
+    playbook: (playbookRes.data ?? []) as PlaybookEntryRow[],
   };
 }
 
@@ -81,7 +91,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const q = (params.q ?? '').trim();
   const results = await search(q);
-  const total = results.properties.length + results.contacts.length + results.slips.length + results.tasks.length;
+  const total = results.properties.length + results.contacts.length + results.slips.length + results.tasks.length + results.playbook.length;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -121,12 +131,13 @@ export default async function SearchPage({ searchParams }: PageProps) {
             {q.length < 2
               ? 'Type at least two characters.'
               : total === 0
-                ? 'No matches across properties, contacts, slips, or tasks.'
+                ? 'No matches across properties, contacts, slips, tasks, or the playbook.'
                 : `${total} result${total === 1 ? '' : 's'}: ${[
                     results.properties.length && `${results.properties.length} propert${results.properties.length === 1 ? 'y' : 'ies'}`,
                     results.contacts.length && `${results.contacts.length} contact${results.contacts.length === 1 ? '' : 's'}`,
                     results.slips.length && `${results.slips.length} slip${results.slips.length === 1 ? '' : 's'}`,
                     results.tasks.length && `${results.tasks.length} task${results.tasks.length === 1 ? '' : 's'}`,
+                    results.playbook.length && `${results.playbook.length} playbook`,
                   ].filter(Boolean).join(', ')}`}
           </p>
         )}
@@ -181,6 +192,21 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 secondary={`${t.scope === 'corporate' ? 'Corporate' : 'Property'} · ${t.assigned_to_email ? displayNameForEmail(t.assigned_to_email) : 'Unassigned'}`}
                 pill={t.priority}
                 pillColor={t.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)'}
+              />
+            ))}
+          </ResultGroup>
+        )}
+
+        {results.playbook.length > 0 && (
+          <ResultGroup title="Playbook" count={results.playbook.length}>
+            {results.playbook.map((e) => (
+              <Row
+                key={e.id}
+                href={`/playbook/${e.slug}`}
+                primary={e.title}
+                secondary={excerptFor(e, 110)}
+                pill={categoryLabel(e.category)}
+                pillColor="var(--tide-deep)"
               />
             ))}
           </ResultGroup>
