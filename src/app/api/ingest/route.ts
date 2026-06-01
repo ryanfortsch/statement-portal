@@ -499,29 +499,21 @@ export async function POST(request: NextRequest) {
 
       const cls = classifyBankRow(descUpper);
 
-      // Cleaning + linen charges: real DEBITS only (negative amounts). A
-      // CREDIT from the same vendor in the bank feed is a vendor refund (a
-      // duplicate charge being clawed back, etc.) -- it belongs in the
-      // deposit-review queue below, not as another cleaning_event.
-      if (cls?.kind === 'cleaning') {
-        if (isInMonth(date, month) && amount < 0) {
-          cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
-        }
+      // Cleaning / linen / repair charges: real DEBITS only (negative).
+      // A CREDIT matching the same vendor's name is a refund -- DON'T
+      // capture it as another charge, and DON'T continue past the deposit
+      // collector below, otherwise the refund disappears (the bug that
+      // dropped 53 Rocky Neck's $275 May 21 fedwire reimbursement).
+      if (cls?.kind === 'cleaning' && isInMonth(date, month) && amount < 0) {
+        cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
-      if (cls?.kind === 'linen') {
-        if (isInMonth(date, month) && amount < 0) {
-          linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
-        }
+      if (cls?.kind === 'linen' && isInMonth(date, month) && amount < 0) {
+        linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
-
-      // Maintenance / repair vendor matches. Recurring property handymen,
-      // plumbers, etc. Always a DEBIT (negative amount).
-      if (cls?.kind === 'repair') {
-        if (isInMonth(date, month) && amount < 0) {
-          repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
-        }
+      if (cls?.kind === 'repair' && isInMonth(date, month) && amount < 0) {
+        repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
 
@@ -868,6 +860,10 @@ export async function POST(request: NextRequest) {
     for (const d of deposits) {
       if (d.source === 'stripe') continue;
       if (!(d.amount > 0)) continue;
+      // Only queue deposits dated within the statement month -- a multi-
+      // month Chase export carries unmatched Airbnb payouts from previous
+      // months that would otherwise flood the review queue.
+      if (!isInMonth(d.date, month)) continue;
       const isoDate = depToISO(d.date);
       if (!isoDate) continue;
       // Suggest the reservation whose check-in is closest to the deposit.

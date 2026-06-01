@@ -14,6 +14,7 @@ import { AddNoteModal } from '@/components/AddNoteModal';
 import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
+import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -42,6 +43,8 @@ type CleaningEvent = {
   amount: number;
   source: string;
   vendor: string | null;
+  credit_amount: number | null;
+  credit_reason: string | null;
 };
 
 type RepairEvent = {
@@ -1240,7 +1243,22 @@ function PropertyCard({
                     </div>
                     <div className="flex items-center gap-4">
                       {ce.invoice_no && <span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>#{ce.invoice_no}</span>}
-                      <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(ce.amount)}</span>
+                      {(Number(ce.credit_amount) || 0) > 0 ? (
+                        <span className="font-serif tabular-nums" style={{ color: 'var(--ink-3)' }}>
+                          <s style={{ color: 'var(--ink-4)' }}>{fmt(ce.amount)}</s>{' '}
+                          <span style={{ color: 'var(--positive)' }}>−{fmt(Number(ce.credit_amount) || 0)}</span>
+                        </span>
+                      ) : (
+                        <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(ce.amount)}</span>
+                      )}
+                      {ce.source !== 'bank-linen' && (
+                        <CleaningEventCredit
+                          eventId={ce.id}
+                          amount={ce.amount}
+                          initialCreditAmount={Number(ce.credit_amount) || 0}
+                          initialCreditReason={ce.credit_reason}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
