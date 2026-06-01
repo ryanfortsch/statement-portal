@@ -191,23 +191,44 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
                 {inspectionsLeft > 0 ? (
                   pendingHref ? (
-                    <Link
-                      href={pendingHref}
-                      style={{
-                        color: 'var(--signal)',
-                        fontSize: 14,
-                        marginLeft: 12,
-                        textDecoration: 'none',
-                        borderBottom: '1px dashed currentColor',
-                      }}
-                      title={
-                        pendingHref.startsWith('/inspections/')
-                          ? 'Resume the inspection in progress'
-                          : 'Jump to the first turnover that still needs an inspection'
-                      }
-                    >
-                      · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
-                    </Link>
+                    // For real route navigation (/inspections/{id} resume URL)
+                    // we want Next's Link with prefetch + client routing. For
+                    // a same-page hash anchor we use a plain <a> instead: the
+                    // App Router's Link intercepts the click and (in some
+                    // configurations) suppresses the browser's native
+                    // fragment-scroll, leaving "1 inspection pending" looking
+                    // like a dead link. A regular <a href="#..."> just lets
+                    // the browser do the scroll natively, which is what we
+                    // want here.
+                    pendingHref.startsWith('#') ? (
+                      <a
+                        href={pendingHref}
+                        style={{
+                          color: 'var(--signal)',
+                          fontSize: 14,
+                          marginLeft: 12,
+                          textDecoration: 'none',
+                          borderBottom: '1px dashed currentColor',
+                        }}
+                        title="Jump to the first turnover that still needs an inspection"
+                      >
+                        · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
+                      </a>
+                    ) : (
+                      <Link
+                        href={pendingHref}
+                        style={{
+                          color: 'var(--signal)',
+                          fontSize: 14,
+                          marginLeft: 12,
+                          textDecoration: 'none',
+                          borderBottom: '1px dashed currentColor',
+                        }}
+                        title="Resume the inspection in progress"
+                      >
+                        · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
+                      </Link>
+                    )
                   ) : (
                     <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
                       · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
