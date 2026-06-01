@@ -58,10 +58,15 @@ export async function PATCH(
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
   // Recompute cleaning_total and owner_payout for the parent statement.
+  // owner_payout subtracts attributed_debits_total too -- the bank-deposit
+  // review queue can attribute a charge (e.g. trash-can reimbursement) as
+  // a property-level expense, and this recompute must not clobber it back
+  // to zero. Read the column directly off the statement row instead of
+  // joining attributions so the two recompute paths stay independent.
   const stmtId = event.property_statement_id as string;
   const { data: stmt } = await supabase
     .from('property_statements')
-    .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total')
+    .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total, attributed_debits_total')
     .eq('id', stmtId)
     .maybeSingle();
   if (stmt) {
@@ -76,7 +81,8 @@ export async function PATCH(
     const addOns = Number(stmt.add_ons_revenue) || 0;
     const mgmt = Number(stmt.management_fee) || 0;
     const repairs = Number(stmt.repairs_total) || 0;
-    const ownerPayout = round2(rental + addOns - mgmt - cleaningTotal - repairs);
+    const attributedDebits = Number(stmt.attributed_debits_total) || 0;
+    const ownerPayout = round2(rental + addOns - mgmt - cleaningTotal - repairs - attributedDebits);
     await supabase
       .from('property_statements')
       .update({ cleaning_total: cleaningTotal, owner_payout: ownerPayout })
