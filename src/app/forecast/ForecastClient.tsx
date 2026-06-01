@@ -141,6 +141,19 @@ export function ForecastClient({
     yearKey === 2027 ? prospects2027 :
     prospects2028;
 
+  const smartForYear =
+    yearKey === 2026 ? smart2026 :
+    yearKey === 2027 ? smart2027 :
+    smart2028;
+
+  // Live count of active managed properties — pulled from Helm's
+  // properties table via the smart-forecast feed, so it updates
+  // automatically when a property is added or deactivated in Helm.
+  // Falls back to the model config if the smart forecast isn't
+  // available (e.g. Supabase down).
+  const liveCurrentCount =
+    smartForYear?.properties.length ?? yearConfig.current.length;
+
   // Per-year statement actuals: month-of-year → mgmt fee. Only months
   // that have at least one reconciled property_statements row are present.
   const statementByMonthForYear = useMemo(() => {
@@ -170,7 +183,7 @@ export function ForecastClient({
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
   // Total managed = current properties + prospects in this year + N new
-  const totalManaged = yearConfig.current.length + prospectsForYear.totals.count + numNew;
+  const totalManaged = liveCurrentCount + prospectsForYear.totals.count + numNew;
 
   return (
     <>
@@ -197,7 +210,7 @@ export function ForecastClient({
           totalManaged={totalManaged}
           springTrough={springTrough}
           yearKey={yearKey}
-          currentCount={yearConfig.current.length}
+          currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
         />
       </section>
@@ -215,7 +228,12 @@ export function ForecastClient({
             overflowX: 'auto',
           }}
         >
-          <ForecastTable year={year} yearKey={yearKey} currentCount={yearConfig.current.length} />
+          <ForecastTable
+            year={year}
+            yearKey={yearKey}
+            currentCount={liveCurrentCount}
+            prospectsCount={prospectsForYear.totals.count}
+          />
         </div>
       </section>
 
@@ -1358,18 +1376,20 @@ function ForecastTable({
   year,
   yearKey,
   currentCount,
+  prospectsCount,
 }: {
   year: YearResult;
   yearKey: ForecastYear;
   currentCount: number;
+  prospectsCount: number;
 }) {
   const { monthly, cumulative, totals } = year;
-  const currentLabel = yearKey === 2026 ? `Current 9` : `Active ${currentCount}`;
+  const currentLabel = `Properties (${currentCount})`;
   const currentInfo =
     yearKey === 2026
       ? 'Past months (Jan-Apr) use bank actuals from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
       : `${currentCount} active properties full year. Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else.`;
-  const presignedLabel = 'Prospects (weighted)';
+  const presignedLabel = `Prospects (${prospectsCount})`;
   const presignedInfo =
     'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';
 
