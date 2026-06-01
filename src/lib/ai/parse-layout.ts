@@ -59,22 +59,34 @@ Inputs:
 2. A fixed list of inspection items (id, category, title, description). The operator NEVER edits these — they are the checklist for every property in the team's standard.
 
 Output rules:
-- ONE ZONE per distinct room or check-able area. A house with three bathrooms produces three bathroom zones, NOT one. A house with three bedrooms produces three bedroom zones.
-- Preserve walking order from the prose. If main floor is described first then upstairs, the zone list goes main floor → upstairs. Do not alphabetize.
+- ONE ZONE per distinct room or check-able area. A house with three bathrooms produces three bathroom zones; three bedrooms → three bedroom zones.
+- Preserve walking order from the prose. Do not alphabetize.
 - name = short label, title-case, no floor baked in. ("Primary bedroom", not "Upstairs primary bedroom".)
 - floor = the floor label the operator used ("Main floor", "Second floor", "Basement"), or null if not specified.
-- itemTitles per zone = the EXACT titles of inspection items from the provided list that belong in that room type. Copy each title CHARACTER-FOR-CHARACTER from the list above — including \`+\` signs, parenthesized suffixes like "(All Baths)", capitalization, and spacing. Do NOT paraphrase, normalize, or shorten. If the list says "Kitchen Surfaces + Sink", you write "Kitchen Surfaces + Sink" — not "Kitchen Surfaces and Sink", not "Kitchen Surface", not "Kitchen sink". Match by category and meaning:
-    * Kitchen zone → kitchen-category items
-    * Bathroom zone → bathroom-category items
-    * Bedroom zone → bedroom-category items
-    * Living/family room → living-category items
-    * Entry / foyer / mudroom → entry-category items
-    * Outdoor / deck / patio / yard → outdoor-category items
-    * Laundry / utility → laundry/utility-category items
-    * Safety items (smoke alarms etc.) → attach to the first zone the inspector walks (typically the entry) so they get checked once, not per-room.
-- Each general-purpose item (Floors + Hidden Areas Scan, etc.) goes on a zone where it's most useful (e.g. living room or each bedroom).
-- DO NOT invent items. Use only titles from the provided list, copied verbatim.
-- If the prose mentions a room type the template has no items for (e.g. "wine cellar"), include the zone with an empty itemTitles array — better to surface the zone than drop it.`;
+- itemTitles per zone = EXACT titles from the provided list, copied CHARACTER-FOR-CHARACTER (including \`+\`, "(All Baths)" suffixes, casing, spacing). Do NOT paraphrase. If the list says "Kitchen Surfaces + Sink", write exactly that.
+- DO NOT invent items. Use only titles from the provided list.
+- If the prose mentions a room type the template has no items for, include the zone with an empty itemTitles array.
+
+CRITICAL: GLOBAL ITEMS ATTACH TO ONLY ONE ZONE.
+A house with three bedrooms doesn't need three copies of every item. Some items are "global" — they're checked once for the whole property, not per-room — and attaching them to multiple zones balloons the card count and creates pointless duplicate work.
+
+A title is a GLOBAL ITEM if any of the following is true:
+  - the title contains "(All …)" or "(Every …)" (e.g. "Bathroom Reset (All Baths)" is checked once across every bath, not per-bath)
+  - the title mentions "Hidden Areas" or "Scan" or "Quick Confirm" (whole-house glance)
+  - the category is "Safety" (one safety pass covers the whole house)
+  - the item name says "Reset" without naming a specific room
+
+For each GLOBAL ITEM, pick ONE zone — the most natural place an inspector would actually do that check — and attach it there. Do NOT attach it to other zones of the same room type. Examples:
+  - "Bathroom Reset (All Baths)" → attach to the FIRST bathroom zone in walk order. Do not attach to the second or third bathroom.
+  - "Floors + Hidden Areas Scan" → attach to ONE zone where the inspector glances under furniture (typically the primary bedroom or living room). Not every room.
+  - "Safety Quick Confirm" → attach to a Kitchen zone if present, otherwise a Utility/Laundry zone, otherwise the LAST zone in the walk. NEVER the entry/hallway — checking smoke alarms in a bare hallway is awkward.
+
+Per-instance items (which DO repeat per zone):
+  - "Beds + Linens Presentation" — every bedroom needs its bed checked separately.
+  - "Kitchen Surfaces + Sink" — only one kitchen typically, so just one attachment.
+  - "Toiletries + Toilet Paper" in a bathroom — yes, each bathroom needs toiletries checked (this is per-bath, not "(All Baths)").
+
+CARD COUNT TARGET: aim for 10–14 total cards across the whole layout. If you're over 16, something is duplicated that shouldn't be. Re-check the global-item rule above.`;
 
 /**
  * Parse prose + the property's template items into a fully-mapped layout.
