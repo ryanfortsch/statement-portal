@@ -101,12 +101,17 @@ function wrapBase64(s: string, width = 76): string {
  * is HTML-escaped first so an owner name with "&" doesn't break the markup.
  */
 function plainToHtml(body: string): string {
+  // Keep the markup minimal so Gmail's compose editor renders the draft at
+  // its native "Normal" size and font. Forcing font-family / font-size /
+  // line-height here was producing visibly-larger-than-normal text when
+  // the operator opened the draft to edit it. Paragraphs get just enough
+  // bottom margin to separate them; everything else inherits.
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
   const htmlParas = paragraphs
     .filter(p => p.length > 0)
     .map(p => `<p style="margin:0 0 1em 0;">${escape(p).replace(/\n/g, '<br>')}</p>`);
-  return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;color:#222;">${htmlParas.join('')}</body></html>`;
+  return `<!DOCTYPE html><html><body>${htmlParas.join('')}</body></html>`;
 }
 
 function buildMimeMessage(args: {
