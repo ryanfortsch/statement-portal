@@ -489,6 +489,13 @@ export async function POST(request: NextRequest) {
     const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
+    // Unmatched in-month DEBITS (negative amounts that didn't classify as
+    // cleaning / linen / known repair vendor). These often turn out to be
+    // owner reimbursements -- e.g. an Online Transfer from a property's
+    // Chase account to RT operating that reimbursed RT for a trash can
+    // bought on the corporate card. The operator attributes them from the
+    // Statements page; attributed ones flow to repairs_total.
+    const unmatchedDebits: { date: string; amount: number; description: string }[] = [];
 
     for (const row of bankRows) {
       const desc = row['Description'] || row['DESCRIPTION'] || '';
@@ -524,6 +531,9 @@ export async function POST(request: NextRequest) {
         else if (descUpper.includes('STRIPE')) source = 'stripe';
         else if (descUpper.includes('BOOKING.COM') || descUpper.includes('BOOKING COM')) source = 'booking';
         deposits.push({ date, amount, description: desc, source });
+      } else if (amount < 0 && isInMonth(date, month)) {
+        // Unmatched in-month debit -- park for operator review.
+        unmatchedDebits.push({ date, amount: Math.abs(amount), description: desc });
       }
     }
 
@@ -897,6 +907,39 @@ export async function POST(request: NextRequest) {
         // Don't fail the whole ingest if the review queue insert errors --
         // log and continue (the statement totals are already correct).
         console.warn('bank_deposit_attributions insert failed:', bdaErr.message);
+      }
+    }
+
+    // Same idea for the unmatched-debit side. We share the same table with
+    // direction='debit' so the UI can render both queues from one source,
+    // and so a future "what's pending across this month" view can JOIN once.
+    if (unmatchedDebits.length > 0) {
+      const debitReviewRows = unmatchedDebits.map(d => {
+        const isoDate = depToISO(d.date);
+        const safeDesc = (d.description || '').slice(0, 60);
+        return {
+          property_id: propertyId,
+          month: monthOnly,
+          direction: 'debit',
+          deposit_date: isoDate,
+          amount: Math.round(d.amount * 100) / 100,
+          description: d.description || null,
+          source: 'other',
+          suggested_reservation_code: null,
+          // Direction baked into the key so a deposit and a debit of the
+          // same date / amount / description don't collide.
+          dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(d.amount * 100) / 100}|debit|${safeDesc}`,
+        };
+      }).filter(r => r.deposit_date);
+      if (debitReviewRows.length > 0) {
+        const { error: bdaDebitErr } = await supabase
+          .from('bank_deposit_attributions')
+          .upsert(debitReviewRows, { onConflict: 'dedupe_key', ignoreDuplicates: true });
+        if (bdaDebitErr && bdaDebitErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|direction/i.test(bdaDebitErr.message || '')) {
+          // Tolerate the table-doesn't-exist and direction-column-missing
+          // states gracefully; statement totals are unaffected either way.
+          console.warn('bank_deposit_attributions (debit) insert failed:', bdaDebitErr.message);
+        }
       }
     }
 
