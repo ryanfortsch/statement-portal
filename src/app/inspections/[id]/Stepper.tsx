@@ -1199,7 +1199,12 @@ function ModalShell({
           background: 'var(--paper)',
           borderTop: '1px solid var(--ink)',
           padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
-          maxHeight: '92vh',
+          // dvh = "dynamic viewport height": on iOS Safari 15.4+ it shrinks
+          // when the soft keyboard opens, so the modal sheet stays the
+          // right size and the sticky action bar (see ModalActions below)
+          // remains tappable instead of hiding under the keyboard. vh
+          // is the fallback for older WebKit; the larger of the two wins.
+          maxHeight: '92dvh',
           overflowY: 'auto',
         }}
       >
@@ -1226,13 +1231,23 @@ function ModalShell({
             onClick={onClose}
             aria-label="Close"
             style={{
+              // 40x40 touch target — the old 22px font with 0/4 padding
+              // gave a sub-30px tap zone that was easy to miss on a phone
+              // (and the keyboard chrome sat right next to it).
               background: 'none',
               border: 'none',
-              fontSize: 22,
+              fontSize: 24,
               color: 'var(--ink-3)',
               cursor: 'pointer',
               lineHeight: 1,
-              padding: '0 4px',
+              width: 40,
+              height: 40,
+              marginRight: -8,
+              marginTop: -8,
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             ×
@@ -1258,12 +1273,27 @@ function ModalActions({
   return (
     <div
       style={{
+        // Stuck to the bottom of the scrolling modal sheet. Negative
+        // side-margins cancel the sheet's 24px padding so the bar runs
+        // edge-to-edge and the opaque background hides content scrolling
+        // underneath it. Negative bottom margin (and bottom: 0) pin the
+        // bar's bottom edge flush with the scroll container's bottom,
+        // counteracting the sheet's bottom padding so it sits right at
+        // the visible edge — including when iOS shrinks the viewport for
+        // the keyboard (dvh on the sheet does the rest).
+        position: 'sticky',
+        bottom: 0,
         marginTop: 22,
+        marginLeft: -24,
+        marginRight: -24,
+        marginBottom: 'calc(-24px - env(safe-area-inset-bottom, 0px))',
         display: 'flex',
         gap: 10,
         justifyContent: 'flex-end',
+        background: 'var(--paper)',
         borderTop: '1px solid var(--rule)',
-        paddingTop: 16,
+        padding: '14px 24px calc(14px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 1,
       }}
     >
       <button
