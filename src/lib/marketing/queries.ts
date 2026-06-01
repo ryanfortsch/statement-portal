@@ -130,19 +130,53 @@ export type PageRow = {
   page_path: string;
   page_views: number;
   sessions: number;
-  /** Friendly label: SCA listing title for /stays/<id> paths, raw path otherwise. */
+  /** Friendly label: Helm internal property name for /stays/<id> paths, raw path otherwise. */
   display: string;
-  /** True when the path is a recognized SCA listing (resolvable via the bundled snapshot). */
+  /** True when the path is a recognized SCA listing (resolvable via Helm properties or the bundled snapshot). */
   is_listing: boolean;
 };
 
-// Resolve a /stays/<24-hex-guesty-id> path to its SCA listing title using
-// the bundled snapshot at src/data/sca-listings.json. Falls through to
-// the raw path for non-/stays paths or unknown ids.
-function resolvePagePath(path: string): { display: string; is_listing: boolean } {
+// "21 Horton St, Gloucester, MA 01930, USA" -> "21 Horton"
+// Used only as a fallback when a Guesty id isn't in the Helm properties
+// table. Strips common US street suffixes from the first comma segment.
+const STREET_SUFFIX_RE =
+  /\s+(St|Street|Ave|Avenue|Rd|Road|Ln|Lane|Dr|Drive|Way|Ct|Court|Blvd|Boulevard|Pl|Place|Pkwy|Parkway|Cir|Circle|Hwy|Highway|Ter|Terrace)\.?$/i;
+
+function internalNameFromAddress(addressFull: string): string {
+  const firstSegment = addressFull.split(',')[0].trim();
+  return firstSegment.replace(STREET_SUFFIX_RE, '');
+}
+
+// Map of Guesty listing id -> Helm internal property name. Loaded once
+// per request from the properties table; absent ids fall back to the
+// bundled SCA snapshot (address parse).
+async function getGuestyIdToInternalName(): Promise<Map<string, string>> {
+  const { data } = await supabase
+    .from('properties')
+    .select('guesty_listing_id, name')
+    .not('guesty_listing_id', 'is', null);
+  const m = new Map<string, string>();
+  for (const r of (data ?? []) as { guesty_listing_id: string | null; name: string }[]) {
+    if (r.guesty_listing_id) m.set(r.guesty_listing_id, r.name);
+  }
+  return m;
+}
+
+function resolvePagePath(
+  path: string,
+  helmNames: Map<string, string>,
+): { display: string; is_listing: boolean } {
   const m = path.match(/^\/stays\/([a-f0-9]{24})\/?$/);
   if (m) {
-    const listing = findScaListingByGuestyId(m[1]);
+    const guestyId = m[1];
+    // Source of truth: Helm properties.name (e.g., "21 Horton").
+    const helmName = helmNames.get(guestyId);
+    if (helmName) return { display: helmName, is_listing: true };
+    // Fallback: parse the address from the bundled SCA snapshot.
+    const listing = findScaListingByGuestyId(guestyId);
+    if (listing?.address?.full) {
+      return { display: internalNameFromAddress(listing.address.full), is_listing: true };
+    }
     if (listing) return { display: listing.title, is_listing: true };
   }
   return { display: path, is_listing: false };
@@ -153,12 +187,15 @@ export async function getTopPages(
   range: RangeBounds,
   limit = 10,
 ): Promise<PageRow[]> {
-  const { data } = await applySiteFilter(
-    supabase.from('marketing_top_pages_daily').select('page_path, page_views, sessions'),
-    site,
-  )
-    .gte('date', range.start)
-    .lte('date', range.end);
+  const [{ data }, helmNames] = await Promise.all([
+    applySiteFilter(
+      supabase.from('marketing_top_pages_daily').select('page_path, page_views, sessions'),
+      site,
+    )
+      .gte('date', range.start)
+      .lte('date', range.end),
+    getGuestyIdToInternalName(),
+  ]);
 
   const byPath = new Map<string, { page_path: string; page_views: number; sessions: number }>();
   for (const r of (data ?? []) as { page_path: string; page_views: number; sessions: number }[]) {
@@ -170,7 +207,7 @@ export async function getTopPages(
   return [...byPath.values()]
     .sort((a, b) => b.page_views - a.page_views)
     .slice(0, limit)
-    .map((r) => ({ ...r, ...resolvePagePath(r.page_path) }));
+    .map((r) => ({ ...r, ...resolvePagePath(r.page_path, helmNames) }));
 }
 
 // ── Speed Insights (latest per site) ─────────────────────────────────
