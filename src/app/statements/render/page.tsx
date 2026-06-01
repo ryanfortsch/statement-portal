@@ -293,7 +293,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const mo = monthName(month);
   // "N turns" counts cleaning turnovers only -- exclude Nor'East linen rows,
   // which are additive cost folded into cleaning_total but aren't turnovers.
-  const cleans = (cleaningEvents?.filter(e => e.vendor !== LINEN_VENDOR_NAME).length || 0) || numStays;
+  const cleans = (cleaningEvents?.filter(e =>
+    e.vendor !== LINEN_VENDOR_NAME
+    && (Number(e.credit_amount) || 0) < (Number(e.amount) || 0)
+  ).length || 0) || numStays;
 
   // Guest Rating: month-scoped only. Historical averages are misleading on a
   // monthly statement (we don't want a January review padding April's numbers).
