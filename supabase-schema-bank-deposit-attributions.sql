@@ -47,3 +47,17 @@ CREATE INDEX IF NOT EXISTS bda_status_idx ON bank_deposit_attributions(status);
 -- bank_deposit_attributions rows above).
 ALTER TABLE property_statements
   ADD COLUMN IF NOT EXISTS add_ons_revenue NUMERIC NOT NULL DEFAULT 0;
+
+-- RLS: allow anon + authenticated to SELECT. Matches the posture of
+-- property_statements / reservations / cleaning_events: Helm's auth lives
+-- in the app middleware, not the DB. Writes go through server API routes
+-- using the service-role key, so this only opens read access.
+ALTER TABLE bank_deposit_attributions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS bank_deposit_attributions_anon_select ON bank_deposit_attributions;
+CREATE POLICY bank_deposit_attributions_anon_select
+  ON bank_deposit_attributions FOR SELECT TO anon USING (true);
+
+DROP POLICY IF EXISTS bank_deposit_attributions_auth_select ON bank_deposit_attributions;
+CREATE POLICY bank_deposit_attributions_auth_select
+  ON bank_deposit_attributions FOR SELECT TO authenticated USING (true);
