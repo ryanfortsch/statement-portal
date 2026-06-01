@@ -62,7 +62,7 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     confidence: 'high',
     evidence: 'Library of Congress HABS MA-187 documents "Robert Manning Place, 33 Dearborn Street, Salem." Salem Public Library wiki: Manning (Hawthorne\'s uncle) built #33 in 1824 for his bride.',
     owner: '33 Dearborn Street LLC',
-    ownerNote: 'Salem assessor (Patriot Properties). Single-asset LLC — typical STR investor structure. Manager / registered agent not retrieved (MA SOS lookup behind interactive search).',
+    ownerNote: 'Salem assessor (Patriot Properties, AccountNumber 2759). Single-asset LLC. Tax bills mail to 119 Prospect St, Northampton MA 01060 — western-MA investor.',
   },
 
   // AVH winter-rental cross-listing sweep (verified via Apartments.com /
@@ -76,7 +76,7 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     confidence: 'high',
     evidence: 'Apartments.com winter rental at 2 Eastern Point Blvd reproduces AVH copy verbatim — king/twin/queen/2-queen layout, "across the street to Niles Beach", Boston skyline views. VRBO #4135062.',
     owner: '2 Eastern Point Blvd LLC',
-    ownerNote: 'Gloucester VGSI pid 7319. Single-purpose LLC named after the property — typical STR investor structure. MA SOS manager lookup pending.',
+    ownerNote: 'Gloucester VGSI pid 7319. Single-asset LLC. Tax bills mail to 126 Wheeler St, Gloucester (Bay View, other side of town) — local owner.',
   },
 
   'atlantic-vacation-homes::captain-john-butman-house': {
@@ -126,7 +126,7 @@ export const COMPETITOR_ADDRESSES: Partial<Record<string, AddressMatch>> = {
     confidence: 'high',
     evidence: 'Rentable.co "Winter Rental: Two Beaches Cottage" at 16 Warwick Rd, 3BR, $2,975/mo, "ideally situated between Long Beach and Good Harbor". AVH unit-1.',
     owner: 'Marnuz One LLC',
-    ownerNote: 'Gloucester VGSI pid 9550. LLC — MA SOS manager lookup pending.',
+    ownerNote: 'Gloucester VGSI pid 9550. MA SOS entity ID 001478328 (Middleton MA principal office). Tax bills mail to 6 Edgewood Rd, Middleton MA 01949 — out-of-town investor.',
   },
 
   'atlantic-vacation-homes::salt-island-views': {
