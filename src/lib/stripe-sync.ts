@@ -211,13 +211,21 @@ export async function syncPropertyStripe(opts: {
       if (g.confirmation_code) knownCodesThisProp.add(g.confirmation_code);
     }
 
-    // TOTAL_PAID gross on this month's reservations, for mismatch check.
+    // TOTAL_PAID + TOTAL_TAXES on this month's reservations. TOTAL_PAID is
+    // used for the gross-mismatch check; taxes feed the amount-based
+    // fallback matcher below (Stripe charges the guest's full gross, taxes
+    // included, while guesty_rental_income is the pre-tax channel-net).
     const codesForThisProp = reservations.map(r => r.confirmation_code).filter(Boolean);
     const { data: gRes } = codesForThisProp.length
-      ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid').in('confirmation_code', codesForThisProp)
-      : { data: [] as { confirmation_code: string; total_paid: number | null }[] };
+      ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes').in('confirmation_code', codesForThisProp)
+      : { data: [] as { confirmation_code: string; total_paid: number | null; total_taxes: number | null }[] };
     const grossByCode = new Map<string, number>();
-    (gRes || []).forEach(g => { if (g.total_paid != null && g.confirmation_code) grossByCode.set(g.confirmation_code, g.total_paid); });
+    const taxesByCode = new Map<string, number>();
+    (gRes || []).forEach(g => {
+      if (!g.confirmation_code) return;
+      if (g.total_paid != null) grossByCode.set(g.confirmation_code, g.total_paid);
+      if (g.total_taxes != null) taxesByCode.set(g.confirmation_code, g.total_taxes);
+    });
 
     // Aggregate Stripe charges by confirmation code.
     type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number };
@@ -289,6 +297,65 @@ export async function syncPropertyStripe(opts: {
             .eq('id', res.id);
           result.fee_updates.push({ code, guest: res.guest_name || 'Guest', prev, next: actualFee, delta: deltaFee });
         }
+      }
+    }
+
+    // Amount-based fallback. Stripe descriptions on custom Payment Links
+    // (Direct/Manual stays paid through RT's own checkout, not Guesty's)
+    // don't lead with a Guesty confirmation code, so the description-token
+    // matcher above misses them. For each still-unmatched RT-Stripe
+    // reservation, compute the expected Stripe gross and look for an
+    // orphan charge that matches within $1. Only links if exactly one
+    // orphan matches -- ambiguity falls through to the missing-charge gap.
+    for (const r of reservations) {
+      if (matchedCodes.has(r.confirmation_code)) continue;
+      const p = (r.platform || '').toUpperCase();
+      const isRTStripeChannel = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL';
+      if (!isRTStripeChannel) continue;
+      const isHomeownerStay = p === 'MANUAL' && (!r.guesty_rental_income || r.guesty_rental_income === 0);
+      if (isHomeownerStay) continue;
+
+      // Stripe charges the guest the full gross: rental + taxes. If
+      // guesty_reservations has TOTAL_PAID populated use that; else
+      // reconstruct from guesty_rental_income + total_taxes.
+      const knownGross = grossByCode.get(r.confirmation_code) || 0;
+      const reconstructed = round2((r.guesty_rental_income || 0) + (taxesByCode.get(r.confirmation_code) || 0));
+      const expectedGross = knownGross > 0 ? knownGross : reconstructed;
+      if (expectedGross <= 0) continue;
+
+      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1);
+      if (candidates.length !== 1) continue;
+      const orphan = candidates[0];
+      const agg = byCodeAgg.get(orphan.code);
+      if (!agg) continue;
+
+      // Treat as matched. Remove from orphan list / aggregates so the
+      // existing reporting blocks see it as paired.
+      matchedCodes.add(r.confirmation_code);
+      result.matched += 1;
+      orphanCodes.splice(orphanCodes.indexOf(orphan), 1);
+      byCodeAgg.delete(orphan.code);
+
+      // Replace the approximated fee with Stripe's actual whenever the
+      // balance_transaction was returned -- same write the description-
+      // match path does. Skip rows marked paid_off_stripe.
+      const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
+      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe') {
+        const prev = round2(r.stripe_fee);
+        if (prev !== actualFee) {
+          const deltaFee = round2(actualFee - prev);
+          const newAdjusted = round2((r.adjusted_revenue || 0) - deltaFee);
+          await supabase
+            .from('reservations')
+            .update({ stripe_fee: actualFee, adjusted_revenue: newAdjusted })
+            .eq('id', r.id);
+          result.fee_updates.push({ code: r.confirmation_code, guest: r.guest_name || 'Guest', prev, next: actualFee, delta: deltaFee });
+        }
+      }
+
+      const refunded = round2(agg.refundedCents / 100);
+      if (refunded > 0) {
+        result.refunds_detected.push({ code: r.confirmation_code, guest: r.guest_name || 'Guest', amount: refunded });
       }
     }
 
