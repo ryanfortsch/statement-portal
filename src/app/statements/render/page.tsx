@@ -4,6 +4,13 @@ import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
 
+// Render fresh on every request -- the page reflects mutable review-queue
+// state (bank_deposit_attributions, period_notes, gap resolutions). Without
+// force-dynamic the Next 16 default can cache a render across attribution
+// edits, so a freshly-attributed pet fee won't show up under the right
+// guest until the next deploy or until the cache organically expires.
+export const dynamic = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
