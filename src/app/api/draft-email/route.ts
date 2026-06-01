@@ -86,6 +86,29 @@ function wrapBase64(s: string, width = 76): string {
   return lines.join('\r\n');
 }
 
+/**
+ * Convert the plain-text body into an HTML version preserving paragraph
+ * layout. Why HTML at all: mobile Gmail (and a few other mobile clients)
+ * reflows text/plain emails -- any line over ~70 chars gets wrapped on
+ * whatever word boundary the renderer picks, which made our owner-
+ * statement emails look "screwy" on phones even though the desktop draft
+ * looked right. Sending a parallel text/html part lets HTML-capable
+ * clients (every modern Gmail/Apple Mail/Outlook) render deterministic
+ * paragraphs at any screen width.
+ *
+ * Blank-line-separated chunks become <p>; single \n inside a paragraph
+ * (e.g. signature "Thanks!\nAllie & Ryan") becomes <br>. Inline content
+ * is HTML-escaped first so an owner name with "&" doesn't break the markup.
+ */
+function plainToHtml(body: string): string {
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
+  const htmlParas = paragraphs
+    .filter(p => p.length > 0)
+    .map(p => `<p style="margin:0 0 1em 0;">${escape(p).replace(/\n/g, '<br>')}</p>`);
+  return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;color:#222;">${htmlParas.join('')}</body></html>`;
+}
+
 function buildMimeMessage(args: {
   from: string;
   to: string[];
@@ -103,27 +126,45 @@ function buildMimeMessage(args: {
   headers.push(`Subject: ${encodeHeader(subject)}`);
   headers.push('MIME-Version: 1.0');
 
-  if (!attachment) {
-    headers.push('Content-Type: text/plain; charset=UTF-8');
-    headers.push('Content-Transfer-Encoding: 8bit');
-    return headers.join('\r\n') + '\r\n\r\n' + body;
-  }
-
-  // Multipart message: body + one attachment.
-  const boundary = `rt_boundary_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
-
-  const bodyPart = [
-    `--${boundary}`,
+  // Always send a multipart/alternative body so plain + html ride together.
+  // Clients render whichever they prefer (mobile Gmail picks html, which
+  // preserves paragraph breaks even when the line is > 70 chars).
+  const altBoundary = `rt_alt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const html = plainToHtml(body);
+  const bodyCrlf = body.replace(/\r?\n/g, '\r\n');
+  const altPart = [
+    `--${altBoundary}`,
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: 8bit',
     '',
-    body,
+    bodyCrlf,
+    `--${altBoundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    html,
+    `--${altBoundary}--`,
+  ].join('\r\n');
+
+  if (!attachment) {
+    headers.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
+    return headers.join('\r\n') + '\r\n\r\n' + altPart + '\r\n';
+  }
+
+  // With an attachment: multipart/mixed wrapping the alternative + PDF.
+  const mixedBoundary = `rt_boundary_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  headers.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
+
+  const bodyPart = [
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    altPart,
   ].join('\r\n');
 
   const attachmentB64 = wrapBase64(attachment.content.toString('base64'));
   const attachmentPart = [
-    `--${boundary}`,
+    `--${mixedBoundary}`,
     `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
     'Content-Transfer-Encoding: base64',
     `Content-Disposition: attachment; filename="${attachment.filename}"`,
@@ -136,7 +177,7 @@ function buildMimeMessage(args: {
     '',
     bodyPart,
     attachmentPart,
-    `--${boundary}--`,
+    `--${mixedBoundary}--`,
     '',
   ].join('\r\n');
 }
