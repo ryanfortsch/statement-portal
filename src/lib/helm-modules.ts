@@ -174,6 +174,15 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
   },
+  {
+    id: 'playbook',
+    href: '/playbook',
+    number: '17',
+    title: 'Playbook',
+    description: 'How we run the business. Standard operating procedures, the eccentricities, and the institutional knowledge of Rising Tide, written down once and searchable everywhere. Ask Helm reads from here.',
+    status: 'active',
+    primary: false,
+  },
   // ── Parked: built but de-prioritized. Greyed + sorted to the bottom,
   //    non-clickable in the nav. The routes still resolve by direct URL
   //    (the Today daily brief is texted to Dotti with a direct link, so

@@ -612,6 +612,54 @@ export function createAskTools() {
         };
       },
     }),
+
+    search_playbook: tool({
+      description:
+        'Search the Playbook: Rising Tide\'s internal operations manual / SOPs / how-we-run-the-business knowledge base. Use this for any how-to, process, procedure, or policy question, e.g. "how do we set up Stripe for a new property", "how do we onboard a property", "how is rental revenue calculated", "what\'s our cleaning cost source of truth". Returns matching entries with their full body text so you can quote the steps.',
+      inputSchema: z.object({
+        query: z
+          .string()
+          .describe('Topic or how-to question, e.g. "Stripe setup new property" or "owner statements".'),
+      }),
+      execute: async ({ query }: { query: string }) => {
+        const safe = (query ?? '').replace(/[,()*%]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!safe) return { error: 'Provide a search query.' };
+        const like = `%${safe}%`;
+        const { data, error } = await supabase
+          .from('playbook_entries')
+          .select('slug, title, category, summary, body_md, tags, property_id, updated_at')
+          .eq('status', 'published')
+          .or(`title.ilike.${like},summary.ilike.${like},body_md.ilike.${like}`)
+          .order('updated_at', { ascending: false })
+          .limit(5);
+        if (error) return { error: error.message };
+        const rows = (data ?? []) as Array<{
+          slug: string;
+          title: string;
+          category: string;
+          summary: string | null;
+          body_md: string;
+          tags: string[];
+          property_id: string | null;
+          updated_at: string;
+        }>;
+        for (const r of rows) addSource(r.title, `/playbook/${r.slug}`);
+        return {
+          query: safe,
+          count: rows.length,
+          entries: rows.map((r) => ({
+            title: r.title,
+            category: r.category,
+            summary: r.summary,
+            body: r.body_md,
+            tags: r.tags,
+            scope: r.property_id ?? 'all properties',
+            href: `/playbook/${r.slug}`,
+            updated: r.updated_at,
+          })),
+        };
+      },
+    }),
   };
 
   return { tools, getSources: () => sources };
