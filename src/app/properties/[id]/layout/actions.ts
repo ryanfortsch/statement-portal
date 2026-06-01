@@ -372,7 +372,7 @@ export async function parseLayoutFromProseAction(args: {
   // tell the operator something didn't land — instead of silently dropping
   // items and leaving every zone empty.
   const unknown = new Set<string>();
-  const itemRows: Array<{ property_zone_id: string; inspection_item_id: string }> = [];
+  const rawItemRows: Array<{ property_zone_id: string; inspection_item_id: string }> = [];
   for (let i = 0; i < parsed.length; i += 1) {
     const z = parsed[i];
     const zoneId = (insertedZones[i] as { id: string }).id;
@@ -384,8 +384,49 @@ export async function parseLayoutFromProseAction(args: {
         unknown.add(t);
         continue;
       }
-      itemRows.push({ property_zone_id: zoneId, inspection_item_id: itemId });
+      rawItemRows.push({ property_zone_id: zoneId, inspection_item_id: itemId });
     }
+  }
+
+  // Deterministic safety net for global items. The prompt tells Claude to
+  // attach "(All Baths)" / Safety / "Hidden Areas" items to a single zone,
+  // but Claude isn't reliable about it — three bathrooms each get
+  // "Bathroom Reset (All Baths)", which balloons the card count and
+  // creates pointless duplicate work. Identify global items by title
+  // pattern + category, and keep only the FIRST attachment (by walk
+  // order, which matches our zoneRows insertion order) for each. Per-zone
+  // items (Beds + Linens per bedroom, Toiletries per bath) pass through
+  // untouched.
+  const itemMeta = new Map<string, { category: string; title: string }>();
+  for (const it of templateItems) {
+    itemMeta.set(it.id, { category: it.category, title: it.title });
+  }
+  const isGlobalItem = (itemId: string): boolean => {
+    const m = itemMeta.get(itemId);
+    if (!m) return false;
+    const cat = m.category.toLowerCase();
+    if (cat === 'safety') return true;
+    const t = m.title.toLowerCase();
+    return (
+      /\(\s*(all|every)\b/.test(t) ||
+      /hidden\s+areas/.test(t) ||
+      /quick\s+confirm/.test(t)
+    );
+  };
+  const globalSeen = new Set<string>();
+  const itemRows = rawItemRows.filter((r) => {
+    if (!isGlobalItem(r.inspection_item_id)) return true;
+    if (globalSeen.has(r.inspection_item_id)) return false;
+    globalSeen.add(r.inspection_item_id);
+    return true;
+  });
+  const duplicatesDropped = rawItemRows.length - itemRows.length;
+  if (duplicatesDropped > 0) {
+    console.info(
+      '[parseLayoutFromProseAction] deduped',
+      duplicatesDropped,
+      'duplicate global-item attachments',
+    );
   }
   // If the model returned zones but no items mapped at all, surface that
   // loudly so the operator isn't left with an empty layout silently.
