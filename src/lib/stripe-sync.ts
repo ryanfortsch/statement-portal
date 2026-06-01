@@ -227,21 +227,33 @@ export async function syncPropertyStripe(opts: {
       if (g.total_taxes != null) taxesByCode.set(g.confirmation_code, g.total_taxes);
     });
 
-    // Aggregate Stripe charges by confirmation code.
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number };
+    // Aggregate Stripe charges. For Guesty-routed bookings the description
+    // starts with the confirmation code (HM..., HA-, GY-, BC-) and multiple
+    // captures of the same reservation aggregate cleanly under that code.
+    // SCA / staycapeann.com Payment Link descriptions all start with the
+    // same word ("Stay at <name> - YYYY-MM-DD...") -- aggregating those by
+    // first-token would collapse every SCA charge in the month into one big
+    // "Stay" pile and defeat the amount-based fallback below. Keep those
+    // atomic by using the charge id as the grouping key.
+    const GUESTY_CODE = /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]+/;
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string };
     const byCodeAgg = new Map<string, Agg>();
-    const orphanCodes: { code: string; amount: number }[] = [];
+    const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
     for (const charge of succeeded) {
       const desc = (charge.description || '').trim();
       const firstToken = desc.split(/\s+/)[0];
-      const code = firstToken || desc;
-      if (!code) {
+      if (!firstToken) {
         result.unmatched_charges.push(`no description (${charge.id})`);
         continue;
       }
+      // Guesty-coded charges aggregate by code; custom Payment Link charges
+      // stay atomic so the orphan list shows one entry per real charge.
+      const looksLikeCode = GUESTY_CODE.test(firstToken);
+      const code = looksLikeCode ? firstToken : charge.id;
+      const displayLabel = looksLikeCode ? firstToken : (desc.length > 48 ? desc.slice(0, 45) + '…' : desc);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0 };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel };
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
@@ -258,7 +270,7 @@ export async function syncPropertyStripe(opts: {
       const res = byCode.get(code);
       if (!res) {
         if (!knownCodesThisProp.has(code)) {
-          orphanCodes.push({ code, amount: round2(agg.grossCents / 100) });
+          orphanCodes.push({ code, amount: round2(agg.grossCents / 100), displayLabel: agg.displayLabel });
         }
         continue;
       }
@@ -359,7 +371,7 @@ export async function syncPropertyStripe(opts: {
       }
     }
 
-    result.unmatched_charges = orphanCodes.map(o => `${o.code} ($${o.amount.toFixed(2)})`);
+    result.unmatched_charges = orphanCodes.map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
 
     // Reservations we expected a Stripe charge for but didn't find --
     // VRBO / Manual non-homeowner stays only.
