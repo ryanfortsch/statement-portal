@@ -44,6 +44,9 @@ export function BankDepositReview({
   const router = useRouter();
   const [items, setItems] = useState<Deposit[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { label: string; code: string }>>({});
+  // Collapsed by default so the queue doesn't dominate the property card.
+  // Click the header to expand the review list.
+  const [expanded, setExpanded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -127,9 +130,26 @@ export function BankDepositReview({
 
   return (
     <div style={{ marginTop: 28 }}>
-      <div className="eyebrow" style={{ marginBottom: 10, color: 'var(--signal)' }}>
-        Unattributed deposits · {items.length}
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-baseline justify-between w-full"
+        style={{
+          background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px 0',
+          textAlign: 'left', borderBottom: expanded ? '1px solid var(--rule-soft)' : 'none',
+          marginBottom: expanded ? 10 : 0,
+        }}
+        aria-expanded={expanded}
+      >
+        <span className="eyebrow" style={{ color: 'var(--signal)' }}>
+          Unattributed deposits &middot; {items.length}
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+          {expanded ? 'Hide' : 'Review'} {expanded ? '−' : '+'}
+        </span>
+      </button>
+      {!expanded ? null : (
+      <>
       <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.5, maxWidth: 720 }}>
         Bank deposits we couldn&rsquo;t auto-match to a reservation. Attribute as an add-on (fee-bearing
         revenue, e.g. a pet fee charged through Airbnb after booking) or dismiss as not-revenue
@@ -200,6 +220,8 @@ export function BankDepositReview({
         );
       })}
       {error && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--negative, #b13b2a)' }}>{error}</div>}
+      </>
+      )}
     </div>
   );
 }
