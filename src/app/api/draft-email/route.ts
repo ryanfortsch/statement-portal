@@ -106,11 +106,17 @@ function plainToHtml(body: string): string {
   // line-height here was producing visibly-larger-than-normal text when
   // the operator opened the draft to edit it. Paragraphs get just enough
   // bottom margin to separate them; everything else inherits.
+  //
+  // Dollar amounts of the form $X,XXX.XX get wrapped in <strong> so the
+  // owner payout line in the body reads as bolded in mobile Gmail (the
+  // only meaningful $ figure in the template is the payout). Plain-text
+  // fallback stays clean -- no asterisks or markdown clutter.
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const boldMoney = (html: string) => html.replace(/\$[0-9][0-9,]*\.[0-9]{2}/g, m => `<strong>${m}</strong>`);
   const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
   const htmlParas = paragraphs
     .filter(p => p.length > 0)
-    .map(p => `<p style="margin:0 0 1em 0;">${escape(p).replace(/\n/g, '<br>')}</p>`);
+    .map(p => `<p style="margin:0 0 1em 0;">${boldMoney(escape(p).replace(/\n/g, '<br>'))}</p>`);
   return `<!DOCTYPE html><html><body>${htmlParas.join('')}</body></html>`;
 }
 
@@ -210,11 +216,23 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Load the statement BEFORE renderEmail so we can pass owner_payout in
+    // and the body's highlighted payout line gets populated. statement_id is
+    // also needed below for the PDF render, so this is just one fetch.
+    const sbForStmt = getSupabase();
+    const { data: stmtRow } = await sbForStmt
+      .from('property_statements')
+      .select('id, period_id, owner_payout')
+      .eq('property_id', propertyId)
+      .eq('period_id', periodId)
+      .maybeSingle();
+
     const { subject, body: emailBody } = renderEmail({
       greeting: prop.owner_greeting,
       monthName: monthLabel(month),
       propertyShort: prop.name,
       fundsSentIso,
+      ownerPayout: stmtRow ? Number(stmtRow.owner_payout) || undefined : undefined,
       template,
     });
 
@@ -226,17 +244,9 @@ export async function POST(request: NextRequest) {
     let pdfAttachment: { filename: string; contentType: string; content: Buffer } | undefined;
 
     try {
-      const sb = getSupabase();
-      const { data: stmt } = await sb
-        .from('property_statements')
-        .select('id, period_id')
-        .eq('property_id', propertyId)
-        .eq('period_id', periodId)
-        .maybeSingle();
-
-      if (stmt?.id) {
+      if (stmtRow?.id) {
         const origin = request.nextUrl.origin;
-        const pdf = await renderStatementPdf({ statementId: stmt.id, month, origin });
+        const pdf = await renderStatementPdf({ statementId: stmtRow.id, month, origin });
         pdfAttachment = {
           filename: statementPdfFilename(prop.name, month),
           contentType: 'application/pdf',
