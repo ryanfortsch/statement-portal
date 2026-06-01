@@ -1,3 +1,4 @@
+import React from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
@@ -150,6 +151,27 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
   const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
+
+  // Add-on charges attributed to specific reservations in the deposit-review
+  // queue (e.g. a post-booking Airbnb pet fee). Keyed by the reservation's
+  // confirmation_code so they survive re-ingest. Tolerate the table not
+  // existing yet (migration unrun): degrades to no add-ons.
+  const { data: addOnRows, error: addOnErr } = await supabase
+    .from('bank_deposit_attributions')
+    .select('attributed_reservation_code, amount, label')
+    .eq('property_id', prop.property_id)
+    .eq('month', prop.month)
+    .eq('status', 'attributed');
+  const addOnsByCode = new Map<string, { label: string; amount: number }[]>();
+  if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
+    for (const a of addOnRows || []) {
+      const code = a.attributed_reservation_code;
+      if (!code) continue;
+      const list = addOnsByCode.get(code) || [];
+      list.push({ label: a.label || 'Add-on', amount: Number(a.amount) || 0 });
+      addOnsByCode.set(code, list);
+    }
+  }
 
   // The monthly ingest sometimes stores the confirmation code as the guest_name
   // when the Guesty PDF doesn't surface a real name. If the user has uploaded
@@ -538,31 +560,44 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <table className="res-table">
                   <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Net Rev</th></tr></thead>
                   <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={i}>
-                        <td>
-                          <div className="guest">{titleCase(r.guest_name)}</div>
-                          <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
-                          {r.note && (
-                            <div className="guest-note">
-                              {r.note}
-                              {r.noteAmounts && r.noteAmounts.length > 0 && (
-                                <div className="guest-note-amounts">
-                                  {r.noteAmounts.map((n: number, idx: number) => (
-                                    <span key={idx} className={n < 0 ? 'amt-out' : 'amt-in'}>
-                                      {n < 0 ? '−$' : '+$'}{Math.abs(n).toFixed(2)}
-                                    </span>
-                                  ))}
+                    {rows.map((r, i) => {
+                      const addOns = r.confirmation_code ? (addOnsByCode.get(r.confirmation_code) || []) : [];
+                      return (
+                        <React.Fragment key={i}>
+                          <tr>
+                            <td>
+                              <div className="guest">{titleCase(r.guest_name)}</div>
+                              <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
+                              {r.note && (
+                                <div className="guest-note">
+                                  {r.note}
+                                  {r.noteAmounts && r.noteAmounts.length > 0 && (
+                                    <div className="guest-note-amounts">
+                                      {r.noteAmounts.map((n: number, idx: number) => (
+                                        <span key={idx} className={n < 0 ? 'amt-out' : 'amt-in'}>
+                                          {n < 0 ? '−$' : '+$'}{Math.abs(n).toFixed(2)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </div>
-                          )}
-                        </td>
-                        <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
-                        <td><span className="channel" data-ch={chLabel(r.platform)}><span className="dot" />{chLabel(r.platform)}</span></td>
-                        <td className="num">${fmt(r.adjusted_revenue || r.rental_income)}</td>
-                      </tr>
-                    ))}
+                            </td>
+                            <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
+                            <td><span className="channel" data-ch={chLabel(r.platform)}><span className="dot" />{chLabel(r.platform)}</span></td>
+                            <td className="num">${fmt(r.adjusted_revenue || r.rental_income)}</td>
+                          </tr>
+                          {addOns.map((a, j) => (
+                            <tr key={`${i}-addon-${j}`} className="addon-row">
+                              <td><div className="addon-label">+ {a.label}</div></td>
+                              <td></td>
+                              <td></td>
+                              <td className="num addon-amt">+${fmt(a.amount)}</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </section>
@@ -574,7 +609,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <span className="sec-meta">Net ${fmt(prop.owner_payout)}</span>
                 </div>
                 <table className="fin-table"><tbody>
-                  <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(prop.rental_revenue)}</td></tr>
+                  <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(Number(prop.rental_revenue) + Number(prop.add_ons_revenue || 0))}</td></tr>
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
                   <tr><td><span className="cat">Cleaning<small>({cleans} turns)</small></span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
                   <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={prop.repairs_total > 0 ? 'amt neg' : 'amt'} style={prop.repairs_total > 0 ? {} : { color: 'var(--ink-4)' }}>{prop.repairs_total > 0 ? `\u2212$${fmt(prop.repairs_total)}` : '\u2014'}</td></tr>
@@ -795,6 +830,9 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .guest { font-family:var(--serif); font-weight:500; font-size:13px; color:var(--ink); line-height:1.2; }
 .guest-sub { font-size:10px; color:var(--ink-4); font-family:var(--sans); margin-top:1px; }
 .guest-note { font-size:10px; color:var(--ink-3); font-family:var(--serif); font-style:italic; margin-top:3px; max-width:240px; line-height:1.35; border-left:1px solid var(--rule); padding-left:6px; }
+.addon-row td { padding-top:2px; padding-bottom:2px; border:none; }
+.addon-label { font-size:10px; color:var(--ink-3); font-family:var(--sans); padding-left:14px; }
+.addon-amt { font-size:11px; color:var(--ink-3); font-family:var(--mono); }
 .guest-note-amounts { font-style:normal; font-family:var(--mono); font-size:9px; letter-spacing:.04em; margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; }
 .guest-note-amounts .amt-out { color:var(--negative); }
 .guest-note-amounts .amt-in { color:var(--positive); }

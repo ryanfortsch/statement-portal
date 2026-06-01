@@ -721,10 +721,40 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 5. Calculate totals
+    // 5. Calculate totals.
+    //
+    // Add-on revenue: bank_deposit_attributions rows already marked
+    // 'attributed' by the operator (from a prior ingest's review queue --
+    // pet fees, late checkouts, etc.) fold into rental_revenue and, when
+    // apply_mgmt_fee=true (the default), into the management-fee base.
+    // Linked by property_id + month so they survive the wholesale
+    // delete-and-replace re-ingest pattern below.
     totalRevenue = Math.round(totalRevenue * 100) / 100;
-    const managementFee = Math.round(totalRevenue * (propConfig.fee_pct / 100) * 100) / 100;
-    const ownerPayout = Math.round((totalRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
+    let addOnsRevenue = 0;
+    let addOnsMgmtBase = 0;
+    {
+      const { data: priorAttrs, error: priorAttrsErr } = await supabase
+        .from('bank_deposit_attributions')
+        .select('amount, apply_mgmt_fee')
+        .eq('property_id', propertyId)
+        .eq('month', month)
+        .eq('status', 'attributed');
+      // Tolerate the table not existing yet (migration unrun) so the
+      // ingest keeps working until the schema lands.
+      if (priorAttrsErr && priorAttrsErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(priorAttrsErr.message || '')) {
+        throw priorAttrsErr;
+      }
+      for (const a of priorAttrs || []) {
+        const amt = Number(a.amount) || 0;
+        addOnsRevenue += amt;
+        if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
+      }
+      addOnsRevenue = Math.round(addOnsRevenue * 100) / 100;
+      addOnsMgmtBase = Math.round(addOnsMgmtBase * 100) / 100;
+    }
+    const feeBase = Math.round((totalRevenue + addOnsMgmtBase) * 100) / 100;
+    const managementFee = Math.round(feeBase * (propConfig.fee_pct / 100) * 100) / 100;
+    const ownerPayout = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
 
     // 6. Confidence
     const hasGuesty = reservations.length > 0;
@@ -781,6 +811,7 @@ export async function POST(request: NextRequest) {
         owner_name: propConfig.owner,
         management_fee_pct: propConfig.fee_pct,
         rental_revenue: totalRevenue,
+        add_ons_revenue: addOnsRevenue,
         management_fee: managementFee,
         cleaning_total: cleaningTotal,
         repairs_total: repairsTotal,
@@ -804,6 +835,70 @@ export async function POST(request: NextRequest) {
         .from('reservations')
         .insert(processedReservations.map(r => ({ property_statement_id: stmt.id, ...r })));
       if (resErr) throw resErr;
+    }
+
+    // 10b. Unmatched bank deposits -> queue for operator review.
+    //
+    // After the Airbnb 1:1 matcher above splices matched deposits out of
+    // the `deposits` array, what's left is unmatched: Stripe batches (we
+    // ignore those -- they're collectively covering Stripe-channel stays),
+    // plus genuinely-off-Guesty money like a post-booking Airbnb pet fee
+    // that lands in Chase but never makes it onto the Guesty statement.
+    // Persist the non-Stripe leftovers as pending bank_deposit_attributions
+    // so the operator can attribute them to a specific reservation (or
+    // dismiss them) from the Statements page. `dedupe_key` makes re-uploads
+    // idempotent; INSERT ON CONFLICT DO NOTHING preserves prior reviews.
+    const monthOnly = month; // YYYY-MM
+    // Inline MM/DD/YYYY -> YYYY-MM-DD here; the file's other `toISO` is
+    // declared further down (cleaning-events section) so it's not visible
+    // from this block.
+    const depToISO = (s: string) => {
+      const parts = s.split('/');
+      if (parts.length !== 3) return '';
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    };
+    const checkoutByCode = new Map<string, string>();
+    for (const r of processedReservations) {
+      if (r.confirmation_code) checkoutByCode.set(r.confirmation_code, r.check_in);
+    }
+    const reviewRows: Record<string, unknown>[] = [];
+    for (const d of deposits) {
+      if (d.source === 'stripe') continue;
+      if (!(d.amount > 0)) continue;
+      const isoDate = depToISO(d.date);
+      if (!isoDate) continue;
+      // Suggest the reservation whose check-in is closest to the deposit.
+      let suggested: string | null = null;
+      let bestDist = Infinity;
+      const depMs = new Date(isoDate + 'T00:00:00').getTime();
+      for (const [code, ci] of checkoutByCode) {
+        const ms = new Date(ci + 'T00:00:00').getTime();
+        const dist = Math.abs(ms - depMs);
+        if (dist < bestDist) { bestDist = dist; suggested = code; }
+      }
+      const safeDesc = (d.description || '').slice(0, 60);
+      reviewRows.push({
+        property_id: propertyId,
+        month: monthOnly,
+        deposit_date: isoDate,
+        amount: Math.round(d.amount * 100) / 100,
+        description: d.description || null,
+        source: d.source,
+        suggested_reservation_code: suggested,
+        dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(d.amount * 100) / 100}|${safeDesc}`,
+      });
+    }
+    if (reviewRows.length > 0) {
+      // Upsert with ignoreDuplicates so prior pending rows aren't disturbed
+      // and existing attributed/dismissed rows survive a re-ingest.
+      const { error: bdaErr } = await supabase
+        .from('bank_deposit_attributions')
+        .upsert(reviewRows, { onConflict: 'dedupe_key', ignoreDuplicates: true });
+      if (bdaErr && bdaErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(bdaErr.message || '')) {
+        // Don't fail the whole ingest if the review queue insert errors --
+        // log and continue (the statement totals are already correct).
+        console.warn('bank_deposit_attributions insert failed:', bdaErr.message);
+      }
     }
 
     // 11. Insert cleaning events. Cape Ann Elite cleanings get the 1:1
