@@ -100,6 +100,14 @@ Stripe deposits include prepayments for future stays. A March bank deposit might
 - **Manual with $0 revenue**: Homeowner stay. Skip entirely, no fee.
 - **Booking.com**: Uses their own payout schedule. Rental income from Guesty is used as-is.
 
+### staycapeann.com bookings (intentionally not Guesty-routed)
+Rising Tide's own direct-booking site, **staycapeann.com**, is built so the payment does **not** route through Guesty -- Guesty would charge a per-booking fee on anything that flows through its portal. SCA bookings:
+- Take payment through **RT's own Stripe** via a custom Payment Link (description like `"Stay at <name> - YYYY-MM-DD to YYYY-MM-DD"`, NOT the Guesty confirmation code).
+- Land in Guesty as a reservation **for calendar/sync purposes only** -- channel comes through as `Direct` (normalized to `Manual` in our pipeline).
+- Show `TOTAL_PAID = 0` in Guesty's reservations CSV and API, since Guesty never saw the money.
+- Are matched to their real Stripe charge in `lib/stripe-sync.ts` via the **amount-based fallback** (expected gross = `guesty_rental_income + total_taxes`). The matcher only kicks in after the description-token matcher misses; ambiguity (multiple orphan charges with the same amount) falls through to the existing missing-charge gap.
+- Volume here is expected to **grow** -- design choices in the ingest / Stripe sync should treat this as the standard path for Direct stays, not an edge case.
+
 ### The formula
 ```
 adjusted_revenue = guesty_rental_income - stripe_fee (if VRBO or Manual/non-zero)

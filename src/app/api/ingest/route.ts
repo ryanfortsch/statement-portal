@@ -921,9 +921,9 @@ export async function POST(request: NextRequest) {
     if (missingGrossCodes.length > 0) {
       gaps.push({
         gap_type: 'missing_guest_gross',
-        description: `${missingGrossCodes.length} VRBO/Manual reservation${missingGrossCodes.length === 1 ? '' : 's'} missing TOTAL_PAID. Stripe fee fell back to a 3.9% approximation on Guesty's net, which slightly understates the real fee.`,
-        severity: 'warning',
-        expected_data: `Upload the latest Guesty reservations CSV (covers ${missingGrossCodes.join(', ')})`,
+        description: `${missingGrossCodes.length} reservation${missingGrossCodes.length === 1 ? '' : 's'} without TOTAL_PAID in Guesty. Common for staycapeann.com bookings (payment goes through RT's Stripe directly, not Guesty). Helm will match these to Stripe by amount on the next "Sync Stripe" run and use the real fee; until then the stripe_fee is a 3.9% approximation.`,
+        severity: 'info',
+        expected_data: `Run Sync Stripe to match by amount (${missingGrossCodes.join(', ')})`,
       });
     }
     if (reconciliationGaps.length > 0) {
