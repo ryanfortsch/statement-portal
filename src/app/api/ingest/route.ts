@@ -862,9 +862,15 @@ export async function POST(request: NextRequest) {
       if (parts.length !== 3) return '';
       return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
     };
-    const checkoutByCode = new Map<string, string>();
+    // (code -> {check_out, platform}) -- check_OUT, not check_in, because
+    // ancillary deposits (Airbnb pet fees, etc.) land on or right after
+    // the guest leaves, so the most recently checked-out stay is the
+    // intended target. Platform lets us prefer same-channel suggestions:
+    // an Airbnb deposit should suggest an Airbnb guest, not the next
+    // VRBO stay that happens to check in the soonest.
+    const resByCode = new Map<string, { check_out: string; platform: string }>();
     for (const r of processedReservations) {
-      if (r.confirmation_code) checkoutByCode.set(r.confirmation_code, r.check_in);
+      if (r.confirmation_code) resByCode.set(r.confirmation_code, { check_out: r.check_out, platform: r.platform });
     }
     const reviewRows: Record<string, unknown>[] = [];
     for (const d of deposits) {
@@ -876,14 +882,28 @@ export async function POST(request: NextRequest) {
       if (!isInMonth(d.date, month)) continue;
       const isoDate = depToISO(d.date);
       if (!isoDate) continue;
-      // Suggest the reservation whose check-in is closest to the deposit.
+      const depMs = new Date(isoDate + 'T00:00:00').getTime();
+      const matchChannel = d.source === 'airbnb' ? 'Airbnb'
+        : d.source === 'booking' ? 'Booking.com'
+        : null;
+      // Pass 1: closest check-out among same-channel reservations.
       let suggested: string | null = null;
       let bestDist = Infinity;
-      const depMs = new Date(isoDate + 'T00:00:00').getTime();
-      for (const [code, ci] of checkoutByCode) {
-        const ms = new Date(ci + 'T00:00:00').getTime();
-        const dist = Math.abs(ms - depMs);
-        if (dist < bestDist) { bestDist = dist; suggested = code; }
+      if (matchChannel) {
+        for (const [code, info] of resByCode) {
+          if (info.platform !== matchChannel) continue;
+          const ms = new Date(info.check_out + 'T00:00:00').getTime();
+          const dist = Math.abs(ms - depMs);
+          if (dist < bestDist) { bestDist = dist; suggested = code; }
+        }
+      }
+      // Pass 2: fall back to any reservation if no same-channel match.
+      if (!suggested) {
+        for (const [code, info] of resByCode) {
+          const ms = new Date(info.check_out + 'T00:00:00').getTime();
+          const dist = Math.abs(ms - depMs);
+          if (dist < bestDist) { bestDist = dist; suggested = code; }
+        }
       }
       const safeDesc = (d.description || '').slice(0, 60);
       reviewRows.push({
