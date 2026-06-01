@@ -61,11 +61,9 @@ export const PROPERTIES: Record<string, Property> = {
   '53_rocky_neck': {
     id: '53_rocky_neck', name: '53 Rocky Neck', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
     owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi', owner_greeting: 'Simon',
-    // Apr 2026 reconcile audit confirmed prudenziwelding@yahoo.com is the
-    // address Melissa @ RTC has been using; senecalglenn@gmail.com is on
-    // file from earlier sends -- keeping both until we confirm with Simon
-    // which he prefers as primary.
-    owner_emails: ['prudenziwelding@yahoo.com', 'senecalglenn@gmail.com'],
+    // Primary confirmed as prudenziwelding@yahoo.com (2026-06-01). The
+    // senecalglenn@gmail.com on file from earlier sends has been retired.
+    owner_emails: ['prudenziwelding@yahoo.com'],
     fee_pct: 25, bank_last4: '9910', listing_match: '53 rocky neck',
     // Newer cert from Allie's Apr 29 doc; older C053801070 also listed there.
     tax_cert_id: 'C0554181070',
@@ -80,7 +78,7 @@ export const PROPERTIES: Record<string, Property> = {
   },
   '30_woodward': {
     id: '30_woodward', name: '30 Woodward', address: '30 Woodward Avenue', city: 'Gloucester, MA',
-    owner_last: 'McWethy', owner_full: 'The McWethy Family', owner_greeting: 'Jim',
+    owner_last: 'McWethy', owner_full: 'The McWethy Family', owner_greeting: 'Jim and Stephanie',
     owner_emails: ['mcwethycottages@gmail.com'],
     fee_pct: 25, bank_last4: '8221', listing_match: '30 woodward',
     // Updated cert (CIF removed). Original C0287531070 also still on file.
