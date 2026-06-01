@@ -615,7 +615,15 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(Number(prop.rental_revenue) + Number(prop.add_ons_revenue || 0))}</td></tr>
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
                   <tr><td><span className="cat">Cleaning<small>({cleans} turns)</small></span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
-                  <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={prop.repairs_total > 0 ? 'amt neg' : 'amt'} style={prop.repairs_total > 0 ? {} : { color: 'var(--ink-4)' }}>{prop.repairs_total > 0 ? `\u2212$${fmt(prop.repairs_total)}` : '\u2014'}</td></tr>
+                  {(() => {
+                    // Repairs & Maint = vendor-classified repairs +
+                    // operator-attributed bank-debit reimbursements (e.g.
+                    // a trash-can transfer from the property account to RT).
+                    const repairsCombined = Number(prop.repairs_total || 0) + Number(prop.attributed_debits_total || 0);
+                    return (
+                      <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairsCombined > 0 ? 'amt neg' : 'amt'} style={repairsCombined > 0 ? {} : { color: 'var(--ink-4)' }}>{repairsCombined > 0 ? `\u2212$${fmt(repairsCombined)}` : '\u2014'}</td></tr>
+                    );
+                  })()}
                   <tr className="total"><td><span className="cat">Owner Payout</span></td><td className="amt">${fmt(prop.owner_payout)}</td></tr>
                 </tbody></table>
 

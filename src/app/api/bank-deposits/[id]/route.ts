@@ -34,7 +34,7 @@ async function recomputeStatementTotals(
   supabase: ReturnType<typeof getSupabase>,
   propertyId: string,
   month: string,
-): Promise<{ rental_revenue: number; add_ons_revenue: number; management_fee: number; owner_payout: number } | null> {
+): Promise<{ rental_revenue: number; add_ons_revenue: number; attributed_debits_total: number; management_fee: number; owner_payout: number } | null> {
   // Find the property_statement via period + property.
   const { data: period } = await supabase.from('statement_periods').select('id').eq('month', month).maybeSingle();
   if (!period) return null;
@@ -46,22 +46,31 @@ async function recomputeStatementTotals(
     .maybeSingle();
   if (!stmt) return null;
 
+  // Pull every attributed row -- both deposits (credits, feed add_ons_revenue)
+  // and debits (charges, feed attributed_debits_total). One query, branch
+  // by direction so deposit-flavor and debit-flavor totals stay separate.
   const { data: attrs } = await supabase
     .from('bank_deposit_attributions')
-    .select('amount, apply_mgmt_fee')
+    .select('amount, apply_mgmt_fee, direction')
     .eq('property_id', propertyId)
     .eq('month', month)
     .eq('status', 'attributed');
 
   let addOnsRevenue = 0;
   let addOnsMgmtBase = 0;
+  let attributedDebits = 0;
   for (const a of attrs || []) {
     const amt = Number(a.amount) || 0;
-    addOnsRevenue += amt;
-    if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
+    if ((a.direction || 'deposit') === 'debit') {
+      attributedDebits += amt;
+    } else {
+      addOnsRevenue += amt;
+      if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
+    }
   }
   addOnsRevenue = round2(addOnsRevenue);
   addOnsMgmtBase = round2(addOnsMgmtBase);
+  attributedDebits = round2(attributedDebits);
 
   const rentalRevenue = Number(stmt.rental_revenue) || 0;
   const cleaning = Number(stmt.cleaning_total) || 0;
@@ -69,18 +78,19 @@ async function recomputeStatementTotals(
   const feePct = (Number(stmt.management_fee_pct) || 0) / 100;
   const feeBase = round2(rentalRevenue + addOnsMgmtBase);
   const managementFee = round2(feeBase * feePct);
-  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs);
+  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - attributedDebits);
 
   await supabase
     .from('property_statements')
     .update({
       add_ons_revenue: addOnsRevenue,
+      attributed_debits_total: attributedDebits,
       management_fee: managementFee,
       owner_payout: ownerPayout,
     })
     .eq('id', stmt.id);
 
-  return { rental_revenue: rentalRevenue, add_ons_revenue: addOnsRevenue, management_fee: managementFee, owner_payout: ownerPayout };
+  return { rental_revenue: rentalRevenue, add_ons_revenue: addOnsRevenue, attributed_debits_total: attributedDebits, management_fee: managementFee, owner_payout: ownerPayout };
 }
 
 export async function PATCH(
@@ -100,13 +110,16 @@ export async function PATCH(
   const supabase = getSupabase();
 
   // Load the attribution to know which (property, month) to recompute.
+  // direction tells us whether this is a deposit (credit) or a debit
+  // (charge); attribute semantics differ between the two.
   const { data: existing, error: loadErr } = await supabase
     .from('bank_deposit_attributions')
-    .select('id, property_id, month')
+    .select('id, property_id, month, direction')
     .eq('id', id)
     .maybeSingle();
   if (loadErr) return NextResponse.json({ error: loadErr.message }, { status: 500 });
   if (!existing) return NextResponse.json({ error: 'deposit not found' }, { status: 404 });
+  const direction = (existing.direction || 'deposit') as 'deposit' | 'debit';
 
   if (action === 'dismiss') {
     const { error } = await supabase
@@ -114,16 +127,19 @@ export async function PATCH(
       .update({ status: 'dismissed', attributed_reservation_code: null, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    // No totals recompute -- dismissed deposits never count toward revenue.
+    // No totals recompute -- dismissed rows never affect statement totals.
     return NextResponse.json({ ok: true });
   }
 
   // action === 'attribute'
   const reservationCode = String(body.reservation_code || '').trim();
-  const label = body.label ? String(body.label).trim().slice(0, 80) : 'Add-on';
-  const applyMgmtFee = body.apply_mgmt_fee === false ? false : true; // default true per Dotti
-  if (!reservationCode) {
-    return NextResponse.json({ error: 'reservation_code required' }, { status: 400 });
+  const label = body.label ? String(body.label).trim().slice(0, 80)
+    : (direction === 'debit' ? 'Reimbursement' : 'Add-on');
+  // apply_mgmt_fee is only meaningful for deposits (debits don't get a
+  // mgmt-fee carve-out; they're a straight deduction).
+  const applyMgmtFee = body.apply_mgmt_fee === false ? false : true;
+  if (direction === 'deposit' && !reservationCode) {
+    return NextResponse.json({ error: 'reservation_code required for deposits' }, { status: 400 });
   }
   if (!PROPERTIES[existing.property_id]) {
     return NextResponse.json({ error: `unknown property_id ${existing.property_id}` }, { status: 400 });
@@ -132,7 +148,9 @@ export async function PATCH(
     .from('bank_deposit_attributions')
     .update({
       status: 'attributed',
-      attributed_reservation_code: reservationCode,
+      // Debits can optionally be tagged to a reservation, but it's not
+      // required (the trash-can reimbursement isn't tied to a specific stay).
+      attributed_reservation_code: reservationCode || null,
       label,
       apply_mgmt_fee: applyMgmtFee,
       updated_at: new Date().toISOString(),

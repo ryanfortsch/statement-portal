@@ -41,12 +41,24 @@ CREATE TABLE IF NOT EXISTS bank_deposit_attributions (
 CREATE INDEX IF NOT EXISTS bda_prop_month_idx ON bank_deposit_attributions(property_id, month);
 CREATE INDEX IF NOT EXISTS bda_status_idx ON bank_deposit_attributions(status);
 
+-- direction lets the same queue hold both credits ('deposit') and outgoing
+-- charges ('debit'). Deposits attribute to a reservation as add-on revenue;
+-- debits attribute as a property expense and flow into attributed_debits_total.
+ALTER TABLE bank_deposit_attributions
+  ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'deposit'
+  CHECK (direction IN ('deposit', 'debit'));
+CREATE INDEX IF NOT EXISTS bda_direction_idx ON bank_deposit_attributions(direction);
+
 -- Add-on revenue tracked alongside rental_revenue on the statement header
 -- so it survives /api/ingest re-uploads (the ingest re-derives
 -- rental_revenue from reservations but reads add-on totals from the
--- bank_deposit_attributions rows above).
+-- bank_deposit_attributions rows above). attributed_debits_total mirrors
+-- this for the debit side and folds into the Repairs line on the owner
+-- statement at render time.
 ALTER TABLE property_statements
   ADD COLUMN IF NOT EXISTS add_ons_revenue NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE property_statements
+  ADD COLUMN IF NOT EXISTS attributed_debits_total NUMERIC NOT NULL DEFAULT 0;
 
 -- RLS: allow anon + authenticated to SELECT. Matches the posture of
 -- property_statements / reservations / cleaning_events: Helm's auth lives
