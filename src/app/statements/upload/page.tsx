@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -8,6 +8,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { supabase } from '@/lib/supabase';
+import { PROPERTIES } from '@/lib/properties';
 
 type PropertyOption = { id: string; name: string; owner: string; location: string };
 
@@ -491,6 +492,23 @@ function UploadPageInner() {
   const platformSlotReady = !!platformCSV || !!cachedPlatformCSV;
   const filesReady = [!!guestyPDF, platformSlotReady, !!bankCSV].filter(Boolean).length;
 
+  // Guardrail: Chase's CSV exports lead with the account last4
+  // ("Chase5621_Activity_...csv"), and lib/properties.ts knows each
+  // property's bank_last4. If those disagree we block submit and tell the
+  // operator -- this is the trap that crossed 17 Beach's data onto 53
+  // Rocky Neck's statement during the 2026-06-01 re-upload.
+  const bankFileMismatch = useMemo(() => {
+    if (!bankCSV || !propertyId) return null;
+    const expected = PROPERTIES[propertyId]?.bank_last4;
+    if (!expected) return null; // property has no Chase account on file
+    const m = bankCSV.name.match(/Chase\D?(\d{4})/i);
+    if (!m) return null; // unfamiliar filename shape -- let the server validate
+    const csvLast4 = m[1];
+    if (csvLast4 === expected) return null;
+    const owner = Object.values(PROPERTIES).find(p => p.bank_last4 === csvLast4);
+    return { csvLast4, expected, ownerName: owner?.name || null };
+  }, [bankCSV, propertyId]);
+
   // Look up cached Platform CSV metadata for a month. The Platform CSV is
   // a whole-portfolio export -- one file covers every property -- so once
   // it's been uploaded for a month, the server reuses it for every
@@ -539,6 +557,10 @@ function UploadPageInner() {
   async function handleSubmit() {
     if (!propertyId) { setError('Please select a property'); return; }
     if (!guestyPDF) { setError('Please upload the Guesty owner statement PDF'); return; }
+    if (bankFileMismatch) {
+      setError(`Bank CSV (Chase ····${bankFileMismatch.csvLast4}) doesn't match the selected property (Chase ····${bankFileMismatch.expected}). Clear the file or change the property.`);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setResult(null);
@@ -927,6 +949,27 @@ function UploadPageInner() {
                   inputRef={bankRef}
                 />
               </div>
+
+              {/* Wrong-property guardrail. The Chase export filename leads
+                  with the account last4 ("Chase5621_Activity_..."); if it
+                  doesn't match the selected property's bank_last4, we block
+                  submit. This catches the 17-Beach-into-53-Rocky-Neck class
+                  of mistake at the door instead of after the wipe-and-write
+                  ingest has run. */}
+              {bankFileMismatch && (
+                <div style={{
+                  marginTop: 14, padding: '12px 14px',
+                  borderLeft: '3px solid var(--negative, #b13b2a)',
+                  background: 'var(--paper-2)', color: 'var(--ink)',
+                  fontSize: 12, lineHeight: 1.55,
+                }}>
+                  <strong style={{ color: 'var(--negative, #b13b2a)' }}>This CSV is for a different property.</strong>{' '}
+                  The file is for Chase &middot;&middot;&middot;&middot;{bankFileMismatch.csvLast4}
+                  {bankFileMismatch.ownerName ? ` (${bankFileMismatch.ownerName})` : ''}, but
+                  the form is set to {selectedProp?.name || propertyId} (Chase &middot;&middot;&middot;&middot;{bankFileMismatch.expected}).
+                  Clear the bank CSV and pick the right file, or change the property dropdown.
+                </div>
+              )}
             </div>
 
             {/* Submit */}
@@ -942,15 +985,15 @@ function UploadPageInner() {
               </span>
               <button
                 onClick={handleSubmit}
-                disabled={submitting || !propertyId || !guestyPDF}
+                disabled={submitting || !propertyId || !guestyPDF || !!bankFileMismatch}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 10,
                   background: 'var(--ink)', color: 'var(--paper)',
                   fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
                   padding: '12px 22px',
                   border: 'none',
-                  cursor: (submitting || !propertyId || !guestyPDF) ? 'not-allowed' : 'pointer',
-                  opacity: (submitting || !propertyId || !guestyPDF) ? 0.4 : 1,
+                  cursor: (submitting || !propertyId || !guestyPDF || !!bankFileMismatch) ? 'not-allowed' : 'pointer',
+                  opacity: (submitting || !propertyId || !guestyPDF || !!bankFileMismatch) ? 0.4 : 1,
                 }}
               >
                 {submitting ? (
