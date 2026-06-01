@@ -1057,11 +1057,17 @@ function WorkSlipModal({
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Photos are deferred behind a toggle so the default form is short
-  // enough to see all of (Title, Category/Priority, Location, Description)
-  // above the iOS keyboard. Most slips don't need a photo — the operator
-  // taps "+ Add photo" when they do. Starts expanded if any photo already
-  // exists (e.g. after re-opening the modal mid-flow).
+  // Defaults (category=maintenance, priority=normal) are right for the
+  // vast majority of inspection-driven slips, so we hide all three of
+  // Category / Priority / Location behind one "More details" toggle.
+  // Default visible form becomes just Title + Description, which fits
+  // on a phone with the keyboard up. Auto-expand if the operator already
+  // changed any of them away from their defaults (e.g. they opened the
+  // panel, set High priority, then closed and reopened the panel — we
+  // shouldn't pretend the change isn't there).
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Same pattern for photos: deferred until needed. Auto-expand if any
+  // photo is already attached so reopening mid-flow doesn't hide it.
   const [photosOpen, setPhotosOpen] = useState(false);
 
   async function handleSubmit() {
@@ -1072,6 +1078,10 @@ function WorkSlipModal({
     setSubmitting(false);
     if (e) setErr(e);
   }
+
+  // "More details" auto-expands if any of its fields drifted off defaults,
+  // so a half-filled panel never gets hidden behind the toggle.
+  const showMore = moreOpen || !!location.trim() || category !== 'maintenance' || priority !== 'normal';
 
   return (
     <ModalShell onClose={onClose} title="New Work Slip" subtitle={`From: ${itemTitle}`}>
@@ -1085,46 +1095,6 @@ function WorkSlipModal({
         style={modalInputStyle()}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
-        <div>
-          <FieldLabel>Category</FieldLabel>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
-            style={modalSelectStyle()}
-          >
-            <option value="maintenance">Maintenance</option>
-            <option value="owner">Owner</option>
-            <option value="vendor">Vendor</option>
-            <option value="rising_tide">Rising Tide</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div>
-          <FieldLabel>Priority</FieldLabel>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
-            style={modalSelectStyle()}
-          >
-            <option value="low">Low</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <FieldLabel>Location / Area (optional)</FieldLabel>
-        <input
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="e.g., Kitchen, Primary Bath"
-          style={modalInputStyle()}
-        />
-      </div>
-
       <div style={{ marginTop: 14 }}>
         <FieldLabel>Description / Notes</FieldLabel>
         <textarea
@@ -1134,6 +1104,69 @@ function WorkSlipModal({
           placeholder="Additional details about the issue…"
           style={modalTextareaStyle()}
         />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        {showMore ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <FieldLabel>Category</FieldLabel>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
+                  style={modalSelectStyle()}
+                >
+                  <option value="maintenance">Maintenance</option>
+                  <option value="owner">Owner</option>
+                  <option value="vendor">Vendor</option>
+                  <option value="rising_tide">Rising Tide</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <FieldLabel>Priority</FieldLabel>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
+                  style={modalSelectStyle()}
+                >
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <FieldLabel>Location / Area (optional)</FieldLabel>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g., Kitchen, Primary Bath"
+                style={modalInputStyle()}
+              />
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            style={{
+              background: 'transparent',
+              border: '1px dashed var(--rule)',
+              padding: '10px 14px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            + More details (category, priority, location)
+          </button>
+        )}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -1259,14 +1292,19 @@ function ModalShell({
           background: 'var(--paper)',
           borderTop: '1px solid var(--ink)',
           padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
-          // 82dvh (was 92dvh) leaves ~18% of the screen showing the dimmed
-          // background, so the modal reads as a popup instead of swallowing
-          // the screen, AND gives a visible "tap here to dismiss" zone
-          // above the sheet (Dotti's "takes up the whole screen" complaint).
-          // dvh = dynamic viewport height: shrinks with the iOS soft
-          // keyboard on Safari 15.4+ so the sticky action bar stays inside
-          // the visible area. Older WebKit falls back via the cascade.
-          maxHeight: '82dvh',
+          // 72dvh leaves ~28% of the screen showing the dimmed background
+          // above the sheet, so the modal reads clearly as a contained
+          // popup rather than as the screen itself. Pairs with the
+          // collapsed-by-default form (default visible fields are just
+          // Title + Description; the rest sit behind toggles) so the
+          // modal never has to grow tall to fit its content. dvh =
+          // dynamic viewport height: shrinks with the iOS soft keyboard
+          // on Safari 15.4+ so the sticky action bar stays in view.
+          maxHeight: '72dvh',
+          // Round the top corners so the sheet visually detaches from
+          // the top edge of its space (paired with the dimmed gap above).
+          borderTopLeftRadius: 14,
+          borderTopRightRadius: 14,
           overflowY: 'auto',
           // Keep scroll touches inside the modal — otherwise iOS Safari
           // sometimes propagates the touch to the page underneath and the
@@ -1281,8 +1319,12 @@ function ModalShell({
             <h2
               className="font-serif"
               style={{
-                fontSize: 22,
-                fontWeight: 400,
+                // Was 22 / weight 400 (display size). Dropped to 18 / 500
+                // so the heading reads as form chrome rather than as the
+                // first paragraph of a magazine spread, which is what was
+                // making the modal feel heavy even before any content.
+                fontSize: 18,
+                fontWeight: 500,
                 letterSpacing: '-0.01em',
                 color: 'var(--ink)',
                 margin: 0,
@@ -1291,7 +1333,7 @@ function ModalShell({
               {title}
             </h2>
             {subtitle && (
-              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)' }}>{subtitle}</div>
+              <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>{subtitle}</div>
             )}
           </div>
           <button
