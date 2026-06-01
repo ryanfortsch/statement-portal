@@ -629,14 +629,17 @@ export async function POST(request: NextRequest) {
 
       const cls = classifyBankRow(descUpper);
 
+      // Real DEBITS only -- a CREDIT from the same vendor (e.g. A1
+      // refunding a duplicate charge) is a refund, not another cleaning
+      // event. Mirrors /api/ingest's behavior; both routes must agree.
       if (cls?.kind === 'cleaning') {
-        if (isInMonth(date, month)) {
+        if (isInMonth(date, month) && amount < 0) {
           cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
       if (cls?.kind === 'linen') {
-        if (isInMonth(date, month)) {
+        if (isInMonth(date, month) && amount < 0) {
           linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;

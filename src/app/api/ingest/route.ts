@@ -499,15 +499,18 @@ export async function POST(request: NextRequest) {
 
       const cls = classifyBankRow(descUpper);
 
-      // Cleaning + linen charges: month-filtered only.
+      // Cleaning + linen charges: real DEBITS only (negative amounts). A
+      // CREDIT from the same vendor in the bank feed is a vendor refund (a
+      // duplicate charge being clawed back, etc.) -- it belongs in the
+      // deposit-review queue below, not as another cleaning_event.
       if (cls?.kind === 'cleaning') {
-        if (isInMonth(date, month)) {
+        if (isInMonth(date, month) && amount < 0) {
           cleaningCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
       }
       if (cls?.kind === 'linen') {
-        if (isInMonth(date, month)) {
+        if (isInMonth(date, month) && amount < 0) {
           linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         }
         continue;
