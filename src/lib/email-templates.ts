@@ -36,7 +36,7 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
 
   const subject = `${monthName} Owner Statement, ${propertyShort}`;
   const greetingLine = `Hi ${greeting},`;
-  const statementLine = `Please see attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
+  const statementLine = `Please see the attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
 
   if (template === 'touch_base') {
     const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;
