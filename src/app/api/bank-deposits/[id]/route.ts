@@ -103,8 +103,8 @@ export async function PATCH(
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const action = String(body.action || '').trim();
-  if (action !== 'attribute' && action !== 'dismiss') {
-    return NextResponse.json({ error: "action must be 'attribute' or 'dismiss'" }, { status: 400 });
+  if (action !== 'attribute' && action !== 'dismiss' && action !== 'unattribute') {
+    return NextResponse.json({ error: "action must be 'attribute', 'dismiss', or 'unattribute'" }, { status: 400 });
   }
 
   const supabase = getSupabase();
@@ -129,6 +129,26 @@ export async function PATCH(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     // No totals recompute -- dismissed rows never affect statement totals.
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'unattribute') {
+    // Move a previously-attributed row back to the pending queue (e.g. the
+    // operator picked the wrong reservation -- $200 Airbnb pet fee went to
+    // Erin instead of Margaret). Clears the attribution + label, then
+    // recomputes so add_ons_revenue / attributed_debits_total drop and
+    // owner_payout updates.
+    const { error } = await supabase
+      .from('bank_deposit_attributions')
+      .update({
+        status: 'pending',
+        attributed_reservation_code: null,
+        label: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month);
+    return NextResponse.json({ ok: true, totals });
   }
 
   // action === 'attribute'

@@ -24,6 +24,9 @@ type Deposit = {
   //             repair / maintenance / reimbursement -- e.g. the $49.99
   //             trash-can transfer to RT operating).
   direction: 'deposit' | 'debit';
+  status: 'pending' | 'attributed' | 'dismissed';
+  attributed_reservation_code: string | null;
+  label: string | null;
 };
 
 type ReservationOption = { confirmation_code: string | null; guest_name: string };
@@ -50,24 +53,25 @@ export function BankDepositReview({
   const [items, setItems] = useState<Deposit[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { label: string; code: string }>>({});
   // Collapsed by default so the queue doesn't dominate the property card.
-  // Click the header to expand the review list. Two independent toggles so
-  // the deposits and debits sections can be expanded one at a time.
+  // Click the header to expand the review list. Three independent toggles
+  // for deposits-pending / debits-pending / already-attributed.
   const [expanded, setExpanded] = useState(false);
   const [debitsExpanded, setDebitsExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
-    // Pull both directions; split into two sections at render. The
-    // `direction` column defaults to 'deposit' on older rows so legacy
-    // data keeps working without a backfill.
+    // Pull pending + attributed (skip dismissed). Pending → review queue;
+    // attributed → "Already attributed · N" history block with an Undo
+    // button so a mis-attribution can be reverted without a DB hack.
     const { data, error: e } = await supabase
       .from('bank_deposit_attributions')
-      .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction')
+      .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction, status, attributed_reservation_code, label')
       .eq('property_id', propertyId)
       .eq('month', month)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'attributed'])
       .order('deposit_date', { ascending: true });
     if (e && e.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|direction/i.test(e.message || '')) {
       setError(e.message);
@@ -127,6 +131,29 @@ export function BankDepositReview({
     }
   }
 
+  async function unattribute(dep: Deposit) {
+    // Revert a mis-attributed row back to pending so the operator can
+    // re-do it with the right reservation / label. Recompute on the
+    // server fixes add_ons_revenue / attributed_debits_total + owner_payout.
+    setBusyId(dep.id); setError(null);
+    try {
+      const res = await fetch(`/api/bank-deposits/${dep.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'unattribute' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Undo failed');
+      // Flip in place: clear attribution and move back to pending.
+      setItems(prev => (prev || []).map(d => d.id === dep.id ? { ...d, status: 'pending', attributed_reservation_code: null, label: null } : d));
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Undo failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function dismiss(dep: Deposit) {
     setBusyId(dep.id); setError(null);
     try {
@@ -145,9 +172,14 @@ export function BankDepositReview({
     }
   }
 
-  const deposits = (items || []).filter(i => i.direction === 'deposit');
-  const debits = (items || []).filter(i => i.direction === 'debit');
-  if (deposits.length === 0 && debits.length === 0) return null;
+  const pending = (items || []).filter(i => i.status === 'pending');
+  const deposits = pending.filter(i => i.direction === 'deposit');
+  const debits = pending.filter(i => i.direction === 'debit');
+  const attributed = (items || []).filter(i => i.status === 'attributed');
+  // Map a reservation code -> human guest name for the attributed history.
+  const guestByCode = new Map<string, string>();
+  reservations.forEach(r => { if (r.confirmation_code) guestByCode.set(r.confirmation_code, r.guest_name); });
+  if (deposits.length === 0 && debits.length === 0 && attributed.length === 0) return null;
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -293,6 +325,70 @@ export function BankDepositReview({
                         Not an expense
                       </button>
                     </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      {attributed.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={() => setHistoryExpanded(e => !e)}
+            className="flex items-baseline justify-between w-full"
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px 0',
+              textAlign: 'left', borderBottom: historyExpanded ? '1px solid var(--rule-soft)' : 'none',
+              marginBottom: historyExpanded ? 10 : 0,
+            }}
+            aria-expanded={historyExpanded}
+          >
+            <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
+              Already attributed &middot; {attributed.length}
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              {historyExpanded ? 'Hide −' : 'Show +'}
+            </span>
+          </button>
+          {historyExpanded && (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.5, maxWidth: 720 }}>
+                Bank rows you&rsquo;ve already attributed this month. Undo any that point at the wrong
+                guest or label -- the row drops back into the queue above so you can re-do it.
+              </div>
+              {attributed.map(dep => {
+                const busy = busyId === dep.id;
+                const guest = dep.attributed_reservation_code ? (guestByCode.get(dep.attributed_reservation_code) || dep.attributed_reservation_code) : null;
+                const sign = dep.direction === 'debit' ? '−' : '+';
+                return (
+                  <div key={dep.id} style={{
+                    padding: '8px 14px', marginBottom: 6, background: 'var(--paper-2)',
+                    borderLeft: '3px solid var(--rule)', display: 'flex', alignItems: 'baseline',
+                    gap: 10, flexWrap: 'wrap', fontSize: 12,
+                  }}>
+                    <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
+                    <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>{sign}{fmtMoney(Number(dep.amount))}</span>
+                    <span style={{ color: 'var(--ink-2)' }}>
+                      {dep.label || (dep.direction === 'debit' ? 'Reimbursement' : 'Add-on')}
+                      {guest && <> &nbsp;&middot;&nbsp; <span style={{ fontFamily: 'var(--font-fraunces)' }}>{guest}</span></>}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <button
+                      type="button"
+                      onClick={() => unattribute(dep)}
+                      disabled={busy}
+                      title="Move back to the pending queue"
+                      style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
+                        color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)',
+                        padding: '4px 10px', cursor: busy ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {busy ? '…' : 'Undo'}
+                    </button>
                   </div>
                 );
               })}
