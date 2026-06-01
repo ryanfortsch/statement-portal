@@ -103,6 +103,24 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
   const inspectionsLeft = data.totalCount - data.inspectionDoneCount;
 
+  // Where "N inspections pending" should jump to when tapped:
+  //   - exactly 1 pending AND it has an inspection row already (the operator
+  //     started but didn't finish): resume URL straight into the runner.
+  //   - otherwise: anchor link to the first pending turnover's card, so the
+  //     operator lands next to its START INSPECTION button.
+  // Starting an inspection fresh requires a server-action form submission
+  // (the existing button on the row), which a plain <Link> can't do, so
+  // the anchor path keeps the click on a real CTA instead of doing it for
+  // the operator without confirmation.
+  const pendingTurnovers = data.turnovers.filter((t) => t.inspectionStatus !== 'complete');
+  let pendingHref: string | null = null;
+  if (pendingTurnovers.length === 1 && pendingTurnovers[0].inspection?.id) {
+    pendingHref = `/inspections/${pendingTurnovers[0].inspection.id}`;
+  } else if (pendingTurnovers.length > 0) {
+    const t = pendingTurnovers[0];
+    pendingHref = `#turnover-${t.propertyId}-${t.reservationId}`;
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="operations" />
@@ -172,9 +190,29 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 check-in{data.totalCount === 1 ? '' : 's'}
                 {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
                 {inspectionsLeft > 0 ? (
-                  <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
-                    · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
-                  </span>
+                  pendingHref ? (
+                    <Link
+                      href={pendingHref}
+                      style={{
+                        color: 'var(--signal)',
+                        fontSize: 14,
+                        marginLeft: 12,
+                        textDecoration: 'none',
+                        borderBottom: '1px dashed currentColor',
+                      }}
+                      title={
+                        pendingHref.startsWith('/inspections/')
+                          ? 'Resume the inspection in progress'
+                          : 'Jump to the first turnover that still needs an inspection'
+                      }
+                    >
+                      · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
+                      · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
+                    </span>
+                  )
                 ) : (
                   <span style={{ color: 'var(--positive)', fontSize: 14, marginLeft: 12 }}>
                     · all prepped
@@ -386,6 +424,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
 
   return (
     <div
+      id={`turnover-${t.propertyId}-${t.reservationId}`}
       className="rt-turnover-row"
       style={{
         display: 'grid',
@@ -394,6 +433,10 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         alignItems: 'baseline',
         padding: '14px 0',
         borderBottom: '1px solid var(--rule)',
+        // When the "N inspections pending" eyebrow scrolls to this row via
+        // a #turnover-... anchor, leave breathing room so the row doesn't
+        // land flush against the masthead.
+        scrollMarginTop: 96,
       }}
     >
       {/* Date column. Top: check-in (the date the row is about). Middle:
