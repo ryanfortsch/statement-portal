@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 type Params = { id: string };
 
-type ZoneSummary = PropertyZoneRow & { item_count: number };
+type ZoneItem = { id: string; title: string; category: string };
+type ZoneSummary = PropertyZoneRow & { items: ZoneItem[] };
 
 async function getData(propertyId: string): Promise<{
   property: HelmPropertyRow;
@@ -33,23 +34,38 @@ async function getData(propertyId: string): Promise<{
     .order('walk_order', { ascending: true });
   const zones = (zoneRows ?? []) as PropertyZoneRow[];
 
-  // Count assigned items per zone so each card can show "N items" without
-  // having to load the full inspection_items template (the per-zone Manage
-  // Items UI is gone; re-run Parse to remap).
-  const itemCounts = new Map<string, number>();
+  // Join property_zone_items → inspection_items so each card can show the
+  // actual item titles attached, not just a count. Keeps the per-zone view
+  // read-only; remap via Parse if anything looks wrong.
+  const itemsByZone = new Map<string, ZoneItem[]>();
   if (zones.length > 0) {
     const { data: assignments } = await supabase
       .from('property_zone_items')
-      .select('property_zone_id')
+      .select('property_zone_id, inspection_items!inner(id, title, category, sort_order)')
       .in('property_zone_id', zones.map((z) => z.id));
-    for (const a of (assignments ?? []) as { property_zone_id: string }[]) {
-      itemCounts.set(a.property_zone_id, (itemCounts.get(a.property_zone_id) ?? 0) + 1);
+    type Row = {
+      property_zone_id: string;
+      inspection_items: { id: string; title: string; category: string; sort_order: number } | { id: string; title: string; category: string; sort_order: number }[] | null;
+    };
+    for (const row of (assignments ?? []) as Row[]) {
+      // supabase-js infers FK joins as either object or array depending on
+      // cardinality; normalize to the first row.
+      const it = Array.isArray(row.inspection_items) ? row.inspection_items[0] : row.inspection_items;
+      if (!it) continue;
+      const arr = itemsByZone.get(row.property_zone_id) ?? [];
+      arr.push({ id: it.id, title: it.title, category: it.category });
+      itemsByZone.set(row.property_zone_id, arr);
+    }
+    // Sort each zone's items by template sort_order so the inline list reads
+    // in the same order an inspection deck would render them.
+    for (const arr of itemsByZone.values()) {
+      arr.sort((a, b) => a.title.localeCompare(b.title));
     }
   }
 
   const zonesSummary: ZoneSummary[] = zones.map((z) => ({
     ...z,
-    item_count: itemCounts.get(z.id) ?? 0,
+    items: itemsByZone.get(z.id) ?? [],
   }));
 
   return { property: property as HelmPropertyRow, zones: zonesSummary };
@@ -143,7 +159,7 @@ function ZoneCard({
   isFirst: boolean;
   isLast: boolean;
 }) {
-  const itemCount = zone.item_count;
+  const itemCount = zone.items.length;
 
   return (
     <article
@@ -231,7 +247,65 @@ function ZoneCard({
         </div>
       </header>
 
-      {/* Edit form */}
+      {/* Items in this zone — read-only disclosure. Collapsed by default
+          so the page stays scannable; click to verify what Parse mapped
+          to this room. Re-run Parse to change anything. */}
+      {itemCount > 0 && (
+        <details className="zone-items">
+          <summary
+            style={{
+              padding: '10px 18px',
+              cursor: 'pointer',
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              userSelect: 'none',
+              borderBottom: '1px solid var(--rule-soft)',
+            }}
+          >
+            Show items
+          </summary>
+          <ul
+            style={{
+              listStyle: 'none',
+              padding: '8px 18px 14px',
+              margin: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            {zone.items.map((it) => (
+              <li
+                key={it.id}
+                style={{
+                  fontSize: 13,
+                  color: 'var(--ink)',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-4)',
+                    fontWeight: 600,
+                    minWidth: 70,
+                  }}
+                >
+                  {it.category}
+                </span>
+                <span>{it.title}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* Inline delete — escape hatch so a bad zone can be dropped without
           re-parsing the whole layout. No edit form, no checkbox lists:
           if items or naming need tweaking, re-run Parse. */}
