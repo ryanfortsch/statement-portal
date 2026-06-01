@@ -103,14 +103,20 @@ export function LayoutProseInput({
         <div className="flex items-center justify-between" style={{ marginTop: 10, gap: 12 }}>
           <div style={{ fontSize: 11, color: 'var(--ink-4)', flex: 1, minHeight: 16 }}>
             {status.kind === 'success' && (
-              <span style={{ color: 'var(--positive)' }}>
-                Mapped {status.zones} zone{status.zones === 1 ? '' : 's'}, {status.items} item{status.items === 1 ? '' : 's'} attached.
-                {status.unknown.length > 0 && (
-                  <span style={{ color: 'var(--ink-4)' }}>
-                    {' '}Skipped {status.unknown.length} title{status.unknown.length === 1 ? '' : 's'} I couldn&rsquo;t match.
-                  </span>
-                )}
-              </span>
+              status.items === 0 && status.zones > 0 ? (
+                <span style={{ color: 'var(--signal)' }}>
+                  Mapped {status.zones} zone{status.zones === 1 ? '' : 's'} but couldn&rsquo;t attach any items. Try a more detailed description (e.g. name each room and its purpose) and Parse again.
+                </span>
+              ) : (
+                <span style={{ color: 'var(--positive)' }}>
+                  Mapped {status.zones} zone{status.zones === 1 ? '' : 's'}, {status.items} item{status.items === 1 ? '' : 's'} attached.
+                  {status.unknown.length > 0 && (
+                    <span style={{ color: 'var(--ink-4)' }}>
+                      {' '}Skipped {status.unknown.length} title{status.unknown.length === 1 ? '' : 's'} I couldn&rsquo;t match.
+                    </span>
+                  )}
+                </span>
+              )
             )}
             {status.kind === 'error' && (
               <span style={{ color: 'var(--negative)' }}>{status.msg}</span>

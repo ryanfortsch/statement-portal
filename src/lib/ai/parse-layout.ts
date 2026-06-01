@@ -63,7 +63,7 @@ Output rules:
 - Preserve walking order from the prose. If main floor is described first then upstairs, the zone list goes main floor → upstairs. Do not alphabetize.
 - name = short label, title-case, no floor baked in. ("Primary bedroom", not "Upstairs primary bedroom".)
 - floor = the floor label the operator used ("Main floor", "Second floor", "Basement"), or null if not specified.
-- itemTitles per zone = the EXACT titles (verbatim) of inspection items from the provided list that belong in that room type. Match by category and meaning:
+- itemTitles per zone = the EXACT titles of inspection items from the provided list that belong in that room type. Copy each title CHARACTER-FOR-CHARACTER from the list above — including \`+\` signs, parenthesized suffixes like "(All Baths)", capitalization, and spacing. Do NOT paraphrase, normalize, or shorten. If the list says "Kitchen Surfaces + Sink", you write "Kitchen Surfaces + Sink" — not "Kitchen Surfaces and Sink", not "Kitchen Surface", not "Kitchen sink". Match by category and meaning:
     * Kitchen zone → kitchen-category items
     * Bathroom zone → bathroom-category items
     * Bedroom zone → bedroom-category items
