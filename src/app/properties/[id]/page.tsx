@@ -48,6 +48,22 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   return (data as HelmPropertyRow) ?? null;
 }
 
+async function getScaLaunchStatus(
+  id: string,
+): Promise<{ status: string; live_url: string | null } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('sca_launches')
+      .select('status, live_url')
+      .eq('property_id', id)
+      .maybeSingle();
+    if (error) return null; // table may not exist yet on older preview envs
+    return (data as { status: string; live_url: string | null }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 type PropertyNoteRow = {
   id: string;
   note_text: string;
@@ -268,7 +284,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session, scaLaunch] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -280,6 +296,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getPropertyNotices(p.id),
     getPropertyNotes(p.id),
     auth(),
+    getScaLaunchStatus(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -390,6 +407,22 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           ← All Properties
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link
+            href={`/properties/${p.id}/stay-cape-ann`}
+            title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
+              textDecoration: 'none',
+              border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
+              padding: '8px 14px',
+              fontWeight: 500,
+            }}
+          >
+            Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
+          </Link>
           <Link
             href={`/channels/${p.id}`}
             style={{
