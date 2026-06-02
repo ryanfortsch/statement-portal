@@ -615,39 +615,107 @@ export function createAskTools() {
 
     search_playbook: tool({
       description:
-        'Search the Playbook: Rising Tide\'s internal operations manual / SOPs / how-we-run-the-business knowledge base. Use this for any how-to, process, procedure, or policy question, e.g. "how do we set up Stripe for a new property", "how do we onboard a property", "how is rental revenue calculated", "what\'s our cleaning cost source of truth". Returns matching entries with their full body text so you can quote the steps.',
+        'Search the Playbook: Rising Tide\'s internal operations manual / SOPs / methodology / how-we-run-the-business knowledge base. Use this for any how-to, process, procedure, policy, methodology, formula, or "how is X calculated / how does X work / what\'s the source of truth for X" question, e.g. "how do we set up Stripe for a new property", "how do we onboard a property", "how is rental revenue calculated", "do owner payouts include cleaning charges and what\'s the formula", "what\'s our cleaning cost source of truth". Returns the matching entries with their full body text (markdown) so you can quote the actual steps and formulas. Tokenises the query, so phrasing it like a natural question works — you do NOT have to guess entry titles.',
       inputSchema: z.object({
         query: z
           .string()
-          .describe('Topic or how-to question, e.g. "Stripe setup new property" or "owner statements".'),
+          .describe('Topic, methodology, or how-to question, phrased however the operator phrased it. Multi-word; the search splits on whitespace.'),
       }),
       execute: async ({ query }: { query: string }) => {
+        // Sanitise structural PostgREST characters and wildcards.
         const safe = (query ?? '').replace(/[,()*%]/g, ' ').replace(/\s+/g, ' ').trim();
         if (!safe) return { error: 'Provide a search query.' };
-        const like = `%${safe}%`;
+
+        // Tokenise into searchable words. The previous one-big-ilike
+        // approach required the full query phrase to appear as a literal
+        // substring — useless for natural-language questions like
+        // "do owner payouts include cleaning charges and what's the methodology"
+        // because no entry contains that exact phrase. Now we match ANY
+        // meaningful token and rank by how many tokens hit, so longer
+        // questions actually find their entries.
+        const STOPWORDS = new Set([
+          'the', 'and', 'but', 'for', 'with', 'from', 'this', 'that', 'these',
+          'those', 'are', 'was', 'were', 'has', 'have', 'had', 'how', 'what',
+          'why', 'when', 'where', 'who', 'which', 'our', 'your', 'their', 'its',
+          'do', 'does', 'did', 'is', 'be', 'been', 'being', 'we', 'us', 'you',
+          'of', 'in', 'on', 'to', 'at', 'as', 'an', 'a', 'so', 'if', 'or',
+          'about', 'into', 'over', 'than', 'then', 'them', 'they', 'will',
+        ]);
+        const tokens = Array.from(
+          new Set(
+            safe
+              .toLowerCase()
+              .split(/\s+/)
+              .map((w) => w.replace(/[^a-z0-9]/g, ''))
+              .filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+          ),
+        ).slice(0, 12);
+
+        // Build a single PostgREST `or()` filter that OR-matches every
+        // surviving token against title / summary / body_md, so the SQL
+        // returns any entry containing at least one token. (Falls back to
+        // the raw phrase when tokenisation strips everything — preserves
+        // behavior for single-word lookups.)
+        const ilikeTerms = (tokens.length ? tokens : [safe]).map(
+          (t) => `%${t}%`,
+        );
+        const orClauses = ilikeTerms.flatMap((term) => [
+          `title.ilike.${term}`,
+          `summary.ilike.${term}`,
+          `body_md.ilike.${term}`,
+        ]);
+
         const { data, error } = await supabase
           .from('playbook_entries')
-          .select('slug, title, category, summary, body_md, tags, property_id, updated_at')
+          .select('slug, title, category, summary, body_md, tags, property_id, pinned, updated_at')
           .eq('status', 'published')
-          .or(`title.ilike.${like},summary.ilike.${like},body_md.ilike.${like}`)
-          .order('updated_at', { ascending: false })
-          .limit(5);
+          .or(orClauses.join(','))
+          .limit(40);
         if (error) return { error: error.message };
-        const rows = (data ?? []) as Array<{
+        type Row = {
           slug: string;
           title: string;
           category: string;
           summary: string | null;
           body_md: string;
-          tags: string[];
+          tags: string[] | null;
           property_id: string | null;
+          pinned: boolean | null;
           updated_at: string;
-        }>;
-        for (const r of rows) addSource(r.title, `/playbook/${r.slug}`);
+        };
+        const rows = (data ?? []) as Row[];
+
+        // Score each entry by how many distinct tokens appear (title +
+        // summary + body_md + tags). Title and summary count for more so
+        // a topical entry beats one that happens to mention a token deep
+        // in the body. Pinned + recency are tiebreakers.
+        function scoreRow(r: Row): number {
+          const hay = `${r.title}\n${r.summary ?? ''}\n${r.body_md}\n${(r.tags ?? []).join(' ')}`.toLowerCase();
+          const hayTitleSummary = `${r.title}\n${r.summary ?? ''}`.toLowerCase();
+          let score = 0;
+          for (const t of tokens) {
+            if (hay.includes(t)) score += 1;
+            if (hayTitleSummary.includes(t)) score += 2; // weight title/summary hits
+          }
+          if (r.pinned) score += 1;
+          return score;
+        }
+        const ranked = rows
+          .map((r) => ({ r, score: scoreRow(r) }))
+          .filter((x) => x.score > 0)
+          .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return (b.r.updated_at || '').localeCompare(a.r.updated_at || '');
+          })
+          .slice(0, 5)
+          .map((x) => x.r);
+
+        for (const r of ranked) addSource(r.title, `/playbook/${r.slug}`);
         return {
           query: safe,
-          count: rows.length,
-          entries: rows.map((r) => ({
+          tokens,
+          count: ranked.length,
+          entries: ranked.map((r) => ({
             title: r.title,
             category: r.category,
             summary: r.summary,
