@@ -319,6 +319,52 @@ export async function computeRevenueSnapshot(
 
   const properties = (propsData ?? []) as PropertyRow[];
 
+  // 1b. Cleaning-cost-per-stay estimate per property. Used for any month
+  //     without a closed Statement (closed months use the Statement's
+  //     actual cleaning_total). Derive from the most recent 3 closed
+  //     Statements that had at least one stay, weighted by stays:
+  //         estimate = sum(cleaning_total) / sum(num_stays)  over last 3
+  //     So a property with 4 stays @ $200 cleaning each + 2 stays @ $250
+  //     (over 2 months) reads $214/stay, not the simple month-average.
+  //
+  //     Stored properties.cleaning_cost_estimate stays as a manual
+  //     override fallback if the property has no Statement history yet.
+  const sixMoAgo = new Date();
+  sixMoAgo.setMonth(sixMoAgo.getMonth() - 6);
+  const sinceMonthKey = `${sixMoAgo.getFullYear()}-${String(sixMoAgo.getMonth() + 1).padStart(2, '0')}`;
+  const { data: histStmts } = await supabase
+    .from('property_statements')
+    .select('property_id, num_stays, cleaning_total, month')
+    .gte('month', sinceMonthKey);
+
+  type HistStmt = { month: string; cleaning: number; stays: number };
+  const histByProperty = new Map<string, HistStmt[]>();
+  for (const row of (histStmts ?? []) as Array<{
+    property_id: string | null;
+    num_stays: number | null;
+    cleaning_total: number | null;
+    month: string | null;
+  }>) {
+    if (!row.property_id || !row.month || !row.num_stays || row.num_stays <= 0) continue;
+    const arr = histByProperty.get(row.property_id) ?? [];
+    arr.push({
+      month: row.month,
+      cleaning: Number(row.cleaning_total ?? 0),
+      stays: Number(row.num_stays),
+    });
+    histByProperty.set(row.property_id, arr);
+  }
+
+  const cleaningEstimateByProperty = new Map<string, number>();
+  for (const [propId, stmts] of histByProperty.entries()) {
+    const recent3 = stmts
+      .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0))
+      .slice(0, 3);
+    const totalC = recent3.reduce((s, r) => s + r.cleaning, 0);
+    const totalS = recent3.reduce((s, r) => s + r.stays, 0);
+    if (totalS > 0) cleaningEstimateByProperty.set(propId, totalC / totalS);
+  }
+
   // 2. Reservations overlapping the period:
   //    overlap iff (check_in < periodEndExclusive) AND (check_out > periodStart).
   const periodEndExclusive = dayAfter(rangeEnd);
@@ -435,7 +481,12 @@ export async function computeRevenueSnapshot(
     let totalRevenue = 0;
     let staysCount = 0;
     let cleaningCost = 0;
-    const cleaningPerStay = Number(prop.cleaning_cost_estimate ?? 0);
+    // Per-stay cleaning estimate. Prefer the rolling 3-month historical
+    // average from Statements (computed once above). Fall back to the
+    // manually-entered properties.cleaning_cost_estimate if the property
+    // has no Statement history yet (e.g. newly onboarded).
+    const cleaningPerStay =
+      cleaningEstimateByProperty.get(prop.id) ?? Number(prop.cleaning_cost_estimate ?? 0);
     // properties.management_fee_pct stored as percent (e.g. 25 = 25%).
     const mgmtFeeFraction = prop.is_rising_tide_owned ? 0 : Number(prop.management_fee_pct) / 100;
 
