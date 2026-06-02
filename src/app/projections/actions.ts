@@ -201,12 +201,22 @@ function parseCustomClauses(formData: FormData): CustomClause[] | null {
  * explicit value, that wins (manual override). Otherwise auto-compute via
  * Nominatim + OSRM. Network/geocode failures return null and the slide
  * silently falls back to the generic "~10 min" positioning.
+ *
+ * Hard-capped at ~6s wall-clock via Promise.race regardless of what the
+ * inner fetches do — AbortSignal.timeout doesn't reliably interrupt a
+ * stuck DNS / TLS handshake, and a multi-minute hang here used to lock
+ * the Save button on the prospect form. The cap is short enough to feel
+ * snappy and long enough for both Nominatim + OSRM round-trips on a
+ * healthy network.
  */
 async function resolveDriveTime(payload: ReturnType<typeof buildPayload>): Promise<number | null> {
   if (payload.drive_time_minutes != null) return payload.drive_time_minutes;
   const addr = `${payload.property_address ?? ''}${payload.property_city ? `, ${payload.property_city}` : ''}`.trim();
   if (!addr) return null;
-  return getDriveTimeMinutes(addr);
+  return Promise.race<number | null>([
+    getDriveTimeMinutes(addr),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
+  ]);
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────
@@ -243,9 +253,39 @@ export async function updateProjection(id: string, formData: FormData) {
   if (!session?.user?.email) throw new Error('Not signed in');
 
   const basePayload = buildPayload(formData);
+
+  // Drive-time resolution: avoid the Nominatim+OSRM round-trip on every
+  // minor edit. The form's `drive_time_minutes` field defaults to '' when
+  // the column was never populated, so a routine save would otherwise
+  // trigger a full re-geocode + re-route. Only re-resolve when:
+  //   - the user typed an explicit value (always honor manual overrides), or
+  //   - the address changed (the stored value is no longer relevant), or
+  //   - we have nothing stored AND the address changed from "nothing typed
+  //     before" to something useful.
+  // Otherwise reuse the stored value (or null if there isn't one) and
+  // skip the network entirely. resolveDriveTime is also hard-capped at
+  // 6s so the worst case is a single slow round-trip, not a multi-minute
+  // hang on a stuck fetch.
+  let driveTime: number | null = basePayload.drive_time_minutes;
+  if (driveTime == null) {
+    const { data: prior } = await supabase
+      .from('projections')
+      .select('drive_time_minutes, property_address, property_city')
+      .eq('id', id)
+      .maybeSingle();
+    const addressChanged =
+      (prior?.property_address ?? null) !== (basePayload.property_address ?? null) ||
+      (prior?.property_city ?? null) !== (basePayload.property_city ?? null);
+    if (!addressChanged && prior?.drive_time_minutes != null) {
+      driveTime = prior.drive_time_minutes as number;
+    } else {
+      driveTime = await resolveDriveTime(basePayload);
+    }
+  }
+
   const payload = {
     ...basePayload,
-    drive_time_minutes: await resolveDriveTime(basePayload),
+    drive_time_minutes: driveTime,
     // Bump updated_at on every save so the page-level ProjectionForm key
     // (key={projection.updated_at}) actually changes — forces a remount
     // and picks up the fresh defaults instead of holding stale ones from
