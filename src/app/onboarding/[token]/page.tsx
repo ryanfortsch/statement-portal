@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { submitOnboarding } from '@/app/projections/actions';
+import { OnboardingAutoSave } from '@/components/onboarding/OnboardingAutoSave';
 
 export const dynamic = 'force-dynamic';
 
@@ -221,10 +222,11 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <div className="eyebrow">Welcome{greetingName ? `, ${greetingName.split(/[, ]/)[0]}` : ''}</div>
           <h1>Tell us about <em>your home.</em></h1>
           <p className="rt-pub-lead">
-            A few details about <strong>{propertyAddress}</strong>{' '}so we can deliver the best possible service from day one. Your answers are saved when you submit; you can&rsquo;t lose progress mid-form, but try to complete it in one sitting.
+            A few details about <strong>{propertyAddress}</strong>{' '}so we can deliver the best possible service from day one. Your answers save automatically as you type — feel free to pause and come back. Tap Submit at the bottom when you&rsquo;re done.
           </p>
         </section>
 
+        <OnboardingAutoSave>
         <form action={submitOnboarding} className="rt-pub-form">
           <input type="hidden" name="token" value={token} />
 
@@ -376,6 +378,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
             <p>Once you submit, we&rsquo;ll take it from here. Questions? Reach Allie at <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or (978) 865-2387.</p>
           </div>
         </form>
+        </OnboardingAutoSave>
 
         <footer className="rt-pub-foot">
           Rising Tide &middot; risingtidestr.com &middot; allie@risingtidestr.com &middot; (978) 865-2387

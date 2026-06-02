@@ -982,6 +982,79 @@ export async function countersignContract(formData: FormData): Promise<void> {
  * prospect path is byte-identical to the prior implementation; fall back
  * to `properties` for the new managed-property re-submit flow.
  */
+/**
+ * Public-facing draft autosave: same token gate as submitOnboarding, but
+ * persists the partial answers without flipping onboarding_submitted_at
+ * and without firing the staff notification or any redirect. The form
+ * (which is long) calls this debounced after each input so the owner
+ * can pause / lose their connection / forget to scroll to the bottom
+ * Submit button, and their answers are still safely on file.
+ *
+ * Returns `{ ok, savedAt? }` to the client so it can render a "Saved
+ * 2 min ago" indicator. Errors are returned, not thrown, so a flaky
+ * network on the owner's side never crashes the page mid-typing.
+ */
+export async function saveOnboardingDraft(
+  formData: FormData,
+): Promise<{ ok: true; savedAt: string } | { ok: false; reason: string }> {
+  const token = String(formData.get('token') || '').trim();
+  if (!token || !/^[a-f0-9]{32}$/.test(token)) {
+    return { ok: false, reason: 'Invalid onboarding link' };
+  }
+
+  const data = parseOnboardingFormData(formData);
+
+  // Prospect path first (mirrors submitOnboarding's probe order).
+  const { data: projHit, error: projLookupErr } = await supabase
+    .from('projections')
+    .select('id')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (projLookupErr) return { ok: false, reason: projLookupErr.message };
+
+  if (projHit) {
+    const { error } = await supabase
+      .from('projections')
+      .update({ onboarding_data: data })
+      .eq('onboarding_token', token);
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true, savedAt: new Date().toISOString() };
+  }
+
+  // Property path: same column-by-column write the full submit uses, but
+  // without the onboarding_submitted_at stamp or notification email.
+  // Service-role client because properties RLS rejects anon writes.
+  const sb = getServiceClient();
+  const { data: propHit, error: propLookupErr } = await sb
+    .from('properties')
+    .select('id, owner_emails')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (propLookupErr) return { ok: false, reason: propLookupErr.message };
+  if (!propHit) return { ok: false, reason: 'Invalid onboarding link' };
+
+  const updatePayload: Record<string, unknown> = {
+    ...propertyColumnsFromOnboarding(data),
+  };
+  if (data.phone) updatePayload.owner_phone = data.phone;
+  if (data.mailing_address) updatePayload.owner_mailing_address = data.mailing_address;
+  if (data.preferred_contact) updatePayload.owner_preferred_contact = data.preferred_contact;
+  if (data.email) {
+    const current = (propHit as { owner_emails: string[] | null }).owner_emails ?? [];
+    if (!current.includes(data.email)) {
+      updatePayload.owner_emails = [...current, data.email];
+    }
+  }
+
+  const { error } = await sb
+    .from('properties')
+    .update(updatePayload)
+    .eq('onboarding_token', token);
+  if (error) return { ok: false, reason: error.message };
+
+  return { ok: true, savedAt: new Date().toISOString() };
+}
+
 export async function submitOnboarding(formData: FormData) {
   const token = String(formData.get('token') || '').trim();
   if (!token || !/^[a-f0-9]{32}$/.test(token)) throw new Error('Invalid onboarding link');
