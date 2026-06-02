@@ -147,6 +147,15 @@ export type GuestyListingDetail = {
   };
   /** Some Guesty accounts populate this; many don't. Treated as best-effort. */
   area?: number;
+  /** Guest-facing copy blocks. summary ~ tagline; space ~ the "About" body. */
+  publicDescription?: {
+    summary?: string;
+    space?: string;
+    neighborhood?: string;
+    [k: string]: unknown;
+  };
+  pictures?: Array<{ original?: string; caption?: string }>;
+  amenities?: string[];
 };
 
 /** Pull the full detail record for one Guesty listing. */

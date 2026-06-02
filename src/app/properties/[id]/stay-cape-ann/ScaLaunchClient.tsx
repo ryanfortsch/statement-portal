@@ -16,6 +16,7 @@ import {
   goLiveSca,
   unlistSca,
   refreshScaSiteData,
+  pullFromGuesty,
 } from './actions';
 
 type Props = {
@@ -59,6 +60,7 @@ export function ScaLaunchClient(props: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>('none');
   const [verifyResult, setVerifyResult] = useState<{ signal: PaymentVerifySignal; target: string } | null>(null);
+  const [guestyInfo, setGuestyInfo] = useState<{ bedrooms: number | null; bathrooms: number | null; accommodates: number | null; photos: number; amenities: number } | null>(null);
   const [, startTransition] = useTransition();
   const polling = useRef(false);
 
@@ -119,6 +121,29 @@ export function ScaLaunchClient(props: Props) {
         setRow(res.row);
         setNotice({ kind: 'ok', text: 'Draft saved.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Save failed' });
+    });
+
+  const onPullGuesty = () =>
+    run('pull-guesty', async () => {
+      if (!form.guestyListingId.trim()) {
+        setNotice({ kind: 'err', text: 'Enter the Guesty listing ID first, then pull.' });
+        return;
+      }
+      const res = await pullFromGuesty(form.guestyListingId.trim());
+      if (!res.ok) {
+        setNotice({ kind: 'err', text: res.error });
+        return;
+      }
+      const p = res.prefill;
+      // Fill blanks only — never clobber what the operator already typed.
+      setForm((f) => ({
+        ...f,
+        publicName: f.publicName || p.publicName,
+        tagline: f.tagline || p.tagline,
+        description: f.description || p.description,
+      }));
+      setGuestyInfo({ bedrooms: p.bedrooms, bathrooms: p.bathrooms, accommodates: p.accommodates, photos: p.photos, amenities: p.amenities });
+      setNotice({ kind: 'ok', text: `Pulled from Guesty: filled name, tagline, and About where blank. Now fill the gaps (pitch, highlights, the restaurant pick, iCal URL).` });
     });
 
   const onOpenPr = () =>
@@ -220,6 +245,27 @@ export function ScaLaunchClient(props: Props) {
           <Field label="Display rank" error={errOf('rank')} hint="Lower sorts earlier on the site. Waterfront/beach near the top.">
             <input style={inputStyle} type="number" value={Number.isFinite(form.rank) ? form.rank : ''} onChange={(e) => set('rank', e.target.value === '' ? NaN : Number(e.target.value))} />
           </Field>
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button type="button" style={btnBase} disabled={busy !== null || isLive} onClick={onPullGuesty}>
+            {busy === 'pull-guesty' ? 'Pulling…' : 'Pull from Guesty'}
+          </button>
+          {guestyInfo ? (
+            <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+              Guesty has: {[
+                guestyInfo.bedrooms ? `${guestyInfo.bedrooms}BR` : null,
+                guestyInfo.bathrooms ? `${guestyInfo.bathrooms}BA` : null,
+                guestyInfo.accommodates ? `sleeps ${guestyInfo.accommodates}` : null,
+                `${guestyInfo.photos} photos`,
+                `${guestyInfo.amenities} amenities`,
+              ].filter(Boolean).join(' · ')}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+              Enter the Guesty listing ID, then pull name, tagline, and About into the blanks below. Start here, then fill the gaps.
+            </span>
+          )}
         </div>
 
         <div style={{ marginTop: 16 }}>
