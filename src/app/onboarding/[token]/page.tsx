@@ -21,6 +21,32 @@ type OnboardingTarget =
   | { kind: 'projection'; row: ProjectionRow }
   | { kind: 'property'; row: HelmPropertyRow };
 
+/**
+ * Join an address line + city/state line into a single display string with
+ * a guaranteed ", " separator. Trims each part so trailing whitespace on
+ * either column doesn't produce double-spacing or a stray run-together.
+ */
+function joinAddress(addr: string | null | undefined, city: string | null | undefined): string {
+  const parts = [addr, city]
+    .map((s) => (s == null ? '' : String(s).trim()))
+    .filter((s) => s.length > 0);
+  return parts.join(', ');
+}
+
+/**
+ * Format a raw US phone string into "(xxx) xxx-xxxx". Strips non-digits
+ * first so prospect-side entries like "7812231091" render correctly in
+ * the onboarding form's pre-fill. Returns the original input untouched
+ * for non-US shapes so we don't mangle legitimate non-standard data.
+ */
+function formatPhone(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  const ten = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+  return String(raw);
+}
+
 async function getOnboardingTarget(token: string): Promise<OnboardingTarget | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
 
@@ -154,23 +180,27 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
   if (target.kind === 'projection') {
     const prospect = target.row;
     greetingName = prospect.prospect_first_names || prospect.prospect_first_name || '';
-    propertyAddress = `${prospect.property_address}${prospect.property_city ? `, ${prospect.property_city}` : ''}`;
+    propertyAddress = joinAddress(prospect.property_address, prospect.property_city);
     fullName = prospect.prospect_full_legal || prospect.prospect_name;
     ob = { ...(prospect.onboarding_data || {}) };
     // Prospect inputs as fallbacks for fields the form pre-populates from
     // the projection's intake answers (phone, property_type, bedrooms).
-    // Owner answers always win once they fill the form.
-    if (!ob.phone && prospect.prospect_phone) ob.phone = prospect.prospect_phone;
+    // Owner answers always win once they fill the form. Phone is
+    // normalized to (xxx) xxx-xxxx so the pre-filled value looks like a
+    // phone number instead of a 10-digit blob.
+    if (!ob.phone && prospect.prospect_phone) ob.phone = formatPhone(prospect.prospect_phone);
     if (!ob.property_type && prospect.property_type) ob.property_type = prospect.property_type;
     if (!ob.bedrooms && prospect.bedrooms) ob.bedrooms = String(prospect.bedrooms);
   } else {
     const property = target.row;
     greetingName = property.owner_greeting || property.owner_full || '';
-    propertyAddress = `${property.address}${property.city ? `, ${property.city}` : ''}`;
+    propertyAddress = joinAddress(property.address, property.city);
     fullName = property.owner_full || '';
     // Pre-populate from the property's current first-class columns so
     // the owner sees what's on file and can correct it.
     ob = onboardingDataFromProperty(property);
+    // Same phone normalization as the projection branch.
+    if (ob.phone) ob.phone = formatPhone(ob.phone);
   }
 
   return (
@@ -191,7 +221,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <div className="eyebrow">Welcome{greetingName ? `, ${greetingName.split(/[, ]/)[0]}` : ''}</div>
           <h1>Tell us about <em>your home.</em></h1>
           <p className="rt-pub-lead">
-            A few details about <strong>{propertyAddress}</strong> so we can deliver the best possible service from day one. Your answers are saved when you submit; you can&rsquo;t lose progress mid-form, but try to complete it in one sitting.
+            A few details about <strong>{propertyAddress}</strong>{' '}so we can deliver the best possible service from day one. Your answers are saved when you submit; you can&rsquo;t lose progress mid-form, but try to complete it in one sitting.
           </p>
         </section>
 
@@ -261,7 +291,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
             <Field name="currently_listed" label="Currently listed?" defaultValue={ob.currently_listed} hint="Platform(s) if yes — Airbnb, VRBO, etc." />
             <Field name="listing_urls" label="Existing listing URL(s)" defaultValue={ob.listing_urls} />
             <Row>
-              <Field name="str_registration" label="STR registration #" defaultValue={ob.str_registration} hint="If applicable in your municipality" />
+              <Field name="str_registration" label="STR registration #" defaultValue={ob.str_registration} hint="Room Occupancy Certificate number" />
               <Field name="str_insurance" label="STR insurance carrier" defaultValue={ob.str_insurance} hint="Policy # if available" />
             </Row>
             <Field name="guest_access_method" label="Guest access method" defaultValue={ob.guest_access_method} hint="Smart Lock / Key Box / Other" />
