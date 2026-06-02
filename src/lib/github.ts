@@ -77,6 +77,15 @@ function b64decode(s: string): string {
   return Buffer.from(s, 'base64').toString('utf8');
 }
 
+/**
+ * Encode a git ref for use in a URL PATH segment: encode each segment but keep
+ * the slashes literal, so a branch like `sca-launch/36_granite` resolves as a
+ * ref (GitHub does not decode %2F in path positions).
+ */
+function refPath(ref: string): string {
+  return ref.split('/').map(encodeURIComponent).join('/');
+}
+
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 /** Returns the commit SHA at the tip of a branch (for branching off it). */
@@ -241,7 +250,7 @@ export async function getBranchPreviewStatus(branch: string): Promise<PreviewSta
     const combined = await gh<{
       state: string;
       statuses: Array<{ state: string; context: string; target_url?: string }>;
-    }>('GET', `${BASE}/commits/${encodeURIComponent(branch)}/statuses`);
+    }>('GET', `${BASE}/commits/${refPath(branch)}/statuses`);
     const vercel = (combined.statuses || []).find((s) =>
       (s.context || '').toLowerCase().includes('vercel'),
     );
