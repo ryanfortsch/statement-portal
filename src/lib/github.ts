@@ -196,6 +196,15 @@ export async function closePullRequest(number: number): Promise<void> {
   await gh('PATCH', `${BASE}/pulls/${number}`, { state: 'closed' });
 }
 
+/**
+ * Trigger a workflow_dispatch on a workflow file (e.g. the Guesty snapshot
+ * refresh). Requires the token to carry the Actions: write permission; callers
+ * should treat a throw (403 when the scope is missing) as non-fatal.
+ */
+export async function dispatchWorkflow(workflowFile: string, ref: string): Promise<void> {
+  await gh('POST', `${BASE}/actions/workflows/${encodeURIComponent(workflowFile)}/dispatches`, { ref });
+}
+
 export async function deleteBranch(branch: string): Promise<void> {
   try {
     await gh('DELETE', `${BASE}/git/refs/heads/${branch}`);

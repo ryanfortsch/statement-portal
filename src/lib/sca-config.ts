@@ -15,6 +15,14 @@ export const SCA_PROD_BRANCH = 'main';
 /** The registry file we add a listing entry to. */
 export const SCA_REGISTRY_PATH = 'data/ical-urls.json';
 
+/**
+ * The GitHub Actions workflow that refreshes the committed Guesty snapshot
+ * (data/guesty-snapshot.json) on the SCA side. /stays/[id] is pre-rendered from
+ * that snapshot, so a freshly-merged listing 404s until this runs. go-live
+ * dispatches it (workflow_dispatch) so the page never waits on the nightly cron.
+ */
+export const SCA_SNAPSHOT_WORKFLOW = 'refresh-snapshot.yml';
+
 /** Public site origin (used for the live URL + the secret-free payment probe). */
 export const SCA_SITE_ORIGIN = 'https://www.staycapeann.com';
 
