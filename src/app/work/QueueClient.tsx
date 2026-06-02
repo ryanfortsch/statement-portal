@@ -577,10 +577,34 @@ function PropertyGroup({
   const [expanded, setExpanded] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
+  // Print state — only active for the brief window while window.print() is
+  // open. The body data-print-property + group data-printing pair drives
+  // the @media print rules in globals.css to render just this property's
+  // slips on paper, sans the queue chrome.
+  const [printing, setPrinting] = useState(false);
   const highCount = slips.filter((s) => s.priority === 'high').length;
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const propName = property?.name ?? 'Unknown property';
   const propertyId = property?.id ?? null;
+
+  function printPropertyWork() {
+    if (!propertyId) return;
+    const wasExpanded = expanded;
+    // Force the group expanded so the slips are actually in the DOM when
+    // the print dialog opens. Without this, the @media print rule would
+    // print the header alone.
+    if (!wasExpanded) setExpanded(true);
+    setPrinting(true);
+    document.body.setAttribute('data-print-property', propertyId);
+    // Give React a tick to flush the expand + data-printing render
+    // before triggering the (synchronous, blocking) print dialog.
+    setTimeout(() => {
+      window.print();
+      document.body.removeAttribute('data-print-property');
+      setPrinting(false);
+      if (!wasExpanded) setExpanded(false);
+    }, 60);
+  }
 
   async function draftOwnerEmail() {
     if (!propertyId || drafting) return;
@@ -608,7 +632,11 @@ function PropertyGroup({
   }
 
   return (
-    <div style={{ borderBottom: '1px solid var(--rule)' }}>
+    <div
+      data-property-group={propertyId ?? ''}
+      data-printing={printing ? 'true' : undefined}
+      style={{ borderBottom: '1px solid var(--rule)' }}
+    >
       <div
         style={{
           display: 'flex',
@@ -673,6 +701,7 @@ function PropertyGroup({
             type="button"
             onClick={draftOwnerEmail}
             disabled={drafting}
+            className="rt-no-print"
             style={{
               background: 'var(--ink)',
               color: 'var(--paper)',
@@ -688,9 +717,30 @@ function PropertyGroup({
             {drafting ? 'Drafting…' : 'Draft Owner Email'}
           </button>
         )}
+        {propertyId && (
+          <button
+            type="button"
+            onClick={printPropertyWork}
+            className="rt-no-print"
+            title={`Print ${propName} work list`}
+            aria-label={`Print ${propName} work list`}
+            style={{
+              background: 'none',
+              border: '1px solid var(--rule)',
+              padding: '4px 8px',
+              fontSize: 12,
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+              lineHeight: 1,
+            }}
+          >
+            🖨
+          </button>
+        )}
         <button
           type="button"
           onClick={onAddSlip}
+          className="rt-no-print"
           style={{
             background: 'none',
             border: '1px solid var(--rule)',
@@ -771,11 +821,16 @@ function WorkSlipRowItem({
         background: selected ? 'var(--paper-2)' : 'transparent',
       }}
     >
-      <SelectCheckbox
-        checked={selected}
-        onChange={() => onToggleSelect(slip.id)}
-        ariaLabel={`Select work slip ${slip.title}`}
-      />
+      <span className="rt-no-print">
+        <SelectCheckbox
+          checked={selected}
+          onChange={() => onToggleSelect(slip.id)}
+          ariaLabel={`Select work slip ${slip.title}`}
+        />
+      </span>
+      {/* Paper checkbox for the printout — only renders in @media print
+          (see globals.css). Gives the cleaner a tick-box on paper. */}
+      <span aria-hidden="true" className="rt-print-only" style={{ fontSize: 14 }}>☐</span>
       <Link
         href={`/work/${slip.id}`}
         style={{
@@ -808,18 +863,19 @@ function WorkSlipRowItem({
           </div>
         </div>
         {commentCount > 0 && (
-          <CommentBadge count={commentCount} />
+          <span className="rt-no-print"><CommentBadge count={commentCount} /></span>
         )}
-        <span style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
+        <span className="rt-no-print" style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
           {slip.priority}
         </span>
-        <span style={pillTinyStyle('var(--ink-3)')}>
+        <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
           {slip.status.replace('_', ' ')}
         </span>
       </Link>
       <button
         type="button"
         onClick={markDone}
+        className="rt-no-print"
         style={{
           background: 'none',
           border: '1px solid var(--rule)',

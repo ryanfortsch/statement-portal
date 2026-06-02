@@ -794,3 +794,42 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     transform: none;
   }
 }
+
+/* ── Per-property work-queue print ──────────────────────────────────
+   Driven by JS in src/app/work/QueueClient.tsx — clicking the print
+   icon on a property group sets `data-print-property` on body and
+   `data-printing='true'` on that group, then calls window.print(),
+   then clears both. The "visibility: hidden everything, visibility:
+   visible the printed bits, position: absolute to top-left" pattern
+   is the well-trodden way to print one section of a SPA without a
+   second route. */
+@media print {
+  body[data-print-property] * { visibility: hidden !important; }
+  body[data-print-property] [data-property-group][data-printing='true'],
+  body[data-print-property] [data-property-group][data-printing='true'] * {
+    visibility: visible !important;
+  }
+  body[data-print-property] [data-property-group][data-printing='true'] .rt-no-print,
+  body[data-print-property] [data-property-group][data-printing='true'] .rt-no-print * {
+    visibility: hidden !important;
+  }
+  body[data-print-property] [data-property-group][data-printing='true'] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 24px 36px;
+    background: white !important;
+    color: black !important;
+    border: none !important;
+  }
+  body[data-print-property] { background: white !important; }
+  @page { margin: 0.4in; }
+}
+
+/* Paper-only marks (e.g. tick-box ☐ on printed slips). Hidden on screen,
+   visible only when @media print is active. */
+.rt-print-only { display: none !important; }
+@media print {
+  .rt-print-only { display: inline !important; visibility: visible !important; }
+}
