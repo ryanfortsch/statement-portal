@@ -364,6 +364,47 @@ export async function unmarkOnboardingDone(id: string) {
 }
 
 /**
+ * Manually complete the Partnership Guide & Contract pipeline stage.
+ * Mirrors markOnboardingDone: used when the contract was closed out
+ * outside the in-Helm signing flow (signed in person, executed elsewhere,
+ * one-off deal). The stage flips to done, the hero pipeline bar advances,
+ * and Promote unlocks (paired with onboarding being done).
+ *
+ * Stamps contract_marked_done_at rather than contract_countersigned_at so
+ * the status line + activity log can still distinguish "Fully executed"
+ * (real countersign chain) from "Marked complete by staff".
+ */
+export async function markContractDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ contract_marked_done_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+export async function unmarkContractDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ contract_marked_done_at: null })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
  * Set the analyst's confidence that this prospect will close, 0–100.
  *
  * Called from the inline widget on the identity strip and from the prospect
@@ -598,6 +639,24 @@ export async function promoteToProperty(projectionId: string) {
 
   const { error: insertErr } = await sb.from('properties').insert(propertyPayload);
   if (insertErr) throw new Error(insertErr.message);
+
+  // If the owner's onboarding included freeform notes, seed them as the
+  // first row of the new structured property_notes table so the data
+  // isn't dropped on the floor when the legacy column went away.
+  const obNotes = (ob.notes || '').trim();
+  if (obNotes) {
+    try {
+      await sb.from('property_notes').insert({
+        property_id: propertyId,
+        title: 'From owner onboarding intake',
+        body: obNotes,
+        tag: 'onboarding',
+        author_email: session.user.email,
+      });
+    } catch (err) {
+      console.warn('[promoteToProperty] property_notes seed skipped:', err);
+    }
+  }
 
   // Wire the back-reference on the prospect side so the link is bidirectional.
   const { error: linkErr } = await sb
@@ -1119,7 +1178,13 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     alarm_system: ob.alarm_system || null,
     known_issues: ob.known_issues || null,
     upcoming_maintenance: ob.upcoming_maintenance || null,
-    property_notes: ob.notes || null,
+    // ob.notes used to flow into properties.property_notes (a freeform
+    // text blob). That column was removed in migration 20260528 in favor
+    // of the structured public.property_notes table. The promote action
+    // could write a seed row there, but the onboarding form has its own
+    // structured fields for everything important; ob.notes is best left
+    // as a free-form append the operator can copy into a new note from
+    // the property page if it's worth keeping.
 
     emergency_contact_name: ob.emergency_name || null,
     emergency_contact_relationship: ob.emergency_relationship || null,

@@ -20,6 +20,7 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
+import { getPropertyNotes } from '@/lib/property-notes';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 
@@ -267,7 +268,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, session] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -277,6 +278,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getCrmTouchesForProperty(p.id),
     loadPropertyActivity(p),
     getPropertyNotices(p.id),
+    getPropertyNotes(p.id),
     auth(),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -774,6 +776,118 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         />
       </CollapsibleSection>
 
+      {/* PROPERTY NOTES — internal per-property knowledge base. Each
+          row is a discrete note (quirk / workaround / vendor / warning).
+          Closed-state chip surfaces the open count so a single glance
+          tells you whether there's tribal knowledge attached. */}
+      <CollapsibleSection
+        title="Property Notes"
+        summary={(() => {
+          const open = propertyNotes.filter((n) => !n.resolved_at).length;
+          const total = propertyNotes.length;
+          if (total === 0) return 'no notes yet';
+          if (open === total) return `${total} note${total === 1 ? '' : 's'}`;
+          return `${open} open · ${total - open} resolved`;
+        })()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <Link
+            href={`/properties/${p.id}/notes/new`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--paper)',
+              background: 'var(--ink)',
+              border: '1px solid var(--ink)',
+              padding: '6px 12px',
+              textDecoration: 'none',
+            }}
+          >
+            + Add note
+          </Link>
+        </div>
+        {propertyNotes.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            Nothing captured yet. The first note for {p.name} could be the smart-thermostat
+            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {propertyNotes.map((n) => (
+              <Link
+                key={n.id}
+                href={`/properties/${p.id}/notes/${n.id}/edit`}
+                style={{
+                  display: 'block',
+                  padding: '14px 16px',
+                  border: '1px solid var(--rule)',
+                  background: n.resolved_at ? 'var(--paper-2)' : 'var(--paper)',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  opacity: n.resolved_at ? 0.7 : 1,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <h3
+                    className="font-serif"
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 500,
+                      letterSpacing: '-0.005em',
+                      color: 'var(--ink)',
+                      margin: 0,
+                      flex: 1,
+                      textDecoration: n.resolved_at ? 'line-through' : 'none',
+                    }}
+                  >
+                    {n.title}
+                  </h3>
+                  {n.tag && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        border: '1px solid var(--rule)',
+                        padding: '2px 7px',
+                      }}
+                    >
+                      {n.tag}
+                    </span>
+                  )}
+                  {n.resolved_at && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--positive)',
+                      }}
+                    >
+                      Resolved
+                    </span>
+                  )}
+                </div>
+                {n.body && (
+                  <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                    {n.body}
+                  </p>
+                )}
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                  {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
+                  {formatDate(n.created_at)}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary={activitySummary}>
         <PropertyActivityList events={activityEvents} />
@@ -1222,6 +1336,7 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Cable / TV', value: p.cable_provider },
     { label: 'WiFi name', value: p.wifi_name },
     { label: 'WiFi password', value: p.wifi_password, mono: true },
+    { label: 'Smart thermostat', value: [p.thermostat_brand, p.thermostat_code].filter(Boolean).join(' · ') || null },
     { label: 'TVs', value: p.num_tvs },
     { label: 'Smart TV', value: p.smart_tv },
   ];
@@ -1237,9 +1352,13 @@ function operationalGroups(p: HelmPropertyRow) {
   const access: OpRow[] = [
     { label: 'Key / code location', value: p.key_code_location },
     { label: 'Alarm system', value: p.alarm_system },
+    { label: 'Garage code', value: p.garage_code, mono: true },
+    { label: 'Gate code', value: p.gate_code, mono: true },
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
-    { label: 'Notes', value: p.property_notes },
+    // Freeform notes have been moved to the structured Property Notes
+    // accordion (renders above this section). See public.property_notes
+    // and src/lib/property-notes.ts.
   ];
   const emergency: OpRow[] = [
     { label: 'Name', value: p.emergency_contact_name },
