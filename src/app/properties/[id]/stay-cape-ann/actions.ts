@@ -18,6 +18,7 @@ import {
   SCA_REGISTRY_PATH,
   SCA_PROD_BRANCH,
   SCA_SITE_ORIGIN,
+  SCA_SNAPSHOT_WORKFLOW,
   scaListingUrl,
   scaBookProbeUrl,
   SCA_DEMO_MODE_SENTINEL,
@@ -92,6 +93,13 @@ export async function openScaPr(propertyId: string, draft: ScaFormDraft): Promis
   if (!email) return { ok: false, error: 'Not signed in' };
   if (!gh.isGithubConfigured()) {
     return { ok: false, error: 'GITHUB_TOKEN is not configured on Helm. Add it before opening a PR.' };
+  }
+
+  // Once live, the registry entry already exists on production. Re-opening a PR
+  // here would spawn a redundant PR and reset the status, so refuse.
+  const current = await loadRow(propertyId);
+  if (current?.status === 'live') {
+    return { ok: false, error: 'This property is already live on Stay Cape Ann. Unlist it before relaunching.' };
   }
 
   const valid = validateScaForm(draft);
@@ -310,12 +318,54 @@ export async function goLiveSca(
 
     await markLaunchStepDone(propertyId, email);
 
+    // Clean up the merged branch so a stray re-click can't reuse it.
+    if (row.branch_name) await gh.deleteBranch(row.branch_name).catch(() => {});
+
+    // The /stays/[id] page is pre-rendered from the committed Guesty snapshot,
+    // which won't have this listing until refreshed. Trigger that refresh now so
+    // the page goes live in a couple minutes instead of waiting for the nightly
+    // cron. Best-effort: needs Actions: write on the token; a failure is logged
+    // but never fails the launch (the operator can refresh manually / cron runs).
+    try {
+      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
+      await supabase
+        .from('sca_launches')
+        .update({ snapshot_refreshed_at: new Date().toISOString() })
+        .eq('property_id', propertyId);
+    } catch {
+      /* snapshot refresh not triggered (token lacks Actions scope?); cron backstops */
+    }
+
     revalidate(propertyId);
     revalidatePath('/properties');
     const updated = await loadRow(propertyId);
     return updated ? { ok: true, row: updated } : { ok: false, error: 'Merged but could not reload' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Manually (re)trigger the SCA Guesty snapshot refresh. Used by the post-launch
+ * "Refresh site data" button when the auto-trigger on go-live didn't fire (e.g.
+ * the token lacks Actions scope) or the page still needs repopulating.
+ */
+export async function refreshScaSiteData(
+  propertyId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  try {
+    await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
+    await supabase
+      .from('sca_launches')
+      .update({ snapshot_refreshed_at: new Date().toISOString() })
+      .eq('property_id', propertyId);
+    revalidate(propertyId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `Could not trigger the snapshot refresh: ${(e as Error).message}` };
   }
 }
 

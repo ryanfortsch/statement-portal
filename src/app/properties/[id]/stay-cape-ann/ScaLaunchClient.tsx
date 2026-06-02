@@ -15,6 +15,7 @@ import {
   verifyPaymentWiring,
   goLiveSca,
   unlistSca,
+  refreshScaSiteData,
 } from './actions';
 
 type Props = {
@@ -63,6 +64,7 @@ export function ScaLaunchClient(props: Props) {
 
   const status = row?.status ?? 'draft';
   const prOpen = status === 'pr_open' || status === 'live' || status === 'unlisted';
+  const isLive = status === 'live';
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
   const webhookUrl = scaStripeWebhookUrl(form.stripeAccountKey || 'ACCOUNT_KEY');
   const paymentsReady = !!(row?.payment_publishable_set && row?.payment_secret_set && row?.payment_webhook_set);
@@ -169,6 +171,13 @@ export function ScaLaunchClient(props: Props) {
         setRow(res.row);
         setNotice({ kind: 'ok', text: 'Removal PR opened.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Unlist failed' });
+    });
+
+  const onRefreshSiteData = () =>
+    run('refresh-data', async () => {
+      const res = await refreshScaSiteData(props.propertyId);
+      if (res.ok) setNotice({ kind: 'ok', text: 'Site-data refresh triggered. The listing page updates within a couple minutes.' });
+      else setNotice({ kind: 'err', text: res.error });
     });
 
   return (
@@ -310,12 +319,19 @@ export function ScaLaunchClient(props: Props) {
           )}
         />
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-          <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
-          <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onOpenPr}>
-            {busy === 'pr' ? 'Opening PR…' : prOpen ? 'Update preview PR' : 'Open preview PR →'}
-          </button>
-        </div>
+        {isLive ? (
+          <p style={{ ...hintStyle, marginTop: 24 }}>
+            This listing is live on Stay Cape Ann, so content is locked here to prevent stray edits and
+            duplicate PRs. Use <strong>Unlist</strong> in Step 4 to take it down before relaunching with changes.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+            <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
+            <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onOpenPr}>
+              {busy === 'pr' ? 'Opening PR…' : prOpen ? 'Update preview PR' : 'Open preview PR →'}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ── Stage 2: Preview ─────────────────────────────────────────── */}
@@ -394,11 +410,12 @@ export function ScaLaunchClient(props: Props) {
               Live on staycapeann.com.{' '}
               {row?.live_url && <a href={row.live_url} target="_blank" rel="noreferrer" style={linkStyle}>{row.live_url} ↗</a>}
             </Banner>
-            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onVerify}>{busy === 'verify' ? 'Checking…' : 'Verify payments (production)'}</button>
+              <button type="button" style={btnBase} disabled={busy !== null} onClick={onRefreshSiteData}>{busy === 'refresh-data' ? 'Triggering…' : 'Refresh site data'}</button>
               <button type="button" style={{ ...btnBase, borderColor: 'var(--negative)', color: 'var(--negative)' }} disabled={busy !== null} onClick={onUnlist}>Unlist…</button>
             </div>
-            <p style={hintStyle}>Photos, pricing, and the calendar populate from Guesty automatically on the next build. To refresh the committed snapshot sooner, run <span style={mono}>npm run snapshot:refresh</span> in the stay-cape-ann repo.</p>
+            <p style={hintStyle}>The listing page is built from Guesty&rsquo;s snapshot, which go-live refreshes automatically (takes a couple minutes after merge). If the page or its photos look stale, click <strong>Refresh site data</strong>; it also self-heals on the nightly refresh.</p>
           </div>
         ) : (
           <div style={{ marginTop: 8 }}>
