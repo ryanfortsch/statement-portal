@@ -24,6 +24,7 @@ import {
   SCA_DEMO_MODE_SENTINEL,
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
+import { getGuestyListing } from '@/lib/guesty';
 
 /**
  * Server actions for the Stay Cape Ann launch flow (/properties/[id]/stay-cape-ann).
@@ -56,6 +57,50 @@ async function loadRow(propertyId: string): Promise<ScaLaunchRow | null> {
 function revalidate(propertyId: string): void {
   revalidatePath(`/properties/${propertyId}/stay-cape-ann`);
   revalidatePath(`/properties/${propertyId}`);
+}
+
+export type GuestyPrefill = {
+  publicName: string;
+  tagline: string;
+  description: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  accommodates: number | null;
+  photos: number;
+  amenities: number;
+};
+
+/**
+ * Pull what Guesty already has for a listing so the operator edits/fills gaps
+ * instead of authoring from scratch. Maps Guesty title/summary/space to
+ * publicName/tagline/description and reports the photo/amenity/spec counts.
+ * Uses Helm's Guesty creds (server-only); returns a clean error if unavailable.
+ */
+export async function pullFromGuesty(
+  guestyListingId: string,
+): Promise<{ ok: true; prefill: GuestyPrefill } | { ok: false; error: string }> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  const id = guestyListingId.trim();
+  if (!id) return { ok: false, error: 'Enter the Guesty listing ID first' };
+  try {
+    const l = await getGuestyListing(id);
+    return {
+      ok: true,
+      prefill: {
+        publicName: (l.title || l.nickname || '').trim(),
+        tagline: (l.publicDescription?.summary || '').trim(),
+        description: (l.publicDescription?.space || '').trim(),
+        bedrooms: l.bedrooms ?? null,
+        bathrooms: l.bathrooms ?? null,
+        accommodates: l.accommodates ?? null,
+        photos: (l.pictures || []).length,
+        amenities: (l.amenities || []).length,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: `Could not pull from Guesty: ${(e as Error).message}` };
+  }
 }
 
 /** Persist the editorial draft (no validation — lets the operator save progress). */
