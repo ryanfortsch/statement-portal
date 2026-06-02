@@ -238,15 +238,27 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             likely are we to get it?" Cover-range / Year-1 detail moved
             down into Stage 01's body where it sits alongside the
             tiered-rule + AirDNA breakdown. */}
-        <div
-          style={{
-            marginTop: 26,
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) auto',
-            gap: 48,
-            alignItems: 'flex-end',
-          }}
-        >
+        <style>{`
+          .rt-prospect-hero-kpis {
+            margin-top: 26px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 48px;
+            align-items: flex-end;
+          }
+          /* Mobile: stack the pipeline bar above the close-likelihood
+             widget so the bar gets full width and labels stop colliding
+             with the widget. */
+          @media (max-width: 720px) {
+            .rt-prospect-hero-kpis {
+              grid-template-columns: minmax(0, 1fr);
+              gap: 22px;
+              align-items: flex-start;
+              margin-top: 22px;
+            }
+          }
+        `}</style>
+        <div className="rt-prospect-hero-kpis">
           <PipelineProgressBar steps={pipelineSteps} doneCount={doneCount} />
           <CloseLikelihoodWidget projectionId={id} value={projection.close_likelihood_pct} size="large" />
         </div>
@@ -1315,9 +1327,14 @@ const pipelineProgressBarCss = `
     font-size: 11px;
     letter-spacing: 0.04em;
     text-align: center;
-    line-height: 1.3;
+    line-height: 1.25;
     color: var(--ink-4);
-    white-space: nowrap;
+    /* Wrap freely so multi-word labels ("Guide & Contract") don't overflow
+       into neighboring columns on narrow viewports. nowrap on desktop
+       where there's room. */
+    word-break: break-word;
+    hyphens: auto;
+    padding: 0 4px;
   }
   .rt-pbar-step[data-state="done"] .rt-pbar-label {
     color: var(--ink);
@@ -1326,6 +1343,15 @@ const pipelineProgressBarCss = `
   .rt-pbar-step[data-state="active"] .rt-pbar-label {
     color: var(--signal);
     font-weight: 600;
+  }
+  /* Mobile: shrink the labels a touch and let the bar breathe. The
+     column grid stays equal-width so the connectors still line up. */
+  @media (max-width: 640px) {
+    .rt-pbar-label {
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      padding: 0 2px;
+    }
   }
 `;
 
