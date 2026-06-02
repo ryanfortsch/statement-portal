@@ -114,6 +114,10 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
             <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
           </Row>
           <Row>
+            <Field name="thermostat_brand" label="Thermostat brand" defaultValue={p.thermostat_brand} hint="Nest / ecobee / Honeywell…" />
+            <Field name="thermostat_code" label="Thermostat code / PIN" defaultValue={p.thermostat_code} />
+          </Row>
+          <Row>
             <Field name="num_tvs" label="Number of TVs" type="number" defaultValue={p.num_tvs} />
             <Field name="smart_tv" label="Smart TV?" defaultValue={p.smart_tv} hint="Yes / No" />
           </Row>
@@ -139,9 +143,16 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
         <Group eyebrow="05" title="Property access & notes">
           <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
           <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
+          <Row>
+            <Field name="garage_code" label="Garage code" defaultValue={p.garage_code} hint="Numeric keypad code" />
+            <Field name="gate_code" label="Gate code" defaultValue={p.gate_code} hint="Driveway / community gate" />
+          </Row>
           <Field name="known_issues" label="Known issues" defaultValue={p.known_issues} textarea />
           <Field name="upcoming_maintenance" label="Upcoming maintenance" defaultValue={p.upcoming_maintenance} textarea />
-          <Field name="property_notes" label="Property notes" defaultValue={p.property_notes} textarea />
+          {/* Freeform notes live in the Property Notes accordion on the
+              property page now — one row per discrete note. The form
+              field that lived here has been retired in favor of the
+              structured editor at /properties/[id]/notes/new. */}
         </Group>
 
         {/* ── Emergency contact ── */}

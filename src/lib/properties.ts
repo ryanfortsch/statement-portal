@@ -302,6 +302,10 @@ export type HelmPropertyRow = {
   cable_provider: string | null;
   wifi_name: string | null;
   wifi_password: string | null;
+  // Smart thermostat — parallel to smart_lock_brand/code. Added so the
+  // Nest/ecobee PIN that gets traded around in Slack has a home.
+  thermostat_brand: string | null;
+  thermostat_code: string | null;
   num_tvs: number | null;
   smart_tv: string | null;
 
@@ -318,9 +322,15 @@ export type HelmPropertyRow = {
   // Property access & notes
   key_code_location: string | null;
   alarm_system: string | null;
+  // Driveway / community gate code if any.
+  gate_code: string | null;
+  // Numeric keypad code for the garage door if any.
+  garage_code: string | null;
   known_issues: string | null;
   upcoming_maintenance: string | null;
-  property_notes: string | null;
+  // NOTE: the legacy `property_notes` single-text column was migrated to
+  // the public.property_notes table (one row per discrete note) in
+  // migration 20260528. See src/lib/property-notes.ts for the helpers.
 
   // Emergency contact
   emergency_contact_name: string | null;

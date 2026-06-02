@@ -100,7 +100,13 @@ function onboardingDataFromProperty(p: HelmPropertyRow): OnboardingData {
   set('alarm_system', p.alarm_system);
   set('known_issues', p.known_issues);
   set('upcoming_maintenance', p.upcoming_maintenance);
-  set('notes', p.property_notes);
+  // p.property_notes was retired in migration 20260528. The owner's
+  // freeform notes from a prior submission live in public.property_notes
+  // (one row per note) now; pre-filling them into this form is the
+  // wrong shape anyway since the form's textarea expects a single blob.
+  // If we want to surface them here we'd need to render the rows
+  // separately. Leaving 'notes' empty so the operator can capture any
+  // new context this round without seeing stale text.
 
   // Emergency contact
   set('emergency_name', p.emergency_contact_name);

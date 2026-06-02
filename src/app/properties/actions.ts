@@ -80,12 +80,20 @@ export async function updateProperty(id: string, formData: FormData) {
     smart_lock_code: strOrNull(formData, 'smart_lock_code'),
     security_cameras: strOrNull(formData, 'security_cameras'),
 
+    // Smart thermostat (Utilities subsection on the edit page).
+    thermostat_brand: strOrNull(formData, 'thermostat_brand'),
+    thermostat_code: strOrNull(formData, 'thermostat_code'),
+
     // Property access & notes
     key_code_location: strOrNull(formData, 'key_code_location'),
     alarm_system: strOrNull(formData, 'alarm_system'),
+    gate_code: strOrNull(formData, 'gate_code'),
+    garage_code: strOrNull(formData, 'garage_code'),
     known_issues: strOrNull(formData, 'known_issues'),
     upcoming_maintenance: strOrNull(formData, 'upcoming_maintenance'),
-    property_notes: strOrNull(formData, 'property_notes'),
+    // property_notes is no longer a column — it lives in
+    // public.property_notes as one row per discrete note. See the
+    // createPropertyNote / updatePropertyNote actions below.
 
     // Emergency contact
     emergency_contact_name: strOrNull(formData, 'emergency_contact_name'),
@@ -265,4 +273,107 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(`/properties/${propertyId}`);
+}
+
+/**
+ * Internal per-property notes (the structured replacement for the
+ * old freeform property_notes text blob). Persisted in
+ * public.property_notes. Three actions cover the lifecycle (create /
+ * update / delete); a one-shot toggleResolved flips resolved_at without
+ * needing the full edit form.
+ *
+ * NOT to be confused with property_notices (one-i) above, which are
+ * guest-facing printed placards.
+ */
+function notePayload(formData: FormData): { title: string; body: string; tag: string | null } | null {
+  const title = String(formData.get('title') ?? '').trim();
+  const body = String(formData.get('body') ?? '').trim();
+  const tag = strOrNull(formData, 'tag');
+  if (!title) return null;
+  return { title, body, tag };
+}
+
+export async function createPropertyNote(propertyId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const payload = notePayload(formData);
+  if (!payload) throw new Error('Title is required.');
+
+  const { error } = await supabase
+    .from('property_notes')
+    .insert({
+      property_id: propertyId,
+      ...payload,
+      author_email: session.user.email,
+    });
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+export async function updatePropertyNote(propertyId: string, noteId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const payload = notePayload(formData);
+  if (!payload) throw new Error('Title is required.');
+
+  const { error } = await supabase
+    .from('property_notes')
+    .update(payload)
+    .eq('id', noteId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+export async function deletePropertyNote(propertyId: string, noteId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('property_notes')
+    .delete()
+    .eq('id', noteId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}`);
+}
+
+/**
+ * Flip a note's resolved state. Lets the operator close out a
+ * one-shot quirk ("garage door spring replaced") without opening the
+ * full edit form. Re-running on an already-resolved note un-resolves
+ * it (toggle semantics).
+ */
+export async function togglePropertyNoteResolved(propertyId: string, noteId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { data: current, error: readErr } = await supabase
+    .from('property_notes')
+    .select('resolved_at')
+    .eq('id', noteId)
+    .eq('property_id', propertyId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!current) throw new Error('Note not found');
+
+  const nextResolvedAt = current.resolved_at ? null : new Date().toISOString();
+  const nextResolvedBy = nextResolvedAt ? session.user.email : null;
+
+  const { error } = await supabase
+    .from('property_notes')
+    .update({ resolved_at: nextResolvedAt, resolved_by_email: nextResolvedBy })
+    .eq('id', noteId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
 }
