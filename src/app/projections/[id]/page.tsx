@@ -36,6 +36,8 @@ import {
   countersignContract,
   markOnboardingDone,
   unmarkOnboardingDone,
+  markContractDone,
+  unmarkContractDone,
 } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -105,6 +107,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const promote = promoteToProperty.bind(null, id);
   const markOnboarding = markOnboardingDone.bind(null, id);
   const unmarkOnboarding = unmarkOnboardingDone.bind(null, id);
+  const markContract = markContractDone.bind(null, id);
+  const unmarkContract = unmarkContractDone.bind(null, id);
 
   // For the Danger zone delete confirmation: prefer the structured
   // owner's last name when populated; otherwise fall back to the last
@@ -128,6 +132,14 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const guideSent = !!guideTouch;
   const contractSent = !!contractTouch;
   const signed = !!projection.contract_signed_at;
+  const countersigned = !!projection.contract_countersigned_at;
+  // Contract stage completes two ways: the in-Helm signing chain fully
+  // executes (countersigned), OR a staff member taps "Mark contract
+  // complete" (deal closed out elsewhere — signed in person, e-sign
+  // bypassed for a one-off). Either advances the pipeline; the latter
+  // also unlocks Promote without needing a contract_signed_at stamp.
+  const contractMarkedDone = !!projection.contract_marked_done_at;
+  const contractStageDone = countersigned || contractMarkedDone;
   // Onboarding completes two ways: the owner submits the public intake
   // form, OR a staff member taps "Mark complete" (info gathered another
   // way). Either advances the pipeline.
@@ -135,7 +147,10 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const onboardingMarkedDone = !!projection.onboarding_marked_done_at;
   const onboardingDone = onboardingSubmitted || onboardingMarkedDone;
   const promoted = !!projection.property_id;
-  const promoteUnlocked = signed && onboardingDone;
+  // Promote unlock counts a manual contract mark the same as a real
+  // owner signature — the staff member is saying "the legal piece is
+  // settled, move on."
+  const promoteUnlocked = (signed || contractMarkedDone) && onboardingDone;
 
   // For Stage 06 (Promote): 'done' once promoted; 'active' once unlocked but
   // not yet promoted; 'locked' until both prerequisites land.
@@ -150,15 +165,14 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
     // Guide + Contract + Signing collapsed into one pipeline step
     // since they were always one logical phase (the contract
-    // workflow). "Done" = fully countersigned, regardless of whether
-    // the email-send touch was logged. The Gmail-touch flags
-    // (guideSent / contractSent) only fire when the deliverables go
-    // out via an email Gmail can log — but Helm staff might paste the
-    // signing URL into a text / DM / shared link, and the contract
-    // still gets signed + countersigned through legitimate channels.
-    // The countersign timestamp is the authoritative completion
-    // signal; "did we send the email" is a separate concern.
-    const contractStageDone = !!projection.contract_countersigned_at;
+    // workflow). "Done" = fully countersigned OR a staff manual mark.
+    // The Gmail-touch flags (guideSent / contractSent) only fire when
+    // the deliverables go out via an email Gmail can log — but staff
+    // might paste the signing URL into a text / DM, or close out the
+    // deal entirely off-platform; the contract still got executed.
+    // The countersign timestamp is the authoritative auto signal,
+    // contract_marked_done_at is the manual fallback for the
+    // off-platform path.
     const flags = [
       { label: 'Projection', done: projectionSent },
       { label: 'Guide & Contract', done: contractStageDone },
@@ -268,27 +282,35 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
           <Stage
             num="02"
             title="Partnership Guide & Contract"
-            state={projection.contract_countersigned_at ? 'done' : 'active'}
+            state={contractStageDone ? 'done' : 'active'}
             status={
-              // Status priority: fully executed > signed/awaiting > both sent > one sent > nothing sent.
-              projection.contract_countersigned_at
-                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at)}</>
-                : signed
-                  ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
-                  : guideSent && contractSent
-                    ? gmailStatus(
-                        [guideTouch, contractTouch]
-                          .filter((t): t is NonNullable<typeof t> => !!t)
-                          .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
-                      )
-                    : guideSent
-                      ? 'Guide sent · contract pending'
-                      : contractSent
-                        ? 'Contract sent · guide pending'
-                        : 'Not yet sent'
+              // Status priority: fully executed > marked complete > signed/awaiting
+              // > both sent > one sent > nothing sent.
+              countersigned
+                ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at!)}</>
+                : contractMarkedDone
+                  ? <>Marked complete {fmtTouchDate(projection.contract_marked_done_at!)}</>
+                  : signed
+                    ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
+                    : guideSent && contractSent
+                      ? gmailStatus(
+                          [guideTouch, contractTouch]
+                            .filter((t): t is NonNullable<typeof t> => !!t)
+                            .sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0],
+                        )
+                      : guideSent
+                        ? 'Guide sent · contract pending'
+                        : contractSent
+                          ? 'Contract sent · guide pending'
+                          : 'Not yet sent'
             }
           >
-            <GuideAndContractStageBody projection={projection} projectionId={id} />
+            <GuideAndContractStageBody
+              projection={projection}
+              projectionId={id}
+              markContractDone={markContract}
+              unmarkContractDone={unmarkContract}
+            />
           </Stage>
 
           {/* 03 — Onboarding (was 04 before contract workflow merge) */}
@@ -483,11 +505,23 @@ function ProjectionStageBody({
  * deliverable also surfaces the live term/fee summary and the Apply Owner
  * Redlines disclosure.
  */
-function GuideAndContractStageBody({ projection, projectionId }: { projection: ProjectionRow; projectionId: string }) {
+function GuideAndContractStageBody({
+  projection,
+  projectionId,
+  markContractDone,
+  unmarkContractDone,
+}: {
+  projection: ProjectionRow;
+  projectionId: string;
+  markContractDone: () => Promise<void>;
+  unmarkContractDone: () => Promise<void>;
+}) {
   const termRange = projection.term_start && projection.term_end
     ? `Term ${fmtTouchDate(projection.term_start)} → ${fmtTouchDate(projection.term_end)}`
     : 'Term dates pending';
   const fee = `${fmtPercent(projection.mgmt_fee_pct)} mgmt fee`;
+  const countersigned = !!projection.contract_countersigned_at;
+  const markedDone = projection.contract_marked_done_at;
   return (
     <>
       {/* Partnership Guide sub-deliverable */}
@@ -512,10 +546,48 @@ function GuideAndContractStageBody({ projection, projectionId }: { projection: P
           separate Stage 03. The signing link, audit stamps, and
           countersign workflow all live here so the whole contract
           arc (guide → contract → signature → countersign) reads as
-          one phase on the page. */}
-      <SubDeliverable label="Signing" isLast>
+          one phase on the page. isLast flips when the manual-override
+          block below is hidden (countersigned), so the stage card
+          doesn't trail off with a stray separator. */}
+      <SubDeliverable label="Signing" isLast={countersigned}>
         <SignedStageBody projection={projection} />
       </SubDeliverable>
+
+      {/* Manual completion — only when the contract hasn't been
+          countersigned in-Helm. Lets staff advance the pipeline to
+          Promote when the deal closed out elsewhere (signed in person,
+          executed via a one-off, etc.). Mirrors the Onboarding stage's
+          "Mark complete" override. */}
+      {!countersigned && (
+        <SubDeliverable label="Manual override" isLast>
+          {markedDone ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--positive)', fontWeight: 500 }}>
+                ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
+              </span>
+              <form action={unmarkContractDone} style={{ display: 'inline-block' }}>
+                <button
+                  type="submit"
+                  style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
+                >
+                  Undo
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <form action={markContractDone} style={{ display: 'inline-block' }}>
+                <button type="submit" style={ghostButtonStyle}>
+                  Mark contract complete
+                </button>
+              </form>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                Use when the contract was executed outside the in-Helm signing flow.
+              </span>
+            </div>
+          )}
+        </SubDeliverable>
+      )}
     </>
   );
 }
@@ -873,6 +945,9 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
   if (projection.contract_signed_at) {
     const who = projection.contract_signed_name ?? 'Owner';
     events.push({ at: projection.contract_signed_at, label: `${who} signed the contract` });
+  }
+  if (projection.contract_marked_done_at) {
+    events.push({ at: projection.contract_marked_done_at, label: 'Contract marked complete by staff' });
   }
   if (projection.onboarding_submitted_at) {
     events.push({ at: projection.onboarding_submitted_at, label: 'Onboarding form submitted' });

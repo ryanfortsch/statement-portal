@@ -116,6 +116,12 @@ export type ProjectionRow = {
   // The contract is fully executed once both contract_signed_at AND
   // contract_countersigned_at are set.
   contract_countersigned_at: string | null;
+  // Staff-side manual completion of the Contract stage — set when the
+  // contract was closed out outside the in-Helm signing flow (signed in
+  // person, executed elsewhere, one-off deal). The Partnership Guide &
+  // Contract stage is "done" when this OR contract_countersigned_at is
+  // set, and Promote unlocks when this OR contract_signed_at is set.
+  contract_marked_done_at: string | null;
   // Email-send tracking. Stamped once after each transactional email
   // goes out so the action is idempotent (no double-send on refresh).
   contract_owner_email_sent_at: string | null;
