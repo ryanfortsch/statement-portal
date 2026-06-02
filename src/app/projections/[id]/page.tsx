@@ -264,7 +264,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </div>
       </section>
 
-      <ProspectTexts texts={prospectTexts} name={projection.prospect_first_name ?? projection.prospect_name} />
+      <ProspectTexts texts={prospectTexts} touches={projection.gmail_touches} name={projection.prospect_first_name ?? projection.prospect_name} />
 
       {/* ─── Pipeline ───────────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32, width: '100%' }}>
