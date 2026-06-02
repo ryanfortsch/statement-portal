@@ -364,6 +364,47 @@ export async function unmarkOnboardingDone(id: string) {
 }
 
 /**
+ * Manually complete the Partnership Guide & Contract pipeline stage.
+ * Mirrors markOnboardingDone: used when the contract was closed out
+ * outside the in-Helm signing flow (signed in person, executed elsewhere,
+ * one-off deal). The stage flips to done, the hero pipeline bar advances,
+ * and Promote unlocks (paired with onboarding being done).
+ *
+ * Stamps contract_marked_done_at rather than contract_countersigned_at so
+ * the status line + activity log can still distinguish "Fully executed"
+ * (real countersign chain) from "Marked complete by staff".
+ */
+export async function markContractDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ contract_marked_done_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+export async function unmarkContractDone(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ contract_marked_done_at: null })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/projections');
+  revalidatePath(`/projections/${id}`);
+}
+
+/**
  * Set the analyst's confidence that this prospect will close, 0–100.
  *
  * Called from the inline widget on the identity strip and from the prospect
