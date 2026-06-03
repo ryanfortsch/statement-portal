@@ -333,12 +333,10 @@ export async function goLiveSca(
   if (!row.guesty_listing_id) return { ok: false, error: 'Missing Guesty listing ID' };
 
   if (!override) {
+    // Gate only on the payment checklist — the real, reliably-stored signal.
+    // The preview is advisory (operator reviews it via the link); we never block
+    // go-live on the preview-status probe, which is unreliable for this repo.
     const missing: string[] = [];
-    const preview = await gh.getBranchPreviewStatus(row.branch_name || '').catch(() => ({
-      state: 'none' as const,
-      url: null,
-    }));
-    if (preview.state !== 'success') missing.push('the Vercel preview deploy is not green yet');
     if (!row.payment_publishable_set) missing.push('publishable key not marked set');
     if (!row.payment_secret_set) missing.push('secret key not marked set');
     if (!row.payment_webhook_set) missing.push('webhook not marked set');
