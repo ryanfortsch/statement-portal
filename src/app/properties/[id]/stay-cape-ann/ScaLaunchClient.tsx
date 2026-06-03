@@ -471,13 +471,13 @@ export function ScaLaunchClient(props: Props) {
           <div style={{ marginTop: 8 }}>
             <p style={hintStyle}>
               Going live squash-merges the PR; the build picks up the new listing and the page is public within a couple
-              minutes. Enabled once the preview is green and all three payment boxes are checked.
+              minutes. Enabled once the three payment boxes are checked — open and review the preview above first.
             </p>
-            <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                style={{ ...btnPrimary, opacity: previewState === 'success' && paymentsReady ? 1 : 0.5 }}
-                disabled={busy !== null || !prOpen || previewState !== 'success' || !paymentsReady}
+                style={{ ...btnPrimary, opacity: paymentsReady ? 1 : 0.5 }}
+                disabled={busy !== null || !prOpen || !paymentsReady}
                 onClick={() => onGoLive(false)}
               >
                 {busy === 'golive' ? 'Merging…' : 'Approve & go live →'}
@@ -485,6 +485,11 @@ export function ScaLaunchClient(props: Props) {
               <button type="button" style={{ ...btnBase, fontSize: 11 }} disabled={busy !== null || !prOpen} onClick={() => onGoLive(true)}>
                 Force go-live…
               </button>
+              {previewState === 'failure' && (
+                <span style={{ fontSize: 12, color: 'var(--negative)' }}>
+                  The preview build reported a failure — open it above before going live.
+                </span>
+              )}
             </div>
           </div>
         )}
