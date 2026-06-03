@@ -657,6 +657,46 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 }
 .rt-mobile-menu-row:hover { background: var(--paper-2); }
 
+/* Backdrop behind the TeamPicker panel — only on phones, where the
+   panel itself flips to a bottom-sheet (see below). Darkens the page
+   so the picker reads as a modal layer and gives a generous tap zone
+   for "tap outside to dismiss". Hidden on desktop where the picker
+   is a small dropdown that doesn't need a backdrop. */
+.rt-team-picker-backdrop { display: none; }
+@media (max-width: 640px) {
+  .rt-team-picker-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(30, 46, 52, 0.45);
+    z-index: 59;
+  }
+  /* Flip the picker panel from a small dropdown anchored to the
+     trigger to a full-width bottom-sheet anchored to the viewport.
+     Avoids the broken case where the dropdown overflows the modal
+     sheet or runs off the bottom of the screen, and turns scrolling
+     the assignee list into a clean contained gesture. !important
+     overrides the inline-style absolute positioning the desktop
+     layout uses. */
+  .rt-team-picker-panel {
+    position: fixed !important;
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: 70dvh !important;
+    border: none !important;
+    border-top: 1px solid var(--ink) !important;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    box-shadow: 0 -8px 28px rgba(30, 46, 52, 0.18) !important;
+    padding: 12px !important;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
 /* Three pulsing dots rendered inside a button while a server action is
    in-flight. Used by the messaging dashboard's PrimaryButton /
    SecondaryButton to show *which* button is doing work (the others just
