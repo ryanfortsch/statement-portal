@@ -7,7 +7,6 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { CopyableUrl } from '../listings/CopyableUrl';
 import { listBookings, listChannelListings, listPropertyExportTokens } from '@/lib/channels';
 import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type Booking, type BookingChannel, type ChannelListing } from '@/lib/channels-types';
-import { PROPERTIES } from '@/lib/properties';
 import { supabase as helmSb, isConfigured as helmConfigured } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +28,14 @@ export default async function ChannelsPropertyPage({
   params: Promise<{ propertyId: string }>;
 }) {
   const { propertyId } = await params;
-  const property = PROPERTIES[propertyId];
+  // Read the property record straight from the DB rather than the hardcoded
+  // PROPERTIES map in lib/properties.ts. The map only contains the original
+  // 12 Cape Ann properties, so every newly-onboarded property (e.g. a
+  // prospect that just graduated to managed inventory) used to 404 here —
+  // the property page itself reads from the DB and rendered fine, but the
+  // CHANNELS button it linked to dead-ended on the stale map. One source
+  // of truth (the DB) now drives both surfaces.
+  const property = await loadProperty(propertyId);
   if (!property) notFound();
 
   const [allListings, bookings, exportTokens, dbTitle] = await Promise.all([
@@ -64,7 +70,7 @@ export default async function ChannelsPropertyPage({
         eyebrow={`Helm · Channels · ${property.name}`}
         title={property.name}
         emphasis={dbTitle ?? ''}
-        description={`${property.address} · ${property.owner_full}. Channel command center: every connected feed, every stay, every block.`}
+        description={`${[property.address, property.owner_full].filter(Boolean).join(' · ')}${property.address || property.owner_full ? '. ' : ''}Channel command center: every connected feed, every stay, every block.`}
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
@@ -309,6 +315,29 @@ async function fetchPropertyTitle(id: string): Promise<string | null> {
   if (!helmConfigured) return null;
   const { data } = await helmSb.from('properties').select('title').eq('id', id).maybeSingle();
   return (data?.title as string | null) ?? null;
+}
+
+/**
+ * Read the property header fields we need to render this page (name,
+ * address, owner) from the DB. Returns null if the id doesn't resolve to
+ * any row in `properties`, which the page treats as a 404. Falls back
+ * gracefully when Supabase isn't configured at all (local without env
+ * vars) — also 404, same as before.
+ */
+type ChannelsPageProperty = { name: string; address: string | null; owner_full: string | null };
+async function loadProperty(id: string): Promise<ChannelsPageProperty | null> {
+  if (!helmConfigured) return null;
+  const { data } = await helmSb
+    .from('properties')
+    .select('name, address, owner_full')
+    .eq('id', id)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    name: (data.name as string) ?? id,
+    address: (data.address as string | null) ?? null,
+    owner_full: (data.owner_full as string | null) ?? null,
+  };
 }
 
 function addDays(d: Date, n: number): Date {
