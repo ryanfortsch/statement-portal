@@ -2,8 +2,34 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+
+/**
+ * Service-role Supabase client for writes that must bypass anon RLS
+ * and column-level grants. Server-action code only — the service key
+ * must never reach the browser.
+ *
+ * Background: a 2026-06-02 incident showed that updateProperty was
+ * silently dropping writes to columns added in recent migrations
+ * (thermostat_brand, thermostat_code, garage_code, gate_code, even
+ * wifi_name on newly-promoted properties). The anon-key path hit a
+ * PostgREST schema cache / per-column-grants edge case that wouldn't
+ * resolve via NOTIFY pgrst, 'reload schema'. Switching to service-role
+ * sidesteps the entire RLS + grants + schema-cache surface for writes.
+ *
+ * Reads still use the module-level anon client because /properties
+ * pages need to render server-side from cached anon results.
+ */
+function getServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  }
+  return createClient(url, key);
+}
 
 /**
  * Server actions for the Properties module.
@@ -115,8 +141,30 @@ export async function updateProperty(id: string, formData: FormData) {
     str_permit_expires: strOrNull(formData, 'str_permit_expires'),
   };
 
-  const { error } = await supabase.from('properties').update(payload).eq('id', id);
-  if (error) throw new Error(error.message);
+  // Use the service-role client for the write so the update can't be
+  // silently no-op'd by anon RLS or column-level grants (see the
+  // getServiceClient() comment at the top of this file for the
+  // 2026-06-02 incident this defends against). Also surface the
+  // PostgREST result body on error + use .select() so a 200-with-zero-
+  // rows-updated case is visible instead of silently swallowed.
+  const sb = getServiceClient();
+  const { data: updated, error } = await sb
+    .from('properties')
+    .update(payload)
+    .eq('id', id)
+    .select('id');
+  if (error) {
+    console.error('[updateProperty] supabase error', {
+      id,
+      payloadKeys: Object.keys(payload),
+      error,
+    });
+    throw new Error(error.message);
+  }
+  if (!updated || updated.length === 0) {
+    console.error('[updateProperty] 0 rows updated', { id, payloadKeys: Object.keys(payload) });
+    throw new Error(`Property ${id} not updated (0 rows affected). Check the property id.`);
+  }
 
   revalidatePath('/properties');
   revalidatePath(`/properties/${id}`);
