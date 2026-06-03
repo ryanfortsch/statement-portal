@@ -39,15 +39,20 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
 
   useEffect(() => {
     if (!open) return;
-    function onDoc(e: MouseEvent) {
+    // `pointerdown` covers mouse, touch, and pen in one event. iOS
+    // Safari can fail to fire `mousedown` reliably on touch inside
+    // certain modal contexts, which is why tapping a picker row
+    // looked like nothing happened on a phone — the close detection
+    // missed the tap entirely.
+    function onDoc(e: PointerEvent) {
       if (!ref.current) return;
       if (!ref.current.contains(e.target as Node)) {
         setOpen(false);
         setCustomMode(false);
       }
     }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('pointerdown', onDoc);
+    return () => document.removeEventListener('pointerdown', onDoc);
   }, [open]);
 
   const selectedMember = getTeamMember(value);
@@ -94,14 +99,28 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
         <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>▾</span>
       </button>
 
+      {/* Backdrop only renders on mobile (CSS hides it on wider screens).
+          Lets us darken the page behind the bottom-sheet panel so it
+          reads clearly as a contextual modal, plus gives a tap target
+          for dismiss outside the picker. */}
+      {open && <div className="rt-team-picker-backdrop" onClick={() => setOpen(false)} aria-hidden="true" />}
       {open && (
         <div
+          className="rt-team-picker-panel"
+          // Inline styles cover the desktop dropdown layout; the CSS
+          // class flips them to a bottom-sheet at <=640px. Inline takes
+          // precedence over class only for the properties listed here,
+          // so the @media block uses !important to override.
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
             left: 0,
             zIndex: 60,
             minWidth: 240,
+            maxHeight: '60vh',
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
             background: 'var(--paper)',
             border: '1px solid var(--ink)',
             boxShadow: '0 8px 28px rgba(30, 46, 52, 0.12)',
@@ -229,7 +248,10 @@ function PickerRow({
         gap: 10,
         width: '100%',
         textAlign: 'left',
-        padding: '8px 10px',
+        // Was 8/10. Bumped to 12/12 so each row clears a 44px touch
+        // target (the iOS recommended minimum); previously rows were
+        // ~36px tall and adjacent ones were easy to mis-tap on a phone.
+        padding: '12px',
         background: selected ? 'var(--paper-2)' : 'transparent',
         border: 'none',
         cursor: 'pointer',
