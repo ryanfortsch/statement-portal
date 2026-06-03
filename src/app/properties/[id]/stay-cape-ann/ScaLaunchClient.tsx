@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
+import { PhotoUploader } from '@/components/PhotoUploader';
 import type { ScaFormDraft, ScaLaunchRow, PaymentVerifySignal } from '@/lib/sca-launch';
 import {
   scaStripeEnvVarNames,
@@ -341,14 +342,24 @@ export function ScaLaunchClient(props: Props) {
         <Repeatable
           title="Sleeping arrangements (optional)"
           items={form.sleepingArrangements ?? []}
-          onAdd={() => set('sleepingArrangements', [...(form.sleepingArrangements ?? []), { name: '', beds: '', photo: '' }])}
+          onAdd={() => set('sleepingArrangements', [...(form.sleepingArrangements ?? []), { name: '', beds: '', photo: [] }])}
           onRemove={(i) => set('sleepingArrangements', (form.sleepingArrangements ?? []).filter((_, j) => j !== i))}
           render={(s, i) => (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
-              <input style={inputStyle} value={s.name ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, name: e.target.value })} placeholder="Room (e.g. Master suite)" />
-              <input style={inputStyle} value={s.beds ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, beds: e.target.value })} placeholder="Beds (e.g. 2 Twins)" />
-              <input style={inputStyle} value={s.photo ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, photo: e.target.value })} placeholder="Photo URL (optional)" />
-            </div>
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input style={inputStyle} value={s.name ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, name: e.target.value })} placeholder="Room (e.g. Master suite)" />
+                <input style={inputStyle} value={s.beds ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, beds: e.target.value })} placeholder="Beds (e.g. 2 Twins)" />
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ ...labelStyle, marginBottom: 4 }}>Bedroom photo(s) — drop them in, no naming or files</span>
+                <PhotoUploader
+                  value={Array.isArray(s.photo) ? s.photo : []}
+                  onChange={(next) => updateAt('sleepingArrangements', i, { ...s, photo: next })}
+                  folder={`sca/${props.propertyId}/bedrooms`}
+                  disabled={busy !== null}
+                />
+              </div>
+            </>
           )}
         />
 
