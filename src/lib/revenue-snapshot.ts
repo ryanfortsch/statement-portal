@@ -332,27 +332,44 @@ export async function computeRevenueSnapshot(
   const sixMoAgo = new Date();
   sixMoAgo.setMonth(sixMoAgo.getMonth() - 6);
   const sinceMonthKey = `${sixMoAgo.getFullYear()}-${String(sixMoAgo.getMonth() + 1).padStart(2, '0')}`;
-  const { data: histStmts } = await supabase
-    .from('property_statements')
-    .select('property_id, num_stays, cleaning_total, month')
+
+  // `month` lives on statement_periods (joined via period_id), not on
+  // property_statements. Resolve periods first, then pull statements for
+  // those periods and re-key by month in JS.
+  const { data: histPeriods } = await supabase
+    .from('statement_periods')
+    .select('id, month')
     .gte('month', sinceMonthKey);
+  const histMonthByPeriod = new Map<string, string>(
+    ((histPeriods ?? []) as Array<{ id: string; month: string }>).map((p) => [p.id, p.month]),
+  );
 
   type HistStmt = { month: string; cleaning: number; stays: number };
   const histByProperty = new Map<string, HistStmt[]>();
-  for (const row of (histStmts ?? []) as Array<{
-    property_id: string | null;
-    num_stays: number | null;
-    cleaning_total: number | null;
-    month: string | null;
-  }>) {
-    if (!row.property_id || !row.month || !row.num_stays || row.num_stays <= 0) continue;
-    const arr = histByProperty.get(row.property_id) ?? [];
-    arr.push({
-      month: row.month,
-      cleaning: Number(row.cleaning_total ?? 0),
-      stays: Number(row.num_stays),
-    });
-    histByProperty.set(row.property_id, arr);
+
+  if (histMonthByPeriod.size > 0) {
+    const { data: histStmts } = await supabase
+      .from('property_statements')
+      .select('period_id, property_id, num_stays, cleaning_total')
+      .in('period_id', Array.from(histMonthByPeriod.keys()));
+
+    for (const row of (histStmts ?? []) as Array<{
+      period_id: string;
+      property_id: string | null;
+      num_stays: number | null;
+      cleaning_total: number | null;
+    }>) {
+      if (!row.property_id || !row.num_stays || row.num_stays <= 0) continue;
+      const month = histMonthByPeriod.get(row.period_id);
+      if (!month) continue;
+      const arr = histByProperty.get(row.property_id) ?? [];
+      arr.push({
+        month,
+        cleaning: Number(row.cleaning_total ?? 0),
+        stays: Number(row.num_stays),
+      });
+      histByProperty.set(row.property_id, arr);
+    }
   }
 
   const cleaningEstimateByProperty = new Map<string, number>();
