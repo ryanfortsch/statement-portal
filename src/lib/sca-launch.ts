@@ -63,7 +63,8 @@ const reviewSchema = z.object({
 const sleepingSchema = z.object({
   name: z.string().trim().optional(),
   beds: z.string().trim().optional(),
-  photo: z.string().trim().optional(),
+  // One or more uploaded photo URLs for this bedroom (Vercel Blob).
+  photo: z.array(z.string().trim()).optional(),
 });
 
 /**
@@ -113,7 +114,7 @@ export type ScaFormDraft = {
   highlights: string[];
   stayFavorite: { name: string; town: string; blurb: string; lat: number; lng: number };
   extraFavorites?: Array<{ name: string; town: string; blurb: string; lat: number; lng: number }>;
-  sleepingArrangements?: Array<{ name?: string; beds?: string; photo?: string }>;
+  sleepingArrangements?: Array<{ name?: string; beds?: string; photo?: string[] }>;
   reviews?: Array<{ name: string; date: string; rating: number; text: string }>;
   rating?: number;
   reviewCount?: number;
@@ -189,10 +190,12 @@ export function buildRegistryEntry(form: z.infer<typeof scaFormSchema>): ScaRegi
   if (form.sleepingArrangements && form.sleepingArrangements.length) {
     const arr = form.sleepingArrangements
       .map((s) => {
-        const o: { name?: string; beds?: string; photo?: string } = {};
+        const o: { name?: string; beds?: string; photo?: string | string[] } = {};
         if (s.name) o.name = s.name;
         if (s.beds) o.beds = s.beds;
-        if (s.photo) o.photo = s.photo;
+        const photos = Array.isArray(s.photo) ? s.photo.filter(Boolean) : [];
+        if (photos.length === 1) o.photo = photos[0];
+        else if (photos.length > 1) o.photo = photos;
         return o;
       })
       .filter((o) => Object.keys(o).length > 0);
