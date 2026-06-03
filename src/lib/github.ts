@@ -254,13 +254,15 @@ export async function getBranchPreviewStatus(branch: string): Promise<PreviewSta
     // fall through to commit statuses
   }
 
-  // 2. Commit statuses (Vercel also posts a context with a target_url).
+  // 2. Commit statuses. NOTE: the /statuses (plural) endpoint returns an ARRAY
+  // of statuses, newest first — not the combined { state, statuses } object the
+  // singular /status endpoint returns. Read it as an array.
   try {
-    const combined = await gh<{
-      state: string;
-      statuses: Array<{ state: string; context: string; target_url?: string }>;
-    }>('GET', `${BASE}/commits/${refPath(branch)}/statuses`);
-    const vercel = (combined.statuses || []).find((s) =>
+    const statuses = await gh<Array<{ state: string; context: string; target_url?: string }>>(
+      'GET',
+      `${BASE}/commits/${refPath(branch)}/statuses`,
+    );
+    const vercel = (Array.isArray(statuses) ? statuses : []).find((s) =>
       (s.context || '').toLowerCase().includes('vercel'),
     );
     if (vercel) return { state: mapGhState(vercel.state), url: vercel.target_url || null };
