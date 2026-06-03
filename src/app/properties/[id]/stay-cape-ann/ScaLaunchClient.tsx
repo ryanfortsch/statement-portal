@@ -156,8 +156,12 @@ export function ScaLaunchClient(props: Props) {
         setNotice({ kind: 'ok', text: 'Pull request opened. Building a preview…' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: 'Fix the highlighted fields, then open the PR.' });
-      } else setNotice({ kind: 'err', text: res.error ?? 'Could not open PR' });
+        setNotice({ kind: 'err', text: `Can't open the PR yet — ${Object.values(res.errors).join('; ')}` });
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        setNotice({ kind: 'err', text: res.error ?? 'Could not open PR' });
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     });
 
   const onTogglePayment = (step: 'publishable' | 'secret' | 'webhook', value: boolean) =>
