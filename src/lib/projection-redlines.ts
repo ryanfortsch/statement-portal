@@ -255,13 +255,6 @@ If the owner's request modifies language that already exists somewhere in the co
 STRONGLY PREFER MODIFY OVER REPLACE
 Use modify (find / replaceWith on a span) whenever the change is local to part of a clause. Modify is span-level — it touches only the matched substring and leaves the rest of the clause stable. Replace overwrites the whole template. Default to modify for any number, name, day-count, or phrase swap.
 
-DUAL-PERIOD CLAUSES — MODIFY EACH PERIOD INDEPENDENTLY
-The TERM section's renewal-notice clause (\`term-renewal-notice\`) contains two notice-period rules in a single paragraph:
-  - 60 days for calendar year 2026
-  - 120 days for renewal years thereafter
-
-Both are editable independently with modify. Use modify even if it feels like a "big" clause — the dual structure is a feature, not a reason to refuse the edit.
-
 WORKED EXAMPLES (apply these patterns, don't paraphrase them):
 
   Owner: "Reduce the renewal notice period from 120 to 90 days."
@@ -272,14 +265,8 @@ WORKED EXAMPLES (apply these patterns, don't paraphrase them):
          replaceWith: "90 days",
          ourPosition: "accept" (or counter/restructure as the deal calls for),
          ... }
-     The 60-day calendar-year-2026 variant is preserved automatically
-     because modify only touches the matched span. Do NOT use replace;
-     that would drop the 60-day rule.
-
-  Owner: "Make both notice periods 60 days."
-  →  ZERO edits to the 60-day variant (already 60). ONE modify changing
-     "120 days" → "60 days" on term-renewal-notice. Two separate modify
-     actions are fine if you prefer to be explicit.
+     The term-renewal-notice clause is a single paragraph with a 120-day
+     notice rule. Modify the span; do not replace the whole paragraph.
 
   Owner: "Additional Insured should be reciprocal."
   →  modify on insurance-additional-insured spanning just the wording

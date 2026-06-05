@@ -121,7 +121,7 @@ export const CONTRACT_BASE: ContractPage[] = [
             id: 'term-renewal-notice',
             type: 'paragraph',
             template:
-              'This Agreement shall commence on {{termStartLong}} and continue through {{termEndLong}}, unless terminated earlier in accordance with the terms herein. Upon expiration of the initial term, this Agreement shall automatically renew for successive one-year terms unless either party provides written notice of non-renewal. For calendar year 2026, such notice must be provided at least 60 days prior to the end of the then-current term; thereafter, notice must be provided at least 120 days prior to the end of the then-current term. This advance notice requirement ensures adequate lead time to close the calendar and prevent unfillable bookings.',
+              'This Agreement shall commence on {{termStartLong}} and continue through {{termEndLong}}, unless terminated earlier in accordance with the terms herein. Upon expiration of the initial term, this Agreement shall automatically renew for successive one-year terms unless either party provides written notice of non-renewal. Such notice must be provided at least 120 days prior to the end of the then-current term. This advance notice requirement ensures adequate lead time to close the calendar and prevent unfillable bookings.',
           },
         ],
       },
@@ -191,7 +191,7 @@ export const CONTRACT_BASE: ContractPage[] = [
             id: 'rental-income-definition',
             type: 'bullet',
             boldPrefix: 'Gross Rental Income Definition:',
-            template: '"Gross Rental Income" shall be defined as the total amount paid out by short-term rental platforms (e.g., Airbnb, VRBO) to Rising Tide STR, LLC, after the deduction of their service fees, taxes, or any other charges imposed by the platform. This includes all revenue streams from the rental, such as rental fees, cleaning fees, and any additional service charges paid by guests.',
+            template: '"Gross Rental Income" shall be defined as the total rental revenue received by Rising Tide STR, LLC in connection with the Property from all sources, including but not limited to short-term rental platforms (e.g., Airbnb, VRBO), direct bookings, and any other booking channels, after the deduction of platform service fees, payment processing fees, taxes, or any other charges imposed by the platform, payment processor, or governmental authority. This includes all revenue streams from the rental, such as rental fees, cleaning fees, and any additional service charges paid by guests.',
           },
           {
             id: 'rental-income-commission',
