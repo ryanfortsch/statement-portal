@@ -21,6 +21,7 @@ import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
+import { LAUNCH_STEPS, isStepResolved } from '@/lib/launch-checklist';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 
@@ -61,6 +62,36 @@ async function getScaLaunchStatus(
     return (data as { status: string; live_url: string | null }) ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Counts of resolved (done | skipped | n_a) vs total launch-checklist
+ * steps for this property, so the action-row link can render a quick
+ * "Launch checklist N / M" progress chip. Falls back to a `null` row
+ * (treated as 0 / total) on any error, including the table missing on
+ * older preview envs.
+ */
+async function getLaunchProgress(
+  id: string,
+): Promise<{ done: number; total: number; allDone: boolean }> {
+  const total = LAUNCH_STEPS.length;
+  if (!isHelmConfigured) return { done: 0, total, allDone: false };
+  try {
+    const { data, error } = await supabase
+      .from('property_launch_steps')
+      .select('step_key, status')
+      .eq('property_id', id);
+    if (error) return { done: 0, total, allDone: false };
+    const rows = (data ?? []) as { step_key: string; status: import('@/lib/launch-checklist').LaunchStepStatus }[];
+    const byKey = new Map(rows.map((r) => [r.step_key, r.status]));
+    let done = 0;
+    for (const step of LAUNCH_STEPS) {
+      if (isStepResolved(byKey.get(step.key))) done += 1;
+    }
+    return { done, total, allDone: done >= total };
+  } catch {
+    return { done: 0, total, allDone: false };
   }
 }
 
@@ -284,7 +315,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session, scaLaunch] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session, scaLaunch, launchProgress] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -297,6 +328,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     getPropertyNotes(p.id),
     auth(),
     getScaLaunchStatus(p.id),
+    getLaunchProgress(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -406,7 +438,47 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           ← All Properties
         </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Launch checklist entry-point. The page existed but was
+              unlinked from anywhere, so it was effectively hidden. Lives
+              at /properties/<id>/launch — 18 steps across Identity /
+              Financial / Listing / Integrations / Owner-facing / Launch.
+              Chip color flips positive once every step is resolved
+              (done / skipped / n/a). */}
+          <Link
+            href={`/properties/${p.id}/launch`}
+            title={
+              launchProgress.allDone
+                ? 'Launch checklist complete'
+                : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
+            }
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
+              textDecoration: 'none',
+              border: `1px solid ${launchProgress.allDone ? 'var(--positive)' : 'var(--rule)'}`,
+              padding: '8px 14px',
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span>Launch checklist</span>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',
+                fontSize: 10,
+                letterSpacing: '0.04em',
+                color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink-3)',
+              }}
+            >
+              {launchProgress.done}/{launchProgress.total}
+            </span>
+            <span aria-hidden>{launchProgress.allDone ? '✓' : '→'}</span>
+          </Link>
           <Link
             href={`/properties/${p.id}/stay-cape-ann`}
             title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
