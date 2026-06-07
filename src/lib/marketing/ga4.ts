@@ -7,12 +7,15 @@ import { getGoogleAccessToken } from './auth';
 
 const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 
+type StringFilter = { fieldName: string; stringFilter: { value: string; matchType?: string } };
+type AndGroup = { andGroup: { expressions: Array<{ filter: StringFilter }> } };
 type RunReportRequest = {
   dateRanges: { startDate: string; endDate: string }[];
   dimensions?: { name: string }[];
   metrics?: { name: string }[];
   limit?: string;
   orderBys?: Array<{ metric?: { metricName: string }; desc?: boolean }>;
+  dimensionFilter?: { filter: StringFilter } | AndGroup;
 };
 
 type RunReportRow = {
@@ -113,6 +116,40 @@ export async function fetchTopSources(propertyId: string, date: string, limit = 
   return (data.rows ?? []).map((r) => ({
     source: r.dimensionValues[0].value,
     medium: r.dimensionValues[1].value,
+    sessions: num(r.metricValues[0].value),
+    users: num(r.metricValues[1].value),
+  }));
+}
+
+export type UnknownLandingRow = { landing_page: string; sessions: number; users: number };
+
+// Landing pages for sessions GA couldn't attribute (sessionSource = "(not set)").
+// Useful for figuring out where the un-attributed traffic is actually going --
+// if it concentrates on one page, that page's outbound links likely need UTM
+// tags. If it's spread evenly, it's probably in-app browser noise (IG / FB
+// strip referrers on their in-app webview).
+export async function fetchUnknownSourceLandings(
+  propertyId: string,
+  date: string,
+  limit = 25,
+): Promise<UnknownLandingRow[]> {
+  const data = await runReport(propertyId, {
+    dateRanges: [{ startDate: date, endDate: date }],
+    dimensions: [{ name: 'landingPagePlusQueryString' }],
+    metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+    dimensionFilter: {
+      andGroup: {
+        expressions: [
+          { filter: { fieldName: 'sessionSource', stringFilter: { value: '(not set)' } } },
+          { filter: { fieldName: 'sessionMedium', stringFilter: { value: '(not set)' } } },
+        ],
+      },
+    },
+    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+    limit: String(limit),
+  });
+  return (data.rows ?? []).map((r) => ({
+    landing_page: r.dimensionValues[0].value,
     sessions: num(r.metricValues[0].value),
     users: num(r.metricValues[1].value),
   }));
