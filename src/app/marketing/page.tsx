@@ -5,6 +5,7 @@ import {
   getTrafficSeries,
   getTopSources,
   getTopPages,
+  getTopUnknownLandings,
   getLatestSpeedInsights,
   getLastUpdated,
   getSites,
@@ -36,13 +37,14 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
   const range = rangeForDays(days);
   const prevRange = previousRange(days);
 
-  const [sites, current, previous, traffic, topSources, topPages, speed, lastUpdated] = await Promise.all([
+  const [sites, current, previous, traffic, topSources, topPages, unknownLandings, speed, lastUpdated] = await Promise.all([
     getSites(),
     getStatTotals(site, range),
     getStatTotals(site, prevRange),
     getTrafficSeries(site, range),
     getTopSources(site, range),
     getTopPages(site, range),
+    getTopUnknownLandings(site, range),
     getLatestSpeedInsights(site),
     getLastUpdated(),
   ]);
@@ -156,6 +158,24 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
             />
           </div>
         </div>
+      </section>
+
+      {/* UNKNOWN-SOURCE LANDING PAGES */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+        <div className="eyebrow" style={{ marginBottom: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Where unknown traffic lands
+          <InfoTip tip="Landing pages for sessions where Google Analytics couldn't detect a source. Concentration on one path usually means an outbound link is missing UTM tags (often an IG bio or post). Spread across many paths is usually in-app browser noise (Instagram and Facebook strip the referrer header on their in-app webviews)." />
+        </div>
+        <Table
+          empty="No unknown-source traffic in this window."
+          rows={unknownLandings.map((u, i) => [
+            String(i + 1).padStart(2, '0'),
+            u.display,
+            num(u.sessions),
+          ])}
+          cols={['#', 'Landing page', 'Sessions']}
+          align={['left', 'left', 'right']}
+        />
       </section>
 
       {/* SPEED INSIGHTS PER SITE */}

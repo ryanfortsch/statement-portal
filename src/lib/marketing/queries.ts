@@ -210,6 +210,48 @@ export async function getTopPages(
     .map((r) => ({ ...r, ...resolvePagePath(r.page_path, helmNames) }));
 }
 
+// ── Unknown-source landing pages ─────────────────────────────────────
+// Top landing pages for sessions GA couldn't attribute (source = "(not
+// set)"). Aggregated over the date range. Resolves /stays/<guesty-id>
+// paths to internal Helm property names where possible, same as the
+// regular top-pages table.
+export type UnknownLandingDisplayRow = {
+  landing_page: string;
+  display: string;
+  sessions: number;
+  users: number;
+};
+
+export async function getTopUnknownLandings(
+  site: SiteFilter,
+  range: RangeBounds,
+  limit = 10,
+): Promise<UnknownLandingDisplayRow[]> {
+  const [{ data }, helmNames] = await Promise.all([
+    applySiteFilter(
+      supabase
+        .from('marketing_unknown_landings_daily')
+        .select('landing_page, sessions, users'),
+      site,
+    )
+      .gte('date', range.start)
+      .lte('date', range.end),
+    getGuestyIdToInternalName(),
+  ]);
+
+  const byPath = new Map<string, { landing_page: string; sessions: number; users: number }>();
+  for (const r of (data ?? []) as { landing_page: string; sessions: number; users: number }[]) {
+    const cur = byPath.get(r.landing_page) ?? { landing_page: r.landing_page, sessions: 0, users: 0 };
+    cur.sessions += r.sessions ?? 0;
+    cur.users += r.users ?? 0;
+    byPath.set(r.landing_page, cur);
+  }
+  return [...byPath.values()]
+    .sort((a, b) => b.sessions - a.sessions)
+    .slice(0, limit)
+    .map((r) => ({ ...r, display: resolvePagePath(r.landing_page, helmNames).display }));
+}
+
 // ── Speed Insights (latest per site) ─────────────────────────────────
 export type SpeedRow = {
   site_id: string;

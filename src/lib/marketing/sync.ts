@@ -9,6 +9,7 @@ import {
   fetchTopPages,
   fetchTopSources,
   fetchConversions,
+  fetchUnknownSourceLandings,
 } from './ga4';
 import { fetchSpeedInsights } from './vercel-speed';
 
@@ -32,6 +33,7 @@ export type SyncResult = {
   top_pages?: number;
   top_sources?: number;
   conversions?: number;
+  unknown_landings?: number;
   speed_insights?: 'ok' | 'no_data' | 'no_project_id';
   errors: string[];
 };
@@ -98,6 +100,27 @@ export async function syncSiteForDate(site: Site, date: string): Promise<SyncRes
     out.conversions = convs.length;
   } catch (e) {
     errors.push(`conversions: ${errMsg(e)}`);
+  }
+
+  // ── Unknown-source landings ─────────────────────────────────────
+  // Landing pages for sessions GA couldn't attribute (source = "(not set)").
+  // Drives the "where does the unknown traffic land" answer in the dashboard.
+  try {
+    const unknowns = await fetchUnknownSourceLandings(site.ga4_property_id, date);
+    await supabase
+      .from('marketing_unknown_landings_daily')
+      .delete()
+      .eq('site_id', site.id)
+      .eq('date', date);
+    if (unknowns.length > 0) {
+      const { error } = await supabase
+        .from('marketing_unknown_landings_daily')
+        .insert(unknowns.map((u) => ({ site_id: site.id, date, ...u })));
+      if (error) throw error;
+    }
+    out.unknown_landings = unknowns.length;
+  } catch (e) {
+    errors.push(`unknown_landings: ${errMsg(e)}`);
   }
 
   // ── Speed Insights (Vercel) ─────────────────────────────────────
