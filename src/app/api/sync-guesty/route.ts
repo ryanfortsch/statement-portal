@@ -149,8 +149,11 @@ async function guestyGet(path: string, token: string, params?: Record<string, st
 // ---- Listing map ----
 
 type ListingRow = { listing_id: string; property_id: string; nickname: string | null; address: string | null };
+type UnmatchedListing = { listing_id: string; nickname: string | null; address: string | null };
 
-async function refreshListingMap(token: string): Promise<ListingRow[]> {
+async function refreshListingMap(
+  token: string,
+): Promise<{ rows: ListingRow[]; unmatched: UnmatchedListing[] }> {
   const all: any[] = [];
   let skip = 0;
   const limit = 100;
@@ -164,6 +167,7 @@ async function refreshListingMap(token: string): Promise<ListingRow[]> {
   }
 
   const rows: ListingRow[] = [];
+  const unmatched: UnmatchedListing[] = [];
   for (const l of all) {
     const nickname: string = (l.nickname || l.title || '').toString();
     const address: string = (l.address?.full || l.address?.street || '').toString();
@@ -178,7 +182,10 @@ async function refreshListingMap(token: string): Promise<ListingRow[]> {
         if (haystack.includes(hint)) { matched = propId; break; }
       }
     }
-    if (!matched) continue;
+    if (!matched) {
+      unmatched.push({ listing_id: l._id, nickname: nickname || null, address: address || null });
+      continue;
+    }
 
     rows.push({
       listing_id: l._id,
@@ -195,7 +202,7 @@ async function refreshListingMap(token: string): Promise<ListingRow[]> {
     );
     if (error) throw new Error(`Failed to upsert guesty_listings: ${error.message}`);
   }
-  return rows;
+  return { rows, unmatched };
 }
 
 async function loadListingMap(): Promise<Record<string, string>> {
@@ -562,12 +569,14 @@ export async function POST(request: NextRequest) {
     // Listings
     let mapped = 0;
     let listingMap: Record<string, string> = {};
+    let unmatchedListings: UnmatchedListing[] = [];
     if (refreshMap) {
-      const rows = await refreshListingMap(token);
+      const { rows, unmatched } = await refreshListingMap(token);
       mapped = rows.length;
+      unmatchedListings = unmatched;
       rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
       await sb.from('sync_status').upsert(
-        { source: 'guesty-listings', last_synced_at: new Date().toISOString(), last_result: { mapped } },
+        { source: 'guesty-listings', last_synced_at: new Date().toISOString(), last_result: { mapped, unmatched_count: unmatched.length, unmatched } },
       );
     } else {
       listingMap = await loadListingMap();
@@ -631,6 +640,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       listings_mapped: mapped,
+      unmatched_listings: unmatchedListings,
       reviews: reviewsResult,
       reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,
