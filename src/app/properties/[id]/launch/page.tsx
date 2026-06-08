@@ -7,7 +7,9 @@ import {
   LAUNCH_STEPS,
   LAUNCH_PHASES,
   isStepResolved,
+  deriveStepResolved,
   type LaunchStepRow,
+  type LaunchDerivationContext,
 } from '@/lib/launch-checklist';
 import { ensureLaunchStepsSeeded } from './actions';
 import { LaunchStepCard } from './LaunchStepCard';
@@ -39,6 +41,46 @@ async function getLaunchSteps(propertyId: string): Promise<LaunchStepRow[]> {
   }
 }
 
+/**
+ * Latest sca_launches status for this property. Drives auto-resolution of
+ * the "stay-cape-ann.com page live" step.
+ */
+async function getScaLaunchStatus(propertyId: string): Promise<string | null> {
+  if (!isHelmConfigured) return null;
+  try {
+    const { data } = await supabase
+      .from('sca_launches')
+      .select('status')
+      .eq('property_id', propertyId)
+      .maybeSingle();
+    return (data?.status as string | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True if any cleaner_phones row maps to this property, either explicitly
+ * via property_ids or as a catch-all (empty array). Drives auto-resolution
+ * of the "Cleaner phone mapped in Quo" step.
+ */
+async function hasQuoCleanerMapping(propertyId: string): Promise<boolean> {
+  if (!isHelmConfigured) return false;
+  try {
+    const { data } = await supabase
+      .from('cleaner_phones')
+      .select('property_ids');
+    if (!data) return false;
+    return (data as Array<{ property_ids: string[] | null }>).some((r) => {
+      const ids = r.property_ids ?? [];
+      // Empty array = catch-all cleaner that serves all properties.
+      return ids.length === 0 || ids.includes(propertyId);
+    });
+  } catch {
+    return false;
+  }
+}
+
 type Params = { id: string };
 
 /**
@@ -67,18 +109,57 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
   // existed, or if new steps have been added to LAUNCH_STEPS since the
   // initial seed, fill in any missing rows. Idempotent — never overwrites.
   await ensureLaunchStepsSeeded(p.id);
-  const rows = await getLaunchSteps(p.id);
+  const [rows, scaLaunchStatus, cleanerMapped] = await Promise.all([
+    getLaunchSteps(p.id),
+    getScaLaunchStatus(p.id),
+    hasQuoCleanerMapping(p.id),
+  ]);
 
   const byKey = new Map<string, LaunchStepRow>();
   for (const row of rows) byKey.set(row.step_key, row);
 
-  // Progress count: any resolved (done | skipped | n_a) step counts. Required
+  // Derivation context — lets each step ask "does the property already
+  // have what I'm asking for?" and auto-resolve when yes. Prevents the
+  // checklist from nagging the operator about work that was demonstrably
+  // done at promotion time (fee, owner contact) or on a sibling surface
+  // (bank last4 on the edit page, SCA page live, Quo cleaner mapped).
+  const derivCtx: LaunchDerivationContext = {
+    property: {
+      title: p.title ?? null,
+      owner_full: p.owner_full ?? null,
+      owner_emails: p.owner_emails ?? null,
+      owner_phone: p.owner_phone ?? null,
+      management_fee_pct: p.management_fee_pct ?? null,
+      bank_last4: p.bank_last4 ?? null,
+      tax_cert_id: p.tax_cert_id ?? null,
+      guesty_listing_id: (p as { guesty_listing_id?: string | null }).guesty_listing_id ?? null,
+      is_active: !!p.is_active,
+    },
+    scaLaunchStatus,
+    hasQuoCleanerMapping: cleanerMapped,
+  };
+
+  // Effective status: manual operator-set status always wins; only fall
+  // through to derivation when the row's still in todo (or missing).
+  // Build a derived map so the cards + counts agree.
+  const autoResolvedKeys = new Set<string>();
+  function effectivelyResolved(stepKey: string): boolean {
+    const row = byKey.get(stepKey);
+    if (isStepResolved(row?.status)) return true;
+    const manual = row?.status ?? 'todo';
+    if (manual === 'todo' && deriveStepResolved(stepKey, derivCtx)) {
+      autoResolvedKeys.add(stepKey);
+      return true;
+    }
+    return false;
+  }
+
+  // Progress count: any resolved (manual or derived) step counts. Required
   // remaining drives the headline "X required still to go" copy.
   let done = 0;
   let requiredRemaining = 0;
   for (const step of LAUNCH_STEPS) {
-    const row = byKey.get(step.key);
-    const resolved = isStepResolved(row?.status);
+    const resolved = effectivelyResolved(step.key);
     if (resolved) done += 1;
     if (step.required && !step.gate && !resolved) requiredRemaining += 1;
   }
@@ -174,7 +255,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
         {LAUNCH_PHASES.map((phase, i) => {
           const phaseSteps = LAUNCH_STEPS.filter((s) => s.phase === phase.key);
           if (phaseSteps.length === 0) return null;
-          const phaseDone = phaseSteps.filter((s) => isStepResolved(byKey.get(s.key)?.status)).length;
+          const phaseDone = phaseSteps.filter((s) => effectivelyResolved(s.key)).length;
           return (
             <PhaseSection
               key={phase.key}
@@ -190,6 +271,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   propertyId={p.id}
                   step={step}
                   row={byKey.get(step.key) ?? null}
+                  autoResolved={autoResolvedKeys.has(step.key)}
                 />
               ))}
             </PhaseSection>

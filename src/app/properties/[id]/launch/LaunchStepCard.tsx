@@ -12,7 +12,42 @@ type Props = {
   propertyId: string;
   step: LaunchStep;
   row: LaunchStepRow | null;
+  /** True when the step was auto-resolved by data already on the property
+   *  (fee set at promotion, bank last4 entered on the edit page, SCA page
+   *  live, etc.) — the row's manual status is still `todo` in the DB but
+   *  the operator's nothing left to do. Renders the read-only "Done"
+   *  pill + an "Auto" tag, and the deep-link still appears so they can
+   *  jump to the underlying surface to verify if they want. */
+  autoResolved?: boolean;
 };
+
+/**
+ * Maps a step's `action` to a deep-link the operator can use to execute
+ * the work from the checklist itself. Internal paths use Next routing;
+ * external services open in a new tab. Returns null for actions that
+ * don't have a destination yet (generate_copy, send_welcome, activate
+ * lives on the launch page itself).
+ */
+function deepLinkFor(
+  action: LaunchStep['action'],
+  propertyId: string,
+): { href: string; label: string; external: boolean } | null {
+  switch (action) {
+    case 'edit_field':
+    case 'set_listing_match':
+    case 'set_bank_last4':
+    case 'set_tax_cert':
+      return { href: `/properties/${propertyId}/edit`, label: 'Open property edit', external: false };
+    case 'set_external_title':
+      return { href: `/properties/${propertyId}/stay-cape-ann`, label: 'Open Stay Cape Ann', external: false };
+    case 'open_quo':
+      return { href: 'https://my.openphone.com/', label: 'Open Quo', external: true };
+    case 'open_seam':
+      return { href: 'https://console.seam.co/', label: 'Open Seam', external: true };
+    default:
+      return null;
+  }
+}
 
 const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
   { value: 'todo', label: 'To-do' },
@@ -34,7 +69,7 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
  * so live work pops by comparison. Auto-completed steps lose the
  * change affordance entirely and gain a small "Auto" badge.
  */
-export function LaunchStepCard({ propertyId, step, row }: Props) {
+export function LaunchStepCard({ propertyId, step, row, autoResolved }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [notesOpen, setNotesOpen] = useState(false);
@@ -42,10 +77,16 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
   const [notesPending, setNotesPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const status: LaunchStepStatus = row?.status ?? 'todo';
+  // Effective status: the operator's manual choice wins; otherwise the
+  // derivation flag from the page bumps a todo row up to done.
+  const manualStatus: LaunchStepStatus = row?.status ?? 'todo';
+  const status: LaunchStepStatus =
+    autoResolved && manualStatus === 'todo' ? 'done' : manualStatus;
+  const isAuto = step.auto || (autoResolved && manualStatus === 'todo');
   const isDone = status === 'done';
   const isSkipped = status === 'skipped' || status === 'n_a';
   const isResolved = isDone || isSkipped;
+  const link = deepLinkFor(step.action, propertyId);
 
   function changeStatus(next: LaunchStepStatus) {
     setError(null);
@@ -99,7 +140,7 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
               </span>
               {step.required && !isResolved && <Tag tone="signal">Required</Tag>}
               {step.gate && <Tag tone="ink">Activation gate</Tag>}
-              {step.auto && <Tag tone="muted">Auto</Tag>}
+              {isAuto && <Tag tone="muted">Auto</Tag>}
             </div>
 
             {step.description && (
@@ -121,6 +162,24 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
               </div>
             )}
             {error && <div className="rt-launch-row-error">{error}</div>}
+
+            {/* Deep-link: jumps to the surface where the step's actual
+                work happens (the property edit page, Stay Cape Ann
+                launcher, Quo console, Seam console). Shown even on
+                resolved steps so the operator can re-open to verify
+                or correct. */}
+            {link && (
+              <div style={{ marginTop: 10 }}>
+                <a
+                  href={link.href}
+                  target={link.external ? '_blank' : undefined}
+                  rel={link.external ? 'noopener noreferrer' : undefined}
+                  className="rt-launch-row-deeplink"
+                >
+                  {link.label} {link.external ? '↗' : '→'}
+                </a>
+              </div>
+            )}
 
             {/* Notes affordance — quiet until invoked. When a note exists,
                 the preview shows inline so it's discoverable at a glance. */}
@@ -177,9 +236,12 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
             </div>
           </div>
 
-          {/* Right: status pill / select */}
+          {/* Right: status pill / select. Auto steps (whether hard-coded
+              at definition time or derived from property data on this
+              render) get a read-only pill — the operator can still
+              override via the deep-link to the underlying surface. */}
           <div className="rt-launch-row-status-col">
-            {step.auto ? (
+            {isAuto ? (
               <span
                 aria-label="Auto-completed"
                 className="rt-launch-row-status-readonly"
@@ -402,6 +464,26 @@ const rowCss = `
     margin-top: 8px;
     font-size: 11px;
     color: var(--negative, #b04a3a);
+  }
+
+  /* Deep-link to the surface where this step's work actually happens
+     (property edit, Stay Cape Ann launcher, Quo, Seam). Quiet by
+     default; on hover it lights up to ink. */
+  .rt-launch-row-deeplink {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--rule);
+    padding-bottom: 1px;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .rt-launch-row-deeplink:hover {
+    color: var(--ink);
+    border-bottom-color: var(--ink);
   }
 
   /* Notes affordance: a quiet button that lights up on hover. When a
