@@ -25,9 +25,14 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
 /**
  * One row in the launch checklist. The page renders these inside phase
  * sections. Status changes go through a server action and the page
- * re-renders via router.refresh(). PR 1 keeps the action menu generic
- * (status + notes) — deep-link buttons for individual steps (Generate
- * listing copy, jump to Quo, etc.) ship in PR 3.
+ * re-renders via router.refresh().
+ *
+ * Visual model: every row carries a left-side status dot (24px circle,
+ * varies per state) + a title-and-meta column + a right-side status
+ * pill that opens the native select for changing state. Resolved
+ * steps (done | skipped | n_a) mute the title and dim the row a touch
+ * so live work pops by comparison. Auto-completed steps lose the
+ * change affordance entirely and gain a small "Auto" badge.
  */
 export function LaunchStepCard({ propertyId, step, row }: Props) {
   const router = useRouter();
@@ -38,7 +43,9 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const status: LaunchStepStatus = row?.status ?? 'todo';
-  const isResolved = status === 'done' || status === 'skipped' || status === 'n_a';
+  const isDone = status === 'done';
+  const isSkipped = status === 'skipped' || status === 'n_a';
+  const isResolved = isDone || isSkipped;
 
   function changeStatus(next: LaunchStepStatus) {
     setError(null);
@@ -65,224 +72,180 @@ export function LaunchStepCard({ propertyId, step, row }: Props) {
   }
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '32px 1fr auto',
-        gap: 14,
-        padding: '16px 0',
-        borderBottom: '1px solid var(--rule)',
-        opacity: pending ? 0.55 : 1,
-        transition: 'opacity 120ms ease',
-      }}
-    >
-      {/* Status dot */}
-      <div style={{ paddingTop: 4 }}>
-        <StatusDot status={status} />
-      </div>
+    <>
+      <style>{rowCss}</style>
+      <div
+        className="rt-launch-row"
+        data-state={status}
+        data-pending={pending || undefined}
+      >
+        <div className="rt-launch-row-inner">
+          {/* Left: status dot */}
+          <div style={{ paddingTop: 2 }}>
+            <StatusDot status={status} />
+          </div>
 
-      {/* Title + meta */}
-      <div>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 500,
-            color: isResolved ? 'var(--ink-3)' : 'var(--ink)',
-            textDecoration: status === 'skipped' || status === 'n_a' ? 'line-through' : 'none',
-            lineHeight: 1.4,
-          }}
-        >
-          {step.title}
-          {step.required && !isResolved && (
-            <span
-              style={{
-                marginLeft: 8,
-                fontSize: 9,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--signal, #c85a3a)',
-                fontWeight: 600,
-              }}
-            >
-              Required
-            </span>
-          )}
-          {step.gate && (
-            <span
-              style={{
-                marginLeft: 8,
-                fontSize: 9,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-3)',
-                fontWeight: 600,
-              }}
-            >
-              Activation gate
-            </span>
-          )}
-        </div>
-        {step.description && (
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            {step.description}
-          </div>
-        )}
-        {step.why && (
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 11,
-              color: 'var(--ink-4, #8a9aa1)',
-              fontStyle: 'italic',
-              lineHeight: 1.55,
-            }}
-          >
-            {step.why}
-          </div>
-        )}
-        {step.example && (
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)' }}>
-            e.g. <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>{step.example}</span>
-          </div>
-        )}
-        {row?.completed_at && status === 'done' && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>
-            ✓ {formatRelative(row.completed_at)}
-            {row.completed_by ? ` · ${row.completed_by}` : ''}
-          </div>
-        )}
-        {error && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--negative, #c85a3a)' }}>{error}</div>
-        )}
-
-        {/* Notes toggle + editor */}
-        <div style={{ marginTop: 6 }}>
-          <button
-            type="button"
-            onClick={() => setNotesOpen((v) => !v)}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              fontSize: 11,
-              letterSpacing: '.14em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              cursor: 'pointer',
-            }}
-          >
-            {notesOpen ? '− Notes' : row?.notes ? '+ Notes' : '+ Add note'}
-          </button>
-          {row?.notes && !notesOpen && (
-            <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--ink-3)' }}>
-              {row.notes.length > 80 ? row.notes.slice(0, 80) + '…' : row.notes}
-            </span>
-          )}
-          {notesOpen && (
-            <div style={{ marginTop: 8 }}>
-              <textarea
-                value={notesDraft}
-                onChange={(e) => setNotesDraft(e.target.value)}
-                rows={3}
-                placeholder="Notes for this step…"
+          {/* Middle: title + meta */}
+          <div style={{ minWidth: 0 }}>
+            <div className="rt-launch-row-title-line">
+              <span
+                className="rt-launch-row-title"
                 style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  border: '1px solid var(--rule)',
-                  background: 'var(--paper)',
-                  fontSize: 13,
-                  color: 'var(--ink)',
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
+                  color: isResolved ? 'var(--ink-3)' : 'var(--ink)',
+                  textDecoration: isSkipped ? 'line-through' : 'none',
                 }}
-              />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNotesDraft(row?.notes ?? '');
-                    setNotesOpen(false);
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--rule)',
-                    color: 'var(--ink-3)',
-                    padding: '6px 12px',
-                    fontSize: 11,
-                    letterSpacing: '.14em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    saveNotes().then(() => setNotesOpen(false));
-                  }}
-                  disabled={notesPending}
-                  style={{
-                    background: notesPending ? 'var(--ink-4)' : 'var(--ink)',
-                    color: 'var(--paper)',
-                    border: 'none',
-                    padding: '6px 12px',
-                    fontSize: 11,
-                    letterSpacing: '.14em',
-                    textTransform: 'uppercase',
-                    fontWeight: 500,
-                    cursor: notesPending ? 'wait' : 'pointer',
-                  }}
-                >
-                  {notesPending ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+              >
+                {step.title}
+              </span>
+              {step.required && !isResolved && <Tag tone="signal">Required</Tag>}
+              {step.gate && <Tag tone="ink">Activation gate</Tag>}
+              {step.auto && <Tag tone="muted">Auto</Tag>}
             </div>
-          )}
+
+            {step.description && (
+              <div className="rt-launch-row-desc">{step.description}</div>
+            )}
+            {step.why && (
+              <div className="rt-launch-row-why">{step.why}</div>
+            )}
+            {step.example && (
+              <div className="rt-launch-row-example">
+                e.g.{' '}
+                <span className="font-mono">{step.example}</span>
+              </div>
+            )}
+            {row?.completed_at && isDone && (
+              <div className="rt-launch-row-stamp">
+                ✓ {formatRelative(row.completed_at)}
+                {row.completed_by ? ` · ${row.completed_by}` : ''}
+              </div>
+            )}
+            {error && <div className="rt-launch-row-error">{error}</div>}
+
+            {/* Notes affordance — quiet until invoked. When a note exists,
+                the preview shows inline so it's discoverable at a glance. */}
+            <div className="rt-launch-row-notes">
+              <button
+                type="button"
+                className="rt-launch-row-notes-toggle"
+                onClick={() => setNotesOpen((v) => !v)}
+              >
+                {notesOpen
+                  ? '− Hide note'
+                  : row?.notes
+                    ? '+ Edit note'
+                    : '+ Add note'}
+              </button>
+              {row?.notes && !notesOpen && (
+                <span className="rt-launch-row-notes-preview">
+                  {row.notes.length > 90 ? row.notes.slice(0, 90) + '…' : row.notes}
+                </span>
+              )}
+              {notesOpen && (
+                <div style={{ marginTop: 10 }}>
+                  <textarea
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value)}
+                    rows={3}
+                    placeholder="Notes for this step…"
+                    className="rt-launch-row-notes-textarea"
+                  />
+                  <div className="rt-launch-row-notes-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotesDraft(row?.notes ?? '');
+                        setNotesOpen(false);
+                      }}
+                      className="rt-launch-row-btn rt-launch-row-btn-ghost"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveNotes().then(() => setNotesOpen(false));
+                      }}
+                      disabled={notesPending}
+                      className="rt-launch-row-btn rt-launch-row-btn-primary"
+                    >
+                      {notesPending ? 'Saving…' : 'Save note'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: status pill / select */}
+          <div className="rt-launch-row-status-col">
+            {step.auto ? (
+              <span
+                aria-label="Auto-completed"
+                className="rt-launch-row-status-readonly"
+                data-state={status}
+              >
+                {readonlyStatusLabel(status)}
+              </span>
+            ) : (
+              <span className="rt-launch-row-status-wrap" data-state={status}>
+                <select
+                  value={status}
+                  onChange={(e) => changeStatus(e.target.value as LaunchStepStatus)}
+                  disabled={pending}
+                  className="rt-launch-row-status-select"
+                  aria-label={`Change status for ${step.title}`}
+                >
+                  {STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="rt-launch-row-status-caret" aria-hidden>⌄</span>
+              </span>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Status changer */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-        <select
-          value={status}
-          onChange={(e) => changeStatus(e.target.value as LaunchStepStatus)}
-          disabled={pending || step.auto}
-          style={{
-            appearance: 'none',
-            padding: '6px 10px',
-            border: '1px solid var(--rule)',
-            background: 'var(--paper)',
-            fontSize: 12,
-            color: 'var(--ink)',
-            fontFamily: 'inherit',
-            cursor: step.auto ? 'not-allowed' : 'pointer',
-            minWidth: 120,
-          }}
-        >
-          {STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        {step.auto && (
-          <div style={{ fontSize: 10, color: 'var(--ink-4, #8a9aa1)', letterSpacing: '.06em' }}>auto</div>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 
 function StatusDot({ status }: { status: LaunchStepStatus }) {
-  const styles: Record<LaunchStepStatus, { bg: string; border: string; mark?: string }> = {
-    todo: { bg: 'transparent', border: 'var(--rule)' },
-    in_progress: { bg: 'var(--paper)', border: 'var(--ink)' },
-    done: { bg: 'var(--ink)', border: 'var(--ink)', mark: '✓' },
-    skipped: { bg: 'transparent', border: 'var(--rule)', mark: '−' },
-    n_a: { bg: 'transparent', border: 'var(--rule)', mark: '∕' },
+  const styles: Record<LaunchStepStatus, { bg: string; border: string; mark?: string; markColor?: string }> = {
+    todo: { bg: 'var(--paper)', border: 'var(--ink-4)' },
+    in_progress: {
+      bg: 'var(--paper)',
+      border: 'var(--signal)',
+      mark: '●',
+      markColor: 'var(--signal)',
+    },
+    done: { bg: 'var(--positive)', border: 'var(--positive)', mark: '✓', markColor: 'var(--paper)' },
+    skipped: { bg: 'var(--paper)', border: 'var(--rule)', mark: '–', markColor: 'var(--ink-4)' },
+    n_a: { bg: 'var(--paper)', border: 'var(--rule)', mark: '∕', markColor: 'var(--ink-4)' },
   };
   const s = styles[status];
+  // In-progress dot uses a smaller inner pip + signal ring (matches the
+  // pipeline progress bar's "active" look on the prospect page).
+  if (status === 'in_progress') {
+    return (
+      <span
+        aria-label={status}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: 'var(--paper)',
+          border: '2px solid var(--signal)',
+          boxShadow: '0 0 0 3px var(--paper) inset, 0 0 0 5px var(--signal) inset',
+        }}
+      />
+    );
+  }
   return (
     <span
       aria-label={status}
@@ -290,19 +253,63 @@ function StatusDot({ status }: { status: LaunchStepStatus }) {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: 18,
-        height: 18,
+        width: 22,
+        height: 22,
         borderRadius: '50%',
         background: s.bg,
-        border: `1.5px solid ${s.border}`,
-        color: status === 'done' ? 'var(--paper)' : 'var(--ink-3)',
-        fontSize: 11,
+        border: `2px solid ${s.border}`,
+        color: s.markColor ?? 'var(--ink-3)',
+        fontSize: 12,
+        fontWeight: 700,
         lineHeight: 1,
       }}
     >
       {s.mark ?? ''}
     </span>
   );
+}
+
+function Tag({ tone, children }: { tone: 'signal' | 'ink' | 'muted'; children: React.ReactNode }) {
+  const styles: Record<string, React.CSSProperties> = {
+    signal: {
+      color: 'var(--signal)',
+      background: 'rgba(200, 90, 58, 0.08)',
+      border: '1px solid rgba(200, 90, 58, 0.35)',
+    },
+    ink: {
+      color: 'var(--ink)',
+      background: 'var(--paper-2)',
+      border: '1px solid var(--rule)',
+    },
+    muted: {
+      color: 'var(--ink-4)',
+      background: 'transparent',
+      border: '1px solid var(--rule)',
+    },
+  };
+  return (
+    <span
+      style={{
+        ...styles[tone],
+        fontSize: 9.5,
+        letterSpacing: '0.14em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+        padding: '2px 7px',
+        marginLeft: 8,
+        whiteSpace: 'nowrap',
+        display: 'inline-flex',
+        alignItems: 'center',
+        lineHeight: 1.4,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function readonlyStatusLabel(status: LaunchStepStatus): string {
+  return STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
 }
 
 function formatRelative(iso: string): string {
@@ -315,3 +322,238 @@ function formatRelative(iso: string): string {
   if (days < 30) return `${days}d ago`;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+
+// ─── CSS ────────────────────────────────────────────────────────────────────
+// Card-level cohesion: the row reads as a single "unit" with consistent
+// spacing, subtle hover invitation, and per-state visual de-emphasis.
+// Resolved steps fade just enough to surface the active ones; the status
+// pill on the right gets a designed wrapper around the native <select>
+// so the affordance is obviously interactive (border, caret, hover lift)
+// while the underlying control stays accessible.
+const rowCss = `
+  .rt-launch-row {
+    border-bottom: 1px solid var(--rule);
+    transition: background 140ms ease, opacity 140ms ease;
+  }
+  .rt-launch-row:hover {
+    background: var(--paper-2, #f5f1e7);
+  }
+  .rt-launch-row[data-pending] {
+    opacity: 0.55;
+  }
+  .rt-launch-row[data-state="done"],
+  .rt-launch-row[data-state="skipped"],
+  .rt-launch-row[data-state="n_a"] {
+    /* Resolved rows step back a touch so live work pops. */
+    background: transparent;
+  }
+  .rt-launch-row[data-state="done"]:hover,
+  .rt-launch-row[data-state="skipped"]:hover,
+  .rt-launch-row[data-state="n_a"]:hover {
+    background: var(--paper-2, #f5f1e7);
+  }
+
+  .rt-launch-row-inner {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 16px;
+    padding: 18px 4px;
+    align-items: start;
+  }
+
+  .rt-launch-row-title-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0;
+    row-gap: 6px;
+  }
+  .rt-launch-row-title {
+    font-size: 14.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: -0.005em;
+  }
+  .rt-launch-row-desc {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    line-height: 1.55;
+  }
+  .rt-launch-row-why {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--ink-4, #8a9aa1);
+    font-style: italic;
+    line-height: 1.55;
+  }
+  .rt-launch-row-example {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .rt-launch-row-stamp {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--positive);
+    letter-spacing: 0.02em;
+  }
+  .rt-launch-row-error {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--negative, #b04a3a);
+  }
+
+  /* Notes affordance: a quiet button that lights up on hover. When a
+     note exists, the preview sits inline next to the button so it's
+     scannable while collapsed. */
+  .rt-launch-row-notes { margin-top: 10px; }
+  .rt-launch-row-notes-toggle {
+    background: none;
+    border: none;
+    padding: 2px 0;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    cursor: pointer;
+    transition: color 120ms ease;
+  }
+  .rt-launch-row-notes-toggle:hover { color: var(--ink); }
+  .rt-launch-row-notes-preview {
+    margin-left: 12px;
+    font-size: 12px;
+    color: var(--ink-3);
+    font-style: italic;
+  }
+  .rt-launch-row-notes-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  .rt-launch-row-notes-textarea:focus {
+    outline: none;
+    border-color: var(--ink);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+  }
+  .rt-launch-row-notes-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+  .rt-launch-row-btn {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .rt-launch-row-btn-ghost {
+    background: transparent;
+    border-color: var(--rule);
+    color: var(--ink-3);
+  }
+  .rt-launch-row-btn-ghost:hover { color: var(--ink); border-color: var(--ink); }
+  .rt-launch-row-btn-primary {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .rt-launch-row-btn-primary:disabled { background: var(--ink-4); cursor: wait; }
+
+  /* Status pill: a designed wrapper around the native <select>. The
+     wrapper gets the border + caret + hover; the select itself is
+     transparent and sits on top for accessibility. */
+  .rt-launch-row-status-col { padding-top: 0; }
+  .rt-launch-row-status-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    min-width: 130px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .rt-launch-row-status-wrap:hover { border-color: var(--ink); }
+  .rt-launch-row-status-wrap[data-state="in_progress"] {
+    border-color: var(--signal);
+    background: rgba(200, 90, 58, 0.05);
+  }
+  .rt-launch-row-status-wrap[data-state="done"] {
+    border-color: var(--positive);
+    background: rgba(47, 122, 58, 0.06);
+  }
+  .rt-launch-row-status-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 10px 28px 10px 14px;
+    width: 100%;
+    cursor: pointer;
+    outline: none;
+  }
+  .rt-launch-row-status-wrap[data-state="todo"] .rt-launch-row-status-select { color: var(--ink); }
+  .rt-launch-row-status-wrap[data-state="in_progress"] .rt-launch-row-status-select { color: var(--signal); }
+  .rt-launch-row-status-wrap[data-state="done"] .rt-launch-row-status-select { color: var(--positive); }
+  .rt-launch-row-status-wrap[data-state="skipped"] .rt-launch-row-status-select,
+  .rt-launch-row-status-wrap[data-state="n_a"] .rt-launch-row-status-select { color: var(--ink-3); }
+  .rt-launch-row-status-caret {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-60%);
+    color: var(--ink-4);
+    font-size: 13px;
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  .rt-launch-row-status-readonly {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 130px;
+    padding: 10px 14px;
+    border: 1px solid var(--positive);
+    background: rgba(47, 122, 58, 0.06);
+    color: var(--positive);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 640px) {
+    .rt-launch-row-inner {
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 14px;
+      padding: 16px 0;
+    }
+    .rt-launch-row-status-col {
+      grid-column: 1 / -1;
+      margin-left: 44px;
+      margin-top: 6px;
+    }
+    .rt-launch-row-status-wrap,
+    .rt-launch-row-status-readonly { min-width: 0; }
+  }
+`;
