@@ -171,13 +171,14 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
       </section>
 
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
-        {LAUNCH_PHASES.map((phase) => {
+        {LAUNCH_PHASES.map((phase, i) => {
           const phaseSteps = LAUNCH_STEPS.filter((s) => s.phase === phase.key);
           if (phaseSteps.length === 0) return null;
           const phaseDone = phaseSteps.filter((s) => isStepResolved(byKey.get(s.key)?.status)).length;
           return (
             <PhaseSection
               key={phase.key}
+              num={String(i + 1).padStart(2, '0')}
               label={phase.label}
               blurb={phase.blurb}
               done={phaseDone}
@@ -194,51 +195,108 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
             </PhaseSection>
           );
         })}
-
-        <p style={{ marginTop: 36, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-          Looking for an integration deep link or the AI listing-copy generator? Those land in the
-          next launch-checklist iteration. For now, mark each step manually as you wire it through
-          its existing surface (edit page, Quo, Seam, etc.).
-        </p>
       </section>
     </div>
   );
 }
 
+/**
+ * Phase divider + container. Renders the phase number / serif label /
+ * blurb on the left and a chip-style "N / total" progress count on the
+ * right, with a hairline rule underneath. The chip flips positive once
+ * every step in the phase is resolved so a glance down the page tells
+ * you which phases are still in flight.
+ */
 function PhaseSection({
+  num,
   label,
   blurb,
   done,
   total,
   children,
 }: {
+  num: string;
   label: string;
   blurb: string;
   done: number;
   total: number;
   children: React.ReactNode;
 }) {
+  const allDone = done >= total && total > 0;
   return (
-    <div style={{ marginTop: 36 }}>
-      <div
+    <section style={{ marginTop: 44 }}>
+      <header
         style={{
-          display: 'flex',
+          display: 'grid',
+          gridTemplateColumns: '1fr auto',
           alignItems: 'baseline',
-          justifyContent: 'space-between',
-          paddingBottom: 8,
-          borderBottom: '1px solid var(--ink)',
+          gap: 20,
+          paddingBottom: 14,
+          borderBottom: `1px solid ${allDone ? 'var(--positive)' : 'var(--ink)'}`,
         }}
       >
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 2 }}>{label}</div>
-          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{blurb}</div>
+        <div style={{ minWidth: 0 }}>
+          <div
+            className="eyebrow"
+            style={{
+              fontSize: 10,
+              letterSpacing: '.22em',
+              color: 'var(--ink-4)',
+              marginBottom: 6,
+            }}
+          >
+            Phase {num}
+          </div>
+          <h2
+            className="font-serif"
+            style={{
+              fontSize: 22,
+              fontWeight: 400,
+              letterSpacing: '-0.01em',
+              color: 'var(--ink)',
+              margin: 0,
+              lineHeight: 1.15,
+            }}
+          >
+            {label}
+          </h2>
+          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            {blurb}
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', letterSpacing: '.12em' }}>
-          {done}/{total}
+        <div
+          aria-label={`${done} of ${total} resolved`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'baseline',
+            gap: 6,
+            padding: '6px 12px',
+            border: `1px solid ${allDone ? 'var(--positive)' : 'var(--rule)'}`,
+            background: allDone ? 'rgba(47, 122, 58, 0.08)' : 'var(--paper)',
+            color: allDone ? 'var(--positive)' : 'var(--ink-3)',
+            fontSize: 11,
+            letterSpacing: '0.06em',
+            fontWeight: 500,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',
+              fontWeight: 700,
+              color: allDone ? 'var(--positive)' : 'var(--ink)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            {done}/{total}
+          </span>
+          <span style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            {allDone ? 'Complete' : 'Resolved'}
+          </span>
         </div>
-      </div>
+      </header>
       <div>{children}</div>
-    </div>
+    </section>
   );
 }
 
