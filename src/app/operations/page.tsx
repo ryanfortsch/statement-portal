@@ -552,22 +552,11 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </>
           )}
         </div>
-        {/* Same-day turnover keeps its loud signal banner — it's a real
-            urgency signal worth its own line. Non-same-day gap context
-            lives inline (above) so it never adds row height. */}
-        {t.isSameDayTurnover && (
-          <div
-            className="rt-turnover-prev rt-turnover-prev-sameday"
-            style={{
-              marginTop: 2,
-              fontSize: 11,
-              color: 'var(--signal)',
-              fontWeight: 500,
-            }}
-          >
-            Tight turnaround · previous guest checks out today
-          </div>
-        )}
+        {/* Same-day turnover already carries the SAME-DAY pill up top —
+            the subtext "Tight turnaround · previous guest checks out
+            today" was redundant and pushed the row wide enough to clip
+            the Start Inspection button off-screen on narrower viewports.
+            Dropped intentionally; pill is the signal. */}
       </div>
 
       {/* Status: cleaning + inspection collapse to a single dim line of

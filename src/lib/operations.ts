@@ -292,7 +292,30 @@ export async function loadOperationsData(
     throw new Error(`Failed to load inspections: ${inspErr.message}`);
   }
 
-  const inspections = (inspData ?? []) as InspectionRow[];
+  const allInspections = (inspData ?? []) as InspectionRow[];
+
+  // Drop "empty shell" inspections from the match pool — rows where the
+  // operator tapped Start Inspection, then bounced without marking a
+  // single card. Those sit in the table with completed_at NULL and zero
+  // inspection_results forever, and would otherwise lock the operations
+  // row into "Resume →" even though there's nothing to resume. Completed
+  // inspections always stay (status / counts are on the row). For
+  // in-progress ones, check inspection_results: any results at all = real
+  // session; none = abandoned shell, ignore it.
+  const inProgressIds = allInspections.filter((i) => !i.completed_at).map((i) => i.id);
+  const inProgressWithResults = new Set<string>();
+  if (inProgressIds.length > 0) {
+    const { data: rrows } = await supabase
+      .from('inspection_results')
+      .select('inspection_id')
+      .in('inspection_id', inProgressIds);
+    for (const r of (rrows ?? []) as { inspection_id: string }[]) {
+      inProgressWithResults.add(r.inspection_id);
+    }
+  }
+  const inspections = allInspections.filter(
+    (i) => i.completed_at || inProgressWithResults.has(i.id),
+  );
 
   // Pull inspection plans for the visible stays. Plans are keyed by stay:
   // new plans store booking.id in guesty_reservation_id (and booking_id);
