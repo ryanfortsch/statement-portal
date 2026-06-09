@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 /**
  * Upload control for Rising Tide overhead. Accepts a Chase corporate-card
- * (*3878) or operating-account (*5130) CSV export, POSTs to
+ * (*3878) or operating-account (*5130) export — CSV or XLSX — and POSTs to
  * /api/ingest-overhead (which auto-detects the format, categorizes, drops
  * personal/transfers, and dedupes), then refreshes the page so the
  * overhead section repaints.
@@ -62,10 +62,10 @@ export function OverheadUpload({ hint, stale }: { hint: string; stale: boolean }
         fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
         padding: '7px 14px', cursor: busy ? 'wait' : 'pointer',
       }}>
-        {busy ? 'Uploading…' : 'Upload card / operating CSV'}
+        {busy ? 'Uploading…' : 'Upload card / operating file'}
         <input
           type="file"
-          accept=".csv,.CSV"
+          accept=".csv,.CSV,.xlsx,.XLSX,.xls,.XLS"
           multiple
           className="hidden"
           disabled={busy}

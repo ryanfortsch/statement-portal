@@ -1,10 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { categorizeOverhead, type OverheadAccount } from '@/lib/overhead-categories';
 
 /**
- * Ingest Rising Tide overhead from a corporate-account CSV.
+ * Ingest Rising Tide overhead from a corporate-account CSV or XLSX export.
  *
  * Auto-detects the two formats by header:
  *   - Corporate card (*3878): Card, Transaction Date, Post Date,
@@ -17,7 +18,7 @@ import { categorizeOverhead, type OverheadAccount } from '@/lib/overhead-categor
  * only real business overhead is stored. Idempotent: rows upsert on a
  * dedupe_key so the overlapping monthly export never double-counts.
  *
- * POST multipart form: file=<csv>. Returns a summary (inserted, dropped,
+ * POST multipart form: file=<csv | xlsx>. Returns a summary (inserted, dropped,
  * by-category totals, date range, and a sample of unrecognized debits so
  * a real vendor that fell through can be added to the categorizer).
  */
@@ -86,11 +87,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!file || file.size === 0) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
     }
-    const text = await file.text();
+    // xlsx/xls → convert the first sheet to CSV via SheetJS, then run
+    // through the existing detector. Plain CSV reads as text directly.
+    const lowerName = (file.name || '').toLowerCase();
+    let text: string;
+    if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
+      try {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const workbook = XLSX.read(buf, { type: 'array' });
+        const firstSheet = workbook.SheetNames[0];
+        if (!firstSheet) {
+          return NextResponse.json({ error: 'Workbook has no sheets' }, { status: 400 });
+        }
+        text = XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheet]);
+      } catch (err) {
+        return NextResponse.json(
+          { error: `Failed to parse Excel file: ${err instanceof Error ? err.message : String(err)}` },
+          { status: 400 },
+        );
+      }
+    } else {
+      text = await file.text();
+    }
     const detected = detectAndParse(text);
     if (!detected) {
       return NextResponse.json(
-        { error: 'Unrecognized CSV. Expected a Chase corporate card (*3878) or operating-account (*5130) export.' },
+        { error: 'Unrecognized file. Expected a Chase corporate card (*3878) or operating-account (*5130) export (.csv or .xlsx).' },
         { status: 400 },
       );
     }
