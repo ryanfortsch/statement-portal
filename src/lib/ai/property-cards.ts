@@ -1,19 +1,25 @@
 /**
- * Hero photo URL map for AI-generated email cards.
+ * Hero photo URL map for AI-generated email cards (LEGACY FALLBACK).
  *
- * The staycapeann.com routes use Guesty listing IDs (long hex strings)
- * as the URL slug, NOT human-readable names. So /stays/21-horton 404s.
- * The correct page URL is /stays/<guesty_listing_id>, looked up at
- * runtime from Helm DB's guesty_listings table. That lookup happens
- * in campaign-context.ts.
+ * Source of truth for hero URLs is now `guesty_listings.hero_url`,
+ * refreshed by /api/sync-guesty from each Guesty listing's
+ * `pictures[0].original`. That keeps Helm in lockstep with whatever
+ * cover photo the SCA team picks in Guesty -- swap the photo there,
+ * within ~24h Helm renders the new one in campaigns and anywhere
+ * else heroes are shown.
  *
- * What lives here is the static map of HERO IMAGE URLs only, since
- * those depend on the public folder layout in the staycapeann.com repo
- * (slug-based) not on Guesty IDs. The 4 properties missing entries
- * here (30-woodward, 20-hammond, 53-rocky-neck, 20-enon) render their
- * heroes from Guesty's photo array at runtime on staycapeann.com; we
- * can't safely embed those URLs in email. When their hero files land
- * in public/photos/<slug>/hero.{jpg,png}, add them below.
+ * This file's static map is now a FALLBACK ONLY, used when:
+ *   - A property hasn't yet been synced into guesty_listings.hero_url,
+ *   - Or sync-guesty failed transiently and the column is still null.
+ *
+ * The four properties without entries (30-woodward, 20-hammond,
+ * 53-rocky-neck, 20-enon) used to render heroes from Guesty's photo
+ * array at runtime on staycapeann.com; once their guesty_listings rows
+ * have hero_url populated, those will render correctly in Helm too.
+ *
+ * The page-URL helper below is still the one consumers should use --
+ * page URLs are deterministic from the Guesty listing id, no syncing
+ * needed.
  *
  * SECURITY: Street addresses are NOT included anywhere. The Stay Cape
  * Ann brand rule is "no address until they book."
