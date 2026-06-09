@@ -157,9 +157,14 @@ function OwnerCard({
         <Field label="Phone">
           <input
             name={`${prefix}[phone]`}
+            type="tel"
+            inputMode="tel"
             value={owner.phone ?? ''}
-            onChange={(e) => onChange({ phone: e.target.value || null })}
-            placeholder="(978) 555-1234"
+            onChange={(e) => {
+              const next = formatPhoneInput(e.target.value);
+              onChange({ phone: next || null });
+            }}
+            placeholder="(978) 555 1234"
             style={inputStyle}
           />
         </Field>
@@ -216,3 +221,24 @@ const inputStyle: React.CSSProperties = {
   outline: 'none',
   width: '100%',
 };
+
+/**
+ * Live-format a phone input as the user types into the format Dotti
+ * uses on the new-prospect form: "(413) 519 9986" — paren around the
+ * area code, space between exchange and line, no dash.
+ *
+ * Reformat-from-digits approach: strip non-digits, drop a leading
+ * country-code 1 if exactly 11 digits, take the first 10, and rebuild
+ * the parenthesized form per length bracket. Works for both forward
+ * typing and backspace because we never re-introduce a digit the user
+ * deleted — we always reformat from the current digit string.
+ */
+function formatPhoneInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  const trimmed = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  const ten = trimmed.slice(0, 10);
+  if (ten.length === 0) return '';
+  if (ten.length <= 3) return `(${ten}`;
+  if (ten.length <= 6) return `(${ten.slice(0, 3)}) ${ten.slice(3)}`;
+  return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)} ${ten.slice(6)}`;
+}
