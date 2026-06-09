@@ -311,6 +311,270 @@ export const VENDOR_HINTS: VendorHint[] = [
     rule: 'Inter-entity transfers -> intercompany_due.',
     default_category: 'intercompany_due',
   },
+
+  // ── Mortgages (Goose entities) ──────────────────────────────────────
+  {
+    matcher: 'guild mortgage',
+    rule: 'Guild Mortgage on Goose of Astoria = the 3 Locust mortgage -> mortgage_interest (the GL splits into Mortgages/principal + Mortgage interest + Escrow, but the categorizer should pick mortgage_interest as the default; the bookkeeper-style split is journal-entry territory). Guild Mortgage on Goose of Calderwood = the 11 Rockholm mortgage -> mortgage_interest_11_rockholm.',
+    default_category: 'mortgage_interest',
+  },
+  {
+    matcher: 'carrington mortgage',
+    rule: 'Carrington Mortgage is the 65 Calderwood mortgage on Goose of Calderwood -> mortgage_interest_65_calderwood.',
+    default_category: 'mortgage_interest_65_calderwood',
+  },
+  {
+    matcher: 'willow servicing',
+    rule: 'Willow Servicing (later relabeled NSM DBAMR.COOPER) on Goose of Astoria is the FLORIDA-property mortgage -> due_from_florida_property (intercompany), NOT mortgage_interest. 3246 NE 27th servicing.',
+    default_category: 'due_from_florida_property',
+  },
+  {
+    matcher: 'nsm dba',
+    rule: 'NSM DBAMR.COOPER on Goose of Astoria is the same FL mortgage as Willow Servicing (post-rebrand) -> due_from_florida_property.',
+    default_category: 'due_from_florida_property',
+  },
+  {
+    matcher: 'rocket mortgage',
+    rule: 'Rocket Mortgage on Goose of Astoria is the pre-Guild Mortgage transition; same property (3 Locust) -> mortgage_interest.',
+    default_category: 'mortgage_interest',
+  },
+  {
+    matcher: 'eastern bank',
+    rule: 'Eastern Bank loan payments are the 11 Rockholm Heat Loan (heating-system refinance), paid down by Ryan personally -> heat_loan (Goose Calderwood scope), often offset by Owners/Rising Tide Due To/From.',
+    default_category: 'heat_loan',
+  },
+
+  // ── Florida property catch-all (Goose of Astoria only) ─────────────
+  {
+    matcher: 'tropishine',
+    rule: 'Tropishine (Austin Brown / Zadapt) is the 3246 NE 27th cleaner -> due_from_florida_property on Goose of Astoria. NEVER property_cleaning or cleaning_operating.',
+    default_category: 'due_from_florida_property',
+  },
+  {
+    matcher: 'fpl',
+    rule: 'FPL = Florida Power & Light, the 3246 NE 27th utility -> due_from_florida_property on Goose of Astoria. Descriptor "ORIG CO NAME:FPL DIRECT DEBIT".',
+    default_category: 'due_from_florida_property',
+  },
+  {
+    matcher: 'mastertouch pool',
+    rule: 'MasterTouch Pool is the 3246 NE 27th pool service -> due_from_florida_property.',
+    default_category: 'due_from_florida_property',
+  },
+  {
+    matcher: 'lighthouse point',
+    rule: 'Any descriptor or memo containing "Lighthouse Point" is 3246 NE 27th-related -> due_from_florida_property on Goose of Astoria.',
+    default_category: 'due_from_florida_property',
+  },
+
+  // ── Goose Astoria cleaning (the dominant pre-Cape-Ann era) ──────────
+  {
+    matcher: 'a1 maintenance',
+    rule: 'A1 Maintenance Inc. is the dominant Goose Astoria cleaner ($34k+ in the GL, pre-Cape Ann Elite era) -> cleaning_operating on Goose Astoria. NOT property_cleaning (no pass-through layer on Goose books).',
+    default_category: 'cleaning_operating',
+  },
+  {
+    matcher: 'a-1 maintenance',
+    rule: 'A-1 Maintenance is the Rising Tide spelling of the same vendor -> cleaning_operating.',
+    default_category: 'cleaning_operating',
+  },
+  {
+    matcher: 'rosa binda',
+    rule: 'Rosa Binda is a Cape Ann Elite duplicate (same TIN) -> property_cleaning on Rising Tide; cleaning_operating on Goose entities. Flag for dedup before 1099 generation.',
+    default_category: 'cleaning_operating',
+  },
+
+  // ── Goose Calderwood cleaning (CT vs MA split) ──────────────────────
+  {
+    matcher: 'luana martins',
+    rule: 'Luana Martins (luscrewcleaning) is the dominant 65 Calderwood cleaner (CT side) -> cleaning_operating on Goose Calderwood ($42k+ via Zelle). Also a Rising Tide vendor. NEVER property_cleaning on Goose books.',
+    default_category: 'cleaning_operating',
+  },
+
+  // ── Utilities, MA / Gloucester side ─────────────────────────────────
+  {
+    matcher: 'national grid',
+    rule: 'National Grid = MA electric/gas. On Goose Astoria -> utilities_electricity or utilities_heating_cooling for 3 Locust. On Goose Calderwood -> utilities for 11 Rockholm. Descriptor pattern: "ORIG CO NAME:NGRID05" or "NATIONAL GRID NE".',
+    default_category: 'utilities_electricity',
+  },
+  {
+    matcher: 'ngrid',
+    rule: 'NGRID is the same as National Grid (Mass) -> utilities_electricity / utilities_heating_cooling based on memo.',
+    default_category: 'utilities_electricity',
+  },
+  {
+    matcher: 'comcast',
+    rule: 'Comcast = internet/cable. On Goose Astoria -> utilities_internet_tv for 3 Locust. On Goose Calderwood -> utilities_internet_tv for 11 Rockholm.',
+    default_category: 'utilities_internet_tv',
+  },
+  {
+    matcher: 'city of gloucester',
+    rule: 'City of Gloucester is multi-purpose. Water bills -> utilities_water_sewer; permits/registration -> business_licenses; property tax -> property_taxes; "11 Rockholm Rd" memo on Goose Calderwood -> property_taxes (11 Rockholm side). Use memo context.',
+    default_category: 'utilities_water_sewer',
+  },
+
+  // ── Utilities, CT / Fairfield side (Goose Calderwood, 65 Calderwood) ─
+  {
+    matcher: 'united illuminating',
+    rule: 'United Illuminating = CT electric utility for 65 Calderwood -> utilities_electricity on Goose Calderwood. Descriptor: "ORIG CO NAME:UINET".',
+    default_category: 'utilities_electricity',
+  },
+  {
+    matcher: 'uinet',
+    rule: 'UINET = United Illuminating shorthand -> utilities_electricity on Goose Calderwood.',
+    default_category: 'utilities_electricity',
+  },
+  {
+    matcher: 'southern ct gas',
+    rule: 'Southern CT Gas is the 65 Calderwood gas utility -> utilities_heating_cooling on Goose Calderwood.',
+    default_category: 'utilities_heating_cooling',
+  },
+  {
+    matcher: 'hoffman energy',
+    rule: 'Hoffman Energy = 65 Calderwood oil/propane delivery -> utilities_heating_cooling on Goose Calderwood.',
+    default_category: 'utilities_heating_cooling',
+  },
+  {
+    matcher: 'eastern propane',
+    rule: 'Eastern Propane Gas = 11 Rockholm propane delivery -> utilities_heating_cooling on Goose Calderwood.',
+    default_category: 'utilities_heating_cooling',
+  },
+  {
+    matcher: 'optimum',
+    rule: 'Optimum = 65 Calderwood internet -> utilities_internet_tv on Goose Calderwood.',
+    default_category: 'utilities_internet_tv',
+  },
+
+  // ── CT tax / regulatory ─────────────────────────────────────────────
+  {
+    matcher: 'connecticut department of revenue',
+    rule: 'Connecticut Department of Revenue = CT state lodging tax / vehicle property tax -> taxes_paid on Goose Calderwood. ~28 hits/yr.',
+    default_category: 'taxes_paid',
+  },
+  {
+    matcher: 'ct dor',
+    rule: 'CT DOR = Connecticut Department of Revenue -> taxes_paid on Goose Calderwood.',
+    default_category: 'taxes_paid',
+  },
+  {
+    matcher: 'city of bridgeport',
+    rule: 'City of Bridgeport (CT) is multi-purpose for 65 Calderwood. Water/sewer -> utilities_water_sewer; property tax -> property_taxes. "Dox City of Bridgeport" is the water portal.',
+    default_category: 'property_taxes',
+  },
+  {
+    matcher: 'ct dmv',
+    rule: 'CT DMV = vehicle registration -> vehicle_registration on Goose Calderwood. Note: Goose Calderwood carries Ryan personal vehicle activity (commingled).',
+    default_category: 'vehicle_registration',
+  },
+
+  // ── Goose-specific R&M vendors (recurring handymen / contractors) ──
+  {
+    matcher: '128 plumbing',
+    rule: '128 Plumbing and Heating = Goose Astoria recurring plumbing/heating contractor for 3 Locust -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'pinebrook landscaping',
+    rule: 'Pinebrook Landscaping (Middleton, MA) services Goose Astoria + Rising Tide -> repairs_maintenance (Astoria) or property_landscaping (Rising Tide pass-through).',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'manuel aca tello',
+    rule: 'Manuel Aca Tello = Goose Calderwood recurring handyman for 65 Calderwood (CT, Bridgeport area) -> repairs_maintenance. 1099-eligible. ~17 transactions/year.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'a-z finish carpentry',
+    rule: 'A-Z Finish Carpentry LLC = 11 Rockholm renovation project (~$48k single-purpose) -> repairs_maintenance on Goose Calderwood. Flagged 1099-Yes but TIN missing -- chase.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'ed chavez landscaping',
+    rule: 'Ed Chavez Landscaping (CT) -> repairs_maintenance on Goose Calderwood (65 Calderwood landscaping).',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'walton electric',
+    rule: 'Walton Electric LLC = Goose Calderwood electric contractor for 65 Calderwood -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'menard',
+    rule: 'Menard = Goose Calderwood plumbing/repair vendor -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'custom home improvement',
+    rule: 'Custom Home Improvement = Goose Calderwood renovation contractor -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'tom mackey plumbing',
+    rule: 'Tom Mackey Plumbing = Goose Calderwood recurring plumber. Active across multiple entities -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+
+  // ── Software/SaaS additions ─────────────────────────────────────────
+  {
+    matcher: 'airdna',
+    rule: 'AirDNA market data = STR analytics -> memberships_subscriptions (both Goose entities).',
+    default_category: 'memberships_subscriptions',
+  },
+  {
+    matcher: 'beyondpricing',
+    rule: 'Beyond Pricing = dynamic pricing competitor to PriceLabs -> memberships_subscriptions.',
+    default_category: 'memberships_subscriptions',
+  },
+  {
+    matcher: 'arlo',
+    rule: 'Arlo (security cameras) subscription -> memberships_subscriptions on Goose Astoria.',
+    default_category: 'memberships_subscriptions',
+  },
+  {
+    matcher: 'openai',
+    rule: 'OpenAI / ChatGPT subscription -> software_apps.',
+    default_category: 'software_apps',
+  },
+  {
+    matcher: 'chatgpt',
+    rule: 'ChatGPT subscription -> software_apps.',
+    default_category: 'software_apps',
+  },
+  {
+    matcher: 'ringcentral',
+    rule: 'RingCentral phone/VoIP -> utilities_phone (or software_apps if used like a SaaS line).',
+    default_category: 'utilities_phone',
+  },
+
+  // ── Pest control (recurring across Goose Astoria) ───────────────────
+  {
+    matcher: 'ultra safe pest',
+    rule: 'Ultra Safe Pest Management = Goose Astoria recurring pest control for 3 Locust -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+  {
+    matcher: 'bugzilla',
+    rule: 'Bugzilla Pest Control = Goose Astoria pest control -> repairs_maintenance.',
+    default_category: 'repairs_maintenance',
+  },
+
+  // ── Sales tax / customer prepayments (cycle through liability) ──────
+  {
+    matcher: 'ma dor pay',
+    rule: 'ORIG CO NAME containing "COMM OF MASS EFT" with DESCR "MA DOR PAY" = monthly MA lodging tax remittance from Goose entities -> sales_tax_payable (clears the liability) or ma_tax for Rising Tide.',
+    default_category: 'sales_tax_payable',
+  },
+  {
+    matcher: 'comm of mass eft',
+    rule: 'Commonwealth of MA EFT = monthly tax remittance (lodging or income) -> sales_tax_payable on Goose entities, ma_tax on Rising Tide.',
+    default_category: 'sales_tax_payable',
+  },
+
+  // ── Misc / vendor-name plug ────────────────────────────────────────
+  {
+    matcher: 'misc',
+    rule: 'A vendor Name field of "Misc" / "Misc Rest" / "Misc CC Vendor" is an unidentified payee placeholder from the bookkeeper. The categorizer should treat the actual descriptor as the signal and use confidence "low" so the operator reviews.',
+    default_category: 'uncategorized',
+  },
 ];
 
 /**

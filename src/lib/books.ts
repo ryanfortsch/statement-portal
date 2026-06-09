@@ -284,8 +284,11 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'vehicle_expenses', name: 'Vehicle Expenses', type: 'other_expense', scope: 'shared', sort: 700 },
   { key: 'vehicle_gas_fuel', parent_key: 'vehicle_expenses', name: 'Vehicle Gas & Fuel', type: 'other_expense', scope: 'shared', sort: 701 },
   { key: 'vehicle_wash', parent_key: 'vehicle_expenses', name: 'Vehicle Wash & Road Services', type: 'other_expense', scope: 'shared', sort: 702 },
+  { key: 'vehicle_registration', parent_key: 'vehicle_expenses', name: 'Vehicle Registration', type: 'other_expense', scope: 'shared', sort: 703 },
+  { key: 'parking_tolls_oe', parent_key: 'vehicle_expenses', name: 'Parking & Tolls', type: 'other_expense', scope: 'shared', sort: 704 },
   { key: 'depreciation', name: 'Depreciation', type: 'other_expense', scope: 'shared', sort: 710 },
   { key: 'amortization', name: 'Amortization', type: 'other_expense', scope: 'shared', sort: 711 },
+  { key: 'reconciliation_discrepancies', name: 'Reconciliation Discrepancies', type: 'other_expense', scope: 'shared', tax_hint: 'Bookkeeper plug -- flag for review', sort: 980 },
   { key: 'suspense', name: 'Suspense', type: 'other_expense', scope: 'shared', tax_hint: 'Reserved -- human review only, never auto-targeted', sort: 990 },
 
   // ── EQUITY ───────────────────────────────────────────────────────────
@@ -294,6 +297,23 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'opening_balance_equity', name: 'Opening Balance Equity', type: 'equity', scope: 'shared', sort: 820 },
   { key: 'retained_earnings', name: 'Retained Earnings', type: 'equity', scope: 'shared', sort: 830 },
   { key: 'intercompany_due', name: 'Intercompany Due To/From', type: 'equity', scope: 'shared', tax_hint: 'Rising Tide ↔ Goose entities', sort: 840 },
+  // Goose-of-Astoria-specific intercompany sub-account. The 2025 GL
+  // confirms that ALL Florida-property activity (3246 NE 27th: Tropishine
+  // cleaning, FPL utilities, MasterTouch Pool, "Lighthouse Point" memo
+  // entries, Willow Servicing / NSM mortgage) is booked here under
+  // Partner distributions, NOT to operating categories. The categorizer
+  // needs this key explicitly so it doesn't try to coerce FPL into
+  // utilities_electricity, etc.
+  { key: 'due_from_florida_property', parent_key: 'owner_draw', name: 'Due from Florida Property', type: 'equity', scope: 'goose_astoria', tax_hint: '3246 NE 27th Terrace allocation -- FL property activity routes here', sort: 850 },
+
+  // ── LIABILITY-side categories (rare hits but the GLs use them) ──────
+  { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'other_expense', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
+  { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'other_expense', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
+  { key: 'heat_loan', name: 'Heat Loan', type: 'other_expense', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
+
+  // ── LEGACY income (Goose Astoria pre-2025 booking) ──────────────────
+  { key: 'services_legacy', name: 'Services (legacy)', type: 'income', scope: 'goose_astoria', tax_hint: 'Pre-2025 income account; superseded by Rental Income + Cleaning Fares + per-channel fees from 2025-01 onward', sort: 70 },
+  { key: 'services_undelivered_refund', name: 'Services Undelivered Refund', type: 'income', scope: 'goose_astoria', tax_hint: 'Guest refund contra', sort: 71 },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
