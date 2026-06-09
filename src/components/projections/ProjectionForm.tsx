@@ -83,6 +83,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
             >
               <option value="Rockport">Rockport</option>
               <option value="Gloucester">Gloucester</option>
+              <option value="Beverly">Beverly</option>
             </select>
           </Field>
           <Field label="Bedrooms" required>

@@ -22,7 +22,7 @@ export type AirDnaMonth = {
   br6plus: number | null;
 };
 
-export type AirDnaMarket = 'Rockport' | 'Gloucester';
+export type AirDnaMarket = 'Rockport' | 'Gloucester' | 'Beverly';
 
 export const ROCKPORT_AIRDNA: AirDnaMonth[] = [
   { date: '2018-01', br1: 1010.16, br2: 1262.0, br3: 1111.25, br4: 882.0, br5: null, br6plus: null },
@@ -229,9 +229,15 @@ export const GLOUCESTER_AIRDNA: AirDnaMonth[] = [
 export const AIRDNA: Record<AirDnaMarket, AirDnaMonth[]> = {
   Rockport: ROCKPORT_AIRDNA,
   Gloucester: GLOUCESTER_AIRDNA,
+  // Beverly doesn't have its own AirDNA export yet — Rising Tide's existing
+  // Beverly property (20 Enon Rd) has always used Gloucester's comp set
+  // since it's the nearest AirDNA market with sufficient density. New
+  // Beverly prospects pick that up automatically. If/when we pull a real
+  // Beverly export, swap the alias for a dedicated dataset.
+  Beverly: GLOUCESTER_AIRDNA,
 };
 
-export const AIRDNA_MARKETS: AirDnaMarket[] = ['Rockport', 'Gloucester'];
+export const AIRDNA_MARKETS: AirDnaMarket[] = ['Rockport', 'Gloucester', 'Beverly'];
 
 /** The latest month of data we have, formatted "Mon YYYY" for citation. */
 export function latestAirDnaMonth(): string {
