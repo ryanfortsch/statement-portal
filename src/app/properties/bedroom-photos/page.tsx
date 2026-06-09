@@ -60,7 +60,12 @@ async function loadListings(): Promise<{ listings: BedroomListing[]; error: stri
   return { listings, error: null };
 }
 
-export default async function BedroomPhotosPage() {
+export default async function BedroomPhotosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ listing?: string }>;
+}) {
+  const { listing } = await searchParams;
   const session = await auth();
   const signedIn = !!session?.user?.email;
   const githubConfigured = gh.isGithubConfigured();
@@ -105,7 +110,7 @@ export default async function BedroomPhotosPage() {
         ) : listings.length === 0 ? (
           <Notice>No Stay Cape Ann listings found in the registry yet.</Notice>
         ) : (
-          <BedroomPhotosClient listings={listings} />
+          <BedroomPhotosClient listings={listings} initialListingId={listing ?? null} />
         )}
       </main>
     </div>

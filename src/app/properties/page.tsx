@@ -82,27 +82,6 @@ export default async function PropertiesPage() {
         }
       />
 
-      {/* TOOLS — cross-property utilities that aren't scoped to one listing. */}
-      <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 20 }}>
-        <Link
-          href="/properties/bedroom-photos"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 14px',
-            border: '1px solid var(--rule)',
-            background: 'var(--paper-2)',
-            fontSize: 12,
-            letterSpacing: '.04em',
-            color: 'var(--ink)',
-            textDecoration: 'none',
-          }}
-        >
-          Stay Cape Ann bedroom photos <span style={{ color: 'var(--ink-3)' }}>→</span>
-        </Link>
-      </div>
-
       {/* MAP — geographic portfolio view above the list. Click a pin to
           surface a card with property name + slip count + Open link. */}
       {!error && active.length > 0 && (

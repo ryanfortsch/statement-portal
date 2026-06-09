@@ -53,11 +53,20 @@ function seedDraft(listing: BedroomListing): BedroomSlot[] {
   return Array.from({ length: n }, () => ({ photo: [] as string[] }));
 }
 
-export function BedroomPhotosClient({ listings: initial }: { listings: BedroomListing[] }) {
+export function BedroomPhotosClient({
+  listings: initial,
+  initialListingId = null,
+}: {
+  listings: BedroomListing[];
+  initialListingId?: string | null;
+}) {
+  // When deep-linked from a property page (?listing=<guestyId>), open straight
+  // into that listing's editor instead of the picker.
+  const preselected = initial.find((l) => l.guestyListingId === initialListingId) ?? null;
   const [listings, setListings] = useState<BedroomListing[]>(initial);
   const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<BedroomSlot[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(preselected?.guestyListingId ?? null);
+  const [draft, setDraft] = useState<BedroomSlot[]>(preselected ? seedDraft(preselected) : []);
   const [result, setResult] = useState<PublishBedroomResult | null>(null);
   const [pending, startTransition] = useTransition();
 

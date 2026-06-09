@@ -495,6 +495,24 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           >
             Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
           </Link>
+          {scaLaunch?.status === 'live' && p.guesty_listing_id && (
+            <Link
+              href={`/properties/bedroom-photos?listing=${p.guesty_listing_id}`}
+              title="Add or replace this listing's bedroom photos on staycapeann.com"
+              style={{
+                fontSize: 11,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                color: 'var(--ink)',
+                textDecoration: 'none',
+                border: '1px solid var(--rule)',
+                padding: '8px 14px',
+                fontWeight: 500,
+              }}
+            >
+              Bedroom photos →
+            </Link>
+          )}
           <Link
             href={`/channels/${p.id}`}
             style={{
