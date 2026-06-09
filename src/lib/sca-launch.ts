@@ -166,6 +166,18 @@ export function deriveStripeAccountKey(propertyId: string): string {
     .replace(/^_|_$/g, '');
 }
 
+/**
+ * Registry photo-field rule, shared by the launcher and the bedroom-photo tool:
+ * 0 photos -> omit the field, 1 -> a bare string, >1 -> an array (stay-cape-ann
+ * renders up to 3 side-by-side). Empty/whitespace URLs are dropped first.
+ */
+export function toPhotoField(photos: readonly string[]): string | string[] | undefined {
+  const clean = photos.map((p) => p.trim()).filter(Boolean);
+  if (clean.length === 0) return undefined;
+  if (clean.length === 1) return clean[0];
+  return clean;
+}
+
 /** Build the registry entry, omitting empty optionals so the JSON stays tidy. */
 export function buildRegistryEntry(form: z.infer<typeof scaFormSchema>): ScaRegistryEntry {
   const entry: ScaRegistryEntry = {
@@ -193,9 +205,8 @@ export function buildRegistryEntry(form: z.infer<typeof scaFormSchema>): ScaRegi
         const o: { name?: string; beds?: string; photo?: string | string[] } = {};
         if (s.name) o.name = s.name;
         if (s.beds) o.beds = s.beds;
-        const photos = Array.isArray(s.photo) ? s.photo.filter(Boolean) : [];
-        if (photos.length === 1) o.photo = photos[0];
-        else if (photos.length > 1) o.photo = photos;
+        const photo = toPhotoField(Array.isArray(s.photo) ? s.photo : []);
+        if (photo !== undefined) o.photo = photo;
         return o;
       })
       .filter((o) => Object.keys(o).length > 0);
@@ -240,6 +251,88 @@ export function applyEntryToRegistryJson(
   const obj = parseRegistry(raw);
   if (!obj.listings) obj.listings = {};
   obj.listings[guestyListingId] = entry;
+  return JSON.stringify(obj, null, 2) + '\n';
+}
+
+/** Mirror of stay-cape-ann's internalName -> photo-folder slug (lib/guesty.ts):
+ *  lowercase, spaces collapsed to single dashes. Used for the legacy photo
+ *  folder path and for a readable PR branch name. "79 Main St" -> "79-main-st". */
+export function internalNameToSlug(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, '-');
+}
+
+/** One bedroom slot as the operator edits it (photos held as an array). */
+export type SleepingPhotoInput = { name?: string; beds?: string; photo?: string[] };
+
+/** A listing as surfaced in the bedroom-photo picker. */
+export type RegistryListingSummary = {
+  guestyListingId: string;
+  internalName: string;
+  publicName: string;
+  sleepingArrangements: Array<{ name?: string; beds?: string; photo?: string | string[] }>;
+};
+
+/** Enumerate every listing in the registry, for the bedroom-photo picker. */
+export function listRegistryListings(raw: string): RegistryListingSummary[] {
+  const obj = parseRegistry(raw);
+  const listings = obj.listings ?? {};
+  return Object.entries(listings).map(([guestyListingId, value]) => {
+    const v = (value ?? {}) as {
+      internalName?: string;
+      publicName?: string;
+      sleepingArrangements?: Array<{ name?: string; beds?: string; photo?: string | string[] }>;
+    };
+    return {
+      guestyListingId,
+      internalName: (v.internalName ?? guestyListingId).trim(),
+      publicName: (v.publicName ?? '').trim(),
+      sleepingArrangements: Array.isArray(v.sleepingArrangements) ? v.sleepingArrangements : [],
+    };
+  });
+}
+
+/**
+ * Build the registry `sleepingArrangements` array from the editor's per-bedroom
+ * input. Unlike the launcher's top-down list, a slot's position here maps to a
+ * specific bedroom, so interior empty slots are preserved as {} (stay-cape-ann
+ * renders those as placeholder cards). Only trailing empties are trimmed.
+ */
+export function buildSleepingArrangementsForRegistry(
+  input: SleepingPhotoInput[],
+): Array<{ name?: string; beds?: string; photo?: string | string[] }> {
+  const mapped = input.map((s) => {
+    const o: { name?: string; beds?: string; photo?: string | string[] } = {};
+    const name = s.name?.trim();
+    const beds = s.beds?.trim();
+    if (name) o.name = name;
+    if (beds) o.beds = beds;
+    const photo = toPhotoField(Array.isArray(s.photo) ? s.photo : []);
+    if (photo !== undefined) o.photo = photo;
+    return o;
+  });
+  let end = mapped.length;
+  while (end > 0 && Object.keys(mapped[end - 1]).length === 0) end--;
+  return mapped.slice(0, end);
+}
+
+/**
+ * Set (or clear) one listing's `sleepingArrangements`, preserving every other
+ * field on the entry, and re-serialize with the registry's 2-space + trailing
+ * newline format so the diff is exactly the changed field. Throws if the
+ * listing isn't already in the registry — this tool edits live listings only.
+ */
+export function applySleepingArrangementsToRegistryJson(
+  raw: string,
+  guestyListingId: string,
+  arrangements: Array<{ name?: string; beds?: string; photo?: string | string[] }>,
+): string {
+  const obj = parseRegistry(raw);
+  if (!obj.listings || !Object.prototype.hasOwnProperty.call(obj.listings, guestyListingId)) {
+    throw new Error('That listing is not in the Stay Cape Ann registry yet.');
+  }
+  const entry = obj.listings[guestyListingId] as Record<string, unknown>;
+  if (arrangements.length) entry.sleepingArrangements = arrangements;
+  else delete entry.sleepingArrangements;
   return JSON.stringify(obj, null, 2) + '\n';
 }
 
