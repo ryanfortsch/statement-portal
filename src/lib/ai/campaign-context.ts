@@ -15,6 +15,10 @@ export type CampaignDraftContext = {
   properties: Array<{
     /** Guest-facing marketing title, e.g. "Stay at Rocky Neck". May be null when no title is set. */
     title: string | null;
+    /** Internal name (e.g. "17 Beach", "3 South"). For BRIEF MATCHING ONLY.
+     *  Operators write internal names in briefs; the model must use it to
+     *  resolve "feature 3 south" to the right home. Never appear in copy. */
+    internalName: string;
     /** Neighborhood / town flavor, e.g. "Rocky Neck, Gloucester". */
     neighborhood: string;
     /** Public page URL on staycapeann.com. */
@@ -162,6 +166,7 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
       const liveHero = guestyRow?.hero_url ?? null;
       return {
         title: titleById.get(p.id) ?? null,
+        internalName: p.name,
         neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
         pageUrl: pageUrlForGuestyListing(guestyId),
         heroUrl: liveHero ?? heroUrlForProperty(p.id),
@@ -287,6 +292,14 @@ export function formatContextBlock(ctx: CampaignDraftContext): string {
   lines.push('do not invent details or write fragments. Lead with the primary selling');
   lines.push('point. If a home is on the water, that is the headline.');
   lines.push('');
+  lines.push('');
+  lines.push('Each home has an "internal name" line (e.g. "17 Beach", "3 South").');
+  lines.push('Operators write briefs in internal names ("feature 17 beach and 3 south");');
+  lines.push('use this line to MATCH a brief to the right home. NEVER write the');
+  lines.push('internal name in subject, preheader, or body -- the brand-voice');
+  lines.push('privacy rule still applies. The internal name is for resolution');
+  lines.push('only; render the home with its title and neighborhood as usual.');
+  lines.push('');
   lines.push('Each home has an "openings" line listing the actual free windows');
   lines.push('in the next 60 days, computed from the bookings table. If the brief');
   lines.push('asks for openings on a specific home, use these labels VERBATIM and');
@@ -298,6 +311,7 @@ export function formatContextBlock(ctx: CampaignDraftContext): string {
   for (const p of ctx.properties) {
     const titlePart = p.title ? `"${p.title}"` : '(no guest-facing title set)';
     lines.push(`  - ${titlePart}, ${p.neighborhood}`);
+    lines.push(`    internal name (BRIEF MATCHING ONLY, NEVER write this in copy): "${p.internalName}"`);
     lines.push(`    page: ${p.pageUrl ?? '(none, render card without a link)'}`);
     lines.push(`    hero: ${p.heroUrl ?? '(not available, use heading + link only)'}`);
     if (p.marketing) {
