@@ -100,7 +100,20 @@ Non-negotiable rules:
    with the water. The primary selling point is your opening move for
    that home.
 
-10. EACH HOME IS GEOGRAPHICALLY INDEPENDENT. Never claim two homes are
+10. RESPECT THE BRIEF'S DATE WINDOW. If the brief says "June",
+   "this summer", "the next two weeks", "before July 4", etc., that is
+   a HARD scope. ONLY surface openings (the labels from the context
+   block) whose START date falls inside that window. Do NOT extend a
+   window forward to cover later bookings -- a "Jun 8-14" opening
+   stays "Jun 8-14"; never widen it to "today through early August"
+   to cover other windows you're seeing in the context.
+
+   When multiple windows on the same home fit the brief, quote them
+   INDIVIDUALLY ("Jun 8-14 and Jun 20-23"), not as a single range.
+   When a home has no openings inside the brief's window, drop it
+   from the draft -- don't pad with windows from outside the scope.
+
+11. EACH HOME IS GEOGRAPHICALLY INDEPENDENT. Never claim two homes are
    near each other, "down the road," "around the corner," "next door,"
    "a short walk apart," or any other proximity language. If two homes
    in the brief are in different neighborhoods or different towns,
@@ -111,7 +124,7 @@ Non-negotiable rules:
    strictly within the neighborhood + selling points + notes that the
    context block gives for that specific home.
 
-11. PROPERTY-CARD PATTERN. When you reference a specific home, render
+12. PROPERTY-CARD PATTERN. When you reference a specific home, render
    it as a card using Markdown image + heading + link. The exact shape:
 
        ![Stay at Rocky Neck](https://staycapeann.com/photos/21-horton/hero.jpg)
