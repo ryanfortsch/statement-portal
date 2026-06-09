@@ -145,7 +145,7 @@ function buildPayload(formData: FormData) {
       strOrNull(formData, 'property_city') ||
       `${str(formData, 'market') || 'Rockport'}, MA`,
     property_type: str(formData, 'property_type') || 'House',
-    market: str(formData, 'market') as 'Rockport' | 'Gloucester',
+    market: str(formData, 'market') as 'Rockport' | 'Gloucester' | 'Beverly',
     bedrooms: num(formData, 'bedrooms'),
     home_value: num(formData, 'home_value'),
     neighborhood: strOrNull(formData, 'neighborhood'),
