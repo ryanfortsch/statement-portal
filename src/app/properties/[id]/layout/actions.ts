@@ -407,10 +407,13 @@ export async function parseLayoutFromProseAction(args: {
     const cat = m.category.toLowerCase();
     if (cat === 'safety') return true;
     const t = m.title.toLowerCase();
+    // "Reset" titles ("Outdoor Areas Reset", "Bathroom Reset (All Baths)")
+    // are global passes — done once per property, not per matching zone.
     return (
       /\(\s*(all|every)\b/.test(t) ||
       /hidden\s+areas/.test(t) ||
-      /quick\s+confirm/.test(t)
+      /quick\s+confirm/.test(t) ||
+      /\breset\b/.test(t)
     );
   };
   const globalSeen = new Set<string>();

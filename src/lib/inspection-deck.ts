@@ -31,6 +31,34 @@ const EVERY_TIME_TARGET = 7;
 const NICE_TO_HAVE_TARGET = 3;
 const MIN_INSPECTIONS_BETWEEN_INTERMITTENTS = 4;
 
+// Hard ceiling on zone-driven decks. A layout with 11 zones × 2 items per
+// zone explodes to 22 cards, which is exhausting and undermines the whole
+// "tight checklist" mental model. Cap at 14 — generous enough for houses
+// with several real zones, tight enough to feel like a checklist instead
+// of a chore list. If a layout exceeds this after global dedup, trailing
+// items in walk order are dropped (the inspector still hits everything
+// that matters early in the walk).
+const MAX_ZONE_CARDS = 14;
+
+/**
+ * Global inspection items are checks done once for the whole property
+ * (Safety pass, "Hidden Areas Scan", "Bathroom Reset (All Baths)",
+ * "Outdoor Areas Reset"). They legitimately live on ONE zone in walk
+ * order — even if the layout parser stamped them on three. Used to dedup
+ * a noisy property_zone_items table on the fly.
+ */
+function isGlobalItem(meta: { title: string; category: string } | undefined): boolean {
+  if (!meta) return false;
+  if ((meta.category || '').toLowerCase() === 'safety') return true;
+  const t = (meta.title || '').toLowerCase();
+  return (
+    /\(\s*(all|every)\b/.test(t) ||
+    /hidden\s+areas/.test(t) ||
+    /quick\s+confirm/.test(t) ||
+    /\breset\b/.test(t)
+  );
+}
+
 type DeckItem = Pick<
   InspectionItemRow,
   'id' | 'template_id' | 'category' | 'title' | 'description' | 'sort_order'
@@ -87,17 +115,24 @@ export async function generateDeck(args: {
 
     if (zoneItems.length > 0) {
       // Pull the items so we can keep within-zone order stable (by
-      // template sort_order). The deck walks zones in walk_order; within
+      // template sort_order) AND so we can identify global items for
+      // on-the-fly dedup. The deck walks zones in walk_order; within
       // each zone, items are ordered by their template sort_order.
       const itemIds = Array.from(new Set(zoneItems.map((zi) => zi.inspection_item_id)));
       const { data: itemRows } = await sb
         .from('inspection_items')
-        .select('id, sort_order')
+        .select('id, sort_order, title, category')
         .in('id', itemIds);
       const sortByItem = new Map<string, number>(
         ((itemRows ?? []) as Array<{ id: string; sort_order: number }>).map((r) => [
           r.id,
           r.sort_order,
+        ]),
+      );
+      const itemMeta = new Map<string, { title: string; category: string }>(
+        ((itemRows ?? []) as Array<{ id: string; title: string; category: string }>).map((r) => [
+          r.id,
+          { title: r.title, category: r.category },
         ]),
       );
 
@@ -112,12 +147,47 @@ export async function generateDeck(args: {
         byZone.set(zoneId, items);
       }
 
+      // Walk zones in order, emitting one card per (zone, item). Two
+      // safety nets here, both enforced even when the layout data is
+      // dirty: (a) any global item is placed at its first walk-order
+      // occurrence and skipped on later zones, (b) the total card count
+      // is hard-capped at MAX_ZONE_CARDS. This is the only thing standing
+      // between an over-aggressive layout parse and a 22-card slog.
       const cards: OrderedCard[] = [];
+      const globalSeen = new Set<string>();
+      let droppedDupe = 0;
+      let droppedCap = 0;
       for (const zone of zones) {
+        if (cards.length >= MAX_ZONE_CARDS) {
+          droppedCap += (byZone.get(zone.id) ?? []).length;
+          continue;
+        }
         const items = byZone.get(zone.id) ?? [];
         for (const itemId of items) {
+          if (cards.length >= MAX_ZONE_CARDS) {
+            droppedCap += 1;
+            continue;
+          }
+          if (isGlobalItem(itemMeta.get(itemId))) {
+            if (globalSeen.has(itemId)) {
+              droppedDupe += 1;
+              continue;
+            }
+            globalSeen.add(itemId);
+          }
           cards.push({ itemId, zoneId: zone.id });
         }
+      }
+      if (droppedDupe > 0 || droppedCap > 0) {
+        console.info(
+          '[generateDeck] zone-driven trim:',
+          droppedDupe,
+          'duplicate globals dropped,',
+          droppedCap,
+          'items dropped at',
+          MAX_ZONE_CARDS,
+          'card cap',
+        );
       }
 
       return {
