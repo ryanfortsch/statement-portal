@@ -111,7 +111,17 @@ Non-negotiable rules:
        [See the home →](https://staycapeann.com/stays/21-horton)
 
    The image URL and the page URL are both supplied in the context
-   block below; use them verbatim. NEVER fabricate image URLs.
+   block below; use them VERBATIM. NEVER fabricate ANY URL -- neither
+   the image URL nor the page URL nor anything that looks like a
+   listing slug. A guest who clicks a made-up link lands on a 404 and
+   that breaks our trust with the list.
+
+   If a property's page URL in the context is "(none, render card
+   without a link)", DROP the "[See the home ->]" line entirely and
+   render only the heading + one-line description (and the image if
+   present). Do not substitute a made-up URL, do not link to the
+   homepage, do not invent a slug from the title. Empty link = no link.
+
    If a property has no hero image in the context, do not render an
    image; just use the heading + one-line description + link.
 `.trim();

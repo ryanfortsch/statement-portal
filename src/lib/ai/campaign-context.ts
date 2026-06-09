@@ -7,6 +7,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { PROPERTIES, type Property } from '@/lib/properties';
+import { findScaListingByAddress } from '@/lib/sca-listings';
 import { heroUrlForProperty, pageUrlForGuestyListing } from './property-cards';
 
 export type CampaignDraftContext = {
@@ -102,10 +103,19 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     .filter((p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th') // Ryan's personal, not guest-facing
     .map((p: Property) => {
       const m = marketingById.get(p.id);
+      // Source 1 (preferred): guesty_listings table populated by
+      // /api/sync-guesty. Source 2 (fallback): the bundled SCA listings
+      // snapshot matched by street address -- catches properties that
+      // haven't been synced into guesty_listings yet (17 Beach Rd today).
+      // Without this fallback the model gets pageUrl=null and has
+      // hallucinated plausible-looking Guesty IDs into the body in the
+      // past, sending recipients to dead links.
+      const guestyId =
+        guestyIdById.get(p.id) ?? findScaListingByAddress(p.address)?.id ?? null;
       return {
         title: titleById.get(p.id) ?? null,
         neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
-        pageUrl: pageUrlForGuestyListing(guestyIdById.get(p.id) ?? null),
+        pageUrl: pageUrlForGuestyListing(guestyId),
         heroUrl: heroUrlForProperty(p.id),
         marketing: m
           ? {
