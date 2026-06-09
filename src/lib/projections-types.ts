@@ -142,8 +142,25 @@ export type ProjectionRow = {
   gmail_touches: GmailTouches | null;
   gmail_synced_at: string | null;
 
+  /** Audit + idempotency for auto-imported prospects. Null on hand-keyed
+   *  rows; set by /api/cron/import-inquiries to the source channel + the
+   *  Gmail message id + the raw notes from the inquiry body. Schema:
+   *  { source, gmail_message_id, mailbox, kind, requested_slot, notes,
+   *    imported_at }. */
+  import_source: ImportSource | null;
+
   created_at: string | null;
   updated_at: string | null;
+};
+
+export type ImportSource = {
+  source: 'gmail_inquiry';
+  gmail_message_id: string;
+  mailbox: string;
+  kind?: string;
+  requested_slot?: string | null;
+  notes?: string | null;
+  imported_at?: string;
 };
 
 /**
