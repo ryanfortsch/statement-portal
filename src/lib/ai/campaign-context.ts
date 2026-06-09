@@ -63,7 +63,7 @@ const NEIGHBORHOOD: Record<string, string> = {
   '20_hammond': 'East Gloucester',
   '20_enon': 'Beverly',
   '73_rocky_neck': 'Smith Cove, Gloucester',
-  '17_beach_rd': 'Niles Beach, Gloucester',
+  '17_beach_rd': 'Good Harbor Beach, Gloucester',
   '3_locust': 'Niles Beach, Gloucester',
 };
 
