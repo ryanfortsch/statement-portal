@@ -15,10 +15,7 @@ import {
   type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
-import {
-  ACTUALS_2026,
-  ACTUALS_2026_THROUGH_MONTH,
-} from '@/lib/forecast-actuals';
+import type { MonthlyActual } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
@@ -32,6 +29,15 @@ type Props = {
   prospects2028: ProspectForecast;
   /** Map keyed by YYYY-MM → total mgmt fee from property_statements. */
   statementRevenue: StatementRevenueByMonth;
+  /**
+   * 2026 bank actuals indexed by month-1 (sourced from overhead_expenses
+   * via getActualsFromDb in page.tsx, falling back to hardcoded
+   * ACTUALS_2026 when the DB is empty). Sparse holes are tolerated —
+   * calcYear's truthiness check on `actuals[m - 1]` falls through.
+   */
+  bankActuals2026: readonly MonthlyActual[];
+  /** Last 1-indexed calendar month with complete bank actuals. */
+  bankActualsThrough2026: number;
 };
 
 export function ForecastClient({
@@ -42,6 +48,8 @@ export function ForecastClient({
   prospects2027,
   prospects2028,
   statementRevenue,
+  bankActuals2026,
+  bankActualsThrough2026,
 }: Props) {
   // Independent per-year state. Earlier years' additions roll forward as
   // full-year actives in later years; the slider for each year only
@@ -72,10 +80,12 @@ export function ForecastClient({
     () => getYearConfig(yearKey, rolledForward),
     [yearKey, rolledForward]
   );
-  // Substitute bank-derived actuals for completed 2026 months (Jan-Apr).
+  // Substitute bank-derived actuals for completed 2026 months. The data
+  // comes from the parent (page.tsx) — either the live overhead_expenses
+  // table (refreshed by Cost Analysis uploads) or the hardcoded fallback.
   // 2027 is fully projected.
-  const actualsForYear = yearKey === 2026 ? ACTUALS_2026 : undefined;
-  const actualsThrough = yearKey === 2026 ? ACTUALS_2026_THROUGH_MONTH : undefined;
+  const actualsForYear = yearKey === 2026 ? bankActuals2026 : undefined;
+  const actualsThrough = yearKey === 2026 ? bankActualsThrough2026 : undefined;
 
   // Smart Forecast → forward-month override map (month-of-year → mgmt fee).
   // Sums projected RT mgmt fee across all properties for each forward month.
@@ -126,15 +136,15 @@ export function ForecastClient({
   const calibrationFactor = useMemo(() => {
     if (yearKey === 2026) return undefined; // 2026 calibrates per-month via smart override directly
     // With smart override → calibrated 2026 rev_current
-    const calibrated = calcYear(0, 2026, ACTUALS_2026, ACTUALS_2026_THROUGH_MONTH, smart2026OverrideForCalibration);
+    const calibrated = calcYear(0, 2026, bankActuals2026, bankActualsThrough2026, smart2026OverrideForCalibration);
     // Without smart override → seasonality-only 2026 rev_current
-    const heuristic = calcYear(0, 2026, ACTUALS_2026, ACTUALS_2026_THROUGH_MONTH, undefined);
+    const heuristic = calcYear(0, 2026, bankActuals2026, bankActualsThrough2026, undefined);
     if (heuristic.totals.rev_current <= 0) return undefined;
     const factor = calibrated.totals.rev_current / heuristic.totals.rev_current;
     // Sanity bounds — never less than 1 (don't project DOWN), and cap at
     // 3× to guard against weird inputs.
     return Math.min(3, Math.max(1, factor));
-  }, [yearKey, smart2026OverrideForCalibration]);
+  }, [yearKey, smart2026OverrideForCalibration, bankActuals2026, bankActualsThrough2026]);
 
   const prospectsForYear =
     yearKey === 2026 ? prospects2026 :

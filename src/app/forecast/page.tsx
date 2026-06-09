@@ -11,7 +11,13 @@ import {
   computeSmartForecast,
   type SmartForecast,
 } from '@/lib/forecast-smart';
-import { ACTUALS_WINDOW } from '@/lib/forecast-actuals';
+import {
+  ACTUALS_WINDOW,
+  ACTUALS_2026,
+  ACTUALS_2026_THROUGH_MONTH,
+  type MonthlyActual,
+} from '@/lib/forecast-actuals';
+import { getActualsFromDb } from '@/lib/forecast-actuals-from-db';
 import { getProspectForecast } from '@/lib/forecast-prospects';
 import {
   getStatementRevenueByMonth,
@@ -130,12 +136,13 @@ function CoverSheet() {
 }
 
 /**
- * Banner that surfaces if the bank-derived actuals are more than 30 days
- * old — prompts Dotti to drop a fresh Chase + corporate-card CSV.
+ * Banner that surfaces when bank-derived actuals are more than 30 days
+ * old — points at the Cost Analysis tab where an upload refreshes them
+ * for both pages.
  */
-function StaleDataBanner() {
+function StaleDataBanner({ latestDate }: { latestDate: string }) {
   const today = new Date();
-  const exportDate = new Date(ACTUALS_WINDOW.rangeEnd);
+  const exportDate = new Date(latestDate);
   const daysSince = Math.floor((today.getTime() - exportDate.getTime()) / (1000 * 60 * 60 * 24));
   if (daysSince <= 30) return null;
   return (
@@ -171,10 +178,12 @@ function StaleDataBanner() {
           Action needed
         </span>
         <span>
-          Bank actuals are <strong>{daysSince} days old</strong> (last export:{' '}
-          {ACTUALS_WINDOW.exportFile}). Re-export the Chase ...5130 transaction CSV and the Rising
-          Tide corporate card CSV, then re-run the parser to refresh actuals through the latest
-          activity month.
+          Bank actuals are <strong>{daysSince} days old</strong> (most recent transaction:{' '}
+          {latestDate}). Drop a fresh Chase corporate card or operating CSV (or XLSX) in the{' '}
+          <a href="/cost-analysis" style={{ color: 'var(--signal)', textDecoration: 'underline' }}>
+            Cost Analysis
+          </a>{' '}
+          tab to refresh.
         </span>
       </div>
     </section>
@@ -275,6 +284,19 @@ export default async function ForecastPage() {
   const smart2027 = filterToYear(smartAll, 2027);
   const smart2028 = filterToYear(smartAll, 2028);
 
+  // 2026 bank actuals: prefer the dynamic source (rows from the
+  // /api/ingest-overhead upload's overhead_expenses table, refreshed
+  // on every Cost Analysis upload). Fall back to the hardcoded
+  // ACTUALS_2026 when the DB has nothing yet (migration unrun, etc.)
+  // so the page still renders cleanly in either state.
+  const dbActuals2026 = await getActualsFromDb(2026, statementRevenue);
+  const hasDbActuals = dbActuals2026.actuals.length > 0;
+  const bankActuals2026: readonly MonthlyActual[] =
+    hasDbActuals ? dbActuals2026.actuals : ACTUALS_2026;
+  const bankActualsThrough2026 =
+    hasDbActuals ? dbActuals2026.throughMonth : ACTUALS_2026_THROUGH_MONTH;
+  const staleBannerDate = dbActuals2026.latestTxnDate ?? ACTUALS_WINDOW.rangeEnd;
+
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -284,7 +306,7 @@ export default async function ForecastPage() {
       <FinancialsTabs current="forecast" />
 
       <CoverSheet />
-      <StaleDataBanner />
+      <StaleDataBanner latestDate={staleBannerDate} />
 
 
       <ForecastClient
@@ -295,6 +317,8 @@ export default async function ForecastPage() {
         prospects2027={prospects2027}
         prospects2028={prospects2028}
         statementRevenue={statementRevenue}
+        bankActuals2026={bankActuals2026}
+        bankActualsThrough2026={bankActualsThrough2026}
       />
 
       {/*
