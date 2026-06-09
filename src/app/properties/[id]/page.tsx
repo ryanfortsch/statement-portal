@@ -51,15 +51,15 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
 
 async function getScaLaunchStatus(
   id: string,
-): Promise<{ status: string; live_url: string | null } | null> {
+): Promise<{ status: string; live_url: string | null; guesty_listing_id: string | null } | null> {
   try {
     const { data, error } = await supabase
       .from('sca_launches')
-      .select('status, live_url')
+      .select('status, live_url, guesty_listing_id')
       .eq('property_id', id)
       .maybeSingle();
     if (error) return null; // table may not exist yet on older preview envs
-    return (data as { status: string; live_url: string | null }) ?? null;
+    return (data as { status: string; live_url: string | null; guesty_listing_id: string | null }) ?? null;
   } catch {
     return null;
   }
@@ -495,9 +495,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           >
             Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
           </Link>
-          {scaLaunch?.status === 'live' && p.guesty_listing_id && (
+          {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
             <Link
-              href={`/properties/bedroom-photos?listing=${p.guesty_listing_id}`}
+              href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
               title="Add or replace this listing's bedroom photos on staycapeann.com"
               style={{
                 fontSize: 11,
