@@ -297,4 +297,21 @@ INSERT INTO chart_of_accounts (entity_id, key, parent_key, name, type, tax_hint,
   (NULL, 'owner_draw', NULL, 'Owner / Partner Distributions', 'equity', NULL, FALSE, 810),
   (NULL, 'opening_balance_equity', NULL, 'Opening Balance Equity', 'equity', NULL, FALSE, 820),
   (NULL, 'retained_earnings', NULL, 'Retained Earnings', 'equity', NULL, FALSE, 830),
-  (NULL, 'intercompany_due', NULL, 'Intercompany Due To/From', 'equity', 'Rising Tide ↔ Goose entities', FALSE, 840);
+  (NULL, 'intercompany_due', NULL, 'Intercompany Due To/From', 'equity', 'Rising Tide ↔ Goose entities', FALSE, 840),
+
+  -- Refinements from the Jun 9 2026 Goose GL audit -----------------------
+  -- Goose-of-Astoria-specific Florida-property allocation. Tropishine,
+  -- FPL, MasterTouch Pool, "Lighthouse Point" memos, and Willow Servicing
+  -- mortgage all hit here on the Astoria books. NOT operating categories.
+  ('goose_astoria', 'due_from_florida_property', 'owner_draw', 'Due from Florida Property', 'equity', '3246 NE 27th Terrace allocation -- FL property activity routes here', FALSE, 850),
+  -- Liability-side categories the GLs use
+  (NULL, 'sales_tax_payable', NULL, 'Sales Tax Payable', 'other_expense', 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', FALSE, 870),
+  (NULL, 'customer_prepayments', NULL, 'Customer Prepayments', 'other_expense', 'Guest payments received in advance of stay', FALSE, 871),
+  ('goose_calderwood', 'heat_loan', NULL, 'Heat Loan', 'other_expense', '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', FALSE, 872),
+  -- Legacy income (Astoria pre-2025)
+  ('goose_astoria', 'services_legacy', NULL, 'Services (legacy)', 'income', 'Pre-2025 income account; superseded by Rental Income + Cleaning Fares + per-channel fees from 2025-01', FALSE, 70),
+  ('goose_astoria', 'services_undelivered_refund', NULL, 'Services Undelivered Refund', 'income', 'Guest refund contra', FALSE, 71),
+  -- Additional vehicle/recon subs the Goose entities use
+  (NULL, 'vehicle_registration', 'vehicle_expenses', 'Vehicle Registration', 'other_expense', NULL, FALSE, 703),
+  (NULL, 'parking_tolls_oe', 'vehicle_expenses', 'Parking & Tolls', 'other_expense', NULL, FALSE, 704),
+  (NULL, 'reconciliation_discrepancies', NULL, 'Reconciliation Discrepancies', 'other_expense', 'Bookkeeper plug -- flag for review', FALSE, 980);
