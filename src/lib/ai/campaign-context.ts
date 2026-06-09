@@ -90,7 +90,7 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
 
   const [propsResult, listingsResult, marketingResult, bookingsResult] = await Promise.all([
     supabase.from('properties').select('id, title').eq('is_active', true),
-    supabase.from('guesty_listings').select('property_id, listing_id'),
+    supabase.from('guesty_listings').select('property_id, listing_id, hero_url'),
     supabase.from('property_marketing').select('*'),
     supabase
       .from('bookings')
@@ -105,11 +105,18 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     titleById.set(row.id, row.title);
   }
 
-  const guestyIdById = new Map<string, string>();
-  for (const row of (listingsResult.data ?? []) as Array<{ property_id: string; listing_id: string }>) {
+  const guestyByPropertyId = new Map<string, { listing_id: string; hero_url: string | null }>();
+  for (const row of (listingsResult.data ?? []) as Array<{
+    property_id: string;
+    listing_id: string;
+    hero_url: string | null;
+  }>) {
     // Multiple listings per property is rare; first one wins.
-    if (!guestyIdById.has(row.property_id)) {
-      guestyIdById.set(row.property_id, row.listing_id);
+    if (!guestyByPropertyId.has(row.property_id)) {
+      guestyByPropertyId.set(row.property_id, {
+        listing_id: row.listing_id,
+        hero_url: row.hero_url,
+      });
     }
   }
 
@@ -145,13 +152,19 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
       // Without this fallback the model gets pageUrl=null and has
       // hallucinated plausible-looking Guesty IDs into the body in the
       // past, sending recipients to dead links.
+      const guestyRow = guestyByPropertyId.get(p.id);
       const guestyId =
-        guestyIdById.get(p.id) ?? findScaListingByAddress(p.address)?.id ?? null;
+        guestyRow?.listing_id ?? findScaListingByAddress(p.address)?.id ?? null;
+      // Hero: prefer the live Guesty URL synced by sync-guesty (refreshed
+      // daily, so a swap in Guesty propagates within 24h). Fall back to
+      // the legacy static map for properties not yet synced into
+      // guesty_listings.hero_url, then null.
+      const liveHero = guestyRow?.hero_url ?? null;
       return {
         title: titleById.get(p.id) ?? null,
         neighborhood: NEIGHBORHOOD[p.id] ?? p.city,
         pageUrl: pageUrlForGuestyListing(guestyId),
-        heroUrl: heroUrlForProperty(p.id),
+        heroUrl: liveHero ?? heroUrlForProperty(p.id),
         marketing: m
           ? {
               tagline: m.tagline,

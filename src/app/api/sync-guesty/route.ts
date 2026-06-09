@@ -148,7 +148,7 @@ async function guestyGet(path: string, token: string, params?: Record<string, st
 
 // ---- Listing map ----
 
-type ListingRow = { listing_id: string; property_id: string; nickname: string | null; address: string | null };
+type ListingRow = { listing_id: string; property_id: string; nickname: string | null; address: string | null; hero_url: string | null };
 type UnmatchedListing = { listing_id: string; nickname: string | null; address: string | null };
 
 async function refreshListingMap(
@@ -187,11 +187,21 @@ async function refreshListingMap(
       continue;
     }
 
+    // Guesty puts the cover photo first in `pictures`. `original` is
+    // the full-res CDN URL (e.g. https://assets.guesty.com/.../original.jpg)
+    // which is what staycapeann.com renders on the listing page too, so
+    // emails stay consistent.
+    const heroUrl: string | null =
+      Array.isArray(l.pictures) && l.pictures.length > 0
+        ? (l.pictures[0]?.original ?? l.pictures[0]?.thumbnail ?? null)
+        : null;
+
     rows.push({
       listing_id: l._id,
       property_id: matched,
       nickname: nickname || null,
       address: address || null,
+      hero_url: heroUrl,
     });
   }
 
