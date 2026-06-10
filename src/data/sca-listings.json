@@ -1,10 +1,12 @@
 {
-  "refreshedAt": "2026-05-07T02:28:03.558Z",
+  "refreshedAt": "2026-06-09T17:23:03.451Z",
   "source": "live",
   "listings": [
     {
       "id": "67a1355216416a00122e976f",
       "title": "Stay at Rocky Neck",
+      "tagline": "Rocky Neck, harbor-side, with a 30-foot dock and the boats going by.",
+      "description": "Right on the harbor in the Rocky Neck art colony. Wall-to-wall windows in the main house and the boat house beside it pull the water into every room. The deck looks straight out at the boats coming in.\n\nBoth houses were renovated top to bottom, with finishes built for real use. Everything's a short walk down the Neck: the galleries, the working marina, the restaurants on the water.",
       "bedrooms": 3,
       "bathrooms": 2.5,
       "accommodates": 7,
@@ -20,6 +22,8 @@
     {
       "id": "67746de6846e4a0011527356",
       "title": "Stay at Little River",
+      "tagline": "On Little River, with a private dock and the tide for company.",
+      "description": "From the dock the water is right there. Swim off it in summer, drop a kayak in at dawn, or pull up a chair and watch the river move past the house.\n\nInside is fully renovated, bright and open, with a kitchen built for the kind of dinners that pull everyone into the room, and a pool table for after. Peaceful on the river, but close to downtown when you want it.",
       "bedrooms": 4,
       "bathrooms": 1.5,
       "accommodates": 7,
@@ -35,6 +39,8 @@
     {
       "id": "68517adfe37e420021fc233b",
       "title": "Stay at Smith Cove",
+      "tagline": "Above Smith Cove, in the middle of the Rocky Neck art colony.",
+      "description": "Galleries, a small marina, and the seafood spots that line the cove are all on foot from the door. The art colony has been here since the 1850s and still feels like one.\n\nThe loft-style primary suite up top has its own bath. The other bedrooms and the open living area all face the water, looking down the cove and out toward the masts in the marina.",
       "bedrooms": 2,
       "bathrooms": 3,
       "accommodates": 7,
@@ -48,8 +54,27 @@
       "town": "Gloucester"
     },
     {
+      "id": "6a15a22e15ed3c002357cdd2",
+      "title": "Stay at Front Beach",
+      "tagline": "Perched Over Front Beach, Steps from Bearskin Neck",
+      "description": "The deck is the front yard. Front Beach starts where it ends, and the surf is the alarm clock most mornings.\n\nInside is one open room with a fireplace at one end and a chef's kitchen at the other. The primary bedroom faces the water. A Queen sleeper in the living room takes the party to four.",
+      "bedrooms": 1,
+      "bathrooms": 2,
+      "accommodates": 4,
+      "address": {
+        "city": "Rockport",
+        "state": "Massachusetts",
+        "full": "79 Main St, Rockport, MA 01966, USA",
+        "lat": 42.6584279,
+        "lng": -70.6204503
+      },
+      "town": "Rockport"
+    },
+    {
       "id": "686c38be681e57001084f81d",
       "title": "Stay at The Neck",
+      "tagline": "On Rocky Neck above Smith Cove, with a sailor's-cabin interior and two decks.",
+      "description": "The previous owner built the place around a sailboat. Porthole doors between rooms, a real mast running through the middle of the house, handcrafted trim throughout. Not your standard rental on the Neck.\n\nA primary suite plus a bunk room sleep the family. Out back, the deck looks straight down at Smith Cove. Boats come and go from the bottom of the yard.",
       "bedrooms": 3,
       "bathrooms": 2,
       "accommodates": 7,
@@ -63,8 +88,27 @@
       "town": "Gloucester"
     },
     {
+      "id": "6a15c44dcfc6510014964e06",
+      "title": "Stay at Back Beach",
+      "tagline": "Professionally designed home with ocean views.",
+      "description": "Back Beach is a renovated two-bedroom in the heart of Rockport, a few minutes on foot from the water. Spend mornings on the patio and afternoons wandering the galleries, restaurants, and working harbor along Bearskin Neck. It sleeps five and was rebuilt for easy, comfortable stays, whether you come for a weekend or settle in for a week.",
+      "bedrooms": 2,
+      "bathrooms": 1,
+      "accommodates": 5,
+      "address": {
+        "city": "Rockport",
+        "state": "Massachusetts",
+        "full": "36 Granite St, Rockport, MA 01966, USA",
+        "lat": 42.6632335,
+        "lng": -70.62485099999999
+      },
+      "town": "Rockport"
+    },
+    {
       "id": "667980491a7c6f0053df5745",
       "title": "Stay at Niles Beach",
+      "tagline": "A short walk from Niles Beach, on Eastern Point.",
+      "description": "Niles Beach is three minutes on foot. A small Cape Ann beach with granite ledges at the edges, calm water in the harbor, and the kind of mornings worth walking to.\n\nUp top, the windows catch the water. Real beds for the whole group, and a yard that handles the morning coffee and the long evenings. Rocky Neck and downtown Gloucester are both a short drive.",
       "bedrooms": 3,
       "bathrooms": 2,
       "accommodates": 7,
@@ -80,6 +124,8 @@
     {
       "id": "695d5c8afb0a0500153d5d1c",
       "title": "Stay at Good Harbor Beach",
+      "tagline": "Steps from Good Harbor Beach, with a guest house off the main.",
+      "description": "This one is built for the reunion week. The main house has four bedrooms, a bunk room, and two laundry rooms. The attached guest house has its own kitchen, baths, and porch, so a second family can keep their own routine.\n\nSurfaces and finishes were chosen for a house that gets used. The kitchen handles the 12-person Saturday dinner, and there's room for everyone, together or apart.",
       "bedrooms": 6,
       "bathrooms": 4.5,
       "accommodates": 18,
@@ -95,6 +141,8 @@
     {
       "id": "668c635d25b8180012fd30b7",
       "title": "Stay at Good Harbor Beach",
+      "tagline": "On the Brier Neck peninsula, 4 minutes from Good Harbor.",
+      "description": "Brier Neck is a fishhook of land jutting out from the south side of Cape Ann. The breeze does most of the cooling in summer. The water is what brought you down.\n\nThe chef's kitchen handles dinner for the whole house, and the deck handles the rest. Mornings are quiet; the only traffic is people walking down to the beach.",
       "bedrooms": 5,
       "bathrooms": 3,
       "accommodates": 13,
@@ -109,7 +157,9 @@
     },
     {
       "id": "690bfe9228e766001365321c",
-      "title": "Stay at Old Garden Beach ",
+      "title": "Stay at Old Garden Beach",
+      "tagline": "Between downtown Rockport and Old Garden Beach, on a quiet block.",
+      "description": "Main Street is a few minutes up the hill, the harbor a few minutes past it, and the Atlantic a few minutes the other direction at Old Garden. The street between has the cottages and clapboard you came for.\n\nNewly built but reading as a Rockport cottage that has been here forever. Three bedrooms sleep eight without anyone stepping on each other.",
       "bedrooms": 3,
       "bathrooms": 3.5,
       "accommodates": 8,
@@ -125,6 +175,8 @@
     {
       "id": "689f6ee9c6571b0042f08d7a",
       "title": "Stay at East Gloucester",
+      "tagline": "A quiet East Gloucester block, 15 minutes on foot to Good Harbor.",
+      "description": "A neighborhood house in East Gloucester. Morning coffee at the kitchen table, kids out back on the patio in the afternoon, dinner around a table that holds the whole group.\n\nWalks in every direction. Niles Beach down the road, Good Harbor over the hill, downtown Gloucester a quick drive when you want a real dinner. The neighborhood gets quieter the closer you get to the water.",
       "bedrooms": 4,
       "bathrooms": 1.5,
       "accommodates": 7,
@@ -140,6 +192,8 @@
     {
       "id": "679fb9709addc3003096a14a",
       "title": "Stay at Beverly Shops",
+      "tagline": "In North Beverly, with the Boston commuter rail at the corner.",
+      "description": "The easy edge of Cape Ann. Forty minutes to Boston by train, twenty to Gloucester, with Salem and Manchester in between. The station is at the corner of the block, a short walk from the front door.\n\nOut back, an oversized deck and a fenced yard for evenings. The kitchen handles the meals, the piano in the den handles the after-dinner. The Beverly Shops are a five-minute walk: groceries and coffee for the morning run.",
       "bedrooms": 3,
       "bathrooms": 3,
       "accommodates": 5,

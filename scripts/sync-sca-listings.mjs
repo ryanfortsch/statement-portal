@@ -47,6 +47,13 @@ const slim = {
   listings: (raw.listings || []).map((l) => ({
     id: l.id,
     title: l.title,
+    // Tagline + description carry the SCA brand voice. Used as
+    // few-shot examples for the AI listing-copy generator on
+    // /properties/[id]/listing-copy. Skipping the photo URL list
+    // (each ~250 chars × 30 listings = bloat) and the highlights
+    // array (already implicit in the description).
+    tagline: l.tagline ?? null,
+    description: l.description ?? null,
     bedrooms: l.bedrooms,
     bathrooms: l.bathrooms,
     accommodates: l.accommodates,
