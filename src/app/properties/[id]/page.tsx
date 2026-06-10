@@ -544,6 +544,22 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             Inspection layout →
           </Link>
           <Link
+            href={`/properties/${p.id}/listing-copy`}
+            title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontWeight: 500,
+            }}
+          >
+            Draft listing →
+          </Link>
+          <Link
             href={`/properties/${p.id}/edit`}
             style={{
               fontSize: 11,
