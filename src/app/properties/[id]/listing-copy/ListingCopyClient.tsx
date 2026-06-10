@@ -20,9 +20,17 @@ type Props = {
  * buttons. Stays on the page so the operator can tweak the brief and
  * regenerate without losing context.
  */
+type CopyFormat = 'airbnb' | 'editorial';
+
+const FORMAT_OPTIONS: Array<{ id: CopyFormat; label: string; sub: string }> = [
+  { id: 'airbnb', label: 'Airbnb', sub: 'Structured. ✓ summary, The space, ☆ highlights.' },
+  { id: 'editorial', label: 'Stay Cape Ann', sub: 'Editorial paragraphs for staycapeann.com.' },
+];
+
 export function ListingCopyClient({ propertyId, propertyName }: Props) {
   const [brief, setBrief] = useState('');
   const [photos, setPhotos] = useState<File[]>([]);
+  const [format, setFormat] = useState<CopyFormat>('airbnb');
   const [copy, setCopy] = useState<ListingCopy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -57,6 +65,7 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
 
       const formData = new FormData();
       formData.set('brief', brief);
+      formData.set('format', format);
       compressed.forEach((blob, i) => {
         formData.append('photos', new File([blob], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }));
       });
@@ -73,6 +82,35 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: copy ? '1fr 1fr' : '1fr', gap: 40, alignItems: 'start' }}>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+        <Field label="Format" hint="Airbnb is the structured house style from our live listings. Stay Cape Ann is the editorial paragraph voice from staycapeann.com.">
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {FORMAT_OPTIONS.map((opt) => {
+              const active = format === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setFormat(opt.id)}
+                  style={{
+                    textAlign: 'left',
+                    padding: '10px 14px',
+                    border: active ? '1px solid var(--ink)' : '1px solid var(--rule)',
+                    background: active ? 'var(--ink)' : 'transparent',
+                    color: active ? 'var(--paper)' : 'var(--ink)',
+                    cursor: 'pointer',
+                    maxWidth: 260,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                    {opt.label}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 11, opacity: 0.75, lineHeight: 1.4 }}>{opt.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
         <Field
           label="What makes it special"
           hint="A line or two from your perspective. The flue handle that sticks, the view at low tide, what the kitchen sees in the morning. The model uses this plus the photos to ground the copy in real details."
