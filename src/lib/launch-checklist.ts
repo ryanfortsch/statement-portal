@@ -121,9 +121,9 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
   {
     key: 'listing_copy',
     phase: 'listing',
-    title: 'Listing copy drafted and owner-approved',
+    title: 'Listing copy drafted',
     required: true,
-    description: 'Helm drafts from the property\'s onboarding data; you edit and the owner signs off.',
+    description: 'Helm drafts from the property\'s onboarding data; you edit and finalize. The owner doesn\'t sign off on listing copy.',
     action: 'generate_copy',
   },
   {
