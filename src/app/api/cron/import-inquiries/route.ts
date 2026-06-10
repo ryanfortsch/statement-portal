@@ -150,6 +150,11 @@ type ImportResult = {
   status: 'created' | 'skipped' | 'failed';
   reason?: string;
   projection_id?: string;
+  /** First ~600 chars of the raw body when a message is skipped for
+   *  parse failure. Lets us inspect what the parser actually saw
+   *  without standing up a separate debug endpoint. Empty otherwise
+   *  so we don't leak owner data on successful imports. */
+  body_sample?: string;
 };
 
 /** Process one Gmail message: fetch body, parse, create. */
@@ -170,7 +175,14 @@ async function processMessage(
     if (!body) return { message_id: messageId, status: 'skipped', reason: 'no body' };
 
     const parsed = parseInquiryEmail(body);
-    if (!parsed) return { message_id: messageId, status: 'skipped', reason: 'unparseable' };
+    if (!parsed) {
+      return {
+        message_id: messageId,
+        status: 'skipped',
+        reason: 'unparseable',
+        body_sample: body.slice(0, 800),
+      };
+    }
 
     // Idempotency: every tick re-fetches the same 14-day window of
     // messages (we can't apply a Gmail label without elevated OAuth
