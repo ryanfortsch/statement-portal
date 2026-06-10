@@ -26,7 +26,12 @@ export type InquiryFields = {
   notes: string | null;
 };
 
-/** All structured field names the parser will recognize on a label line. */
+/** All structured field names the parser will recognize on a label line.
+ *  `submittedAt` is included on purpose — it sits AFTER `notes` in
+ *  Formspree's body and acts as the natural sentinel that ends multi-
+ *  line notes accumulation. Without it the parser would slurp the
+ *  trailing Formspree footer into notes ("Mark as spam", "Formspree
+ *  logo", "You are receiving this because..."). */
 const KNOWN_FIELDS = new Set([
   '_replyto',
   'kind',
@@ -45,7 +50,19 @@ const KNOWN_FIELDS = new Set([
   'requestedslot',
   'timezone',
   'notes',
+  'submittedAt',
+  'submittedat',
 ]);
+
+/** Lines that, when seen during notes accumulation, force-end the notes
+ *  block. Catches Formspree's footer chrome even when `submittedAt` is
+ *  missing (older form versions, custom renderers). */
+const NOTES_END_PATTERNS = [
+  /^Mark as spam/i,
+  /^Formspree logo/i,
+  /^You are receiving this because/i,
+  /^Submitted \d{1,2}:\d{2}/i,
+];
 
 /** Canonical key for the parser's output dict. */
 function canonical(key: string): string {
@@ -113,9 +130,14 @@ export function parseInquiryEmail(rawBody: string): InquiryFields | null {
     }
 
     // Free-form notes body: accumulate everything after the `notes:` label
-    // until the email ends (or we hit a clear sign-off pattern). Preserves
-    // paragraph breaks so the body reads naturally in Helm.
+    // until the email ends, we hit a known field (handled above), or we
+    // hit a Formspree footer pattern. Preserves paragraph breaks so the
+    // body reads naturally in Helm.
     if (inNotes) {
+      if (NOTES_END_PATTERNS.some((re) => re.test(line))) {
+        inNotes = false;
+        continue;
+      }
       noteAccumulator.push(line);
     }
   }

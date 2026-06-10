@@ -14,11 +14,14 @@ import { deriveLegacyFromOwners } from '@/lib/projections-types';
  * projection per match so the prospect lands in Helm without Dotti
  * copying fields out of an email by hand.
  *
- * Dedup is Gmail-label-based: each processed message gets a
- * `helm/imported` label applied via Gmail's labels API, and the search
- * query excludes any message already carrying that label. Replays
- * (cron retrying after a partial failure) are safe because Gmail's
- * label modify is idempotent.
+
+ * Dedup is DB-side: every candidate message id is looked up in
+ * `projections.import_source->>'gmail_message_id'` before insert, so
+ * the cron re-scanning the same 14-day window on every 15-min tick
+ * never double-creates. (An earlier version layered a `helm/imported`
+ * Gmail label on top, but the configured refresh-token OAuth scopes
+ * are read-only and `labels.create` 403'd. DB dedup is sufficient at
+ * RT's scale — a handful of new inquiries per week.)
  *
  * Mailbox config reuses the same env-var pattern as sync-prospect-mail
  * + sync-gmail-replies. To monitor a new mailbox, drop a refresh
@@ -59,13 +62,18 @@ const MAILBOXES: Mailbox[] = [
   },
 ].filter((m) => m.refreshToken && m.clientId && m.clientSecret);
 
-const HELM_LABEL_NAME = 'helm/imported';
-// Search query: looks at the last week of inbox for messages whose body
-// carries the structured-form signature (firstName + address + phone),
-// excludes anything we've already labeled, and avoids spam/trash. Gmail's
-// search is body-content aware so the field names match real text in
-// the message.
-const SEARCH_Q = '("firstName" OR "first name" OR "_replyto") "address" "phone" newer_than:14d -label:helm/imported in:inbox';
+// Search query: looks at the last 14 days of inbox for messages whose
+// body carries the structured-form signature (firstName + address +
+// phone). Gmail's search is body-content aware so the field names match
+// real text in the message.
+//
+// Dedup is DB-side via import_source->>'gmail_message_id': every
+// candidate message is looked up before insert, so re-scans on each
+// 15-min tick are idempotent. We initially layered a `helm/imported`
+// Gmail label on top, but the configured OAuth scopes (read-only) don't
+// allow `gmail.labels.create`, so the label step was 403-ing. Dropping
+// the label entirely — DB dedup is sufficient for RT's scale.
+const SEARCH_Q = '("firstName" OR "first name" OR "_replyto") "address" "phone" newer_than:14d in:inbox';
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
@@ -90,37 +98,6 @@ async function getAccessToken(mb: Mailbox): Promise<string> {
   if (!res.ok) throw new Error(`Refresh token for ${mb.name} failed: ${await res.text()}`);
   const data = await res.json();
   return data.access_token;
-}
-
-/**
- * Ensure the `helm/imported` label exists on this mailbox; create it on
- * first run. Returns the label's Gmail id, which we need to apply it to
- * processed messages.
- */
-async function ensureHelmLabel(accessToken: string): Promise<string> {
-  const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!listRes.ok) throw new Error(`labels.list failed: ${await listRes.text()}`);
-  const listData = (await listRes.json()) as { labels?: Array<{ id: string; name: string }> };
-  const found = (listData.labels ?? []).find((l) => l.name === HELM_LABEL_NAME);
-  if (found) return found.id;
-
-  const createRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: HELM_LABEL_NAME,
-      labelListVisibility: 'labelShow',
-      messageListVisibility: 'show',
-    }),
-  });
-  if (!createRes.ok) throw new Error(`labels.create failed: ${await createRes.text()}`);
-  const createData = (await createRes.json()) as { id: string };
-  return createData.id;
 }
 
 type GmailPart = {
@@ -163,16 +140,6 @@ function decodeB64Url(s: string): string {
   }
 }
 
-async function applyLabel(accessToken: string, messageId: string, labelId: string): Promise<void> {
-  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ addLabelIds: [labelId] }),
-  });
-}
 
 function newOnboardingToken(): string {
   return crypto.randomBytes(16).toString('hex');
@@ -185,11 +152,10 @@ type ImportResult = {
   projection_id?: string;
 };
 
-/** Process one Gmail message: fetch body, parse, create, label. */
+/** Process one Gmail message: fetch body, parse, create. */
 async function processMessage(
   accessToken: string,
   messageId: string,
-  labelId: string,
   mailboxName: string,
   sb: SupabaseClient,
 ): Promise<ImportResult> {
@@ -206,18 +172,15 @@ async function processMessage(
     const parsed = parseInquiryEmail(body);
     if (!parsed) return { message_id: messageId, status: 'skipped', reason: 'unparseable' };
 
-    // Idempotency: if a projection already references this message id,
-    // just label and move on. Catches the case where Gmail's label add
-    // failed on a prior run but the projection got created. Lookup via
-    // jsonb path on import_source (single column carries the whole
-    // audit trail — see migration 20260609).
+    // Idempotency: every tick re-fetches the same 14-day window of
+    // messages (we can't apply a Gmail label without elevated OAuth
+    // scope), so the DB lookup is what stops double-creating.
     const { data: existing } = await sb
       .from('projections')
       .select('id')
       .filter('import_source->>gmail_message_id', 'eq', messageId)
       .maybeSingle();
     if (existing) {
-      await applyLabel(accessToken, messageId, labelId);
       return { message_id: messageId, status: 'skipped', reason: 'already imported', projection_id: (existing as { id: string }).id };
     }
 
@@ -298,8 +261,6 @@ async function processMessage(
       return { message_id: messageId, status: 'failed', reason: insertErr?.message || 'insert returned no row' };
     }
 
-    await applyLabel(accessToken, messageId, labelId);
-
     return { message_id: messageId, status: 'created', projection_id: (inserted as { id: string }).id };
   } catch (err) {
     return { message_id: messageId, status: 'failed', reason: err instanceof Error ? err.message : String(err) };
@@ -343,7 +304,6 @@ export async function GET(request: NextRequest) {
   for (const mb of MAILBOXES) {
     try {
       const accessToken = await getAccessToken(mb);
-      const labelId = await ensureHelmLabel(accessToken);
 
       const searchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(SEARCH_Q)}&maxResults=25`;
       const searchRes = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -353,7 +313,7 @@ export async function GET(request: NextRequest) {
 
       const results: ImportResult[] = [];
       for (const m of messages) {
-        const r = await processMessage(accessToken, m.id, labelId, mb.name, sb);
+        const r = await processMessage(accessToken, m.id, mb.name, sb);
         results.push(r);
       }
       perMailbox.push({ mailbox: mb.name, processed: results.length, results });
