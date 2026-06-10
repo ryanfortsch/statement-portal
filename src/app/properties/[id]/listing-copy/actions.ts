@@ -3,7 +3,7 @@
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
-import { generateListingCopy, type ListingCopy } from '@/lib/ai/listing-copy';
+import { generateListingCopy, type ListingCopy, type ListingCopyFormat } from '@/lib/ai/listing-copy';
 
 export type GenerateListingCopyResult =
   | { ok: true; copy: ListingCopy }
@@ -38,6 +38,8 @@ export async function generateListingCopyAction(
   const property = data as HelmPropertyRow;
 
   const operatorBrief = String(formData.get('brief') ?? '').trim();
+  const formatRaw = String(formData.get('format') ?? 'airbnb');
+  const format: ListingCopyFormat = formatRaw === 'editorial' ? 'editorial' : 'airbnb';
 
   const photoFiles = formData.getAll('photos').filter((v): v is File => v instanceof File);
   const photoDataUrls: string[] = [];
@@ -52,7 +54,7 @@ export async function generateListingCopyAction(
   }
 
   try {
-    const copy = await generateListingCopy({ property, operatorBrief, photoDataUrls });
+    const copy = await generateListingCopy({ property, operatorBrief, photoDataUrls, format });
     return { ok: true, copy };
   } catch (err) {
     console.error('[generateListingCopyAction] generator threw', {

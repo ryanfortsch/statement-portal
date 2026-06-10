@@ -36,19 +36,39 @@ type ScaListing = {
 
 type ListingExample = Pick<ScaListing, 'title' | 'tagline' | 'description' | 'town' | 'bedrooms' | 'bathrooms'>;
 
-export const ListingCopySchema = z.object({
-  title: z.string().describe(
-    'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, harbor, street, neighborhood). 2-5 words after "Stay at". Examples: "Stay at Rocky Neck", "Stay at Old Garden Beach", "Stay at Little River". No address, no street number.'
-  ),
-  tagline: z.string().describe(
-    'A single sentence (15-25 words) that reads like the opening line of an editorial blurb. Concrete physical detail, not adjectives. No em dashes. No count of properties or "homes". Examples: "Rocky Neck, harbor-side, with a 30-foot dock and the boats going by.", "Old Garden Beach is across the street."'
-  ),
-  description: z.string().describe(
-    '2-3 short paragraphs separated by blank lines. First paragraph is a grounded scene (specific physical details from the photos and property data, never adjectives like "beautiful" or "stunning"). Subsequent paragraphs cover the practical (rooms, sleeping arrangements, walkability, what is nearby). 100-220 words total. No em dashes. No "luxurious". No "perfect". No count of properties. Sentence-case throughout.'
-  ),
-});
+export type ListingCopyFormat = 'airbnb' | 'editorial';
 
-export type ListingCopy = z.infer<typeof ListingCopySchema>;
+/** Per-format Zod schemas. The shape is the same triplet either way;
+ *  the .describe() strings are the model's strongest formatting signal
+ *  with generateObject, so they're format-specific. */
+function buildSchema(format: ListingCopyFormat) {
+  if (format === 'airbnb') {
+    return z.object({
+      title: z.string().describe(
+        'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, cove, neighborhood). Maximum 50 characters total (Airbnb limit). No address, no street name or number. Must NOT duplicate any title in the taken-titles list.'
+      ),
+      tagline: z.string().describe(
+        'The opening hook line of the Airbnb description. Short, concrete, ends with an exclamation point only if natural. Pattern from our existing listings: "4-Minute Walk to Good Harbor Beach!". 5-10 words.'
+      ),
+      description: z.string().describe(
+        'The full Airbnb "About this space" body in our house structure, in this exact order:\n(1) 3-5 summary lines each starting with "✓ " covering location, renovation/condition, sleeping capacity, standout finish or amenity.\n(2) A blank line, then "The space" on its own line, then one grounded 2-4 sentence paragraph.\n(3) A blank line, then "☆☆☆ HIGHLIGHTS ☆☆☆" on its own line, then 4-6 lines each starting with "→ ".\n(4) Optional sections titled like "☆☆☆ MAIN HOUSE – LIVING SPACES ☆☆☆" with more "→ " lines, one section per area, only where the photos or property data support specifics.\n250-450 words total. No em dashes. Never include the street name or number. Ground every claim in the property data, operator notes, or photos.'
+      ),
+    });
+  }
+  return z.object({
+    title: z.string().describe(
+      'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, harbor, cove, neighborhood). 2-5 words after "Stay at". Must NOT duplicate any title in the taken-titles list. No address, no street name or number.'
+    ),
+    tagline: z.string().describe(
+      'A single sentence (15-25 words) that reads like the opening line of an editorial blurb. Concrete physical detail, not adjectives. No em dashes. No street names. No count of properties or "homes".'
+    ),
+    description: z.string().describe(
+      '2-3 short paragraphs separated by blank lines. First paragraph is a grounded scene (specific physical details from the photos and property data, never adjectives like "beautiful" or "stunning"). Subsequent paragraphs cover the practical (rooms, sleeping arrangements, walkability, what is nearby). 100-220 words total. No em dashes. No "luxurious". No "perfect". No count of properties. No street names. Sentence-case throughout.'
+    ),
+  });
+}
+
+export type ListingCopy = { title: string; tagline: string; description: string };
 
 export type GenerateListingCopyArgs = {
   property: HelmPropertyRow;
@@ -56,11 +76,14 @@ export type GenerateListingCopyArgs = {
   operatorBrief: string;
   /** Optional images as base64 data URLs. Up to ~6. */
   photoDataUrls?: string[];
+  /** Output style: Airbnb structured (default) or staycapeann.com editorial. */
+  format?: ListingCopyFormat;
 };
 
 export async function generateListingCopy(args: GenerateListingCopyArgs): Promise<ListingCopy> {
+  const format: ListingCopyFormat = args.format ?? 'airbnb';
   const examples = pickExamples(args.property);
-  const system = composeSystemPrompt(examples);
+  const system = composeSystemPrompt(examples, format, takenTitles(args.property));
   const userText = formatUserContext(args.property, args.operatorBrief);
 
   // Multimodal user prompt: text first, then any photos. AI SDK v6
@@ -77,7 +100,7 @@ export async function generateListingCopy(args: GenerateListingCopyArgs): Promis
 
   const { object } = await generateObject({
     model: 'anthropic/claude-sonnet-4.5',
-    schema: ListingCopySchema,
+    schema: buildSchema(format),
     system,
     messages: [{ role: 'user', content: userContent }],
   });
@@ -117,12 +140,37 @@ function pickExamples(property: HelmPropertyRow): ListingExample[] {
   }));
 }
 
-function composeSystemPrompt(examples: ListingExample[]): string {
+/**
+ * Every title already in use across the catalog. The generator must
+ * not reuse one — "Stay at Rocky Neck" got generated for 19 Rackliffe
+ * on 2026-06-10 because the model had no idea 21 Horton already owns
+ * it. Excludes the property's own current title so a regenerate isn't
+ * forbidden from keeping its existing name.
+ */
+function takenTitles(property: HelmPropertyRow): string[] {
+  const all = (scaListings as { listings: ScaListing[] }).listings
+    .map((l) => l.title?.trim())
+    .filter((t): t is string => !!t);
+  const own = (property.title ?? '').trim().toLowerCase();
+  return [...new Set(all)].filter((t) => t.toLowerCase() !== own);
+}
+
+function composeSystemPrompt(
+  examples: ListingExample[],
+  format: ListingCopyFormat,
+  taken: string[],
+): string {
+  const intro =
+    format === 'airbnb'
+      ? 'You are drafting an Airbnb listing for a Stay Cape Ann home. The body uses our structured Airbnb house format (checkmark summary, "The space", HIGHLIGHTS sections) but the sentences inside stay grounded and concrete — never hype.'
+      : 'You are drafting public listing copy for staycapeann.com. The brand is editorial, grounded, and quiet — never promotional. Match the voice of the example listings below.';
+
   const parts = [
-    'You are drafting public listing copy for a Stay Cape Ann home. The brand is editorial, grounded, and quiet — never promotional. Match the voice of the example listings below.',
+    intro,
     BRAND_VOICE_RULES,
-    LISTING_SPECIFIC_RULES,
-    'EXAMPLES OF EXISTING STAY CAPE ANN LISTING COPY:',
+    format === 'airbnb' ? AIRBNB_FORMAT_RULES : LISTING_SPECIFIC_RULES,
+    `TAKEN TITLES — these are live listings in the same catalog. Your title must not duplicate or closely echo any of them:\n${taken.map((t) => `- ${t}`).join('\n')}`,
+    'EXAMPLES OF EXISTING STAY CAPE ANN LISTING COPY (voice reference — sentence texture, named places, concrete details):',
     examples
       .map(
         (e, i) =>
@@ -133,10 +181,27 @@ function composeSystemPrompt(examples: ListingExample[]): string {
   return parts.join('\n\n');
 }
 
+const AIRBNB_FORMAT_RULES = `
+AIRBNB LISTING RULES (in addition to the brand voice rules above):
+
+- Title is "Stay at <Place>". <Place> is a micro-location, never a street name or number. Maximum 50 characters.
+- The tagline is the opening hook line. Lead with the single most bookable fact (walk time to a named beach, direct water access, dock). Example from our live listings: "4-Minute Walk to Good Harbor Beach!".
+- The description follows our exact Airbnb house structure:
+  1. A block of 3-5 "✓ " summary lines. One fact each: location, renovation state, sleeping capacity ("Sleeps N across ..."), standout amenity or finish.
+  2. "The space" section header, then one 2-4 sentence grounded paragraph.
+  3. "☆☆☆ HIGHLIGHTS ☆☆☆" header, then 4-6 "→ " lines with the strongest specifics.
+  4. Optional per-area sections headed "☆☆☆ <AREA NAME> ☆☆☆" (e.g. MAIN HOUSE – LIVING SPACES, BEDROOMS, OUTDOOR) with "→ " lines. Only include an area when the photos or property data give real specifics for it.
+- Use the photos when attached. Reference what's actually visible. Do not invent finishes, appliance brands, or views that are not supported.
+- Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate.
+- Never include the street name or street number anywhere.
+- No em dashes anywhere. No "luxurious", "stunning", "breathtaking", "paradise", "gem".
+- Concrete nouns over adjectives. "Wolf range" beats "high-end appliances" when the data supports it.
+`;
+
 const LISTING_SPECIFIC_RULES = `
 LISTING COPY RULES (in addition to the brand voice rules above):
 
-- Title is "Stay at <Place>". <Place> is a micro-location, not an address. Pick something concrete from the area (a beach name, a cove, a street that means something locally, a neighborhood). Never include a street number.
+- Title is "Stay at <Place>". <Place> is a micro-location, not an address. Pick something concrete from the area (a beach name, a cove, a neighborhood, a landmark). Never the property's own street.
 - Tagline is one sentence. Lead with the place, then a concrete physical or sensory detail. Aim for 15 to 25 words.
 - Description is 2 to 3 short paragraphs. First paragraph grounds the reader in the scene with specific, visible details (use the uploaded photos when present). Second paragraph covers the practical: rooms, sleeping arrangements, walkability, what's nearby. Optional third paragraph for a special note (boat house, dock, fireplace, garden).
 - Use the photos if attached. Reference what's actually visible: the deck angle, the fireplace, the kitchen layout, the view. Do not invent details.
@@ -144,7 +209,7 @@ LISTING COPY RULES (in addition to the brand voice rules above):
 - Do not use the words: luxurious, perfect, stunning, beautiful, amazing, paradise, breathtaking, gem.
 - Do not use any em dashes. Period and start a new sentence instead.
 - Never count properties or refer to "our homes". This is a single-listing description.
-- Never include the street address or street number.
+- Never include the property's street name or street number anywhere in the copy. The brand rule is "no address until they book". Coves, beaches, neighborhoods, and landmarks are fine; the listing's own street is not.
 - Sentence case throughout. Proper nouns stay capitalized.
 `;
 

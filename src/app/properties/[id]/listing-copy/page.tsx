@@ -56,10 +56,11 @@ export default async function ListingCopyPage({
           Draft a <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>listing</em>.
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          The model has your property data and three sister listings as voice examples. Drop in a few
-          photos and the line or two you'd tell a friend about this house. It'll come back with a
-          title, tagline, and description that match the rest of the Stay Cape Ann catalog. Nothing
-          saves back to the property yet, this is a copy + paste workflow into Guesty / Airbnb / VRBO.
+          The model has your property data, every live listing title (so it won't reuse one), and
+          three sister listings as voice examples. Drop in a few photos and the line or two you'd
+          tell a friend about this house. Pick Airbnb for the structured house format or Stay Cape
+          Ann for the editorial voice. Nothing saves back to the property yet, this is a copy + paste
+          workflow into Guesty / Airbnb / VRBO.
         </p>
       </section>
 
