@@ -33,11 +33,34 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
     setError(null);
     setCopy(null);
 
-    const formData = new FormData();
-    formData.set('brief', brief);
-    for (const f of photos) formData.append('photos', f);
-
     startTransition(async () => {
+      // Downscale every photo in the browser before upload. Phone
+      // photos are routinely 3-5MB; posting them raw blows past the
+      // server-action body cap and the platform kills the request
+      // before our code sees it (the "page couldn't load" failure on
+      // 2026-06-10). 1600px / q0.82 lands ~200-400KB per photo.
+      let compressed: Blob[];
+      try {
+        compressed = await Promise.all(photos.map((f) => downscaleImage(f)));
+      } catch {
+        setError('One of the photos could not be read. Try a JPG or PNG.');
+        return;
+      }
+
+      const totalBytes = compressed.reduce((s, b) => s + b.size, 0);
+      if (totalBytes > 3_500_000) {
+        setError(
+          'Photos are still too large after compression (over 3.5 MB total). Remove one or two and try again.',
+        );
+        return;
+      }
+
+      const formData = new FormData();
+      formData.set('brief', brief);
+      compressed.forEach((blob, i) => {
+        formData.append('photos', new File([blob], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }));
+      });
+
       const result: GenerateListingCopyResult = await generateListingCopyAction(propertyId, formData);
       if (!result.ok) {
         setError(result.error);
@@ -66,7 +89,7 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
 
         <Field
           label="Photos (optional)"
-          hint="Up to 6 photos, 4 MB each. JPG or PNG. The model can describe what's actually visible if you attach them."
+          hint="Up to 6 photos. Straight off your phone is fine, they're compressed in the browser before upload. The model describes what's actually visible."
         >
           <input
             ref={fileRef}
@@ -188,6 +211,34 @@ function PhotoChip({ file }: { file: File }) {
       {url && <img src={url} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
     </div>
   );
+}
+
+/**
+ * Browser-side photo downscale: longest edge capped at 1600px, JPEG
+ * quality 0.82. Uses createImageBitmap + canvas so HEIC-converted JPGs,
+ * PNGs, and WebP all come out as a compact JPEG blob. Falls back to
+ * the original file when it's already smaller than the re-encode.
+ */
+async function downscaleImage(file: File): Promise<Blob> {
+  const MAX_EDGE = 1600;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d context unavailable');
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/jpeg', 0.82),
+  );
+  if (!blob) throw new Error('image encode failed');
+  return blob.size < file.size ? blob : file;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

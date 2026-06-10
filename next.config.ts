@@ -6,6 +6,19 @@ const nextConfig: NextConfig = {
   // pulls in native binaries that shouldn't be webpacked.
   serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
 
+  // The listing-copy generator posts photos through a server action.
+  // Next's default body cap is 1MB, which a single un-compressed phone
+  // photo blows past -- the platform then drops the request before our
+  // code runs and the browser shows a dead "page couldn't load" screen.
+  // The client now downscales photos before upload (~300KB each), so
+  // 4mb gives 6 compressed photos + form text generous headroom while
+  // staying under Vercel's 4.5MB hard request limit.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '4mb',
+    },
+  },
+
   // Next's output-file-tracing skips the Chromium binary under
   // node_modules/@sparticuz/chromium/bin by default. Without this, the
   // packaged Lambda can't find the executable and draft-email falls back
