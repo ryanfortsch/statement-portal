@@ -93,7 +93,12 @@ export function parseInquiryEmail(rawBody: string): InquiryFields | null {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Inline "key: value" form.
+    // Inline "key: value" form — covers two real-world shapes:
+    //   1. `firstName: William`  (value on the same line)
+    //   2. `firstName:`          (value on the NEXT non-empty line — this
+    //                             is what Formspree's plaintext template
+    //                             actually delivers)
+    // Both produce the same canonical key + value in `out`.
     const inline = line.match(/^([A-Za-z_][\w]*)\s*:\s*(.*)$/);
     if (inline && KNOWN_FIELDS.has(inline[1])) {
       const key = canonical(inline[1]);
@@ -102,8 +107,17 @@ export function parseInquiryEmail(rawBody: string): InquiryFields | null {
         inNotes = true;
         sawHeaderForNotes = true;
         if (value) noteAccumulator.push(value);
-      } else {
+      } else if (value) {
         out[key] = value;
+        inNotes = false;
+      } else {
+        // Empty value on this line — pull from the next non-empty line.
+        let j = i + 1;
+        while (j < lines.length && !lines[j]) j++;
+        if (j < lines.length) {
+          out[key] = lines[j];
+          i = j;
+        }
         inNotes = false;
       }
       continue;
@@ -146,17 +160,22 @@ export function parseInquiryEmail(rawBody: string): InquiryFields | null {
     out.notes = noteAccumulator.join('\n').trim().replace(/\n{3,}/g, '\n\n');
   }
 
-  if (!out.firstName || !out.email || !out.address) return null;
+  // Treat Formspree's "(not provided)" sentinel as missing — both for
+  // the address (used to gate prospect creation) and for the phone /
+  // notes (stored as null instead of the literal string).
+  const isNullSentinel = (v: string) => v === '(not provided)' || v === '(none)';
+
+  if (!out.firstName || !out.email || !out.address || isNullSentinel(out.address)) return null;
 
   return {
     firstName: out.firstName,
     lastName: out.lastName || '',
     email: out.email,
-    phone: out.phone || null,
+    phone: out.phone && !isNullSentinel(out.phone) ? out.phone : null,
     address: out.address,
     kind: out.kind || null,
     requestedSlot: out.requestedSlot || null,
-    notes: out.notes || null,
+    notes: out.notes && !isNullSentinel(out.notes) ? out.notes : null,
   };
 }
 
