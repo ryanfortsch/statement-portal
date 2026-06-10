@@ -307,13 +307,26 @@ async function processMessage(
 }
 
 export async function GET(request: NextRequest) {
-  // Cron auth: Vercel cron pings include x-vercel-cron header; manual
-  // calls can include ?secret= for ad-hoc testing.
-  const isCron = request.headers.get('x-vercel-cron') === '1';
-  const secret = request.nextUrl.searchParams.get('secret');
-  const ok = isCron || (process.env.CRON_SECRET && secret === process.env.CRON_SECRET);
-  if (!ok) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  // Cron auth — matches the pattern used by the other crons in this
+  // codebase (marketing-sync, channels-sync, etc.). Vercel sends
+  // `Authorization: Bearer <CRON_SECRET>` on scheduled runs when
+  // CRON_SECRET is set in env. The previous check used
+  // `x-vercel-cron: 1`, which Vercel doesn't reliably send — that's
+  // why every 15-min tick was 401'ing silently.
+  //
+  // If CRON_SECRET is unset, the route's open (early dev) — both
+  // Vercel cron and any ad-hoc caller hit it. Once set, only requests
+  // with the matching bearer get through, plus `?secret=` for manual
+  // testing without crafting a header.
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get('authorization') || '';
+  const queryParam = request.nextUrl.searchParams.get('secret');
+  if (cronSecret) {
+    const headerOk = authHeader === `Bearer ${cronSecret}`;
+    const queryOk = queryParam === cronSecret;
+    if (!headerOk && !queryOk) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
   }
 
   if (MAILBOXES.length === 0) {
