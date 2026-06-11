@@ -1,6 +1,6 @@
 export type WorkSlipCategory = 'maintenance' | 'owner' | 'vendor' | 'other' | 'rising_tide';
 export type WorkSlipPriority = 'low' | 'normal' | 'high';
-export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked';
+export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked' | 'dismissed';
 export type WorkSlipAssignedToType = 'unassigned' | 'team' | 'owner';
 export type WorkSlipOwnerActionType = 'approve' | 'purchase' | 'schedule' | 'decide' | 'reimburse';
 export type WorkSlipOwnerStatus = 'not_sent' | 'sent' | 'approved' | 'declined' | 'questions';
