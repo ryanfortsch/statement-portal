@@ -206,6 +206,7 @@ export async function completeInspection(
       title: `Restock: ${suppliesLabel(key)}`,
       description: `Marked low on the Supplies Check at the end of this inspection.`,
       location: null,
+      from_supply_key: key,
       category: 'rising_tide' as const,
       priority: 'normal' as const,
       status: 'open' as const,

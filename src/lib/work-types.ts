@@ -35,6 +35,9 @@ export type WorkSlipRow = {
   owner_last_contacted_at: string | null;
   resolution_notes: string | null;
   photo_urls: string[];
+  /** Supply key (e.g. paper_towels) when auto-created by the inspection
+   *  Supplies Check — lets the Work board split inventory from work. */
+  from_supply_key: string | null;
   snoozed_until: string | null;
   snoozed_by_email: string | null;
   snoozed_at: string | null;
