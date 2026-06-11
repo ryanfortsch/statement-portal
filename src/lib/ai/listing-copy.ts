@@ -196,6 +196,7 @@ AIRBNB LISTING RULES (in addition to the brand voice rules above):
 - Never include the street name or street number anywhere.
 - No em dashes anywhere. No "luxurious", "stunning", "breathtaking", "paradise", "gem".
 - Concrete nouns over adjectives. "Wolf range" beats "high-end appliances" when the data supports it.
+- Write for a GUEST staying a few nights to a few weeks, never for a buyer or long-term resident. Every line describes what a guest experiences during the stay. Never mention potential ("space for a garden if you want one", "room to grow", "could be converted"), ownership concerns (HOA, taxes, utilities), or renovation opportunity. A lawn is where a guest plays with their kids, not a future garden bed.
 `;
 
 const LISTING_SPECIFIC_RULES = `
@@ -210,6 +211,7 @@ LISTING COPY RULES (in addition to the brand voice rules above):
 - Do not use any em dashes. Period and start a new sentence instead.
 - Never count properties or refer to "our homes". This is a single-listing description.
 - Never include the property's street name or street number anywhere in the copy. The brand rule is "no address until they book". Coves, beaches, neighborhoods, and landmarks are fine; the listing's own street is not.
+- Write for a GUEST staying a few nights to a few weeks, never for a buyer or long-term resident. Every line describes what a guest experiences during the stay. Never mention potential ("space for a garden if you want one"), ownership concerns, or renovation opportunity.
 - Sentence case throughout. Proper nouns stay capitalized.
 `;
 
@@ -227,7 +229,9 @@ function formatUserContext(p: HelmPropertyRow, brief: string): string {
   if (p.square_feet != null) lines.push(`- Square feet: ${p.square_feet}`);
   if (p.parking) lines.push(`- Parking: ${p.parking}`);
   if (p.basement) lines.push(`- Basement: ${p.basement}`);
-  if (p.hoa) lines.push(`- HOA: ${p.hoa}`);
+  // p.hoa intentionally NOT passed — it's owner data, and feeding it in
+  // nudges the model toward real-estate-buyer copy (the "space for a
+  // garden" incident, 2026-06-10).
   lines.push('');
   lines.push('Operator notes about what makes this property special:');
   lines.push(brief.trim() ? brief.trim() : '(operator left blank)');
