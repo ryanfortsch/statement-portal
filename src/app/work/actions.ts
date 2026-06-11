@@ -74,6 +74,13 @@ export async function updateWorkSlipStatus(args: {
     patch.completed_at = new Date().toISOString();
     patch.closed_by_email = session.user.email;
   }
+  // Dismissed = closed without work happening (triage false positive,
+  // duplicate, won't-do). Stamp closed_* but not completed_at so the
+  // slip never counts as completed work.
+  if (args.status === 'dismissed') {
+    patch.closed_at = new Date().toISOString();
+    patch.closed_by_email = session.user.email;
+  }
 
   const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
   if (error) return { ok: false, error: error.message };

@@ -322,6 +322,8 @@ Actionable examples: a worn or uncomfortable furnishing, a broken or missing ite
 
 NOT actionable: pure gratitude ("Thank you so much!"), generic praise ("Loved it, beautiful place!"), or comments with no concrete thing to do.
 
+Also NOT actionable: a guest apologizing for or confessing something THEY did ("sorry I forgot to turn on the dishwasher before I left", "we accidentally took a key, mailing it back") — that's a courtesy note about their own behavior, not a property issue. Do not invent guest-facing process changes from a one-off mention: "add a reminder/sign/checklist item for guests to X" is not a work slip unless the review reports actual damage or a recurring property problem.
+
 A 5-star rating does NOT mean not-actionable: guests often rate 5 and still note a fix in private feedback. Judge the text, not the stars.
 
 You MUST return exactly one entry for every review_id given, even when not actionable. When actionable, write action_summary as a short imperative the team can drop straight onto a work slip. Set priority high for safety issues or anything affecting the next stay, normal for routine fixes/restocks, low for nice-to-haves. When not actionable, set actionable=false, action_summary="", priority="low".`,

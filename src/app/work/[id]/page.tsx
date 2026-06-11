@@ -96,6 +96,7 @@ export default async function WorkSlipDetailPage({
     slip.status === 'in_progress' ? 'var(--signal)'   :
     slip.status === 'scheduled'   ? 'var(--tide-deep)' :
     slip.status === 'blocked'     ? 'var(--negative)' :
+    slip.status === 'dismissed'   ? 'var(--ink-4)' :
     'var(--ink-3)';
 
   return (

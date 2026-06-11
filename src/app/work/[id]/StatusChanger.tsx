@@ -11,6 +11,10 @@ const STATUS_OPTIONS: { value: WorkSlipStatus; label: string; color: string }[] 
   { value: 'scheduled',    label: 'Scheduled',    color: 'var(--tide-deep)' },
   { value: 'blocked',      label: 'Blocked',      color: 'var(--negative)' },
   { value: 'done',         label: 'Done',         color: 'var(--positive)' },
+  // Closed-without-work: triage false positive, duplicate, won't-do.
+  // Drops out of every active queue but keeps the row (and its
+  // from_review_id link) so auto-creation can't resurrect it.
+  { value: 'dismissed',    label: 'Dismissed',    color: 'var(--ink-4)' },
 ];
 
 export function StatusChanger({
@@ -51,9 +55,11 @@ export function StatusChanger({
   async function saveResolutionNotes() {
     setErr(null);
     setSavingNotes(true);
-    // If the slip isn't already done and the user is writing resolution
+    // If the slip isn't already closed and the user is writing resolution
     // notes, assume they're wrapping it up; flip to done at the same time.
-    const nextStatus: WorkSlipStatus | undefined = status === 'done' ? undefined : 'done';
+    // A dismissed slip stays dismissed — notes there are the "why".
+    const nextStatus: WorkSlipStatus | undefined =
+      status === 'done' || status === 'dismissed' ? undefined : 'done';
     const res = await updateWorkSlipResolution({
       id: workSlipId,
       resolution_notes: resolutionNotes,
@@ -123,7 +129,7 @@ export function StatusChanger({
         />
         <div className="flex items-center justify-between" style={{ marginTop: 10, gap: 12, flexWrap: 'wrap' }}>
           <p style={{ fontSize: 11, color: 'var(--ink-4)', margin: 0 }}>
-            {status === 'done'
+            {status === 'done' || status === 'dismissed'
               ? 'Saving updates resolution notes only.'
               : 'Saving will mark the slip Done at the same time.'}
           </p>
@@ -146,7 +152,7 @@ export function StatusChanger({
           >
             {savingNotes
               ? 'Saving…'
-              : status === 'done'
+              : status === 'done' || status === 'dismissed'
                 ? 'Save Notes'
                 : 'Save & Mark Done'}
           </button>
