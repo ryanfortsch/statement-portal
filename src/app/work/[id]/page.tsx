@@ -12,6 +12,7 @@ import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipComments } from './SlipComments';
 import { SnoozeButton } from './SnoozeButton';
+import { SlipTitleEditor } from './SlipTitleEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,20 +120,7 @@ export default async function WorkSlipDetailPage({
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Work Slip</div>
-        <h1
-          className="font-serif"
-          style={{
-            fontSize: 38,
-            lineHeight: 1.05,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            maxWidth: 720,
-          }}
-        >
-          {slip.title}
-        </h1>
+        <SlipTitleEditor slipId={slip.id} initialTitle={slip.title} />
         <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 14 }}>
           <Pill color={statusColor} label={slip.status.replace('_', ' ').toUpperCase()} solid />
           <Pill color={priorityColor} label={`${slip.priority.toUpperCase()} priority`} />
