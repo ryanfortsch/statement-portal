@@ -113,6 +113,17 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
             <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} />
             <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
           </Row>
+          {/* Two-unit homes get a second network. Labels name the unit
+              each network covers; leave the whole row blank for single-
+              network properties and nothing downstream changes. */}
+          <Row>
+            <Field name="wifi_label" label="Wi-Fi 1 unit label" defaultValue={p.wifi_label} hint="Only for two-network homes — e.g. Main House" />
+            <Field name="wifi_name_2" label="Wi-Fi 2 name" defaultValue={p.wifi_name_2} />
+            <Field name="wifi_password_2" label="Wi-Fi 2 password" defaultValue={p.wifi_password_2} />
+          </Row>
+          <Row>
+            <Field name="wifi_label_2" label="Wi-Fi 2 unit label" defaultValue={p.wifi_label_2} hint="e.g. Guest House / Boat House" />
+          </Row>
           <Row>
             <Field name="thermostat_brand" label="Thermostat brand" defaultValue={p.thermostat_brand} hint="Nest / ecobee / Honeywell…" />
             <Field name="thermostat_code" label="Thermostat code / PIN" defaultValue={p.thermostat_code} />

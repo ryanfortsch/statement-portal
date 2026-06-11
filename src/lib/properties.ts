@@ -302,6 +302,14 @@ export type HelmPropertyRow = {
   cable_provider: string | null;
   wifi_name: string | null;
   wifi_password: string | null;
+  // Dual-network support (two-unit homes: main house + guest/boat
+  // house each on their own router). Labels name the unit a network
+  // belongs to ("Main House", "Boat House"); all four null on
+  // single-network properties.
+  wifi_label: string | null;
+  wifi_name_2: string | null;
+  wifi_password_2: string | null;
+  wifi_label_2: string | null;
   // Smart thermostat — parallel to smart_lock_brand/code. Added so the
   // Nest/ecobee PIN that gets traded around in Slack has a home.
   thermostat_brand: string | null;

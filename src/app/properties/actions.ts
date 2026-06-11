@@ -93,6 +93,10 @@ export async function updateProperty(id: string, formData: FormData) {
     cable_provider: strOrNull(formData, 'cable_provider'),
     wifi_name: strOrNull(formData, 'wifi_name'),
     wifi_password: strOrNull(formData, 'wifi_password'),
+    wifi_label: strOrNull(formData, 'wifi_label'),
+    wifi_name_2: strOrNull(formData, 'wifi_name_2'),
+    wifi_password_2: strOrNull(formData, 'wifi_password_2'),
+    wifi_label_2: strOrNull(formData, 'wifi_label_2'),
     num_tvs: intOrNull(formData, 'num_tvs'),
     smart_tv: strOrNull(formData, 'smart_tv'),
 
