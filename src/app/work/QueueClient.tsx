@@ -22,6 +22,7 @@ import {
 } from './actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
+import { suppliesLabel } from '@/lib/inspection-supplies';
 
 type PropertyForPicker = {
   id: string;
@@ -554,6 +555,59 @@ function Pill({
   );
 }
 
+/**
+ * Inventory vs. work: restock slips from the inspection Supplies Check
+ * carry from_supply_key; manually-added Rising Tide slips titled
+ * "Restock: …" count too so a hand-entered "Restock: Coffee pods" lands
+ * on the supplies side of the board instead of among the repairs.
+ */
+function isSupplySlip(s: WorkSlipRow): boolean {
+  return !!s.from_supply_key || (s.category === 'rising_tide' && /^restock:\s/i.test(s.title));
+}
+
+function supplyChipLabel(s: WorkSlipRow): string {
+  if (s.from_supply_key) return suppliesLabel(s.from_supply_key);
+  return s.title.replace(/^restock:\s*/i, '').trim() || s.title;
+}
+
+/** Names shown on the glance line before collapsing into "+N". */
+const GLANCE_SUPPLY_LIMIT = 2;
+
+function SupplyChip({ label, title }: { label: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      style={{
+        fontSize: 11,
+        color: 'var(--tide-deep)',
+        border: '1px solid var(--tide)',
+        background: 'rgba(78, 124, 158, 0.10)',
+        padding: '2px 8px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SlipGroupLabel({ text, color }: { text: string; color: string }) {
+  return (
+    <div
+      style={{
+        padding: '10px 0 4px 24px',
+        fontSize: 10,
+        letterSpacing: '.16em',
+        textTransform: 'uppercase',
+        fontWeight: 700,
+        color,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
 function PropertyGroup({
   property,
   slips,
@@ -584,6 +638,11 @@ function PropertyGroup({
   const [printing, setPrinting] = useState(false);
   const highCount = slips.filter((s) => s.priority === 'high').length;
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
+  const supplySlips = slips.filter(isSupplySlip);
+  const workSlips = slips.filter((s) => !isSupplySlip(s));
+  // The same supply can be flagged low at two inspections before anyone
+  // shops — one chip on the glance line, not two.
+  const supplyNames = [...new Set(supplySlips.map(supplyChipLabel))];
   const propName = property?.name ?? 'Unknown property';
   const propertyId = property?.id ?? null;
 
@@ -650,24 +709,55 @@ function PropertyGroup({
             padded to two digits. It looked like a stable property rank
             but was actually duplicating the count that already appears
             on the right side of the row (next to + SLIP). Dropped. */}
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            textAlign: 'left',
-            cursor: 'pointer',
-            color: 'var(--ink)',
-            flex: 1,
-            minWidth: 160,
-          }}
-        >
-          <span className="font-serif" style={{ fontSize: 18, fontWeight: 500 }}>
-            {propName}
-          </span>
-        </button>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              textAlign: 'left',
+              cursor: 'pointer',
+              color: 'var(--ink)',
+              display: 'block',
+            }}
+          >
+            <span className="font-serif" style={{ fontSize: 18, fontWeight: 500 }}>
+              {propName}
+            </span>
+          </button>
+          {/* Inventory at a glance: which supplies this property needs,
+              readable without expanding the group. Open restock slips
+              drive it, so checking one off clears its chip. */}
+          {supplyNames.length > 0 && (
+            <div
+              className="rt-no-print"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '.16em',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  color: 'var(--tide-deep)',
+                }}
+              >
+                Supplies
+              </span>
+              {supplyNames.slice(0, GLANCE_SUPPLY_LIMIT).map((name) => (
+                <SupplyChip key={name} label={name} />
+              ))}
+              {supplyNames.length > GLANCE_SUPPLY_LIMIT && (
+                <SupplyChip
+                  label={`+${supplyNames.length - GLANCE_SUPPLY_LIMIT}`}
+                  title={supplyNames.slice(GLANCE_SUPPLY_LIMIT).join(', ')}
+                />
+              )}
+            </div>
+          )}
+        </div>
         {highCount > 0 && (
           <span
             style={{
@@ -773,7 +863,28 @@ function PropertyGroup({
 
       {expanded && (
         <div style={{ paddingBottom: 12 }}>
-          {slips.map((s) => (
+          {/* Inventory first, then work, with group labels whenever the
+              property has restocks — keeps a shopping run and a repair
+              visit from reading as one undifferentiated list. The
+              labels print too: the paper checklist gets the same
+              restock-vs-work split as the screen. */}
+          {supplySlips.length > 0 && (
+            <SlipGroupLabel text={`Needs restock · ${supplySlips.length}`} color="var(--tide-deep)" />
+          )}
+          {supplySlips.map((s) => (
+            <WorkSlipRowItem
+              key={s.id}
+              slip={s}
+              isSupply
+              selected={selectedIds.has(s.id)}
+              onToggleSelect={onToggleSelect}
+              commentCount={commentCounts[s.id] ?? 0}
+            />
+          ))}
+          {supplySlips.length > 0 && workSlips.length > 0 && (
+            <SlipGroupLabel text={`Work · ${workSlips.length}`} color="var(--ink-4)" />
+          )}
+          {workSlips.map((s) => (
             <WorkSlipRowItem
               key={s.id}
               slip={s}
@@ -793,11 +904,13 @@ function WorkSlipRowItem({
   selected,
   onToggleSelect,
   commentCount,
+  isSupply = false,
 }: {
   slip: WorkSlipRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   commentCount: number;
+  isSupply?: boolean;
 }) {
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -849,6 +962,7 @@ function WorkSlipRowItem({
             borderRadius: '50%',
             background:
               slip.priority === 'high' ? 'var(--negative)' :
+              isSupply ? 'var(--tide)' :
               slip.priority === 'normal' ? 'var(--ink-3)' :
               'var(--ink-4)',
             flexShrink: 0,
@@ -865,9 +979,21 @@ function WorkSlipRowItem({
         {commentCount > 0 && (
           <span className="rt-no-print"><CommentBadge count={commentCount} /></span>
         )}
-        <span className="rt-no-print" style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
-          {slip.priority}
-        </span>
+        {/* Supply rows trade the priority pill for a supply pill — every
+            restock is priority normal, so the pill said nothing. A
+            hand-bumped high restock keeps its high pill alongside. */}
+        {isSupply ? (
+          <>
+            {slip.priority === 'high' && (
+              <span className="rt-no-print" style={pillTinyStyle('var(--negative)')}>high</span>
+            )}
+            <span className="rt-no-print" style={pillTinyStyle('var(--tide-deep)')}>supply</span>
+          </>
+        ) : (
+          <span className="rt-no-print" style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
+            {slip.priority}
+          </span>
+        )}
         <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
           {slip.status.replace('_', ' ')}
         </span>
