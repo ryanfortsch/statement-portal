@@ -23,7 +23,7 @@ type Props = {
 type CopyFormat = 'airbnb' | 'editorial';
 
 const FORMAT_OPTIONS: Array<{ id: CopyFormat; label: string; sub: string }> = [
-  { id: 'airbnb', label: 'Airbnb', sub: 'Structured. ✓ summary, The space, ☆ highlights.' },
+  { id: 'airbnb', label: 'Airbnb / Guesty', sub: 'One block per Guesty field. ✓ summary, ★ floor-by-floor space, access, neighborhood.' },
   { id: 'editorial', label: 'Stay Cape Ann', sub: 'Editorial paragraphs for staycapeann.com.' },
 ];
 
@@ -179,23 +179,58 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
   );
 }
 
+/**
+ * Render whichever fields the generator returned, labeled to match
+ * Guesty's description editor 1:1 so each Copy button drops straight
+ * into the corresponding Guesty field. Editorial drafts return
+ * tagline/description; Airbnb drafts return summary/space/guest
+ * access/neighborhood.
+ */
+const FIELD_ORDER: Array<{ key: keyof ListingCopy; label: string; multiline: boolean; charLimit?: number }> = [
+  { key: 'title', label: 'Title', multiline: false, charLimit: 50 },
+  { key: 'summary', label: 'Summary', multiline: true, charLimit: 500 },
+  { key: 'space', label: 'The space', multiline: true },
+  { key: 'guest_access', label: 'Guest access', multiline: true },
+  { key: 'neighborhood', label: 'The neighborhood', multiline: true },
+  { key: 'tagline', label: 'Tagline', multiline: false },
+  { key: 'description', label: 'Description', multiline: true },
+];
+
 function ResultPane({ copy }: { copy: ListingCopy }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <Block label="Title" body={copy.title} />
-      <Block label="Tagline" body={copy.tagline} />
-      <Block label="Description" body={copy.description} multiline />
+      {FIELD_ORDER.map(({ key, label, multiline, charLimit }) => {
+        const body = copy[key];
+        if (!body) return null;
+        return <Block key={key} label={label} body={body} multiline={multiline} charLimit={charLimit} />;
+      })}
     </div>
   );
 }
 
-function Block({ label, body, multiline = false }: { label: string; body: string; multiline?: boolean }) {
+function Block({
+  label,
+  body,
+  multiline = false,
+  charLimit,
+}: {
+  label: string;
+  body: string;
+  multiline?: boolean;
+  charLimit?: number;
+}) {
   const [copied, setCopied] = useState(false);
+  const overLimit = charLimit != null && body.length > charLimit;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
         <span className="eyebrow" style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 }}>
           {label}
+          {charLimit != null && (
+            <span style={{ marginLeft: 8, color: overLimit ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}>
+              {body.length}/{charLimit}
+            </span>
+          )}
         </span>
         <button
           type="button"
