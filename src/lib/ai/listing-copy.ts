@@ -105,6 +105,78 @@ export async function generateListingCopy(args: GenerateListingCopyArgs): Promis
     messages: [{ role: 'user', content: userContent }],
   });
 
+  let draft: ListingCopy = {
+    title: stripEmDashes(object.title.trim()),
+    tagline: stripEmDashes(object.tagline.trim()),
+    description: stripEmDashes(object.description.trim()),
+  };
+
+  // Deterministic street-name check. The system rules ban the property's
+  // own street, but the operator's brief often mentions it naturally
+  // ("at the end of Rackliffe Street") and the model echoes the brief
+  // harder than it obeys the rule — observed twice on 2026-06-10. When
+  // the draft leaks the street, run one focused corrective pass that
+  // rewrites the offending phrases against a nearby landmark instead.
+  const violations = findStreetViolations(draft, args.property);
+  if (violations.length > 0) {
+    draft = await rewriteWithoutStreet(draft, violations, format);
+  }
+
+  return draft;
+}
+
+/**
+ * Find occurrences of the property's own street in the draft. Only
+ * "<StreetName> <Suffix>" phrases ("Rackliffe Street", "Beach Rd") and
+ * the full "<number> <street>" head ("19 Rackliffe") count — a bare
+ * street-name token is too false-positive-prone ("granite countertops"
+ * would trip on 36 Granite, "south-facing" on 3 South).
+ */
+function findStreetViolations(draft: ListingCopy, property: HelmPropertyRow): string[] {
+  const head = (property.address || '').split(',')[0]?.trim() ?? '';
+  if (!head) return [];
+  const nameOnly = head
+    .replace(/^\s*\d+\s*/, '')
+    .replace(/\b(st|street|rd|road|ave|avenue|ln|lane|dr|drive|blvd|boulevard|way|cir|circle|ct|court|pl|place|ter|terrace)\b\.?\s*$/i, '')
+    .trim();
+  if (!nameOnly) return [];
+
+  const streetNumber = (head.match(/^\s*(\d+)\s/) ?? [])[1] ?? null;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    // "<Name> <Suffix>": "Rackliffe Street", "Beach Rd"
+    new RegExp(`\\b${esc(nameOnly)}\\s+(street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|way|circle|cir|court|ct|place|pl|terrace|ter)\\b\\.?`, 'gi'),
+  ];
+  // "<Number> <Name>": "19 Rackliffe" — catches the suffix-less form
+  // without the false positives a bare name-token match would cause
+  // ("granite countertops" on 36 Granite, "south-facing" on 3 South).
+  if (streetNumber) {
+    patterns.push(new RegExp(`\\b${esc(streetNumber)}\\s+${esc(nameOnly)}\\b`, 'gi'));
+  }
+
+  const text = `${draft.title}\n${draft.tagline}\n${draft.description}`;
+  const found = new Set<string>();
+  for (const re of patterns) {
+    for (const m of text.matchAll(re)) found.add(m[0]);
+  }
+  return [...found];
+}
+
+/** One focused edit pass: keep everything, remove the street mentions. */
+async function rewriteWithoutStreet(
+  draft: ListingCopy,
+  violations: string[],
+  format: ListingCopyFormat,
+): Promise<ListingCopy> {
+  const { object } = await generateObject({
+    model: 'anthropic/claude-sonnet-4.5',
+    schema: buildSchema(format),
+    system:
+      'You are editing listing copy. Apply ONLY the requested removal. Keep every other word, line break, and structural element exactly as given.',
+    prompt: `This listing draft violates the brand rule "never name the property's own street". Remove every mention of: ${violations.join(
+      ', ',
+    )}. Rephrase those spots against a nearby landmark, cove, beach, or neighborhood that already appears in the copy. Change nothing else.\n\nTitle: ${draft.title}\n\nTagline: ${draft.tagline}\n\nDescription:\n${draft.description}`,
+  });
   return {
     title: stripEmDashes(object.title.trim()),
     tagline: stripEmDashes(object.tagline.trim()),
@@ -237,7 +309,7 @@ function formatUserContext(p: HelmPropertyRow, brief: string): string {
   lines.push(brief.trim() ? brief.trim() : '(operator left blank)');
   lines.push('');
   lines.push(
-    'Return JSON with {title, tagline, description}. Ground every concrete detail in the property data, operator notes, or the attached photos. Do not invent specifics that are not supported.',
+    'Return JSON with {title, tagline, description}. Ground every concrete detail in the property data, operator notes, or the attached photos. Do not invent specifics that are not supported. The operator notes above may mention the street name — your output still must not. Translate any street reference into the nearest cove, beach, neighborhood, or landmark.',
   );
   return lines.join('\n');
 }
