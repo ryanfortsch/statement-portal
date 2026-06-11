@@ -49,7 +49,7 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
           </span>
         ))}
       </div>
-      {calendar.days.length > 7 && (
+      {calendar.days.length - calendar.todayIndex > 7 && (
         <p
           style={{
             fontSize: 11,
@@ -121,6 +121,7 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
         />
         {days.map((d, i) => {
           const isToday = i === todayIndex;
+          const isPast = i < todayIndex;
           const dt = new Date(`${d}T00:00:00`);
           const dow = dt.toLocaleDateString('en-US', { weekday: 'short' });
           const dn = dt.getDate();
@@ -140,6 +141,8 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
                 padding: '4px 2px',
                 position: 'relative',
                 minWidth: 0,
+                // History columns read as context, not destinations.
+                opacity: isPast ? 0.5 : 1,
               }}
             >
               {isToday && (
@@ -240,6 +243,7 @@ function PropertyCalendarRow({
       </Link>
       {row.cells.map((cell, i) => {
         const isToday = i === todayIndex;
+        const isPast = i < todayIndex;
         const occupied = !!cell.reservation;
         // Connect adjacent cells of the same reservation: only the FIRST cell
         // of a reservation gets a left rule, so the visual block reads as one.
@@ -259,7 +263,10 @@ function PropertyCalendarRow({
 
         // First visible cell of a reservation block gets a colored "spine"
         // in its channel accent — drawn as an inset box-shadow (not a wider
-        // border) so it never perturbs the box model / column widths.
+        // border) so it never perturbs the box model / column widths — plus
+        // the guest's first name. Keyed off visibility rather than
+        // cell.isCheckIn so a stay that began before the window's lookback
+        // edge still gets labeled where its bar enters the grid.
         const blockStart = occupied && !sameAsPrev;
         const cellInner = (
           <div
@@ -282,9 +289,13 @@ function PropertyCalendarRow({
               textOverflow: 'ellipsis',
               minWidth: 0,
               cursor: occupied ? 'help' : 'default',
+              // Match the dimmed header: history cells stay visible (the
+              // point of the lookback is seeing a bar already in motion)
+              // but recede behind today-and-forward.
+              opacity: isPast ? 0.5 : 1,
             }}
           >
-            {cell.isCheckIn && cell.reservation ? (
+            {blockStart && cell.reservation ? (
               <span
                 style={{
                   fontWeight: 500,

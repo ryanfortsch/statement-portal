@@ -55,6 +55,12 @@ export const CALENDAR_RANGE_LABEL: Record<CalendarRange, string> = {
 
 export const VALID_CALENDAR_RANGES: CalendarRange[] = ['7d', '14d', '30d'];
 
+// Days of history rendered before the today column on the occupancy
+// calendar. The range labels above stay forward-looking ("7 days" = a week
+// ahead); this just slides the window back so in-progress stays read as
+// bars already in motion when they cross the today line.
+export const CALENDAR_LOOKBACK_DAYS = 2;
+
 // Properties Rising Tide doesn't physically inspect (out-of-region, owner
 // handles cleaning + turnovers locally). They stay in the registry for
 // statements/revenue but are hidden from the turnover pipeline + calendar
@@ -547,11 +553,17 @@ export async function loadOperationsData(
   const inspectionDoneCount = dedupedTurnovers.filter((t) => t.inspectionStatus === 'complete').length;
 
   // ── Calendar ──────────────────────────────────────────────────────────
-  // One row per active property, columns = `calendarDays` consecutive dates
-  // starting from today. Each cell either has a reservation occupying that
-  // night (check_in <= date < check_out) or is empty (vacant).
+  // One row per active property, columns = CALENDAR_LOOKBACK_DAYS of
+  // history + `calendarDays` consecutive dates starting from today. The
+  // lookback makes mid-stay occupancy legible: a guest who checked in two
+  // days ago renders as a bar already in motion before the today column,
+  // instead of being indistinguishable from a fresh check-in (this matches
+  // how Guesty's multi-calendar frames the current day). Each cell either
+  // has a reservation occupying that night (check_in <= date < check_out)
+  // or is empty (vacant). The reservation fetch already reaches 30 days
+  // back, so no extra query needed.
   const calendarDayList: string[] = [];
-  for (let i = 0; i < calendarDays; i += 1) {
+  for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
     calendarDayList.push(addDaysStr(rangeStart, i));
   }
 
@@ -587,7 +599,7 @@ export async function loadOperationsData(
     calendar: {
       days: calendarDayList,
       rows: calendarRows,
-      todayIndex: 0,
+      todayIndex: CALENDAR_LOOKBACK_DAYS,
     },
   };
 }
