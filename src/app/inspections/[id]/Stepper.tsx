@@ -209,11 +209,17 @@ export function Stepper({
     priority: WorkSlipPriority;
     photoUrls: string[];
   }): Promise<string | null> {
-    if (!activeCard) return 'No active card';
+    // activeCard is optional: the inspector can open the work-slip modal
+    // from the inspection top bar to flag something they noticed while
+    // walking that isn't tied to the card they're currently on. In that
+    // case inspection_item_id stays null so the slip is filed against the
+    // inspection (and via inspection -> property) without lying about
+    // which checklist item caused it.
+    const itemId = activeCard?.itemId ?? null;
     const res = await createWorkSlipFromInspection({
       inspectionId,
       propertyId,
-      itemId: activeCard.itemId,
+      itemId,
       title: input.title,
       description: input.description,
       location: input.location,
@@ -226,7 +232,7 @@ export function Stepper({
       ...prev,
       {
         id: res.id,
-        inspection_item_id: activeCard.itemId,
+        inspection_item_id: itemId,
         title: input.title.trim(),
         category: input.category,
         priority: input.priority,
@@ -260,7 +266,12 @@ export function Stepper({
   if (showReview) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <TopBar markedCount={markedCount} total={total} onExit={() => router.push('/inspections')} />
+        <TopBar
+          markedCount={markedCount}
+          total={total}
+          onExit={() => router.push('/inspections')}
+          onAddSlip={() => setShowWorkSlipModal(true)}
+        />
 
         <section className="max-w-[760px] mx-auto px-6 sm:px-10" style={{ paddingTop: 24, paddingBottom: 120, width: '100%', flex: 1 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>{propertyName} · {inspectorName}</div>
@@ -369,6 +380,7 @@ export function Stepper({
         total={total}
         currentIdx={activeIdx}
         onExit={() => router.push('/inspections')}
+        onAddSlip={() => setShowWorkSlipModal(true)}
       />
 
       {/* CARD */}
@@ -563,9 +575,14 @@ export function Stepper({
           }}
         />
       )}
-      {showWorkSlipModal && activeCard && (
+      {showWorkSlipModal && (
         <WorkSlipModal
-          itemTitle={activeCard.title}
+          // Card-scoped when there's an active card (per-item slip from
+          // the action row), otherwise property-scoped (top-bar quick
+          // slip for stuff spotted between cards). Subtitle reflects
+          // which mode the operator is in.
+          itemTitle={activeCard ? activeCard.title : propertyName}
+          scope={activeCard ? 'card' : 'property'}
           inspectionId={inspectionId}
           onClose={() => setShowWorkSlipModal(false)}
           onSubmit={async (input) => {
@@ -617,11 +634,18 @@ function TopBar({
   total,
   currentIdx,
   onExit,
+  onAddSlip,
 }: {
   markedCount: number;
   total: number;
   currentIdx?: number;
   onExit: () => void;
+  /**
+   * Optional: when provided, the top bar shows a "+ Slip" affordance so
+   * the inspector can capture a property-level work slip the moment they
+   * spot something mid-walk that isn't tied to the active card.
+   */
+  onAddSlip?: () => void;
 }) {
   const pct = total > 0 ? Math.round((markedCount / total) * 100) : 0;
   return (
@@ -634,7 +658,7 @@ function TopBar({
         borderBottom: '1px solid var(--ink)',
       }}
     >
-      <div className="max-w-[760px] mx-auto px-6 sm:px-10 flex items-center justify-between" style={{ padding: '12px 24px' }}>
+      <div className="max-w-[760px] mx-auto px-6 sm:px-10 flex items-center justify-between" style={{ padding: '12px 24px', gap: 12 }}>
         <Link
           href="/inspections"
           onClick={(e) => {
@@ -651,17 +675,39 @@ function TopBar({
         >
           ← Exit
         </Link>
-        <span
-          style={{
-            fontSize: 11,
-            letterSpacing: '.16em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            fontWeight: 500,
-          }}
-        >
-          {currentIdx != null ? `${currentIdx + 1} / ${total}` : `${markedCount} / ${total} marked`}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {onAddSlip && (
+            <button
+              type="button"
+              onClick={onAddSlip}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--rule)',
+                padding: '6px 10px',
+                fontSize: 10,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-2)',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+              title="Capture a property-level work slip without leaving the inspection"
+            >
+              + Slip
+            </button>
+          )}
+          <span
+            style={{
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              fontWeight: 500,
+            }}
+          >
+            {currentIdx != null ? `${currentIdx + 1} / ${total}` : `${markedCount} / ${total} marked`}
+          </span>
+        </div>
       </div>
       <div style={{ height: 2, background: 'var(--rule-soft)' }}>
         <div
@@ -1033,11 +1079,18 @@ function NoteModal({
 
 function WorkSlipModal({
   itemTitle,
+  scope = 'card',
   inspectionId,
   onClose,
   onSubmit,
 }: {
   itemTitle: string;
+  /**
+   * 'card' = filed against a specific checklist card (default, "From: <card>").
+   * 'property' = a free-floating slip spotted mid-walk, not tied to a card
+   * ("On: <property>").
+   */
+  scope?: 'card' | 'property';
   inspectionId: string;
   onClose: () => void;
   onSubmit: (input: {
@@ -1084,7 +1137,11 @@ function WorkSlipModal({
   const showMore = moreOpen || !!location.trim() || category !== 'maintenance' || priority !== 'normal';
 
   return (
-    <ModalShell onClose={onClose} title="New Work Slip" subtitle={`From: ${itemTitle}`}>
+    <ModalShell
+      onClose={onClose}
+      title="New Work Slip"
+      subtitle={scope === 'property' ? `On: ${itemTitle}` : `From: ${itemTitle}`}
+    >
       <FieldLabel>Title</FieldLabel>
       <input
         type="text"
@@ -1278,7 +1335,13 @@ function ModalShell({
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'center',
-        padding: 0,
+        // 12px breathing room on left/right/bottom so the sheet reads as
+        // a contained card with visible dimmed margin on every side
+        // ("bleed area" was the complaint), not as a slab pulled up over
+        // the whole bottom of the screen. Top is left to the alignItems +
+        // maxHeight combo so a much larger background tap zone shows
+        // above the sheet on phones.
+        padding: '0 12px 12px',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -1290,26 +1353,22 @@ function ModalShell({
           width: '100%',
           maxWidth: 520,
           background: 'var(--paper)',
-          borderTop: '1px solid var(--ink)',
-          padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))',
-          // 72dvh leaves ~28% of the screen showing the dimmed background
-          // above the sheet, so the modal reads clearly as a contained
-          // popup rather than as the screen itself. Pairs with the
-          // collapsed-by-default form (default visible fields are just
-          // Title + Description; the rest sit behind toggles) so the
-          // modal never has to grow tall to fit its content. dvh =
-          // dynamic viewport height: shrinks with the iOS soft keyboard
-          // on Safari 15.4+ so the sticky action bar stays in view.
-          maxHeight: '72dvh',
-          // Round the top corners so the sheet visually detaches from
-          // the top edge of its space (paired with the dimmed gap above).
-          borderTopLeftRadius: 14,
-          borderTopRightRadius: 14,
+          // Floating card shape: all four corners rounded, drop shadow
+          // for elevation off the dimmed backdrop. No more borderTop —
+          // the card floats above the bottom edge now, so there is no
+          // "shared edge" with the viewport to brace against.
+          borderRadius: 14,
+          boxShadow: '0 12px 36px rgba(30, 46, 52, 0.22)',
+          padding: '20px 20px calc(20px + env(safe-area-inset-bottom, 0px))',
+          // Caps: 560px absolute (form fits comfortably on a phone with
+          // the keyboard up) AND 78dvh (so on a small viewport it still
+          // leaves visible background above). The smaller wins.
+          maxHeight: 'min(560px, 78dvh)',
           overflowY: 'auto',
           // Keep scroll touches inside the modal — otherwise iOS Safari
-          // sometimes propagates the touch to the page underneath and the
-          // modal stops scrolling mid-gesture. Pair with -webkit momentum
-          // scroll so the gesture feels native.
+          // sometimes propagates the touch to the page underneath and
+          // the modal stops scrolling mid-gesture. Pair with -webkit
+          // momentum scroll so the gesture feels native.
           overscrollBehavior: 'contain',
           WebkitOverflowScrolling: 'touch',
         }}
@@ -1384,25 +1443,29 @@ function ModalActions({
     <div
       style={{
         // Stuck to the bottom of the scrolling modal sheet. Negative
-        // side-margins cancel the sheet's 24px padding so the bar runs
+        // side-margins cancel the sheet's 20px padding so the bar runs
         // edge-to-edge and the opaque background hides content scrolling
         // underneath it. Negative bottom margin (and bottom: 0) pin the
         // bar's bottom edge flush with the scroll container's bottom,
         // counteracting the sheet's bottom padding so it sits right at
         // the visible edge — including when iOS shrinks the viewport for
-        // the keyboard (dvh on the sheet does the rest).
+        // the keyboard (dvh on the sheet does the rest). The radius
+        // matches the sheet so the bar tucks cleanly inside the rounded
+        // bottom corners of the card.
         position: 'sticky',
         bottom: 0,
-        marginTop: 22,
-        marginLeft: -24,
-        marginRight: -24,
-        marginBottom: 'calc(-24px - env(safe-area-inset-bottom, 0px))',
+        marginTop: 18,
+        marginLeft: -20,
+        marginRight: -20,
+        marginBottom: 'calc(-20px - env(safe-area-inset-bottom, 0px))',
         display: 'flex',
         gap: 10,
         justifyContent: 'flex-end',
         background: 'var(--paper)',
         borderTop: '1px solid var(--rule)',
-        padding: '14px 24px calc(14px + env(safe-area-inset-bottom, 0px))',
+        borderBottomLeftRadius: 14,
+        borderBottomRightRadius: 14,
+        padding: '14px 20px calc(14px + env(safe-area-inset-bottom, 0px))',
         zIndex: 1,
       }}
     >
