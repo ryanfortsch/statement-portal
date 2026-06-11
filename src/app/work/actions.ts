@@ -84,6 +84,28 @@ export async function updateWorkSlipStatus(args: {
 }
 
 /**
+ * Rename a work slip from the detail page. Tasks have had full edit via
+ * updateTask since day one; slips only ever got status/assignment
+ * mutations, so a typo'd or vague title was frozen at creation.
+ */
+export async function updateWorkSlipTitle(args: {
+  id: string;
+  title: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const title = args.title.trim();
+  if (!title) return { ok: false, error: 'Title is required' };
+
+  const { error } = await supabase.from('work_slips').update({ title }).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
  * Save resolution notes (and optionally the status) on a work slip from
  * the detail page. Used when marking done or capturing context after
  * the fact -- e.g. "Replaced the bulb, took 5 min."
