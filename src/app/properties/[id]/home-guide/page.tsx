@@ -65,7 +65,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
                 <>
                   {p.wifi_name && (
                     <p>
-                      <span className="rt-k">Network</span>
+                      <span className="rt-k">{p.wifi_label ? `Network · ${p.wifi_label}` : 'Network'}</span>
                       <span className="rt-v rt-mono">{p.wifi_name}</span>
                     </p>
                   )}
@@ -73,6 +73,20 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
                     <p>
                       <span className="rt-k">Password</span>
                       <span className="rt-v rt-mono">{p.wifi_password}</span>
+                    </p>
+                  )}
+                  {/* Second unit's network (two-router homes). Labeled so
+                      guests know which credentials cover their unit. */}
+                  {p.wifi_name_2 && (
+                    <p>
+                      <span className="rt-k">{p.wifi_label_2 ? `Network · ${p.wifi_label_2}` : 'Network 2'}</span>
+                      <span className="rt-v rt-mono">{p.wifi_name_2}</span>
+                    </p>
+                  )}
+                  {p.wifi_name_2 && p.wifi_password_2 && (
+                    <p>
+                      <span className="rt-k">Password</span>
+                      <span className="rt-v rt-mono">{p.wifi_password_2}</span>
                     </p>
                   )}
                   <p className="rt-aside">A scannable QR code is posted near the entry.</p>

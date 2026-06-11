@@ -28,9 +28,16 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const ssid = p.wifi_name || '';
-  const pass = p.wifi_password || '';
-  const wifiUri = `WIFI:T:WPA;S:${escapeWifi(ssid)};P:${escapeWifi(pass)};H:false;;`;
+  // One placard per network. Two-unit homes (main house + boat house on
+  // separate routers) get two cards — each prints on its own 4×6 page so
+  // one goes in each unit's glass case. Single-network homes render the
+  // one card exactly as before.
+  const networks: Array<{ ssid: string; pass: string; label: string | null }> = [
+    { ssid: p.wifi_name || '', pass: p.wifi_password || '', label: p.wifi_label },
+  ];
+  if (p.wifi_name_2 || p.wifi_password_2) {
+    networks.push({ ssid: p.wifi_name_2 || '', pass: p.wifi_password_2 || '', label: p.wifi_label_2 });
+  }
 
   // QR rendered onto cream so it prints with no transparency artifacts.
   // ECC level Q balances density against resilience to scuffs in a printed
@@ -38,55 +45,64 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
   // so a longer SSID (which forces a denser QR symbol) doesn't push the
   // module size below the ~1.0mm consumer-printer reproduction floor —
   // see lib/qr-sizing.ts for the full geometry argument.
-  const qr = ssid && pass
-    ? await renderQrForPlacard({
-        uri: wifiUri,
-        errorCorrectionLevel: 'Q',
-        color: { dark: '#0F2A44', light: '#F4ECD8' },
-        floorPx: 140,
-      })
-    : null;
-  const qrSvg = qr?.svg ?? '';
-  const qrSize = qr?.sizePx ?? 140;
+  const cards = await Promise.all(
+    networks.map(async (n) => {
+      const wifiUri = `WIFI:T:WPA;S:${escapeWifi(n.ssid)};P:${escapeWifi(n.pass)};H:false;;`;
+      const qr = n.ssid && n.pass
+        ? await renderQrForPlacard({
+            uri: wifiUri,
+            errorCorrectionLevel: 'Q',
+            color: { dark: '#0F2A44', light: '#F4ECD8' },
+            floorPx: 140,
+          })
+        : null;
+      return { ...n, qrSvg: qr?.svg ?? '', qrSize: qr?.sizePx ?? 140 };
+    }),
+  );
 
   return (
     <>
       <style>{placardCss}</style>
       <div className="rt-doc">
-        <article className="rt-card">
-          {/* Cream inner panel */}
-          <div className="rt-panel">
-            <ScaMark />
+        {cards.map((card, i) => (
+          <article className="rt-card" key={i}>
+            {/* Cream inner panel */}
+            <div className="rt-panel">
+              <ScaMark />
 
-            <div className="rt-eyebrow">Wi-Fi</div>
+              <div className="rt-eyebrow">Wi-Fi</div>
+              {/* Unit label distinguishes the two cards of a two-network
+                  home ("Main House" / "Boat House"). Hidden when unset. */}
+              {card.label && <div className="rt-unit">{card.label}</div>}
 
-            <div className="rt-qr" style={{ width: qrSize, height: qrSize }}>
-              {qrSvg ? (
-                <span dangerouslySetInnerHTML={{ __html: qrSvg }} />
-              ) : (
-                <div className="rt-qr-empty">
-                  <div className="rt-qr-empty-h">Add a Wi-Fi name and password</div>
-                  <div>to this property in Helm to render the QR.</div>
+              <div className="rt-qr" style={{ width: card.qrSize, height: card.qrSize }}>
+                {card.qrSvg ? (
+                  <span dangerouslySetInnerHTML={{ __html: card.qrSvg }} />
+                ) : (
+                  <div className="rt-qr-empty">
+                    <div className="rt-qr-empty-h">Add a Wi-Fi name and password</div>
+                    <div>to this property in Helm to render the QR.</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Network + password as stacked editorial rows, not boxed inputs */}
+              <dl className="rt-fields">
+                <div className="rt-row">
+                  <dt>Network</dt>
+                  <dd>{card.ssid || ' '}</dd>
                 </div>
-              )}
+                <div className="rt-row">
+                  <dt>Password</dt>
+                  <dd>{card.pass || ' '}</dd>
+                </div>
+              </dl>
             </div>
 
-            {/* Network + password as stacked editorial rows, not boxed inputs */}
-            <dl className="rt-fields">
-              <div className="rt-row">
-                <dt>Network</dt>
-                <dd>{ssid || ' '}</dd>
-              </div>
-              <div className="rt-row">
-                <dt>Password</dt>
-                <dd>{pass || ' '}</dd>
-              </div>
-            </dl>
-          </div>
-
-          {/* Navy footer band */}
-          <div className="rt-footer">staycapeann.com</div>
-        </article>
+            {/* Navy footer band */}
+            <div className="rt-footer">staycapeann.com</div>
+          </article>
+        ))}
       </div>
     </>
   );
@@ -132,6 +148,8 @@ const placardCss = `
     display: flex;
     justify-content: center;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 32px;
     min-height: 100vh;
     padding: 24px;
     font-family: var(--font-inter), system-ui, sans-serif;
@@ -153,7 +171,10 @@ const placardCss = `
   @media print {
     html, body { background: white; }
     .rt-doc { background: white; padding: 0; min-height: 0; display: block; }
-    .rt-card { box-shadow: none; }
+    /* One placard per 4x6 page. Two-network homes print two pages, one
+       card per unit's glass case. */
+    .rt-card { box-shadow: none; page-break-after: always; }
+    .rt-card:last-child { page-break-after: auto; }
   }
 
   /* Cream inner panel */
@@ -178,6 +199,17 @@ const placardCss = `
     font-weight: 400;
     color: var(--sca-navy);
     letter-spacing: -0.01em;
+  }
+
+  /* Unit label under the Wi-Fi headline on two-network homes. Small
+     caps in tan so it reads as a quiet qualifier, not a second title. */
+  .rt-unit {
+    margin-top: 8px;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--sca-tan);
   }
 
   /* QR — square, no chrome, sits naturally on the cream. Width and
