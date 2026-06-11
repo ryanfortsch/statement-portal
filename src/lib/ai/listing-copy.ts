@@ -38,20 +38,39 @@ type ListingExample = Pick<ScaListing, 'title' | 'tagline' | 'description' | 'to
 
 export type ListingCopyFormat = 'airbnb' | 'editorial';
 
-/** Per-format Zod schemas. The shape is the same triplet either way;
- *  the .describe() strings are the model's strongest formatting signal
- *  with generateObject, so they're format-specific. */
+/**
+ * Per-format Zod schemas. The .describe() strings are the model's
+ * strongest formatting signal with generateObject, so they're
+ * format-specific.
+ *
+ * The airbnb format emits ONE OUTPUT PER GUESTY DESCRIPTION FIELD,
+ * matching the edit form at guesty.com/properties/<id>/descriptions/
+ * edit: Title / Summary / The space / Guest access / The neighborhood.
+ * Field conventions reverse-engineered from our own live listings via
+ * the stay-cape-ann repo's snapshot parser (lib/guesty.ts:
+ * cleanHighlights + cleanTagline document the authoring style):
+ *
+ *   summary  = headline + ✓ checkmark block, Airbnb caps at 500 chars
+ *   space    = intro paragraph + ★★★ 1ST FLOOR ★★★ section headers
+ *              with "→ Room: detail" lines, floor by floor
+ */
 function buildSchema(format: ListingCopyFormat) {
   if (format === 'airbnb') {
     return z.object({
       title: z.string().describe(
         'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, cove, neighborhood). Maximum 50 characters total (Airbnb limit). No address, no street name or number. Must NOT duplicate any title in the taken-titles list.'
       ),
-      tagline: z.string().describe(
-        'The opening hook line of the Airbnb description. Short, concrete, ends with an exclamation point only if natural. Pattern from our existing listings: "4-Minute Walk to Good Harbor Beach!". 5-10 words.'
+      summary: z.string().describe(
+        'The Guesty/Airbnb Summary field. STRICT 500 character maximum (Airbnb truncates beyond that). Structure: one hook headline line (pattern: "4-Minute Walk to Good Harbor Beach!"), then a blank line, then 3-5 lines each starting with "✓ " covering location, renovation/condition, sleeping capacity ("Sleeps N across ..."), standout amenity. One fact per line. No street names.'
       ),
-      description: z.string().describe(
-        'The full Airbnb "About this space" body in our house structure, in this exact order:\n(1) 3-5 summary lines each starting with "✓ " covering location, renovation/condition, sleeping capacity, standout finish or amenity.\n(2) A blank line, then "The space" on its own line, then one grounded 2-4 sentence paragraph.\n(3) A blank line, then "☆☆☆ HIGHLIGHTS ☆☆☆" on its own line, then 4-6 lines each starting with "→ ".\n(4) Optional sections titled like "☆☆☆ MAIN HOUSE – LIVING SPACES ☆☆☆" with more "→ " lines, one section per area, only where the photos or property data support specifics.\n250-450 words total. No em dashes. Never include the street name or number. Ground every claim in the property data, operator notes, or photos.'
+      space: z.string().describe(
+        'The Guesty "The space" field. Structure, in this exact order:\n(1) One grounded 2-4 sentence intro paragraph describing the property as a guest experiences it.\n(2) A blank line, then floor-by-floor sections. Each section is a header line like "★★★ 1ST FLOOR ★★★" (also "★★★ 2ND FLOOR ★★★", "★★★ OUTDOOR ★★★", "★★★ GUEST HOUSE ★★★" as applicable), followed by "→ <Room>: <detail>" lines, one per room or feature, e.g. "→ Kitchen: Fully-stocked with essentials" / "→ Primary bedroom: king bed, ensuite bath".\nOnly include floors/areas the photos or property data support. 150-350 words total. No em dashes. No street names.'
+      ),
+      guest_access: z.string().describe(
+        'The Guesty "Guest access" field. 1-3 short sentences: how guests get in (smart lock, keypad), what they have access to (whole home, which outdoor areas), parking. Only state what the property data or operator notes support. No codes, no street names.'
+      ),
+      neighborhood: z.string().describe(
+        'The Guesty "The neighborhood" field. One short paragraph (2-4 sentences): the immediate area as a guest walks it — named beaches, galleries, restaurants, harbor. Use real Cape Ann place names from the property data or operator notes. No street names for the property itself.'
       ),
     });
   }
@@ -68,7 +87,21 @@ function buildSchema(format: ListingCopyFormat) {
   });
 }
 
-export type ListingCopy = { title: string; tagline: string; description: string };
+/**
+ * Union result shape. Editorial fills {title, tagline, description};
+ * airbnb fills {title, summary, space, guest_access, neighborhood} —
+ * one entry per field in Guesty's description editor so the operator
+ * pastes 1:1. All non-title fields optional so one type serves both.
+ */
+export type ListingCopy = {
+  title: string;
+  tagline?: string;
+  description?: string;
+  summary?: string;
+  space?: string;
+  guest_access?: string;
+  neighborhood?: string;
+};
 
 export type GenerateListingCopyArgs = {
   property: HelmPropertyRow;
@@ -105,11 +138,7 @@ export async function generateListingCopy(args: GenerateListingCopyArgs): Promis
     messages: [{ role: 'user', content: userContent }],
   });
 
-  let draft: ListingCopy = {
-    title: stripEmDashes(object.title.trim()),
-    tagline: stripEmDashes(object.tagline.trim()),
-    description: stripEmDashes(object.description.trim()),
-  };
+  let draft = cleanCopy(object as Record<string, unknown>);
 
   // Deterministic street-name check. The system rules ban the property's
   // own street, but the operator's brief often mentions it naturally
@@ -154,12 +183,22 @@ function findStreetViolations(draft: ListingCopy, property: HelmPropertyRow): st
     patterns.push(new RegExp(`\\b${esc(streetNumber)}\\s+${esc(nameOnly)}\\b`, 'gi'));
   }
 
-  const text = `${draft.title}\n${draft.tagline}\n${draft.description}`;
+  const text = Object.values(draft).filter(Boolean).join('\n');
   const found = new Set<string>();
   for (const re of patterns) {
     for (const m of text.matchAll(re)) found.add(m[0]);
   }
   return [...found];
+}
+
+/** Trim + scrub every populated field of a generated object into the
+ *  flat ListingCopy shape. */
+function cleanCopy(raw: Record<string, unknown>): ListingCopy {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'string' && v.trim()) out[k] = stripEmDashes(v.trim());
+  }
+  return out as unknown as ListingCopy;
 }
 
 /** One focused edit pass: keep everything, remove the street mentions. */
@@ -168,6 +207,10 @@ async function rewriteWithoutStreet(
   violations: string[],
   format: ListingCopyFormat,
 ): Promise<ListingCopy> {
+  const draftBlock = Object.entries(draft)
+    .filter(([, v]) => typeof v === 'string' && v)
+    .map(([k, v]) => `${k}:\n${v}`)
+    .join('\n\n');
   const { object } = await generateObject({
     model: 'anthropic/claude-sonnet-4.5',
     schema: buildSchema(format),
@@ -175,13 +218,9 @@ async function rewriteWithoutStreet(
       'You are editing listing copy. Apply ONLY the requested removal. Keep every other word, line break, and structural element exactly as given.',
     prompt: `This listing draft violates the brand rule "never name the property's own street". Remove every mention of: ${violations.join(
       ', ',
-    )}. Rephrase those spots against a nearby landmark, cove, beach, or neighborhood that already appears in the copy. Change nothing else.\n\nTitle: ${draft.title}\n\nTagline: ${draft.tagline}\n\nDescription:\n${draft.description}`,
+    )}. Rephrase those spots against a nearby landmark, cove, beach, or neighborhood that already appears in the copy. Change nothing else.\n\n${draftBlock}`,
   });
-  return {
-    title: stripEmDashes(object.title.trim()),
-    tagline: stripEmDashes(object.tagline.trim()),
-    description: stripEmDashes(object.description.trim()),
-  };
+  return cleanCopy(object as Record<string, unknown>);
 }
 
 /**
@@ -254,15 +293,21 @@ function composeSystemPrompt(
 }
 
 const AIRBNB_FORMAT_RULES = `
-AIRBNB LISTING RULES (in addition to the brand voice rules above):
+GUESTY / AIRBNB LISTING RULES (in addition to the brand voice rules above):
 
-- Title is "Stay at <Place>". <Place> is a micro-location, never a street name or number. Maximum 50 characters.
-- The tagline is the opening hook line. Lead with the single most bookable fact (walk time to a named beach, direct water access, dock). Example from our live listings: "4-Minute Walk to Good Harbor Beach!".
-- The description follows our exact Airbnb house structure:
-  1. A block of 3-5 "✓ " summary lines. One fact each: location, renovation state, sleeping capacity ("Sleeps N across ..."), standout amenity or finish.
-  2. "The space" section header, then one 2-4 sentence grounded paragraph.
-  3. "☆☆☆ HIGHLIGHTS ☆☆☆" header, then 4-6 "→ " lines with the strongest specifics.
-  4. Optional per-area sections headed "☆☆☆ <AREA NAME> ☆☆☆" (e.g. MAIN HOUSE – LIVING SPACES, BEDROOMS, OUTDOOR) with "→ " lines. Only include an area when the photos or property data give real specifics for it.
+You are filling the five fields of Guesty's description editor. Each output field maps 1:1 onto a Guesty field, so respect each field's own structure and length limit.
+
+- title: "Stay at <Place>". <Place> is a micro-location, never a street name or number. Maximum 50 characters (Airbnb hard limit).
+- summary: STRICT 500 character maximum (Airbnb truncates beyond it). One hook headline line leading with the single most bookable fact (walk time to a named beach, direct water access, dock) — pattern: "4-Minute Walk to Good Harbor Beach!". Then a blank line, then 3-5 "✓ " lines, one fact each: location, renovation state, sleeping capacity ("Sleeps N across ..."), standout amenity.
+- space: one grounded 2-4 sentence intro paragraph, then floor-by-floor sections in our exact house style:
+    ★★★ 1ST FLOOR ★★★
+    → Kitchen: Fully-stocked with essentials
+    → Dining: Kitchen bar and dining table
+    ★★★ 2ND FLOOR ★★★
+    → Primary bedroom: king bed, ensuite bath
+  Use "★★★ <FLOOR/AREA> ★★★" headers (1ST FLOOR, 2ND FLOOR, 3RD FLOOR, OUTDOOR, GUEST HOUSE as applicable) and "→ <Room>: <detail>" lines. Group every room under its floor. Only include floors/areas the photos, operator notes, or property data support.
+- guest_access: 1-3 short sentences. Entry method, what guests can use, parking. Never include actual codes.
+- neighborhood: one short paragraph on the immediate area as a guest walks it. Real Cape Ann place names.
 - Use the photos when attached. Reference what's actually visible. Do not invent finishes, appliance brands, or views that are not supported.
 - Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate.
 - Never include the street name or street number anywhere.
@@ -309,7 +354,7 @@ function formatUserContext(p: HelmPropertyRow, brief: string): string {
   lines.push(brief.trim() ? brief.trim() : '(operator left blank)');
   lines.push('');
   lines.push(
-    'Return JSON with {title, tagline, description}. Ground every concrete detail in the property data, operator notes, or the attached photos. Do not invent specifics that are not supported. The operator notes above may mention the street name — your output still must not. Translate any street reference into the nearest cove, beach, neighborhood, or landmark.',
+    'Fill every field of the response schema. Ground every concrete detail in the property data, operator notes, or the attached photos. Do not invent specifics that are not supported. The operator notes above may mention the street name — your output still must not. Translate any street reference into the nearest cove, beach, neighborhood, or landmark.',
   );
   return lines.join('\n');
 }
