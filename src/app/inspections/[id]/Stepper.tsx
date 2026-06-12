@@ -1142,121 +1142,118 @@ function WorkSlipModal({
       title="New Work Slip"
       subtitle={scope === 'property' ? `On: ${itemTitle}` : `From: ${itemTitle}`}
     >
-      <FieldLabel>Title</FieldLabel>
+      {/* No explicit field labels for the two everyday fields - the
+          placeholders carry the meaning, the modal title carries the
+          intent, and stripping the labels saves two label-rows of
+          vertical chrome which is what was making the form feel busy. */}
       <input
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         autoFocus
-        placeholder="Brief description of the issue"
+        placeholder="Title — what's the issue?"
         style={modalInputStyle()}
       />
 
-      <div style={{ marginTop: 14 }}>
-        <FieldLabel>Description / Notes</FieldLabel>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={3}
-          placeholder="Additional details about the issue…"
-          style={modalTextareaStyle()}
-        />
-      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        rows={2}
+        placeholder="More details (optional)"
+        style={{ ...modalTextareaStyle(), marginTop: 10 }}
+      />
 
-      <div style={{ marginTop: 14 }}>
-        {showMore ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <FieldLabel>Category</FieldLabel>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
-                  style={modalSelectStyle()}
-                >
-                  <option value="maintenance">Maintenance</option>
-                  <option value="owner">Owner</option>
-                  <option value="vendor">Vendor</option>
-                  <option value="rising_tide">Rising Tide</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <FieldLabel>Priority</FieldLabel>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
-                  style={modalSelectStyle()}
-                >
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <FieldLabel>Location / Area (optional)</FieldLabel>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g., Kitchen, Primary Bath"
-                style={modalInputStyle()}
-              />
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setMoreOpen(true)}
-            style={{
-              background: 'transparent',
-              border: '1px dashed var(--rule)',
-              padding: '10px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            + More details (category, priority, location)
+      {/* Optional sections. Defaults to a row of two small inline text
+          links - dramatically lighter than the previous full-width
+          dashed buttons, but still clear and tappable. Each link
+          expands its section inline when tapped. */}
+      {!showMore && !(photosOpen || photos.length > 0) && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 18,
+            marginTop: 12,
+            fontSize: 12,
+            color: 'var(--ink-3)',
+          }}
+        >
+          <button type="button" onClick={() => setMoreOpen(true)} style={inlineLinkStyle}>
+            + Details
           </button>
-        )}
-      </div>
+          <button type="button" onClick={() => setPhotosOpen(true)} style={inlineLinkStyle}>
+            + Photo
+          </button>
+        </div>
+      )}
 
-      <div style={{ marginTop: 14 }}>
-        {photosOpen || photos.length > 0 ? (
-          <>
-            <FieldLabel>Photos (optional)</FieldLabel>
-            <PhotoUploader
-              value={photos}
-              onChange={setPhotos}
-              folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
-              disabled={submitting}
+      {showMore && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <FieldLabel>Category</FieldLabel>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
+                style={modalSelectStyle()}
+              >
+                <option value="maintenance">Maintenance</option>
+                <option value="owner">Owner</option>
+                <option value="vendor">Vendor</option>
+                <option value="rising_tide">Rising Tide</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Priority</FieldLabel>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
+                style={modalSelectStyle()}
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <FieldLabel>Location (optional)</FieldLabel>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="e.g., Kitchen, Primary Bath"
+              style={modalInputStyle()}
             />
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setPhotosOpen(true)}
-            style={{
-              background: 'transparent',
-              border: '1px dashed var(--rule)',
-              padding: '10px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            + Add photo (optional)
-          </button>
-        )}
-      </div>
+          </div>
+          {!photosOpen && photos.length === 0 && (
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>
+              <button type="button" onClick={() => setPhotosOpen(true)} style={inlineLinkStyle}>
+                + Photo
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(photosOpen || photos.length > 0) && (
+        <div style={{ marginTop: 14 }}>
+          <FieldLabel>Photos</FieldLabel>
+          <PhotoUploader
+            value={photos}
+            onChange={setPhotos}
+            folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
+            disabled={submitting}
+          />
+          {!showMore && (
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>
+              <button type="button" onClick={() => setMoreOpen(true)} style={inlineLinkStyle}>
+                + Details
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {err && <ErrorBlock error={err} />}
 
@@ -1351,7 +1348,11 @@ function ModalShell({
         ref={sheetRef}
         style={{
           width: '100%',
-          maxWidth: 520,
+          // Narrower (was 520) so the modal feels like a card on tablets
+          // and desktop, not a full document. On a phone the screen is
+          // narrower than this anyway so the overlay's 12px side padding
+          // is what creates the visible bleed there.
+          maxWidth: 440,
           background: 'var(--paper)',
           // Floating card shape: all four corners rounded, drop shadow
           // for elevation off the dimmed backdrop. No more borderTop —
@@ -1359,11 +1360,14 @@ function ModalShell({
           // "shared edge" with the viewport to brace against.
           borderRadius: 14,
           boxShadow: '0 12px 36px rgba(30, 46, 52, 0.22)',
-          padding: '20px 20px calc(20px + env(safe-area-inset-bottom, 0px))',
-          // Caps: 560px absolute (form fits comfortably on a phone with
-          // the keyboard up) AND 78dvh (so on a small viewport it still
+          // Inner padding tightened (was 20) so the card itself is
+          // smaller and the dimmed margin reads as more generous by
+          // contrast.
+          padding: '16px 16px calc(16px + env(safe-area-inset-bottom, 0px))',
+          // Caps: 480px absolute (form fits comfortably on a phone with
+          // the keyboard up) AND 72dvh (so on a small viewport it still
           // leaves visible background above). The smaller wins.
-          maxHeight: 'min(560px, 78dvh)',
+          maxHeight: 'min(480px, 72dvh)',
           overflowY: 'auto',
           // Keep scroll touches inside the modal — otherwise iOS Safari
           // sometimes propagates the touch to the page underneath and
@@ -1443,7 +1447,7 @@ function ModalActions({
     <div
       style={{
         // Stuck to the bottom of the scrolling modal sheet. Negative
-        // side-margins cancel the sheet's 20px padding so the bar runs
+        // side-margins cancel the sheet's 16px padding so the bar runs
         // edge-to-edge and the opaque background hides content scrolling
         // underneath it. Negative bottom margin (and bottom: 0) pin the
         // bar's bottom edge flush with the scroll container's bottom,
@@ -1454,10 +1458,10 @@ function ModalActions({
         // bottom corners of the card.
         position: 'sticky',
         bottom: 0,
-        marginTop: 18,
-        marginLeft: -20,
-        marginRight: -20,
-        marginBottom: 'calc(-20px - env(safe-area-inset-bottom, 0px))',
+        marginTop: 16,
+        marginLeft: -16,
+        marginRight: -16,
+        marginBottom: 'calc(-16px - env(safe-area-inset-bottom, 0px))',
         display: 'flex',
         gap: 10,
         justifyContent: 'flex-end',
@@ -1465,7 +1469,7 @@ function ModalActions({
         borderTop: '1px solid var(--rule)',
         borderBottomLeftRadius: 14,
         borderBottomRightRadius: 14,
-        padding: '14px 20px calc(14px + env(safe-area-inset-bottom, 0px))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
         zIndex: 1,
       }}
     >
@@ -1512,6 +1516,21 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
     <div className="eyebrow" style={{ marginBottom: 6 }}>{children}</div>
   );
 }
+
+// Lightweight text-only "+ Details" / "+ Photo" links the work-slip modal
+// uses to open optional sections. Way less visual weight than the
+// previous full-width dashed buttons, but still obvious and tappable.
+const inlineLinkStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  color: 'var(--tide-deep)',
+  textDecoration: 'underline',
+  textUnderlineOffset: 2,
+};
 
 function modalInputStyle(): React.CSSProperties {
   return {
