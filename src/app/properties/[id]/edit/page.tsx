@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { updateProperty } from '@/app/properties/actions';
+import { updatePropertyWithState } from '@/app/properties/actions';
+import { EditFormShell } from './EditFormShell';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +41,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
 
   // Bind the property id to the action so the form only needs to submit
   // its FormData payload.
-  const action = updateProperty.bind(null, id);
+  const action = updatePropertyWithState.bind(null, id);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -73,7 +74,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
         </p>
       </section>
 
-      <form action={action} className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', display: 'flex', flexDirection: 'column', gap: 36 }}>
+      <EditFormShell action={action} propertyId={p.id}>
         {/* ── Owner contact extras ── */}
         <Group eyebrow="01" title="Owner contact">
           <Row>
@@ -221,38 +222,10 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
           <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} hint="If known. e.g. 2027-04-30" />
         </Group>
 
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 22, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            type="submit"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              padding: '14px 28px',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Save changes
-          </button>
-          <Link
-            href={`/properties/${p.id}`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              textDecoration: 'none',
-              padding: '14px 14px',
-            }}
-          >
-            Cancel
-          </Link>
-        </div>
-      </form>
+        {/* Save button + inline error banner + draft restore live in
+            EditFormShell so failures keep the form (and Dotti's typing)
+            on screen instead of bouncing to the dead error page. */}
+      </EditFormShell>
 
       <style>{editCss}</style>
     </div>

@@ -70,6 +70,42 @@ export async function updateProperty(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  const result = await performPropertyUpdate(id, formData);
+  if (result.error) throw new Error(result.error);
+
+  redirect(`/properties/${id}`);
+}
+
+/**
+ * useActionState-compatible variant. Returns `{ error }` instead of
+ * throwing, so the edit form can re-render WITH the user's typed
+ * values intact and an inline error banner — rather than the dead
+ * "server error occurred" page that ate Dotti's 30 Woodward data on
+ * 2026-06-12 (and several edits before it). Redirects on success.
+ */
+export type UpdatePropertyState = { error: string | null };
+
+export async function updatePropertyWithState(
+  id: string,
+  _prevState: UpdatePropertyState,
+  formData: FormData,
+): Promise<UpdatePropertyState> {
+  const session = await auth();
+  if (!session?.user?.email) return { error: 'Not signed in. Refresh and sign in again.' };
+
+  const result = await performPropertyUpdate(id, formData);
+  if (result.error) return { error: result.error };
+
+  redirect(`/properties/${id}`);
+}
+
+/** Shared core: build payload, write via service role, revalidate.
+ *  Returns { error } rather than throwing so both wrappers above can
+ *  choose their own failure surface. Never throws on DB problems. */
+async function performPropertyUpdate(
+  id: string,
+  formData: FormData,
+): Promise<{ error: string | null }> {
   const payload = {
     // Owner contact extras
     owner_phone: strOrNull(formData, 'owner_phone'),
@@ -163,11 +199,11 @@ export async function updateProperty(id: string, formData: FormData) {
       payloadKeys: Object.keys(payload),
       error,
     });
-    throw new Error(error.message);
+    return { error: `Save failed: ${error.message}` };
   }
   if (!updated || updated.length === 0) {
     console.error('[updateProperty] 0 rows updated', { id, payloadKeys: Object.keys(payload) });
-    throw new Error(`Property ${id} not updated (0 rows affected). Check the property id.`);
+    return { error: `Property ${id} not updated (0 rows affected). Check the property id.` };
   }
 
   revalidatePath('/properties');
@@ -176,7 +212,7 @@ export async function updateProperty(id: string, formData: FormData) {
   revalidatePath(`/properties/${id}/home-guide`);
   revalidatePath(`/properties/${id}/wifi-placard`);
   revalidatePath(`/properties/${id}/welcome-card`);
-  redirect(`/properties/${id}`);
+  return { error: null };
 }
 
 /**
