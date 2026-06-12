@@ -1,10 +1,10 @@
 /**
  * Static AirDNA market data: monthly average revenue (RevPAR-equivalent) per
- * bedroom count for Rockport and Gloucester, 2018 → present.
+ * bedroom count for Rockport, Gloucester, and Beverly, 2018 → present.
  *
- * Source: Rising_Tide_Property_Analyzer vF.xlsx (sheets "AirDNA - Rockport" and
- * "AirDNA - Gloucester"). Refresh annually by re-exporting the spreadsheet's
- * AirDNA tabs and regenerating this file.
+ * Sources: Rising_Tide_Property_Analyzer vF.xlsx (sheets "AirDNA - Rockport"
+ * and "AirDNA - Gloucester") + revenueAverage_since_2018.csv (Beverly,
+ * market-blended). Refresh annually by re-exporting and regenerating.
  *
  * The Projections module uses these in two ways:
  *   1. Trailing 3-year annual average (revenue model method 2)
@@ -226,15 +226,125 @@ export const GLOUCESTER_AIRDNA: AirDnaMonth[] = [
   { date: '2026-02', br1: 1187.25, br2: 2699.75, br3: 1731.45, br4: 5740.43, br5: 4444.5, br6plus: 3304.0 },
 ];
 
+// Beverly's AirDNA export (revenueAverage_since_2018.csv) is a single
+// market-blended monthly revenue series — no per-bedroom split. The value
+// is replicated across all six BR columns so:
+//   - seasonality pooling resolves to the true Beverly curve (October is
+//     the peak month at ~16% of annual revenue — Salem-spillover foliage /
+//     Halloween demand — vs the July/Aug peak in Gloucester and Rockport),
+//   - the per-BR 3-year average resolves to the Beverly market blend for
+//     every bedroom count instead of 0 (airdnaValue maps null→0, so
+//     leaving columns null would silently zero the AirDNA half of the
+//     50/50 revenue blend).
+// If we ever pull a per-bedroom Beverly export, regenerate real columns.
+export const BEVERLY_AIRDNA: AirDnaMonth[] = [
+  { date: '2018-01', br1: 1086.38, br2: 1086.38, br3: 1086.38, br4: 1086.38, br5: 1086.38, br6plus: 1086.38 },
+  { date: '2018-02', br1: 1036.75, br2: 1036.75, br3: 1036.75, br4: 1036.75, br5: 1036.75, br6plus: 1036.75 },
+  { date: '2018-03', br1: 1239.27, br2: 1239.27, br3: 1239.27, br4: 1239.27, br5: 1239.27, br6plus: 1239.27 },
+  { date: '2018-04', br1: 1353.0, br2: 1353.0, br3: 1353.0, br4: 1353.0, br5: 1353.0, br6plus: 1353.0 },
+  { date: '2018-05', br1: 1581.59, br2: 1581.59, br3: 1581.59, br4: 1581.59, br5: 1581.59, br6plus: 1581.59 },
+  { date: '2018-06', br1: 2554.33, br2: 2554.33, br3: 2554.33, br4: 2554.33, br5: 2554.33, br6plus: 2554.33 },
+  { date: '2018-07', br1: 2723.74, br2: 2723.74, br3: 2723.74, br4: 2723.74, br5: 2723.74, br6plus: 2723.74 },
+  { date: '2018-08', br1: 3007.69, br2: 3007.69, br3: 3007.69, br4: 3007.69, br5: 3007.69, br6plus: 3007.69 },
+  { date: '2018-09', br1: 2224.76, br2: 2224.76, br3: 2224.76, br4: 2224.76, br5: 2224.76, br6plus: 2224.76 },
+  { date: '2018-10', br1: 2739.15, br2: 2739.15, br3: 2739.15, br4: 2739.15, br5: 2739.15, br6plus: 2739.15 },
+  { date: '2018-11', br1: 1595.31, br2: 1595.31, br3: 1595.31, br4: 1595.31, br5: 1595.31, br6plus: 1595.31 },
+  { date: '2018-12', br1: 1671.3, br2: 1671.3, br3: 1671.3, br4: 1671.3, br5: 1671.3, br6plus: 1671.3 },
+  { date: '2019-01', br1: 1061.95, br2: 1061.95, br3: 1061.95, br4: 1061.95, br5: 1061.95, br6plus: 1061.95 },
+  { date: '2019-02', br1: 1098.52, br2: 1098.52, br3: 1098.52, br4: 1098.52, br5: 1098.52, br6plus: 1098.52 },
+  { date: '2019-03', br1: 1480.73, br2: 1480.73, br3: 1480.73, br4: 1480.73, br5: 1480.73, br6plus: 1480.73 },
+  { date: '2019-04', br1: 1611.29, br2: 1611.29, br3: 1611.29, br4: 1611.29, br5: 1611.29, br6plus: 1611.29 },
+  { date: '2019-05', br1: 2141.67, br2: 2141.67, br3: 2141.67, br4: 2141.67, br5: 2141.67, br6plus: 2141.67 },
+  { date: '2019-06', br1: 2160.08, br2: 2160.08, br3: 2160.08, br4: 2160.08, br5: 2160.08, br6plus: 2160.08 },
+  { date: '2019-07', br1: 2967.94, br2: 2967.94, br3: 2967.94, br4: 2967.94, br5: 2967.94, br6plus: 2967.94 },
+  { date: '2019-08', br1: 3185.65, br2: 3185.65, br3: 3185.65, br4: 3185.65, br5: 3185.65, br6plus: 3185.65 },
+  { date: '2019-09', br1: 2076.13, br2: 2076.13, br3: 2076.13, br4: 2076.13, br5: 2076.13, br6plus: 2076.13 },
+  { date: '2019-10', br1: 3061.51, br2: 3061.51, br3: 3061.51, br4: 3061.51, br5: 3061.51, br6plus: 3061.51 },
+  { date: '2019-11', br1: 1652.25, br2: 1652.25, br3: 1652.25, br4: 1652.25, br5: 1652.25, br6plus: 1652.25 },
+  { date: '2019-12', br1: 1453.86, br2: 1453.86, br3: 1453.86, br4: 1453.86, br5: 1453.86, br6plus: 1453.86 },
+  { date: '2020-01', br1: 1344.77, br2: 1344.77, br3: 1344.77, br4: 1344.77, br5: 1344.77, br6plus: 1344.77 },
+  { date: '2020-02', br1: 1531.5, br2: 1531.5, br3: 1531.5, br4: 1531.5, br5: 1531.5, br6plus: 1531.5 },
+  { date: '2020-03', br1: 1949.92, br2: 1949.92, br3: 1949.92, br4: 1949.92, br5: 1949.92, br6plus: 1949.92 },
+  { date: '2020-04', br1: 1526.1, br2: 1526.1, br3: 1526.1, br4: 1526.1, br5: 1526.1, br6plus: 1526.1 },
+  { date: '2020-05', br1: 1459.35, br2: 1459.35, br3: 1459.35, br4: 1459.35, br5: 1459.35, br6plus: 1459.35 },
+  { date: '2020-06', br1: 2527.36, br2: 2527.36, br3: 2527.36, br4: 2527.36, br5: 2527.36, br6plus: 2527.36 },
+  { date: '2020-07', br1: 3435.03, br2: 3435.03, br3: 3435.03, br4: 3435.03, br5: 3435.03, br6plus: 3435.03 },
+  { date: '2020-08', br1: 3949.87, br2: 3949.87, br3: 3949.87, br4: 3949.87, br5: 3949.87, br6plus: 3949.87 },
+  { date: '2020-09', br1: 3317.62, br2: 3317.62, br3: 3317.62, br4: 3317.62, br5: 3317.62, br6plus: 3317.62 },
+  { date: '2020-10', br1: 3545.91, br2: 3545.91, br3: 3545.91, br4: 3545.91, br5: 3545.91, br6plus: 3545.91 },
+  { date: '2020-11', br1: 1731.46, br2: 1731.46, br3: 1731.46, br4: 1731.46, br5: 1731.46, br6plus: 1731.46 },
+  { date: '2020-12', br1: 2116.52, br2: 2116.52, br3: 2116.52, br4: 2116.52, br5: 2116.52, br6plus: 2116.52 },
+  { date: '2021-01', br1: 1785.95, br2: 1785.95, br3: 1785.95, br4: 1785.95, br5: 1785.95, br6plus: 1785.95 },
+  { date: '2021-02', br1: 1943.9, br2: 1943.9, br3: 1943.9, br4: 1943.9, br5: 1943.9, br6plus: 1943.9 },
+  { date: '2021-03', br1: 2613.96, br2: 2613.96, br3: 2613.96, br4: 2613.96, br5: 2613.96, br6plus: 2613.96 },
+  { date: '2021-04', br1: 2505.74, br2: 2505.74, br3: 2505.74, br4: 2505.74, br5: 2505.74, br6plus: 2505.74 },
+  { date: '2021-05', br1: 2806.06, br2: 2806.06, br3: 2806.06, br4: 2806.06, br5: 2806.06, br6plus: 2806.06 },
+  { date: '2021-06', br1: 3582.86, br2: 3582.86, br3: 3582.86, br4: 3582.86, br5: 3582.86, br6plus: 3582.86 },
+  { date: '2021-07', br1: 4312.69, br2: 4312.69, br3: 4312.69, br4: 4312.69, br5: 4312.69, br6plus: 4312.69 },
+  { date: '2021-08', br1: 4445.47, br2: 4445.47, br3: 4445.47, br4: 4445.47, br5: 4445.47, br6plus: 4445.47 },
+  { date: '2021-09', br1: 3822.71, br2: 3822.71, br3: 3822.71, br4: 3822.71, br5: 3822.71, br6plus: 3822.71 },
+  { date: '2021-10', br1: 5195.36, br2: 5195.36, br3: 5195.36, br4: 5195.36, br5: 5195.36, br6plus: 5195.36 },
+  { date: '2021-11', br1: 2393.55, br2: 2393.55, br3: 2393.55, br4: 2393.55, br5: 2393.55, br6plus: 2393.55 },
+  { date: '2021-12', br1: 2151.5, br2: 2151.5, br3: 2151.5, br4: 2151.5, br5: 2151.5, br6plus: 2151.5 },
+  { date: '2022-01', br1: 1437.5, br2: 1437.5, br3: 1437.5, br4: 1437.5, br5: 1437.5, br6plus: 1437.5 },
+  { date: '2022-02', br1: 1547.38, br2: 1547.38, br3: 1547.38, br4: 1547.38, br5: 1547.38, br6plus: 1547.38 },
+  { date: '2022-03', br1: 2545.12, br2: 2545.12, br3: 2545.12, br4: 2545.12, br5: 2545.12, br6plus: 2545.12 },
+  { date: '2022-04', br1: 3013.78, br2: 3013.78, br3: 3013.78, br4: 3013.78, br5: 3013.78, br6plus: 3013.78 },
+  { date: '2022-05', br1: 2966.84, br2: 2966.84, br3: 2966.84, br4: 2966.84, br5: 2966.84, br6plus: 2966.84 },
+  { date: '2022-06', br1: 3852.36, br2: 3852.36, br3: 3852.36, br4: 3852.36, br5: 3852.36, br6plus: 3852.36 },
+  { date: '2022-07', br1: 4625.24, br2: 4625.24, br3: 4625.24, br4: 4625.24, br5: 4625.24, br6plus: 4625.24 },
+  { date: '2022-08', br1: 4208.38, br2: 4208.38, br3: 4208.38, br4: 4208.38, br5: 4208.38, br6plus: 4208.38 },
+  { date: '2022-09', br1: 3761.94, br2: 3761.94, br3: 3761.94, br4: 3761.94, br5: 3761.94, br6plus: 3761.94 },
+  { date: '2022-10', br1: 5539.95, br2: 5539.95, br3: 5539.95, br4: 5539.95, br5: 5539.95, br6plus: 5539.95 },
+  { date: '2022-11', br1: 2288.98, br2: 2288.98, br3: 2288.98, br4: 2288.98, br5: 2288.98, br6plus: 2288.98 },
+  { date: '2022-12', br1: 2202.2, br2: 2202.2, br3: 2202.2, br4: 2202.2, br5: 2202.2, br6plus: 2202.2 },
+  { date: '2023-01', br1: 1542.84, br2: 1542.84, br3: 1542.84, br4: 1542.84, br5: 1542.84, br6plus: 1542.84 },
+  { date: '2023-02', br1: 1633.87, br2: 1633.87, br3: 1633.87, br4: 1633.87, br5: 1633.87, br6plus: 1633.87 },
+  { date: '2023-03', br1: 1904.59, br2: 1904.59, br3: 1904.59, br4: 1904.59, br5: 1904.59, br6plus: 1904.59 },
+  { date: '2023-04', br1: 2526.86, br2: 2526.86, br3: 2526.86, br4: 2526.86, br5: 2526.86, br6plus: 2526.86 },
+  { date: '2023-05', br1: 3228.49, br2: 3228.49, br3: 3228.49, br4: 3228.49, br5: 3228.49, br6plus: 3228.49 },
+  { date: '2023-06', br1: 4107.81, br2: 4107.81, br3: 4107.81, br4: 4107.81, br5: 4107.81, br6plus: 4107.81 },
+  { date: '2023-07', br1: 4446.46, br2: 4446.46, br3: 4446.46, br4: 4446.46, br5: 4446.46, br6plus: 4446.46 },
+  { date: '2023-08', br1: 4697.04, br2: 4697.04, br3: 4697.04, br4: 4697.04, br5: 4697.04, br6plus: 4697.04 },
+  { date: '2023-09', br1: 4524.29, br2: 4524.29, br3: 4524.29, br4: 4524.29, br5: 4524.29, br6plus: 4524.29 },
+  { date: '2023-10', br1: 6107.67, br2: 6107.67, br3: 6107.67, br4: 6107.67, br5: 6107.67, br6plus: 6107.67 },
+  { date: '2023-11', br1: 2890.12, br2: 2890.12, br3: 2890.12, br4: 2890.12, br5: 2890.12, br6plus: 2890.12 },
+  { date: '2023-12', br1: 2459.6, br2: 2459.6, br3: 2459.6, br4: 2459.6, br5: 2459.6, br6plus: 2459.6 },
+  { date: '2024-01', br1: 1381.95, br2: 1381.95, br3: 1381.95, br4: 1381.95, br5: 1381.95, br6plus: 1381.95 },
+  { date: '2024-02', br1: 1473.35, br2: 1473.35, br3: 1473.35, br4: 1473.35, br5: 1473.35, br6plus: 1473.35 },
+  { date: '2024-03', br1: 2238.25, br2: 2238.25, br3: 2238.25, br4: 2238.25, br5: 2238.25, br6plus: 2238.25 },
+  { date: '2024-04', br1: 2573.56, br2: 2573.56, br3: 2573.56, br4: 2573.56, br5: 2573.56, br6plus: 2573.56 },
+  { date: '2024-05', br1: 3275.11, br2: 3275.11, br3: 3275.11, br4: 3275.11, br5: 3275.11, br6plus: 3275.11 },
+  { date: '2024-06', br1: 4445.24, br2: 4445.24, br3: 4445.24, br4: 4445.24, br5: 4445.24, br6plus: 4445.24 },
+  { date: '2024-07', br1: 5384.43, br2: 5384.43, br3: 5384.43, br4: 5384.43, br5: 5384.43, br6plus: 5384.43 },
+  { date: '2024-08', br1: 5528.77, br2: 5528.77, br3: 5528.77, br4: 5528.77, br5: 5528.77, br6plus: 5528.77 },
+  { date: '2024-09', br1: 5075.22, br2: 5075.22, br3: 5075.22, br4: 5075.22, br5: 5075.22, br6plus: 5075.22 },
+  { date: '2024-10', br1: 6643.98, br2: 6643.98, br3: 6643.98, br4: 6643.98, br5: 6643.98, br6plus: 6643.98 },
+  { date: '2024-11', br1: 2865.11, br2: 2865.11, br3: 2865.11, br4: 2865.11, br5: 2865.11, br6plus: 2865.11 },
+  { date: '2024-12', br1: 2259.94, br2: 2259.94, br3: 2259.94, br4: 2259.94, br5: 2259.94, br6plus: 2259.94 },
+  { date: '2025-01', br1: 1603.22, br2: 1603.22, br3: 1603.22, br4: 1603.22, br5: 1603.22, br6plus: 1603.22 },
+  { date: '2025-02', br1: 2059.92, br2: 2059.92, br3: 2059.92, br4: 2059.92, br5: 2059.92, br6plus: 2059.92 },
+  { date: '2025-03', br1: 2687.78, br2: 2687.78, br3: 2687.78, br4: 2687.78, br5: 2687.78, br6plus: 2687.78 },
+  { date: '2025-04', br1: 2556.72, br2: 2556.72, br3: 2556.72, br4: 2556.72, br5: 2556.72, br6plus: 2556.72 },
+  { date: '2025-05', br1: 3323.93, br2: 3323.93, br3: 3323.93, br4: 3323.93, br5: 3323.93, br6plus: 3323.93 },
+  { date: '2025-06', br1: 3784.85, br2: 3784.85, br3: 3784.85, br4: 3784.85, br5: 3784.85, br6plus: 3784.85 },
+  { date: '2025-07', br1: 4758.64, br2: 4758.64, br3: 4758.64, br4: 4758.64, br5: 4758.64, br6plus: 4758.64 },
+  { date: '2025-08', br1: 4838.77, br2: 4838.77, br3: 4838.77, br4: 4838.77, br5: 4838.77, br6plus: 4838.77 },
+  { date: '2025-09', br1: 5264.12, br2: 5264.12, br3: 5264.12, br4: 5264.12, br5: 5264.12, br6plus: 5264.12 },
+  { date: '2025-10', br1: 7867.76, br2: 7867.76, br3: 7867.76, br4: 7867.76, br5: 7867.76, br6plus: 7867.76 },
+  { date: '2025-11', br1: 2518.48, br2: 2518.48, br3: 2518.48, br4: 2518.48, br5: 2518.48, br6plus: 2518.48 },
+  { date: '2025-12', br1: 3843.36, br2: 3843.36, br3: 3843.36, br4: 3843.36, br5: 3843.36, br6plus: 3843.36 },
+  { date: '2026-01', br1: 1656.51, br2: 1656.51, br3: 1656.51, br4: 1656.51, br5: 1656.51, br6plus: 1656.51 },
+  { date: '2026-02', br1: 1352.78, br2: 1352.78, br3: 1352.78, br4: 1352.78, br5: 1352.78, br6plus: 1352.78 },
+  { date: '2026-03', br1: 2139.83, br2: 2139.83, br3: 2139.83, br4: 2139.83, br5: 2139.83, br6plus: 2139.83 },
+  { date: '2026-04', br1: 2268.04, br2: 2268.04, br3: 2268.04, br4: 2268.04, br5: 2268.04, br6plus: 2268.04 },
+  { date: '2026-05', br1: 3051.81, br2: 3051.81, br3: 3051.81, br4: 3051.81, br5: 3051.81, br6plus: 3051.81 },
+];
+
 export const AIRDNA: Record<AirDnaMarket, AirDnaMonth[]> = {
   Rockport: ROCKPORT_AIRDNA,
   Gloucester: GLOUCESTER_AIRDNA,
-  // Beverly doesn't have its own AirDNA export yet — Rising Tide's existing
-  // Beverly property (20 Enon Rd) has always used Gloucester's comp set
-  // since it's the nearest AirDNA market with sufficient density. New
-  // Beverly prospects pick that up automatically. If/when we pull a real
-  // Beverly export, swap the alias for a dedicated dataset.
-  Beverly: GLOUCESTER_AIRDNA,
+  Beverly: BEVERLY_AIRDNA,
 };
 
 export const AIRDNA_MARKETS: AirDnaMarket[] = ['Rockport', 'Gloucester', 'Beverly'];
