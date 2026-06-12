@@ -427,9 +427,6 @@ function SlideLocal({ projection, footer }: { projection: ProjectionRow; footer:
       <Header label={footer} />
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Cape Ann, done right.</h2>
-        <p className="rt-services-lead">
-          Gloucester and Rockport are our entire focus. Every home we manage benefits from that level of attention.
-        </p>
 
         <div className="rt-local-grid">
           <div className="rt-local-left">
