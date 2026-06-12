@@ -1,6 +1,11 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { HelmPropertyRow, HomeGuideOverrides } from '@/lib/properties';
+import {
+  HOME_GUIDE_CATALOG,
+  type HelmPropertyRow,
+  type HomeGuideOverrides,
+  type HomeGuideSlot,
+} from '@/lib/properties';
 import { civicForProperty } from '@/lib/civic';
 
 export const dynamic = 'force-dynamic';
@@ -118,23 +123,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
               )}
             </Cell>
 
-            <Cell num="03" title="Bathrooms">
-              {ov.bathrooms?.trim() ? (
-                <FreeFormProse text={ov.bathrooms} />
-              ) : (
-                <>
-                  <p>
-                    Use the bathroom fan while showering — the button may not depress, but the fan
-                    still runs and shuts off automatically.
-                  </p>
-                  <p className="rt-aside">
-                    Please limit any flushed items to toilet paper.
-                  </p>
-                </>
-              )}
-            </Cell>
-
-            <Cell num="04" title="Parking">
+            <Cell num="03" title="Parking">
               {ov.parking?.trim() ? (
                 <FreeFormProse text={ov.parking} />
               ) : (
@@ -147,21 +136,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
               )}
             </Cell>
 
-            <Cell num="05" title="Kitchen">
-              {ov.kitchen?.trim() ? (
-                <FreeFormProse text={ov.kitchen} />
-              ) : (
-                <>
-                  <p><strong>Coffee.</strong> Fill the water tank, insert a pod, choose your size, brew.</p>
-                  <p><strong>Cooktop.</strong> Slide out the hood to operate the fan; use only the pans we&rsquo;ve provided on the burners.</p>
-                  <p className="rt-aside">
-                    Counter tops stain easily — please blot dark drinks and oils right away.
-                  </p>
-                </>
-              )}
-            </Cell>
-
-            <Cell num="06" title="Trash & Recycling">
+            <Cell num="04" title="Trash & Recycling">
               {ov.trash?.trim() ? (
                 <FreeFormProse text={ov.trash} />
               ) : (
@@ -177,6 +152,16 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
                 </>
               )}
             </Cell>
+
+            {/* Picker slots 5-6 — operator-chosen from HOME_GUIDE_CATALOG.
+                Default to Bathrooms / Kitchen (the original PR #477
+                hardcoded cells) so existing property pages keep the
+                familiar layout until staff customizes. A slot with a
+                catalog entry whose default body is empty AND no
+                override body is rendered as nothing — the grid stays a
+                clean 2x2 of essentials in that case. */}
+            {renderPickerSlot('05', resolveSlot(ov.slot5, ov.bathrooms, 'bathrooms'))}
+            {renderPickerSlot('06', resolveSlot(ov.slot6, ov.kitchen, 'kitchen'))}
           </div>
 
           {/* Bottom — hassle-free departure + signoff */}
@@ -199,6 +184,45 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
         </article>
       </div>
     </>
+  );
+}
+
+/**
+ * Resolve a picker-slot config from the override blob. Priority order:
+ *   1. explicit `slot` config from the new schema
+ *   2. legacy single-key override (e.g. ov.bathrooms) IF the slot
+ *      defaults to that same catalog key — preserves PR #477 data
+ *   3. catalog default for the fallback key (no override body)
+ */
+function resolveSlot(
+  slot: HomeGuideSlot | undefined,
+  legacyBody: string | undefined,
+  fallbackKey: 'bathrooms' | 'kitchen',
+): HomeGuideSlot {
+  if (slot) return slot;
+  if (legacyBody && legacyBody.trim().length > 0) {
+    return { key: fallbackKey, body: legacyBody };
+  }
+  return { key: fallbackKey };
+}
+
+/**
+ * Render one picker slot. Looks the slot's key up in HOME_GUIDE_CATALOG
+ * to get a default title and body, then layers the operator's overrides
+ * (body, customTitle for the 'custom' key) on top. A cell with neither
+ * a default body nor an override body is omitted entirely so the guide
+ * doesn't print a title with no content under it.
+ */
+function renderPickerSlot(num: string, slot: HomeGuideSlot): React.ReactNode {
+  const entry = HOME_GUIDE_CATALOG[slot.key];
+  if (!entry) return null;
+  const body = slot.body?.trim() || entry.defaultBody;
+  if (!body.trim()) return null;
+  const title = slot.key === 'custom' ? (slot.customTitle?.trim() || 'Custom') : entry.title;
+  return (
+    <Cell num={num} title={title} key={`slot-${num}-${slot.key}`}>
+      <FreeFormProse text={body} />
+    </Cell>
   );
 }
 

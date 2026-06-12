@@ -232,22 +232,128 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
  * Used by /properties pages and the home dashboard.
  */
 /**
- * Free-form per-cell overrides for the Stay Cape Ann "Welcome Home" guide
- * (renderer at /properties/<id>/home-guide). Each value is plain text;
- * blank lines split paragraphs at render time. An empty / missing key
- * means "use the auto-populated default".
+ * Stay Cape Ann "Welcome Home" guide customization model.
+ *
+ * The rendered guide has six cells in a 2x3 grid. Slots 1-4 are FIXED to
+ * the universal essentials (Wi-Fi, Climate, Parking, Trash & Recycling)
+ * because every guest needs them and the auto-populated content comes
+ * straight from per-property structured columns. Slots 5-6 are
+ * PICKER-DRIVEN: staff picks each one from the HOME_GUIDE_CATALOG below
+ * (Bathrooms, Kitchen, Hot Tub, Pets, Quiet Hours, etc.) so the
+ * variability that's actually different per home can land in those two
+ * slots instead of being hardcoded.
+ *
+ * For each cell that ends up in the guide, the body either uses the
+ * catalog's default prose OR an operator-provided free-form override.
+ * For 'custom' the operator also provides the title.
+ *
+ * Backwards compat: the original schema had top-level `bathrooms` and
+ * `kitchen` keys; the renderer + editor both fall back to those values
+ * when reading old rows so existing data keeps rendering until staff
+ * touches the editor next.
  */
 export type HomeGuideOverrides = {
+  // Free-form body overrides for the four fixed essential cells.
   wifi?: string;
   climate?: string;
-  bathrooms?: string;
   parking?: string;
-  kitchen?: string;
   trash?: string;
+
+  // Legacy keys from the initial (PR #477) schema — read by the renderer
+  // for backwards compat, never written by the new editor.
+  bathrooms?: string;
+  kitchen?: string;
+
+  // Picker slots 5 and 6. Each picks a catalog key and optionally
+  // overrides the body / title. Missing = use the default
+  // (slot5='bathrooms', slot6='kitchen').
+  slot5?: HomeGuideSlot;
+  slot6?: HomeGuideSlot;
 };
 
-export const HOME_GUIDE_CELL_KEYS = ['wifi', 'climate', 'bathrooms', 'parking', 'kitchen', 'trash'] as const;
-export type HomeGuideCellKey = (typeof HOME_GUIDE_CELL_KEYS)[number];
+/** One configurable slot in the home guide grid. */
+export type HomeGuideSlot = {
+  /** Catalog key. 'custom' means the operator brings their own title. */
+  key: HomeGuideCatalogKey;
+  /** Optional body override. Empty / missing falls back to catalog default. */
+  body?: string;
+  /** Operator-provided title. Only used when key === 'custom'. */
+  customTitle?: string;
+};
+
+export const HOME_GUIDE_CATALOG_KEYS = [
+  'bathrooms',
+  'kitchen',
+  'hot_tub',
+  'outdoor',
+  'pets',
+  'quiet_hours',
+  'wood_stove',
+  'smart_tv',
+  'laundry',
+  'custom',
+] as const;
+export type HomeGuideCatalogKey = (typeof HOME_GUIDE_CATALOG_KEYS)[number];
+
+/**
+ * Catalog of optional cells operators can drop into slots 5-6. Each entry
+ * carries a display title and a default body. An empty defaultBody means
+ * the cell is property-specific enough that we don't ship a default —
+ * the renderer skips the cell if no override is provided.
+ *
+ * Prose conventions in defaultBody:
+ *   - Blank line separates paragraphs.
+ *   - A paragraph leading with "Note:" or "Aside:" renders in the
+ *     smaller italic aside style (matches the rest of the guide).
+ */
+export const HOME_GUIDE_CATALOG: Record<
+  HomeGuideCatalogKey,
+  { title: string; defaultBody: string }
+> = {
+  bathrooms: {
+    title: 'Bathrooms',
+    defaultBody:
+      'Use the bathroom fan while showering. The button may not depress, but the fan still runs and shuts off automatically.\n\nNote: Please limit any flushed items to toilet paper.',
+  },
+  kitchen: {
+    title: 'Kitchen',
+    defaultBody:
+      'Coffee: fill the water tank, insert a pod, choose your size, brew.\n\nCooktop: slide out the hood to operate the fan; use only the pans we’ve provided on the burners.\n\nNote: Counter tops stain easily, so please blot dark drinks and oils right away.',
+  },
+  hot_tub: {
+    title: 'Hot Tub',
+    defaultBody: '',
+  },
+  outdoor: {
+    title: 'Outdoor Space',
+    defaultBody: '',
+  },
+  pets: {
+    title: 'Pets',
+    defaultBody: '',
+  },
+  quiet_hours: {
+    title: 'Quiet Hours',
+    defaultBody:
+      'Quiet hours are 10pm to 8am, per neighborhood expectations. Please keep music, voices, and outdoor activity to a minimum during those hours.',
+  },
+  wood_stove: {
+    title: 'Wood Stove',
+    defaultBody: '',
+  },
+  smart_tv: {
+    title: 'TV & Streaming',
+    defaultBody: '',
+  },
+  laundry: {
+    title: 'Laundry',
+    defaultBody: '',
+  },
+  custom: {
+    title: 'Custom',
+    defaultBody: '',
+  },
+};
 
 export type HelmPropertyRow = {
   id: string;
