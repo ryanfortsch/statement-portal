@@ -234,26 +234,49 @@ export default function AirDnaPage() {
   function handleFiles(picked: FileList | null) {
     if (!picked || picked.length === 0) return;
     setResult(null);
-    const next: ParsedFile[] = [];
+    // Additive: each drop / click appends to the existing batch. A new
+    // file with the same name as one already loaded REPLACES the old
+    // entry (so the user can re-drop a corrected CSV without first
+    // clicking Clear). Anything brand new is appended.
+    const added: ParsedFile[] = [];
     let pending = picked.length;
+    const commit = () => {
+      if (added.length === 0) return;
+      setFiles((prev) => {
+        const byName = new Map<string, ParsedFile>();
+        for (const f of prev) byName.set(f.name, f);
+        for (const f of added) byName.set(f.name, f);
+        return [...byName.values()];
+      });
+    };
     Array.from(picked).forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
-        next.push(parseFile(file.name, String(reader.result ?? "")));
-        if (--pending === 0) setFiles(next);
+        added.push(parseFile(file.name, String(reader.result ?? "")));
+        if (--pending === 0) commit();
       };
       reader.onerror = () => {
-        next.push({
+        added.push({
           name: file.name,
           text: "",
           format: null,
           summary: { kind: "error", message: "Could not read file" },
           warnings: [],
         });
-        if (--pending === 0) setFiles(next);
+        if (--pending === 0) commit();
       };
       reader.readAsText(file);
     });
+  }
+
+  function removeFile(name: string) {
+    setFiles((prev) => prev.filter((f) => f.name !== name));
+    setResult(null);
+  }
+
+  function clearAllFiles() {
+    setFiles([]);
+    setResult(null);
   }
 
   const hasError = files.some((f) => f.summary.kind === "error");
@@ -374,7 +397,7 @@ export default function AirDnaPage() {
                     {files.length} file{files.length === 1 ? "" : "s"} loaded
                   </div>
                   <div style={{ fontSize: 13, color: "var(--ink-muted, #4a5760)", marginTop: 4 }}>
-                    Click to pick different files
+                    {isDragOver ? "Drop to add more" : "Drop more or click to add"}
                   </div>
                 </>
               ) : isDragOver ? (
@@ -396,6 +419,26 @@ export default function AirDnaPage() {
                 onChange={(e) => handleFiles(e.target.files)}
               />
             </label>
+
+            {files.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={clearAllFiles}
+                  style={{
+                    fontSize: 12,
+                    color: "var(--ink-muted, #4a5760)",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
 
             {anyNeedsMarket && (
               <div style={{ marginTop: 16 }}>
