@@ -5,6 +5,7 @@ import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { updatePropertyWithState } from '@/app/properties/actions';
 import { EditFormShell } from './EditFormShell';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { formatUsPhone } from '@/lib/phone';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,7 +79,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
         {/* ── Owner contact extras ── */}
         <Group eyebrow="01" title="Owner contact">
           <Row>
-            <Field name="owner_phone" label="Owner phone" type="tel" defaultValue={p.owner_phone} />
+            <Field name="owner_phone" label="Owner phone" type="tel" defaultValue={formatUsPhone(p.owner_phone)} hint="(781) 223-1091" />
             <Field name="owner_preferred_contact" label="Preferred contact" defaultValue={p.owner_preferred_contact} hint="email / phone / text" />
           </Row>
           <Field name="owner_mailing_address" label="Owner mailing address" defaultValue={p.owner_mailing_address} />
@@ -174,7 +175,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
             <Field name="emergency_contact_relationship" label="Relationship" defaultValue={p.emergency_contact_relationship} />
           </Row>
           <Row>
-            <Field name="emergency_contact_phone" label="Phone" type="tel" defaultValue={p.emergency_contact_phone} />
+            <Field name="emergency_contact_phone" label="Phone" type="tel" defaultValue={formatUsPhone(p.emergency_contact_phone)} hint="(781) 223-1091" />
             <Field name="emergency_contact_email" label="Email" type="email" defaultValue={p.emergency_contact_email} />
           </Row>
         </Group>
