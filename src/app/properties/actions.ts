@@ -225,32 +225,67 @@ async function performPropertyUpdate(
 }
 
 /**
- * Save free-form per-cell overrides for the Stay Cape Ann home guide.
- * Each cell (wifi/climate/bathrooms/parking/kitchen/trash) has an optional
- * plain-text override that REPLACES the auto-populated default in the
- * rendered guide. Empty / whitespace-only fields are stored as missing
- * (so the auto-populated default kicks back in).
+ * Save the home guide customization for one property. The guide has six
+ * cells: slots 1-4 are fixed (Wi-Fi, Climate, Parking, Trash) with
+ * optional free-form body overrides; slots 5-6 are picker-driven from
+ * HOME_GUIDE_CATALOG with optional body / custom-title overrides.
+ *
+ * Empty fields are omitted from the persisted blob, and an all-empty
+ * submission writes null so future loads use the auto-populated defaults.
+ *
+ * Uses the service-role client for the same reason updateProperty does
+ * — anon writes silently dropped on this column in the 2026-06-02
+ * incident.
  */
 export async function updateHomeGuideOverrides(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const keys = ['wifi', 'climate', 'bathrooms', 'parking', 'kitchen', 'trash'] as const;
-  const overrides: Record<string, string> = {};
-  for (const k of keys) {
+  type Slot = { key: string; body?: string; customTitle?: string };
+  const overrides: {
+    wifi?: string;
+    climate?: string;
+    parking?: string;
+    trash?: string;
+    slot5?: Slot;
+    slot6?: Slot;
+  } = {};
+
+  // Fixed cells 1-4: free-form body overrides only.
+  for (const k of ['wifi', 'climate', 'parking', 'trash'] as const) {
     const v = String(formData.get(`override_${k}`) ?? '').trim();
     if (v) overrides[k] = v;
   }
 
-  // Store `null` (not `{}`) when every cell is back to the default — keeps
-  // the column tidy and the renderer's `?? {}` fallback fires uniformly.
+  // Picker slots 5-6: catalog key + optional body + optional custom title.
+  for (const slotName of ['slot5', 'slot6'] as const) {
+    const key = String(formData.get(`${slotName}_key`) ?? '').trim();
+    if (!key) continue;
+    const body = String(formData.get(`${slotName}_body`) ?? '').trim();
+    const customTitle = String(formData.get(`${slotName}_custom_title`) ?? '').trim();
+    const slot: Slot = { key };
+    if (body) slot.body = body;
+    if (key === 'custom' && customTitle) slot.customTitle = customTitle;
+    overrides[slotName] = slot;
+  }
+
+  // Store null (not {}) when nothing was customized — keeps the column
+  // tidy and the renderer's `?? {}` fallback fires uniformly.
   const payload = Object.keys(overrides).length > 0 ? overrides : null;
 
-  const { error } = await supabase
+  const sb = getServiceClient();
+  const { data: updated, error } = await sb
     .from('properties')
     .update({ home_guide_overrides: payload })
-    .eq('id', id);
-  if (error) throw new Error(error.message);
+    .eq('id', id)
+    .select('id');
+  if (error) {
+    console.error('[updateHomeGuideOverrides] supabase error', { id, error });
+    throw new Error(error.message);
+  }
+  if (!updated || updated.length === 0) {
+    throw new Error(`Property ${id} not updated (0 rows affected).`);
+  }
 
   revalidatePath(`/properties/${id}`);
   revalidatePath(`/properties/${id}/home-guide`);
