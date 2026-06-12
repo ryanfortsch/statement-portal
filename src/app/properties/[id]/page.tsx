@@ -6,6 +6,7 @@ import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomi
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { formatUsPhone, telHref } from '@/lib/phone';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
@@ -856,10 +857,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0 }}>
               {p.owner_phone ? (
                 <a
-                  href={`tel:${p.owner_phone.replace(/[^+\d]/g, '')}`}
+                  href={telHref(p.owner_phone)}
                   style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
                 >
-                  {p.owner_phone}
+                  {formatUsPhone(p.owner_phone)}
                 </a>
               ) : '—'}
             </dd>
@@ -1504,7 +1505,7 @@ function operationalGroups(p: HelmPropertyRow) {
   const emergency: OpRow[] = [
     { label: 'Name', value: p.emergency_contact_name },
     { label: 'Relationship', value: p.emergency_contact_relationship },
-    { label: 'Phone', value: p.emergency_contact_phone, mono: true },
+    { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
     { label: 'Email', value: p.emergency_contact_email, mono: true },
   ];
   const inspection: OpRow[] = [

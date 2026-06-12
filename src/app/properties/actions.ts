@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
+import { formatUsPhone } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -41,6 +42,11 @@ function getServiceClient(): SupabaseClient {
  * (id, name, address, owner_*, management_fee_pct) are intentionally NOT
  * here — those need a different code path with stronger guardrails.
  */
+
+function phoneOrNull(formData: FormData, key: string): string | null {
+  const v = strOrNull(formData, key);
+  return v ? formatUsPhone(v) : null;
+}
 
 function strOrNull(formData: FormData, key: string): string | null {
   const v = String(formData.get(key) ?? '').trim();
@@ -108,7 +114,10 @@ async function performPropertyUpdate(
 ): Promise<{ error: string | null }> {
   const payload = {
     // Owner contact extras
-    owner_phone: strOrNull(formData, 'owner_phone'),
+    // Normalize to house format at save time -- "(781) 223-1091" --
+    // so the DB converges to the pretty form no matter how the digits
+    // were typed. Unparseable values pass through untouched.
+    owner_phone: phoneOrNull(formData, 'owner_phone'),
     owner_mailing_address: strOrNull(formData, 'owner_mailing_address'),
     owner_preferred_contact: strOrNull(formData, 'owner_preferred_contact'),
 
@@ -164,7 +173,7 @@ async function performPropertyUpdate(
     // Emergency contact
     emergency_contact_name: strOrNull(formData, 'emergency_contact_name'),
     emergency_contact_relationship: strOrNull(formData, 'emergency_contact_relationship'),
-    emergency_contact_phone: strOrNull(formData, 'emergency_contact_phone'),
+    emergency_contact_phone: phoneOrNull(formData, 'emergency_contact_phone'),
     emergency_contact_email: strOrNull(formData, 'emergency_contact_email'),
 
     // Inspection & safety
