@@ -202,6 +202,7 @@ export default function AirDnaPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<IngestResponse | null>(null);
   const [latestByMarket, setLatestByMarket] = useState<LatestByMarket>({});
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const loadLatest = useCallback(async () => {
     const out: LatestByMarket = {};
@@ -332,14 +333,39 @@ export default function AirDnaPage() {
 
             <label
               htmlFor="airdna-file"
+              onDragEnter={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
+              }}
+              onDragOver={(e) => {
+                // Required so the browser fires onDrop. Default is "block drop."
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "copy";
+              }}
+              onDragLeave={(e) => {
+                // Only clear when the cursor actually leaves the label (not when
+                // it crosses a child element). Comparing relatedTarget to the
+                // label rules out internal moves.
+                if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                setIsDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragOver(false);
+                handleFiles(e.dataTransfer.files);
+              }}
               style={{
                 display: "block",
-                padding: "16px",
-                border: "1px dashed var(--ink)",
+                padding: "24px 16px",
+                border: isDragOver ? "2px solid var(--ink)" : "1px dashed var(--ink)",
                 borderRadius: 6,
                 textAlign: "center",
                 cursor: "pointer",
-                background: "transparent",
+                background: isDragOver ? "var(--paper-elevated, #fffdf8)" : "transparent",
+                transition: "background 0.12s, border 0.12s",
               }}
             >
               {files.length > 0 ? (
@@ -351,8 +377,15 @@ export default function AirDnaPage() {
                     Click to pick different files
                   </div>
                 </>
+              ) : isDragOver ? (
+                <div style={{ fontWeight: 600 }}>Drop CSV file(s) to load</div>
               ) : (
-                <>Click to choose CSV file(s)</>
+                <>
+                  <div style={{ fontWeight: 600 }}>Drop CSV file(s) here</div>
+                  <div style={{ fontSize: 13, color: "var(--ink-muted, #4a5760)", marginTop: 4 }}>
+                    or click to choose
+                  </div>
+                </>
               )}
               <input
                 id="airdna-file"
