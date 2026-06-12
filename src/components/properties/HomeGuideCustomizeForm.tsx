@@ -198,6 +198,16 @@ export function HomeGuideCustomizeForm({
       </form>
 
       <style>{customizeCss}</style>
+      {/* Auto-open when the URL hash matches (e.g. operator clicked the
+          Welcome Guide tile's "Customize" link). Runs on initial load
+          AND on hashchange so the in-page link works without a full
+          navigation. Plain inline script because <details> has no
+          CSS-only way to open from :target. */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(){function o(){if(location.hash==='#home-guide-customize'){var d=document.getElementById('home-guide-customize');if(d&&d.tagName==='DETAILS'){d.open=true;}}}o();window.addEventListener('hashchange',o);})();`,
+        }}
+      />
     </details>
   );
 }
