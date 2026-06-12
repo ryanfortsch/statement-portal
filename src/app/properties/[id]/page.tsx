@@ -1235,13 +1235,31 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               Stay Cape Ann home guide
             </h3>
             <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              One-page editorial guide. Wi-Fi, climate, kitchen, parking, trash, hassle-free departure.
+              One-page editorial guide. Wi-Fi, climate, parking, trash, plus two operator-picked cells.
             </p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
                 Open ↗
               </Link>
               <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
+              {/* Customize link anchors to the home-guide-customize <details>
+                  block that renders directly under the grid. The inline
+                  script in HomeGuideCustomizeForm auto-opens it when the
+                  URL hash matches. */}
+              <a
+                href="#home-guide-customize"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: '.18em',
+                  textTransform: 'uppercase',
+                  color: 'var(--ink-3)',
+                  textDecoration: 'none',
+                  padding: '13px 14px',
+                }}
+              >
+                Customize
+              </a>
             </div>
           </div>
           {/* Welcome Card tile — 4 × 6 on-arrival card combining the warm
@@ -1313,6 +1331,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             </div>
           )}
         </div>
+
+        {/* Per-cell customization for the Welcome Guide tile above.
+            Anchored right after the grid (not at the very bottom) so the
+            relationship to the Welcome Guide tile is visually obvious;
+            the tile's "Customize" link auto-opens it on click. */}
+        <HomeGuideCustomizeForm propertyId={p.id} overrides={p.home_guide_overrides} />
 
         {/* BESPOKE NOTICES — 4 × 6 SCA placards for property-specific quirks
             (e.g. "please run the bathroom fan during showers"). Same brand
@@ -1391,12 +1415,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
               ))}
             </div>
           )}
-
-          {/* Per-cell free-form overrides for the home guide. Collapsed
-              by default; expanded state lets staff replace any cell's
-              auto-populated body with custom prose for properties that
-              need variability the structured fields can't express. */}
-          <HomeGuideCustomizeForm propertyId={p.id} overrides={p.home_guide_overrides} />
         </div>
       </CollapsibleSection>
 
