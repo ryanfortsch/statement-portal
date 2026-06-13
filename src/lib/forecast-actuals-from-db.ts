@@ -18,15 +18,21 @@
  *     Rent & office     → exp_office
  *     Insurance         → exp_insurance
  *     Bank fees         → exp_bank
- *     Payroll           → exp_hire
  *     Software          → exp_software
+ *     Payroll           → exp_software (Gusto is a recurring SaaS fee,
+ *                         not a hiring cost — matches the convention
+ *                         the old hand-built ACTUALS_2026 used)
  *     Health benefits   → dropped (out of scope for the mgmt business)
  *     Professional      → exp_debt for MH Partners, exp_accounting for
  *                         MS Consultants, else exp_cc_ops
  *     everything else   → exp_cc_ops (catch-all)
  *
- * Revenue is overlaid from getStatementRevenueByMonth() so it stays
- * consistent with the rest of the forecast's revenue source.
+ * Revenue is overlaid from getStatementRevenueByMonth(). For early-year
+ * months where Helm hasn't reconciled a statement yet, that lookup
+ * returns 0 — which would zero out a row that has real expenses. We
+ * fall back to ACTUALS_2026[m-1].revenue (the bank-sweep figure the
+ * old offline parser had hardcoded) so the row stays honest until the
+ * statement closes and the live number takes over.
  *
  * IMPORTANT: the returned `actuals` array is indexed by month-1 (so
  * calcYear's `actuals[m - 1]` reads the right month). Months with no
@@ -35,7 +41,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import type { MonthlyActual } from '@/lib/forecast-actuals';
+import { ACTUALS_2026, type MonthlyActual } from '@/lib/forecast-actuals';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey =
@@ -162,8 +168,8 @@ export async function getActualsFromDb(
           case 'Rent & office':   ma.exp_office += amt; break;
           case 'Insurance':       ma.exp_insurance += amt; break;
           case 'Bank fees':       ma.exp_bank += amt; break;
-          case 'Payroll':         ma.exp_hire += amt; break;
           case 'Software':        ma.exp_software += amt; break;
+          case 'Payroll':         ma.exp_software += amt; break; // Gusto SaaS, not a hire
           case 'Health benefits': /* out of scope for the mgmt-business forecast */ break;
           case 'Professional':
             if (desc.includes('MH PARTNERS') || desc.includes('MHPARTNERS')) {
@@ -203,9 +209,16 @@ export async function getActualsFromDb(
       const ym = `${year}-${String(m).padStart(2, '0')}`;
       const ma = byMonth.get(ym);
       if (!ma) continue;
+      // Revenue: prefer the reconciled statement number; when Helm hasn't
+      // closed the month yet, fall back to the bank-sweep figure that
+      // the old offline parser had hardcoded so the row doesn't read as
+      // $0 against real expenses (Jan-Mar 2026 today).
+      const liveRev = revenueByMonth[ym] ?? 0;
+      const fallbackRev = ACTUALS_2026[m - 1]?.revenue ?? 0;
+      const revenue = liveRev > 0 ? liveRev : fallbackRev;
       dense[m - 1] = {
         ...ma,
-        revenue: round2(revenueByMonth[ym] ?? 0),
+        revenue: round2(revenue),
         exp_office: round2(ma.exp_office),
         exp_software: round2(ma.exp_software),
         exp_debt: round2(ma.exp_debt),
