@@ -19,6 +19,9 @@ const LISTING_MATCH: Record<string, string> = {
   '3246_ne_27th':  '3246 ne 27th',
   '36_granite':    '36 granite',
   '79_main':       '79 main',
+  '16_waterman':   '16 waterman',
+  '19_rackliffe':  '19 rackliffe',
+  '84_thatcher':   '84 thatcher',
 };
 const NICKNAME_HINTS: Record<string, string> = {
   '3_south_st':    'old garden beach',
