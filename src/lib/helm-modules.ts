@@ -112,6 +112,15 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
   },
   {
+    id: 'owner-messaging',
+    href: '/owner-messaging',
+    number: '08b',
+    title: 'Owner Messaging',
+    description: 'Owner reply drafts from SMS + email. Mirror of the guest messaging surface. Approve, reject, or coach the AI right from Helm.',
+    status: 'active',
+    primary: false,
+  },
+  {
     id: 'revenue',
     href: '/revenue',
     number: '10',
