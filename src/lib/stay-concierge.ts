@@ -226,6 +226,23 @@ export async function listOwnerHistory(days = 60) {
   return request<OwnerHistoryResponse>(`/api/owner-history?days=${days}`);
 }
 
+export type OwnerCuratedFacts = {
+  content: string;
+  path: string;
+  bytes: number;
+};
+
+export async function getOwnerCuratedFacts() {
+  return request<OwnerCuratedFacts>('/api/owner-curated-facts');
+}
+
+export async function saveOwnerCuratedFacts(content: string) {
+  return request<{ ok: true; bytes: number }>('/api/owner-curated-facts', {
+    method: 'PUT',
+    body: { content },
+  });
+}
+
 export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }

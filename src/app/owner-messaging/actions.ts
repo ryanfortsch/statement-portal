@@ -7,6 +7,7 @@ import {
   rejectOwnerApproval,
   markHandledOwnerApproval,
   coachOwnerApproval,
+  saveOwnerCuratedFacts,
   explainError,
 } from '@/lib/stay-concierge';
 
@@ -51,6 +52,15 @@ export async function coachOwnerDraft(id: string, feedback: string): Promise<Act
   const trimmed = feedback.trim();
   if (!trimmed) return { ok: false, error: 'Add a coaching note before sending' };
   const res = await coachOwnerApproval(id, trimmed);
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/owner-messaging');
+  return { ok: true };
+}
+
+export async function saveOwnerFacts(content: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await saveOwnerCuratedFacts(content);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };
