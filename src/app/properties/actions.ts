@@ -227,9 +227,32 @@ async function performPropertyUpdate(
   // PostgREST result body on error + use .select() so a 200-with-zero-
   // rows-updated case is visible instead of silently swallowed.
   const sb = getServiceClient();
+
+  // Read the existing structured owners[] so we can merge the scalar
+  // Owner block edits (owner_full / owner_phone / owner_emails) INTO
+  // the primary owner card without wiping any additional cards (spouse,
+  // accountant, alternate phone) the operator has added via the
+  // OwnersEditor. This is what makes "enter the phone once at the top
+  // and it flows into the messaging pipeline" work.
+  const { data: currentRow, error: readErr } = await sb
+    .from('properties')
+    .select('owners')
+    .eq('id', id)
+    .maybeSingle();
+  if (readErr) {
+    console.error('[updateProperty] read-before-merge failed', { id, readErr });
+  }
+  const mergedOwners = mergePrimaryOwnerFromScalars(currentRow?.owners, {
+    owner_full: payload.owner_full,
+    owner_greeting: payload.owner_greeting,
+    owner_emails: payload.owner_emails,
+    owner_phone: payload.owner_phone,
+  });
+  const payloadWithOwners = { ...payload, owners: mergedOwners };
+
   const { data: updated, error } = await sb
     .from('properties')
-    .update(payload)
+    .update(payloadWithOwners)
     .eq('id', id)
     .select('id');
   if (error) {
@@ -416,6 +439,107 @@ function normalizeOwnerCards(input: unknown): OwnerCard[] {
   }
   if (!foundPrimary && out.length > 0) out[0].is_primary = true;
   return out;
+}
+
+/**
+ * Derive a primary owner card from the existing scalar Owner block
+ * fields (owner_full / owner_greeting / owner_emails / owner_phone) and
+ * merge it INTO the property's existing structured owners[], preserving
+ * any additional non-primary cards the operator has added through the
+ * OwnersEditor.
+ *
+ * Behavior:
+ *  - If the scalars carry any identity data (any of name / phone /
+ *    email), build / replace the primary card from them.
+ *  - Always preserve non-primary cards untouched.
+ *  - Preserve `notes` on the existing primary card so the operator
+ *    doesn't lose context when they edit the Owner block.
+ *  - If there is no scalar data AND no existing cards, return [].
+ *  - If there is no scalar data but cards exist, just renormalize.
+ *
+ * Name parsing:
+ *  - first_name: owner_greeting if set, else first word of owner_full's
+ *    first comma-separated chunk (drops org names after the comma).
+ *  - last_name: last word of that same chunk after stripping any
+ *    "& Partner" / "and Partner" segments (so "Marci & Paul Bailey"
+ *    yields first=Marci last=Bailey).
+ */
+function parseFirstLastFromOwnerFull(
+  ownerFull: string,
+  ownerGreeting: string,
+): { first_name: string; last_name: string } {
+  const beforeComma = ownerFull.split(',')[0].trim();
+  // Strip "& Partner" / "and Partner" segments (couples).
+  let chunk = beforeComma.replace(/\s+(?:&|and)\s+\S+/gi, '').trim();
+  // Strip the templated "The X Family" / "X Family" wrapper so the
+  // actual surname becomes the last word ("The McWethy Family" -> "McWethy").
+  chunk = chunk.replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim();
+  const words = (chunk || beforeComma).split(/\s+/).filter(Boolean);
+  // Trailing commas / trailing punctuation creep in via copy-paste
+  // ("John Gavin," in owner_greeting). Strip them off the first name.
+  const greeting = ownerGreeting.trim().replace(/[,;:.]+$/, '').trim();
+  const first = greeting || words[0] || '';
+  const last = words.length > 1
+    ? words[words.length - 1]
+    : (greeting && words[0] ? words[0] : '');
+  return { first_name: first, last_name: last };
+}
+
+function mergePrimaryOwnerFromScalars(
+  existing: unknown,
+  scalars: {
+    owner_full: string;
+    owner_greeting: string;
+    owner_emails: string[];
+    owner_phone: string | null;
+  },
+): OwnerCard[] {
+  const existingCards = Array.isArray(existing) ? (existing as unknown[]) : [];
+  const { owner_full, owner_greeting, owner_emails, owner_phone } = scalars;
+  const hasScalarData =
+    !!owner_full.trim() ||
+    !!(owner_phone && owner_phone.trim()) ||
+    (Array.isArray(owner_emails) && owner_emails.length > 0);
+
+  if (!hasScalarData) {
+    // No scalar identity data — leave the existing array intact (just
+    // renormalize for safety: phone E.164, single is_primary, etc).
+    return normalizeOwnerCards(existingCards);
+  }
+
+  const { first_name, last_name } = parseFirstLastFromOwnerFull(owner_full, owner_greeting);
+  const email = (owner_emails[0] || '').trim();
+
+  // Find the existing primary (preserve its notes); fall back to first card.
+  let primaryIdx = -1;
+  for (let i = 0; i < existingCards.length; i++) {
+    const c = existingCards[i] as Record<string, unknown> | null;
+    if (c && c.is_primary === true) {
+      primaryIdx = i;
+      break;
+    }
+  }
+  if (primaryIdx === -1 && existingCards.length > 0) primaryIdx = 0;
+  const existingPrimary =
+    primaryIdx >= 0 ? (existingCards[primaryIdx] as Record<string, unknown>) : null;
+  const preservedNotes = String(existingPrimary?.notes ?? '').trim();
+
+  const primaryCard = {
+    first_name,
+    last_name,
+    email,
+    phone: owner_phone || '',
+    is_primary: true,
+    role: 'owner',
+    notes: preservedNotes,
+  };
+
+  const others = existingCards
+    .map((c, i) => ({ c, i }))
+    .filter(({ i }) => i !== primaryIdx)
+    .map(({ c }) => ({ ...(c as Record<string, unknown>), is_primary: false }));
+
+  return normalizeOwnerCards([primaryCard, ...others]);
 }
 
 export async function saveOwnerCards(
