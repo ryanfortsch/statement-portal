@@ -809,12 +809,14 @@ export default async function PropertyDetailPage({
           </div>
         </dl>
 
-        {/* Structured owners — feeds the Owner Messaging pipeline. Inline
-            editor; the legacy owner_full / owner_emails / owner_phone fields
-            above remain the source of truth for statements + contracts. */}
+        {/* Additional owner contacts beyond the primary. The primary
+            card is auto-derived from the Owner block above (name,
+            phone, first email) on every save, so this editor is here
+            for the multi-owner cases: a spouse with their own cell, an
+            accountant who also needs replies, a secondary phone. */}
         <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--rule)' }}>
           <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 12 }}>
-            Owner messaging contacts
+            Additional owner contacts
           </div>
           <OwnersEditor
             propertyId={p.id}

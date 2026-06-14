@@ -79,18 +79,19 @@ export function OwnersEditor({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 580 }}>
-          One card per person. Phone + email feed the Owner Messaging
-          pipeline so inbound SMS or email gets identified and routed to
-          a draft. The legacy Owner / Emails block above stays the source
-          of truth for statements + contracts.
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 620 }}>
+          The primary card auto-syncs from the Owner block above on every
+          save (name, phone, first email), so you only ever have to enter
+          that info once. Add cards here for additional contacts: a
+          spouse with their own cell, an accountant copied on replies, a
+          second phone for the same person.
         </div>
         <button
           type="button"
           onClick={add}
           style={pillButton('outlined')}
         >
-          + Add owner
+          + Add contact
         </button>
       </div>
 
@@ -103,8 +104,8 @@ export function OwnersEditor({
             color: 'var(--ink-4)',
           }}
         >
-          No structured owners on file. Add one to start routing this
-          property&rsquo;s owner messages through the AI pipeline.
+          No primary owner derived yet. Fill in Owner / Phone / Emails in
+          the block above and save, or add a contact here directly.
         </div>
       )}
 
@@ -123,10 +124,7 @@ export function OwnersEditor({
           >
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
               <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-                Owner {i + 1}
-                {o.is_primary && (
-                  <span style={{ color: 'var(--signal)', marginLeft: 8 }}>· primary</span>
-                )}
+                {o.is_primary ? 'Primary (auto-synced)' : `Additional ${i}`}
               </span>
               <div style={{ display: 'flex', gap: 12 }}>
                 {!o.is_primary && (
@@ -134,23 +132,40 @@ export function OwnersEditor({
                     make primary
                   </button>
                 )}
-                <button type="button" onClick={() => remove(i)} style={linkButton}>
-                  remove
-                </button>
+                {!o.is_primary && (
+                  <button type="button" onClick={() => remove(i)} style={linkButton}>
+                    remove
+                  </button>
+                )}
               </div>
             </div>
+
+            {o.is_primary && (
+              <div style={{
+                gridColumn: '1 / -1',
+                fontSize: 11,
+                color: 'var(--ink-4)',
+                lineHeight: 1.5,
+                marginTop: -4,
+              }}>
+                Name, phone, and email come from the Owner block above. Edit
+                there to change them, not here.
+              </div>
+            )}
 
             <Field
               label="First name"
               value={o.first_name}
               onChange={(v) => update(i, { first_name: v })}
               placeholder="Simon"
+              disabled={o.is_primary}
             />
             <Field
               label="Last name"
               value={o.last_name}
               onChange={(v) => update(i, { last_name: v })}
               placeholder="Prudenzi"
+              disabled={o.is_primary}
             />
             <Field
               label="Email"
@@ -158,6 +173,7 @@ export function OwnersEditor({
               onChange={(v) => update(i, { email: v })}
               placeholder="simon@example.com"
               type="email"
+              disabled={o.is_primary}
             />
             <Field
               label="Phone"
@@ -165,6 +181,7 @@ export function OwnersEditor({
               onChange={(v) => update(i, { phone: v })}
               placeholder="+19782658548"
               type="tel"
+              disabled={o.is_primary}
             />
             <Field
               label="Role"
@@ -215,12 +232,14 @@ function Field({
   onChange,
   placeholder,
   type = 'text',
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  disabled?: boolean;
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -232,13 +251,15 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
         style={{
           fontFamily: 'inherit',
           fontSize: 13,
-          color: 'var(--ink)',
-          background: 'var(--paper)',
+          color: disabled ? 'var(--ink-3)' : 'var(--ink)',
+          background: disabled ? 'transparent' : 'var(--paper)',
           border: '1px solid var(--rule)',
           padding: '6px 8px',
+          cursor: disabled ? 'not-allowed' : 'text',
         }}
       />
     </label>
