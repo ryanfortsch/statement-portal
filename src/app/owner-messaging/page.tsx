@@ -7,6 +7,7 @@ import {
   listOwnerApprovals,
   listRecentOwnerApprovals,
   listOwnerHistory,
+  getOwnerCuratedFacts,
   explainError,
   type OwnerApproval,
   type OwnerContactHistory,
@@ -14,6 +15,7 @@ import {
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
+import { OwnerFactsEditor } from './OwnerFactsEditor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -24,6 +26,8 @@ type LoadResult =
       pending: OwnerApproval[];
       recent: OwnerApproval[];
       history: OwnerContactHistory[];
+      factsContent: string;
+      factsBytes: number;
     }
   | { ok: false; error: string };
 
@@ -35,10 +39,11 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent, history] = await Promise.all([
+  const [pending, recent, history, facts] = await Promise.all([
     listOwnerApprovals(),
     listRecentOwnerApprovals(24),
     listOwnerHistory(60),
+    getOwnerCuratedFacts(),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
@@ -46,6 +51,8 @@ async function loadData(): Promise<LoadResult> {
     pending: pending.data.approvals,
     recent: recent.ok ? recent.data.approvals : [],
     history: history.ok ? history.data.contacts : [],
+    factsContent: facts.ok ? facts.data.content : '',
+    factsBytes: facts.ok ? facts.data.bytes : 0,
   };
 }
 
@@ -88,6 +95,10 @@ export default async function OwnerMessagingPage() {
           <OwnerMessagingQueue initialPending={data.pending} />
           <OwnerRecentStrip initialRecent={data.recent} />
           <OwnerContactsHistory initialContacts={data.history} />
+          <OwnerFactsEditor
+            initialContent={data.factsContent}
+            initialBytes={data.factsBytes}
+          />
         </>
       )}
 
