@@ -142,6 +142,60 @@ export async function markHandledApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST' });
 }
 
+// ── Owner-messaging surface (mirrors the guest one) ──────────────────────
+
+export type OwnerApproval = {
+  id: string;
+  short_id: string;
+  channel: string;            // 'sms_quo' | 'email_gmail'
+  owner_contact: string;      // E.164 phone or email
+  owner_name: string;
+  property_id: string;
+  property_name: string;
+  external_thread_id: string;
+  external_message_id: string;
+  owner_text: string;
+  draft: string;
+  topic: string;
+  status: string;
+  final_response: string;
+  created_at: string;
+  resolved_at: string | null;
+  age_minutes: number | null;
+};
+
+export type OwnerApprovalsResponse = {
+  approvals: OwnerApproval[];
+  count: number;
+};
+
+export async function listOwnerApprovals() {
+  return request<OwnerApprovalsResponse>('/api/owner-approvals');
+}
+
+export async function listRecentOwnerApprovals(hours = 24) {
+  return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
+}
+
+export async function approveOwnerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, { method: 'POST' });
+}
+
+export async function rejectOwnerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/reject`, { method: 'POST' });
+}
+
+export async function markHandledOwnerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+export async function coachOwnerApproval(id: string, feedback: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/coach`, {
+    method: 'POST',
+    body: { feedback },
+  });
+}
+
 export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
