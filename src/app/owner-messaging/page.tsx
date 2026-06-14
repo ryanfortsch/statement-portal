@@ -6,17 +6,25 @@ import {
   isStayConciergeConfigured,
   listOwnerApprovals,
   listRecentOwnerApprovals,
+  listOwnerHistory,
   explainError,
   type OwnerApproval,
+  type OwnerContactHistory,
 } from '@/lib/stay-concierge';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';
+import { OwnerContactsHistory } from './OwnerContactsHistory';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 type LoadResult =
-  | { ok: true; pending: OwnerApproval[]; recent: OwnerApproval[] }
+  | {
+      ok: true;
+      pending: OwnerApproval[];
+      recent: OwnerApproval[];
+      history: OwnerContactHistory[];
+    }
   | { ok: false; error: string };
 
 async function loadData(): Promise<LoadResult> {
@@ -27,15 +35,17 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent] = await Promise.all([
+  const [pending, recent, history] = await Promise.all([
     listOwnerApprovals(),
     listRecentOwnerApprovals(24),
+    listOwnerHistory(60),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
     ok: true,
     pending: pending.data.approvals,
     recent: recent.ok ? recent.data.approvals : [],
+    history: history.ok ? history.data.contacts : [],
   };
 }
 
@@ -77,6 +87,7 @@ export default async function OwnerMessagingPage() {
         <>
           <OwnerMessagingQueue initialPending={data.pending} />
           <OwnerRecentStrip initialRecent={data.recent} />
+          <OwnerContactsHistory initialContacts={data.history} />
         </>
       )}
 
