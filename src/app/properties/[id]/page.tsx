@@ -430,6 +430,11 @@ export default async function PropertyDetailPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      <style>{`
+        .rt-action-link { transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease; }
+        a.rt-action-link:hover { color: var(--ink); }
+        a.rt-action-link[style*="background"]:hover { opacity: 0.88; }
+      `}</style>
       <HelmMasthead current="properties" />
 
       {/* BACK — the per-tab action rows below carry the contextual
@@ -498,7 +503,7 @@ export default async function PropertyDetailPage({
       </section>
 
       {/* STAT GRID */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
           <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
@@ -532,10 +537,12 @@ export default async function PropertyDetailPage({
                   ? 'Launch checklist complete'
                   : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
               }
+              className="rt-action-link"
               style={{
                 ...actionLinkStyle,
+                padding: '8px 14px',
+                border: `1px solid ${launchProgress.allDone ? 'var(--positive)' : 'var(--rule)'}`,
                 color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
-                borderColor: launchProgress.allDone ? 'var(--positive)' : 'var(--rule)',
               }}
             >
               Launch checklist
@@ -732,7 +739,7 @@ export default async function PropertyDetailPage({
         {/* ════════════ PEOPLE ════════════ */}
         <TabSection tab="people">
       {/* OWNER */}
-      <CollapsibleSection title="Owner" summary={ownerSummary}>
+      <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <Link
             href={`/properties/${p.id}/edit`}
@@ -854,9 +861,9 @@ export default async function PropertyDetailPage({
         {/* ════════════ OPERATIONS ════════════ */}
         <TabSection tab="operations">
           <TabActions>
-            <ActionLink href={`/properties/${p.id}/edit`}>Edit operational data</ActionLink>
             <ActionLink href={`/channels/${p.id}`}>Channels →</ActionLink>
             <ActionLink href={`/properties/${p.id}/layout`}>Inspection layout →</ActionLink>
+            <ActionLink href={`/properties/${p.id}/edit`} primary>Edit operational data</ActionLink>
             <PropertyBackfillButton propertyId={p.id} />
           </TabActions>
 
@@ -1184,10 +1191,12 @@ export default async function PropertyDetailPage({
             <Link
               href={`/properties/${p.id}/stay-cape-ann`}
               title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
+              className="rt-action-link"
               style={{
                 ...actionLinkStyle,
+                padding: '8px 14px',
+                border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
                 color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
-                borderColor: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)',
               }}
             >
               Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
@@ -1457,36 +1466,80 @@ const primaryActionStyle: React.CSSProperties = {
   gap: 6,
 };
 
-/** Outline action-link style shared by the per-tab action rows (the
- *  bar of bordered links that used to stack at the top of the page). */
+/** Quiet "ghost" action link for secondary per-tab actions (Channels,
+ *  Inspection layout, Draft listing, Bedroom photos). No border — reads
+ *  as a row of editorial links rather than a wall of boxed pills.
+ *  Hover/active darken handled by the .rt-action-link class. */
 const actionLinkStyle: React.CSSProperties = {
   fontSize: 11,
-  letterSpacing: '.18em',
+  letterSpacing: '.16em',
   textTransform: 'uppercase',
-  color: 'var(--ink)',
+  color: 'var(--ink-3)',
   textDecoration: 'none',
-  border: '1px solid var(--rule)',
-  padding: '8px 14px',
+  padding: '8px 4px',
   fontWeight: 500,
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
 };
 
-function ActionLink({ href, children, title }: { href: string; children: React.ReactNode; title?: string }) {
+/** Filled primary action — one per tab, the thing you came to do
+ *  (Edit operational data). */
+const primaryActionButtonStyle: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: '.16em',
+  textTransform: 'uppercase',
+  color: 'var(--paper)',
+  background: 'var(--ink)',
+  textDecoration: 'none',
+  border: '1px solid var(--ink)',
+  padding: '9px 16px',
+  fontWeight: 600,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+function ActionLink({
+  href,
+  children,
+  title,
+  primary = false,
+}: {
+  href: string;
+  children: React.ReactNode;
+  title?: string;
+  primary?: boolean;
+}) {
   return (
-    <Link href={href} title={title} style={actionLinkStyle}>
+    <Link
+      href={href}
+      title={title}
+      className="rt-action-link"
+      style={primary ? primaryActionButtonStyle : actionLinkStyle}
+    >
       {children}
     </Link>
   );
 }
 
-/** A right-aligned action row that sits at the top of a tab panel. */
+/** A right-aligned action row that sits at the top of a tab panel.
+ *  Tucked close under the sticky tab bar; vertically centers a primary
+ *  button against the quiet ghost links beside it. */
 function TabActions({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="max-w-[1100px] mx-auto px-10"
-      style={{ paddingTop: 22, width: '100%', display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}
+      style={{
+        paddingTop: 20,
+        paddingBottom: 4,
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: 16,
+        flexWrap: 'wrap',
+        alignItems: 'center',
+      }}
     >
       {children}
     </div>
