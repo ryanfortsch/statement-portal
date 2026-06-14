@@ -387,6 +387,12 @@ export type HelmPropertyRow = {
   owner_last_contacted_at: string | null;
   owner_last_contacted_via: string | null;
   owner_last_contacted_by_email: string | null;
+  /** Structured owner cards used by the Owner Messaging pipeline.
+   * Each entry: { first_name, last_name, email, phone, is_primary, role, notes }.
+   * Additive to owner_full / owner_emails (which stay the source of truth
+   * for statements + contracts). See OwnersEditor on the property detail
+   * page. Defaults to [] for properties that haven't been migrated yet. */
+  owners: unknown[] | null;
   management_fee_pct: number;
   bank_last4: string | null;
   tax_cert_id: string | null;
