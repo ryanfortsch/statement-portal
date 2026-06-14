@@ -76,8 +76,13 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
       </section>
 
       <EditFormShell action={action} propertyId={p.id}>
-        {/* ── Owner contact extras ── */}
+        {/* ── Owner contact ── */}
         <Group eyebrow="01" title="Owner contact">
+          <Row>
+            <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement — e.g. Khristin Lambert-Vorais" />
+            <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails — e.g. Khristin and Carol Ann" />
+          </Row>
+          <Field name="owner_emails" label="Owner emails" defaultValue={p.owner_emails.join(', ')} hint="Comma-separated. Everyone here gets the monthly statement." />
           <Row>
             <Field name="owner_phone" label="Owner phone" type="tel" defaultValue={formatUsPhone(p.owner_phone)} hint="(781) 223-1091" />
             <Field name="owner_preferred_contact" label="Preferred contact" defaultValue={p.owner_preferred_contact} hint="email / phone / text" />

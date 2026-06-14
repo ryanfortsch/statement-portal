@@ -48,6 +48,30 @@ function phoneOrNull(formData: FormData, key: string): string | null {
   return v ? formatUsPhone(v) : null;
 }
 
+/** Owner name/greeting are stored NOT NULL (empty string default), so an
+ *  empty form field clears to '' rather than null. */
+function strOrEmpty(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? '').trim();
+}
+
+/** owner_emails is a text[] column. The form submits a comma / newline /
+ *  semicolon-separated string; split, trim, drop empties, dedupe
+ *  (case-insensitively) preserving first-seen casing. */
+function emailList(formData: FormData, key: string): string[] {
+  const raw = String(formData.get(key) ?? '');
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,;\n]+/)) {
+    const e = part.trim();
+    if (!e) continue;
+    const lower = e.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(e);
+  }
+  return out;
+}
+
 function strOrNull(formData: FormData, key: string): string | null {
   const v = String(formData.get(key) ?? '').trim();
   return v ? v : null;
@@ -113,7 +137,13 @@ async function performPropertyUpdate(
   formData: FormData,
 ): Promise<{ error: string | null }> {
   const payload = {
-    // Owner contact extras
+    // Owner identity + contact. owner_full / owner_greeting are NOT NULL
+    // columns (empty-string default); owner_emails is a text[]. The
+    // statement send list reads owner_emails, so editing it here is how
+    // an operator wires up who receives the monthly statement.
+    owner_full: strOrEmpty(formData, 'owner_full'),
+    owner_greeting: strOrEmpty(formData, 'owner_greeting'),
+    owner_emails: emailList(formData, 'owner_emails'),
     // Normalize to house format at save time -- "(781) 223-1091" --
     // so the DB converges to the pretty form no matter how the digits
     // were typed. Unparseable values pass through untouched.

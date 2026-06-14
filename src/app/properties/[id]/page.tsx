@@ -831,6 +831,23 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
       {/* OWNER — first collapsible because it's the most-used reference
           when triaging open work above. */}
       <CollapsibleSection title="Owner" summary={ownerSummary}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <Link
+            href={`/properties/${p.id}/edit`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '7px 13px',
+              fontWeight: 500,
+            }}
+          >
+            Edit owner info
+          </Link>
+        </div>
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13 }}>
           <Detail term="Owner" definition={p.owner_full} />
           <Detail term="Greeting" definition={p.owner_greeting} />
