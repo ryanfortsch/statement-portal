@@ -25,6 +25,8 @@ import { getPropertyNotes } from '@/lib/property-notes';
 import { LAUNCH_STEPS, isStepResolved } from '@/lib/launch-checklist';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
+import { OwnersEditor } from './OwnersEditor';
+import type { OwnerCard } from '@/app/properties/actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -906,6 +908,19 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
             </dd>
           </div>
         </dl>
+
+        {/* Structured owners — feeds the Owner Messaging pipeline. Inline
+            editor; the legacy owner_full / owner_emails / owner_phone fields
+            above remain the source of truth for statements + contracts. */}
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--rule)' }}>
+          <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 12 }}>
+            Owner messaging contacts
+          </div>
+          <OwnersEditor
+            propertyId={p.id}
+            initialOwners={(p.owners as OwnerCard[] | null) ?? []}
+          />
+        </div>
 
         {/* The "In CRM" chip block that used to live here was lifted out
             into a dedicated Contacts section below, which shows the full

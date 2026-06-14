@@ -361,6 +361,86 @@ export async function markOwnerContacted(args: {
 }
 
 /**
+ * Structured owner cards for a property. Backs the inline OwnersEditor on
+ * the property detail page (and feeds the Owner Messaging pipeline via the
+ * stay-concierge sync endpoint). The existing scalar columns (owner_full,
+ * owner_emails, etc) stay as-is for statements + contracts; this is purely
+ * additive data that lets us identify owners by phone/email on inbound
+ * messages.
+ *
+ * Each owner card: { first_name, last_name, email, phone, is_primary,
+ * role, notes }. Phone is normalized to E.164 client-side and re-checked
+ * here. Empty cards are dropped.
+ */
+export type OwnerCard = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  is_primary: boolean;
+  role: string;
+  notes: string;
+};
+
+const PHONE_DIGITS_RE = /\D/g;
+
+function normalizeOwnerCards(input: unknown): OwnerCard[] {
+  if (!Array.isArray(input)) return [];
+  const out: OwnerCard[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const first_name = String(r.first_name ?? '').trim();
+    const last_name = String(r.last_name ?? '').trim();
+    const email = String(r.email ?? '').trim().toLowerCase();
+    let phone = String(r.phone ?? '').trim();
+    if (phone) {
+      const digits = phone.replace(PHONE_DIGITS_RE, '');
+      if (digits.length === 10) phone = `+1${digits}`;
+      else if (digits.length === 11 && digits.startsWith('1')) phone = `+${digits}`;
+      else if (phone.startsWith('+')) phone = `+${digits}`;
+      else phone = `+${digits}`;
+    }
+    const is_primary = Boolean(r.is_primary);
+    const role = String(r.role ?? '').trim() || 'owner';
+    const notes = String(r.notes ?? '').trim();
+    // Drop fully empty cards
+    if (!first_name && !last_name && !email && !phone) continue;
+    out.push({ first_name, last_name, email, phone, is_primary, role, notes });
+  }
+  // Ensure at most one is_primary; if none flagged, mark the first one.
+  let foundPrimary = false;
+  for (const c of out) {
+    if (c.is_primary && !foundPrimary) foundPrimary = true;
+    else c.is_primary = false;
+  }
+  if (!foundPrimary && out.length > 0) out[0].is_primary = true;
+  return out;
+}
+
+export async function saveOwnerCards(
+  propertyId: string,
+  rawOwners: unknown,
+): Promise<{ ok: true; owners: OwnerCard[] } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!propertyId) return { ok: false, error: 'Missing property id' };
+
+  const owners = normalizeOwnerCards(rawOwners);
+
+  const { error } = await supabase
+    .from('properties')
+    .update({ owners })
+    .eq('id', propertyId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath('/properties');
+  return { ok: true, owners };
+}
+
+
+/**
  * Bespoke per-property notices — 4 × 6 Stay Cape Ann placards for
  * property-specific quirks. Persisted in `public.property_notices`. The
  * three actions below cover the full lifecycle (create / update /
