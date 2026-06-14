@@ -48,6 +48,11 @@ export function PropertyTabs({
 
   return (
     <TabCtx.Provider value={{ active }}>
+      <style>{`
+        .rt-tab { transition: color 0.15s ease, border-color 0.15s ease; }
+        .rt-tab:hover { color: var(--ink); }
+        .rt-tab:focus-visible { outline: 2px solid var(--tide-deep); outline-offset: -2px; }
+      `}</style>
       <nav
         className="rt-tabnav"
         style={{
@@ -69,6 +74,7 @@ export function PropertyTabs({
               <button
                 key={t.id}
                 type="button"
+                className="rt-tab"
                 onClick={() => select(t.id)}
                 aria-current={on ? 'page' : undefined}
                 style={{
