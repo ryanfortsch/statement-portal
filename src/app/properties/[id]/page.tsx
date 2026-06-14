@@ -19,6 +19,7 @@ import { TaxCertEditor } from './TaxCertEditor';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
+import { PropertyTabs, TabSection } from './PropertyTabs';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
@@ -313,8 +314,15 @@ async function getRecentStatements(propertyId: string): Promise<HelmStatementRow
 
 type Params = { id: string };
 
-export default async function PropertyDetailPage({ params }: { params: Promise<Params> }) {
+export default async function PropertyDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams?: Promise<{ tab?: string }>;
+}) {
   const { id } = await params;
+  const initialTab = (await searchParams)?.tab ?? 'overview';
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -424,10 +432,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="properties" />
 
-      {/* BACK + EDIT */}
+      {/* BACK — the per-tab action rows below carry the contextual
+          actions (Edit, Channels, Draft listing, etc.) that used to
+          crowd this bar. */}
       <div
         className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingTop: 24, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        style={{ paddingTop: 24, width: '100%' }}
       >
         <Link
           href="/properties"
@@ -441,153 +451,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         >
           ← All Properties
         </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {/* Launch checklist entry-point. The page existed but was
-              unlinked from anywhere, so it was effectively hidden. Lives
-              at /properties/<id>/launch — 18 steps across Identity /
-              Financial / Listing / Integrations / Owner-facing / Launch.
-              Chip color flips positive once every step is resolved
-              (done / skipped / n/a). */}
-          <Link
-            href={`/properties/${p.id}/launch`}
-            title={
-              launchProgress.allDone
-                ? 'Launch checklist complete'
-                : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
-            }
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
-              textDecoration: 'none',
-              border: `1px solid ${launchProgress.allDone ? 'var(--positive)' : 'var(--rule)'}`,
-              padding: '8px 14px',
-              fontWeight: 500,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <span>Launch checklist</span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',
-                fontSize: 10,
-                letterSpacing: '0.04em',
-                color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink-3)',
-              }}
-            >
-              {launchProgress.done}/{launchProgress.total}
-            </span>
-            <span aria-hidden>{launchProgress.allDone ? '✓' : '→'}</span>
-          </Link>
-          <Link
-            href={`/properties/${p.id}/stay-cape-ann`}
-            title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
-              textDecoration: 'none',
-              border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
-              padding: '8px 14px',
-              fontWeight: 500,
-            }}
-          >
-            Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
-          </Link>
-          {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
-            <Link
-              href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
-              title="Add or replace this listing's bedroom photos on staycapeann.com"
-              style={{
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink)',
-                textDecoration: 'none',
-                border: '1px solid var(--rule)',
-                padding: '8px 14px',
-                fontWeight: 500,
-              }}
-            >
-              Bedroom photos →
-            </Link>
-          )}
-          <Link
-            href={`/channels/${p.id}`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontWeight: 500,
-            }}
-          >
-            Channels →
-          </Link>
-          <Link
-            href={`/properties/${p.id}/layout`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontWeight: 500,
-            }}
-          >
-            Inspection layout →
-          </Link>
-          <Link
-            href={`/properties/${p.id}/listing-copy`}
-            title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontWeight: 500,
-            }}
-          >
-            Draft listing →
-          </Link>
-          <Link
-            href={`/properties/${p.id}/edit`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontWeight: 500,
-            }}
-          >
-            Edit operational data
-          </Link>
-        </div>
-      </div>
-
-      {/* BACKFILL — pulls beds/baths/type/lat-lng from Guesty's listing
-          metadata and applies smart defaults from data already on file.
-          Fill-blanks-only, never overwrites curated values. */}
-      <div
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingTop: 14, width: '100%', display: 'flex', justifyContent: 'flex-end' }}
-      >
-        <PropertyBackfillButton propertyId={p.id} />
       </div>
 
       {/* HERO */}
@@ -648,6 +511,40 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           </div>
         </div>
       </section>
+
+      <PropertyTabs
+        initialTab={initialTab}
+        tabs={[
+          { id: 'overview', label: 'Overview', badge: openSlips.length || undefined },
+          { id: 'operations', label: 'Operations' },
+          { id: 'people', label: 'People', badge: crmContactsFull.length || undefined },
+          { id: 'history', label: 'History' },
+          { id: 'deliverables', label: 'Deliverables' },
+        ]}
+      >
+        {/* ════════════ OVERVIEW ════════════ */}
+        <TabSection tab="overview">
+          <TabActions>
+            <Link
+              href={`/properties/${p.id}/launch`}
+              title={
+                launchProgress.allDone
+                  ? 'Launch checklist complete'
+                  : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
+              }
+              style={{
+                ...actionLinkStyle,
+                color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
+                borderColor: launchProgress.allDone ? 'var(--positive)' : 'var(--rule)',
+              }}
+            >
+              Launch checklist
+              <span style={{ fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', fontSize: 10 }}>
+                {launchProgress.done}/{launchProgress.total}
+              </span>
+              <span aria-hidden>{launchProgress.allDone ? '✓' : '→'}</span>
+            </Link>
+          </TabActions>
 
       {/* PINNED PROPERTY NOTES (from inspections) */}
       {pinnedNotes.length > 0 && (
@@ -830,8 +727,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         )}
       </section>
 
-      {/* OWNER — first collapsible because it's the most-used reference
-          when triaging open work above. */}
+        </TabSection>
+
+        {/* ════════════ PEOPLE ════════════ */}
+        <TabSection tab="people">
+      {/* OWNER */}
       <CollapsibleSection title="Owner" summary={ownerSummary}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <Link
@@ -947,6 +847,16 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           touchesByContact={crmTouchesByContact}
         />
       </CollapsibleSection>
+        </TabSection>
+
+        {/* ════════════ OPERATIONS ════════════ */}
+        <TabSection tab="operations">
+          <TabActions>
+            <ActionLink href={`/properties/${p.id}/edit`}>Edit operational data</ActionLink>
+            <ActionLink href={`/channels/${p.id}`}>Channels →</ActionLink>
+            <ActionLink href={`/properties/${p.id}/layout`}>Inspection layout →</ActionLink>
+            <PropertyBackfillButton propertyId={p.id} />
+          </TabActions>
 
       {/* PROPERTY NOTES — internal per-property knowledge base. Each
           row is a discrete note (quirk / workaround / vendor / warning).
@@ -1060,6 +970,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         )}
       </CollapsibleSection>
 
+        </TabSection>
+
+        {/* ════════════ HISTORY ════════════ */}
+        <TabSection tab="history">
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary={activitySummary}>
         <PropertyActivityList events={activityEvents} />
@@ -1190,6 +1104,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         )}
       </CollapsibleSection>
 
+        </TabSection>
+
+        {/* ════════════ OPERATIONS (config + reference) ════════════ */}
+        <TabSection tab="operations">
       {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
       {operationalCounts.populated > 0 && (
         <CollapsibleSection title="Operational data" summary={operationalSummary}>
@@ -1250,10 +1168,40 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
         </div>
       </CollapsibleSection>
 
+        </TabSection>
+
+        {/* ════════════ DELIVERABLES ════════════ */}
+        <TabSection tab="deliverables">
+          <TabActions>
+            <ActionLink
+              href={`/properties/${p.id}/listing-copy`}
+              title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
+            >
+              Draft listing →
+            </ActionLink>
+            <Link
+              href={`/properties/${p.id}/stay-cape-ann`}
+              title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
+              style={{
+                ...actionLinkStyle,
+                color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
+                borderColor: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)',
+              }}
+            >
+              Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
+            </Link>
+            {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
+              <ActionLink
+                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
+                title="Add or replace this listing's bedroom photos on staycapeann.com"
+              >
+                Bedroom photos →
+              </ActionLink>
+            )}
+          </TabActions>
+
       {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
-          Information Note. Collapsed by default and parked at the bottom
-          since these are produced once at onboarding then occasionally
-          reprinted, not consulted day-to-day. */}
+          Information Note. */}
       <CollapsibleSection title="Guest Deliverables" summary={deliverablesSummary}>
         <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
@@ -1449,6 +1397,8 @@ export default async function PropertyDetailPage({ params }: { params: Promise<P
           )}
         </div>
       </CollapsibleSection>
+        </TabSection>
+      </PropertyTabs>
 
       {/* FOOTER */}
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
@@ -1504,6 +1454,42 @@ const primaryActionStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
 };
+
+/** Outline action-link style shared by the per-tab action rows (the
+ *  bar of bordered links that used to stack at the top of the page). */
+const actionLinkStyle: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  color: 'var(--ink)',
+  textDecoration: 'none',
+  border: '1px solid var(--rule)',
+  padding: '8px 14px',
+  fontWeight: 500,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+function ActionLink({ href, children, title }: { href: string; children: React.ReactNode; title?: string }) {
+  return (
+    <Link href={href} title={title} style={actionLinkStyle}>
+      {children}
+    </Link>
+  );
+}
+
+/** A right-aligned action row that sits at the top of a tab panel. */
+function TabActions({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="max-w-[1100px] mx-auto px-10"
+      style={{ paddingTop: 22, width: '100%', display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}
+    >
+      {children}
+    </div>
+  );
+}
 
 /** Builds the six operational-data row groups in display order. Shared by
  *  the renderer (which shows only populated rows per group) and the field
