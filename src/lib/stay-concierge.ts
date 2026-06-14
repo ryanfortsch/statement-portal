@@ -196,6 +196,36 @@ export async function coachOwnerApproval(id: string, feedback: string) {
   });
 }
 
+export type OwnerHistoryEvent = {
+  kind: 'inbound' | 'sent' | 'sent_outside' | 'draft_skipped' | 'escalated' | string;
+  at: string;
+  channel: string;
+  text: string;
+  topic?: string;
+  approval_id?: string;
+};
+
+export type OwnerContactHistory = {
+  owner_contact: string;
+  owner_name: string;
+  property_id: string;
+  property_name: string;
+  message_count: number;
+  inbound_count: number;
+  sent_count: number;
+  last_at: string;
+  messages: OwnerHistoryEvent[];
+};
+
+export type OwnerHistoryResponse = {
+  contacts: OwnerContactHistory[];
+  count: number;
+};
+
+export async function listOwnerHistory(days = 60) {
+  return request<OwnerHistoryResponse>(`/api/owner-history?days=${days}`);
+}
+
 export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
