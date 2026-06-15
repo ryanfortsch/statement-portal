@@ -107,18 +107,20 @@ export async function POST(request: NextRequest) {
 
   const sb = getSupabase();
   const requestId = (body.request_id || '').trim() || crypto.randomUUID();
+  const dedupKey = `webhook:${requestId}`;
 
-  // Idempotency: if a projection already references this request_id,
-  // return that row instead of creating a duplicate.
-  const { data: existing } = await sb
-    .from('projections')
-    .select('id')
-    .filter('import_source->>request_id', 'eq', requestId)
+  // Idempotency via the persistent imported_inquiries ledger. The tombstone
+  // survives a manual delete, so re-posting (or a Formspree retry) won't
+  // resurrect a prospect the operator deliberately removed.
+  const { data: ledgerHit } = await sb
+    .from('imported_inquiries')
+    .select('projection_id')
+    .eq('dedup_key', dedupKey)
     .maybeSingle();
-  if (existing) {
+  if (ledgerHit) {
     return NextResponse.json({
       ok: true,
-      projection_id: (existing as { id: string }).id,
+      projection_id: (ledgerHit as { projection_id: string | null }).projection_id,
       created: false,
       note: 'already imported',
     });
@@ -188,6 +190,7 @@ export async function POST(request: NextRequest) {
     import_source: {
       source: 'rt_schedule_webhook',
       request_id: requestId,
+      dedup_key: dedupKey,
       kind: body.kind || 'schedule',
       requested_slot: body.requestedSlot || null,
       timezone: body.timezone || null,
@@ -210,9 +213,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const projectionId = (inserted as { id: string }).id;
+
+  // Tombstone the inquiry so a Formspree retry / re-post — or a deliberate
+  // delete followed by another submission with the same request_id — can't
+  // resurrect it.
+  await sb
+    .from('imported_inquiries')
+    .upsert(
+      {
+        dedup_key: dedupKey,
+        channel: 'rt_schedule_webhook',
+        projection_id: projectionId,
+        email,
+      },
+      { onConflict: 'dedup_key', ignoreDuplicates: true },
+    );
+
   return NextResponse.json({
     ok: true,
-    projection_id: (inserted as { id: string }).id,
+    projection_id: projectionId,
     created: true,
   });
 }
