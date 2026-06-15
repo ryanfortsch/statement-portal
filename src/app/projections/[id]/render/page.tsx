@@ -287,38 +287,62 @@ function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionCompu
           The same Year 1 projection broken out month-by-month: gross revenue, cleaning, the management
           fee, and your net payout.
         </p>
-        <table className="rt-mb-table">
-          <thead>
-            <tr>
-              <th className="rt-mb-th rt-mb-th-month">Month</th>
-              <th className="rt-mb-th rt-mb-th-num">Gross Revenue</th>
-              <th className="rt-mb-th rt-mb-th-num">Cleaning</th>
-              <th className="rt-mb-th rt-mb-th-num">Mgmt Fee</th>
-              <th className="rt-mb-th rt-mb-th-num rt-mb-th-net">Owner Payout</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => {
-              const inactive = m.rampMultiplier === 0;
-              return (
-                <tr key={m.monthIndex} className={inactive ? 'rt-mb-row-inactive' : ''}>
-                  <td className="rt-mb-td rt-mb-td-month">{m.monthLabel}</td>
-                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.grossRevenue))}</td>
-                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.cleaningExpense))}</td>
-                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.managementFee))}</td>
-                  <td className="rt-mb-td rt-mb-td-num rt-mb-td-net">{inactive ? '—' : fmtMoney(Math.round(m.netPayout))}</td>
+        {(() => {
+          // Transposed layout: months across the top (matching the
+          // Property Analyzer spreadsheet), the four line items as rows,
+          // and a Full Year column on the right in place of a totals row.
+          // Keeps the table to 5 rows so it never overflows the slide the
+          // way the 13-row vertical version did.
+          const money = (n: number) => fmtMoney(Math.round(n));
+          const metrics: Array<{
+            label: string;
+            get: (m: (typeof rows)[number]) => number;
+            total: number;
+            net?: boolean;
+          }> = [
+            { label: 'Gross revenue', get: (m) => m.grossRevenue, total: totals.gross },
+            { label: 'Cleaning', get: (m) => m.cleaningExpense, total: totals.cleaning },
+            { label: 'Mgmt fee', get: (m) => m.managementFee, total: totals.mgmt },
+            { label: 'Owner payout', get: (m) => m.netPayout, total: totals.net, net: true },
+          ];
+          return (
+            <table className="rt-mb-table">
+              <thead>
+                <tr>
+                  <th className="rt-mb-th rt-mb-th-metric" />
+                  {rows.map((m) => (
+                    <th
+                      key={m.monthIndex}
+                      className={`rt-mb-th rt-mb-th-mo${m.rampMultiplier === 0 ? ' rt-mb-th-inactive' : ''}`}
+                    >
+                      {m.monthLabel}
+                    </th>
+                  ))}
+                  <th className="rt-mb-th rt-mb-th-year">Full year</th>
                 </tr>
-              );
-            })}
-            <tr className="rt-mb-row-total">
-              <td className="rt-mb-td rt-mb-td-month">Year 1 total</td>
-              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.gross))}</td>
-              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.cleaning))}</td>
-              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.mgmt))}</td>
-              <td className="rt-mb-td rt-mb-td-num rt-mb-td-net">{fmtMoney(Math.round(totals.net))}</td>
-            </tr>
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {metrics.map((metric) => (
+                  <tr key={metric.label} className={metric.net ? 'rt-mb-row-net' : ''}>
+                    <td className="rt-mb-td rt-mb-td-metric">{metric.label}</td>
+                    {rows.map((m) => {
+                      const inactive = m.rampMultiplier === 0;
+                      return (
+                        <td
+                          key={m.monthIndex}
+                          className={`rt-mb-td rt-mb-td-num${inactive ? ' rt-mb-td-inactive' : ''}`}
+                        >
+                          {inactive ? '—' : money(metric.get(m))}
+                        </td>
+                      );
+                    })}
+                    <td className="rt-mb-td rt-mb-td-num rt-mb-td-year">{money(metric.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
       <Footer label={footer} />
     </section>
@@ -1182,53 +1206,70 @@ const deckCss = `
     max-width: 720px;
   }
 
-  /* ── Year 1 monthly breakdown table (opt-in slide) ── */
+  /* ── Year 1 monthly breakdown table (opt-in slide) ──
+     Transposed: months across the top, four line items as rows, Full
+     Year on the right. Compact so 14 columns fit the slide width. */
   .rt-mb-table {
-    margin-top: 16px;
+    margin-top: 18px;
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     font-variant-numeric: tabular-nums;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
+  /* Month / Full-year headers */
   .rt-mb-th {
     text-align: right;
-    padding: 12px 14px;
+    padding: 10px 6px;
     border-bottom: 2px solid var(--ink);
-    font-size: 11px;
-    letter-spacing: 0.18em;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--ink-3);
     font-weight: 600;
+    white-space: nowrap;
   }
-  .rt-mb-th-month { text-align: left; }
-  .rt-mb-th-net { color: var(--ink); }
+  .rt-mb-th-metric { width: 116px; border-bottom-color: var(--ink); }
+  .rt-mb-th-mo { width: auto; }
+  .rt-mb-th-inactive { color: var(--ink-4); }
+  .rt-mb-th-year {
+    width: 92px;
+    color: var(--ink);
+    border-left: 1px solid var(--rule);
+  }
+  /* Body cells */
   .rt-mb-td {
-    padding: 10px 14px;
+    padding: 11px 6px;
     border-bottom: 1px solid var(--rule);
-    font-size: 14px;
+    font-size: 12.5px;
     color: var(--ink);
     text-align: right;
+    white-space: nowrap;
   }
-  .rt-mb-td-month {
+  .rt-mb-td-metric {
     text-align: left;
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 16px;
+    font-size: 15px;
     letter-spacing: -0.01em;
     color: var(--ink);
+    white-space: nowrap;
   }
-  .rt-mb-td-net {
+  .rt-mb-td-inactive { color: var(--ink-4); }
+  .rt-mb-td-year {
+    border-left: 1px solid var(--rule);
     font-weight: 600;
     color: var(--ink);
   }
-  .rt-mb-row-inactive .rt-mb-td { color: var(--ink-4); }
-  .rt-mb-row-inactive .rt-mb-td-net { font-weight: 400; }
-  .rt-mb-row-total .rt-mb-td {
+  /* Owner-payout row: the number that matters, emphasized + ruled off. */
+  .rt-mb-row-net .rt-mb-td {
     border-top: 2px solid var(--ink);
     border-bottom: none;
+    padding-top: 13px;
     font-weight: 600;
-    padding-top: 14px;
+    font-size: 13.5px;
     color: var(--ink);
   }
+  .rt-mb-row-net .rt-mb-td-metric { font-weight: 600; }
 
   .rt-month-strip {
     margin-top: auto;
