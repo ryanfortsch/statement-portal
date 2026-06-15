@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { put } from '@vercel/blob';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -716,6 +717,39 @@ export async function promoteToProperty(projectionId: string) {
     if (seedErr) console.warn('[promoteToProperty] launch-checklist seed skipped:', seedErr.message);
   } catch (err) {
     console.warn('[promoteToProperty] launch-checklist seed threw:', err);
+  }
+
+  // Auto-file the executed management contract into the new property's
+  // Documents tab, so it's one click from the property page instead of
+  // buried in the prospect record. Best-effort: a missing Blob token,
+  // an unsigned/unrenderable contract, or a network hiccup must never
+  // block the promotion. Promote runs once per property (guarded by the
+  // already-promoted redirect above), so a plain insert won't duplicate.
+  try {
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const origin = await getRequestOrigin();
+      if (origin) {
+        const pdf = await fetchContractPdf({ projectionId, origin, token: projRow.onboarding_token as string | null });
+        const blob = await put(`property-docs/${propertyId}/contract-${propertyId}.pdf`, pdf, {
+          access: 'public',
+          addRandomSuffix: true,
+          contentType: 'application/pdf',
+        });
+        await sb.from('property_documents').insert({
+          property_id: propertyId,
+          label: 'Management contract (executed)',
+          category: 'contract',
+          file_url: blob.url,
+          file_name: 'management-contract.pdf',
+          mime: 'application/pdf',
+          size_bytes: pdf.length,
+          source: 'contract-auto',
+          uploaded_by_email: session.user.email,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[promoteToProperty] contract auto-file skipped:', err);
   }
 
   revalidatePath(`/projections/${projectionId}`);
