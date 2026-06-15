@@ -637,11 +637,6 @@ function PropertyGroup({
   const [expanded, setExpanded] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
-  // Print state — only active for the brief window while window.print() is
-  // open. The body data-print-property + group data-printing pair drives
-  // the @media print rules in globals.css to render just this property's
-  // slips on paper, sans the queue chrome.
-  const [printing, setPrinting] = useState(false);
   const highCount = slips.filter((s) => s.priority === 'high').length;
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const supplySlips = slips.filter(isSupplySlip);
@@ -654,21 +649,12 @@ function PropertyGroup({
 
   function printPropertyWork() {
     if (!propertyId) return;
-    const wasExpanded = expanded;
-    // Force the group expanded so the slips are actually in the DOM when
-    // the print dialog opens. Without this, the @media print rule would
-    // print the header alone.
-    if (!wasExpanded) setExpanded(true);
-    setPrinting(true);
-    document.body.setAttribute('data-print-property', propertyId);
-    // Give React a tick to flush the expand + data-printing render
-    // before triggering the (synchronous, blocking) print dialog.
-    setTimeout(() => {
-      window.print();
-      document.body.removeAttribute('data-print-property');
-      setPrinting(false);
-      if (!wasExpanded) setExpanded(false);
-    }, 60);
+    // Hand off to the dedicated print route — a real server-rendered
+    // checklist sheet that fits a tight single page. ?auto=1 fires the
+    // print dialog on load. The old in-place approach (overlay this
+    // group via @media print) squeezed the title to a sliver and left
+    // the rest of the board generating blank pages.
+    window.open(`/properties/${propertyId}/work-slips/print?auto=1`, '_blank', 'noopener,noreferrer');
   }
 
   async function draftOwnerEmail() {
@@ -697,11 +683,7 @@ function PropertyGroup({
   }
 
   return (
-    <div
-      data-property-group={propertyId ?? ''}
-      data-printing={printing ? 'true' : undefined}
-      style={{ borderBottom: '1px solid var(--rule)' }}
-    >
+    <div style={{ borderBottom: '1px solid var(--rule)' }}>
       <div
         style={{
           display: 'flex',
@@ -947,9 +929,6 @@ function WorkSlipRowItem({
           ariaLabel={`Select work slip ${slip.title}`}
         />
       </span>
-      {/* Paper checkbox for the printout — only renders in @media print
-          (see globals.css). Gives the cleaner a tick-box on paper. */}
-      <span aria-hidden="true" className="rt-print-only" style={{ fontSize: 14 }}>☐</span>
       <Link
         href={`/work/${slip.id}`}
         style={{
