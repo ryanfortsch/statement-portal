@@ -24,7 +24,30 @@ export type InquiryFields = {
   kind: string | null;
   requestedSlot: string | null;
   notes: string | null;
+  /** Formspree's submission timestamp (ISO). Identical across the copies
+   *  of the same inquiry that land in different mailboxes, so it anchors
+   *  the logical dedup key — see inquiryDedupKey(). */
+  submittedAt: string | null;
 };
+
+/**
+ * Stable logical key for one inquiry submission, independent of which
+ * mailbox surfaced it. The same Formspree send lands in both Allie's and
+ * Ryan's inboxes with distinct Gmail message ids but an identical
+ * submittedAt, so keying on (email, submittedAt) collapses those copies to
+ * a single prospect. Falls back to requestedSlot, then the full address,
+ * if submittedAt is somehow absent.
+ *
+ * This key is persisted in the imported_inquiries ledger and checked
+ * before every auto-create, so it ALSO survives a manual delete — the
+ * tombstone row stops the 15-minute cron from re-importing a prospect the
+ * operator deliberately removed.
+ */
+export function inquiryDedupKey(fields: InquiryFields): string {
+  const email = fields.email.trim().toLowerCase();
+  const anchor = fields.submittedAt || fields.requestedSlot || fields.address;
+  return `gmail:${email}:${anchor}`;
+}
 
 /** All structured field names the parser will recognize on a label line.
  *  `submittedAt` is included on purpose — it sits AFTER `notes` in
@@ -176,6 +199,7 @@ export function parseInquiryEmail(rawBody: string): InquiryFields | null {
     kind: out.kind || null,
     requestedSlot: out.requestedSlot || null,
     notes: out.notes && !isNullSentinel(out.notes) ? out.notes : null,
+    submittedAt: out.submittedat || null,
   };
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
-import { parseInquiryEmail, splitAddressLine, inferMarketFromCity } from '@/lib/inquiry-parser';
+import { parseInquiryEmail, splitAddressLine, inferMarketFromCity, inquiryDedupKey } from '@/lib/inquiry-parser';
 import type { Owner } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 
@@ -184,16 +184,27 @@ async function processMessage(
       };
     }
 
-    // Idempotency: every tick re-fetches the same 14-day window of
-    // messages (we can't apply a Gmail label without elevated OAuth
-    // scope), so the DB lookup is what stops double-creating.
-    const { data: existing } = await sb
-      .from('projections')
-      .select('id')
-      .filter('import_source->>gmail_message_id', 'eq', messageId)
+    // Idempotency via the persistent imported_inquiries ledger, keyed by a
+    // LOGICAL inquiry key (email + submittedAt) rather than the Gmail
+    // message id. This:
+    //   - collapses the same inquiry that lands in two mailboxes (Allie +
+    //     Ryan) into a single prospect, and
+    //   - survives a manual delete: the ledger row stays as a tombstone, so
+    //     a prospect the operator deliberately removed is NOT resurrected
+    //     on the next 15-minute tick.
+    const dedupKey = inquiryDedupKey(parsed);
+    const { data: ledgerHit } = await sb
+      .from('imported_inquiries')
+      .select('projection_id')
+      .eq('dedup_key', dedupKey)
       .maybeSingle();
-    if (existing) {
-      return { message_id: messageId, status: 'skipped', reason: 'already imported', projection_id: (existing as { id: string }).id };
+    if (ledgerHit) {
+      return {
+        message_id: messageId,
+        status: 'skipped',
+        reason: 'already imported',
+        projection_id: (ledgerHit as { projection_id: string | null }).projection_id ?? undefined,
+      };
     }
 
     const addr = splitAddressLine(parsed.address);
@@ -255,6 +266,7 @@ async function processMessage(
       import_source: {
         source: 'gmail_inquiry',
         gmail_message_id: messageId,
+        dedup_key: dedupKey,
         mailbox: mailboxName,
         kind: parsed.kind || 'inquiry',
         requested_slot: parsed.requestedSlot,
@@ -273,7 +285,26 @@ async function processMessage(
       return { message_id: messageId, status: 'failed', reason: insertErr?.message || 'insert returned no row' };
     }
 
-    return { message_id: messageId, status: 'created', projection_id: (inserted as { id: string }).id };
+    const projectionId = (inserted as { id: string }).id;
+
+    // Record the tombstone immediately. Upsert (not insert) so a race
+    // between two mailboxes processing the same inquiry in one tick can't
+    // 500 on the primary-key collision — the first writer wins, the second
+    // would already have been caught by the ledger check above in the
+    // common case.
+    await sb
+      .from('imported_inquiries')
+      .upsert(
+        {
+          dedup_key: dedupKey,
+          channel: 'gmail_inquiry',
+          projection_id: projectionId,
+          email: parsed.email.trim().toLowerCase(),
+        },
+        { onConflict: 'dedup_key', ignoreDuplicates: true },
+      );
+
+    return { message_id: messageId, status: 'created', projection_id: projectionId };
   } catch (err) {
     return { message_id: messageId, status: 'failed', reason: err instanceof Error ? err.message : String(err) };
   }
