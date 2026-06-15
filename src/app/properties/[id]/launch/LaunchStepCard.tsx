@@ -25,8 +25,8 @@ type Props = {
  * Maps a step's `action` to a deep-link the operator can use to execute
  * the work from the checklist itself. Internal paths use Next routing;
  * external services open in a new tab. Returns null for actions that
- * don't have a destination yet (generate_copy, send_welcome, activate
- * lives on the launch page itself).
+ * don't have a destination yet (send_welcome; activate lives on the
+ * launch page itself).
  */
 function deepLinkFor(
   action: LaunchStep['action'],
@@ -40,6 +40,11 @@ function deepLinkFor(
       return { href: `/properties/${propertyId}/edit`, label: 'Open property edit', external: false };
     case 'set_external_title':
       return { href: `/properties/${propertyId}/stay-cape-ann`, label: 'Open Stay Cape Ann', external: false };
+    case 'generate_copy':
+      // The AI listing-copy generator built in a prior session. Wiring it
+      // here so the "Listing copy drafted" step launches the tool that
+      // does the work instead of being an inert checkbox.
+      return { href: `/properties/${propertyId}/listing-copy`, label: 'Draft listing copy', external: false };
     case 'open_quo':
       return { href: 'https://my.openphone.com/', label: 'Open Quo', external: true };
     case 'open_seam':
