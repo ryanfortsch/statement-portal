@@ -556,13 +556,19 @@ function Pill({
 }
 
 /**
- * Inventory vs. work: restock slips from the inspection Supplies Check
- * carry from_supply_key; manually-added Rising Tide slips titled
- * "Restock: …" count too so a hand-entered "Restock: Coffee pods" lands
- * on the supplies side of the board instead of among the repairs.
+ * Inventory vs. work. Three ways a slip counts as inventory:
+ *   1. category 'inventory' — picked on the New Work Slip form.
+ *   2. from_supply_key — auto-created by the inspection Supplies Check.
+ *   3. legacy 'rising_tide' titled "Restock: …" — pre-dates the
+ *      inventory category, kept so old hand-entered restocks still land
+ *      on the supplies side of the board instead of among the repairs.
  */
 function isSupplySlip(s: WorkSlipRow): boolean {
-  return !!s.from_supply_key || (s.category === 'rising_tide' && /^restock:\s/i.test(s.title));
+  return (
+    s.category === 'inventory' ||
+    !!s.from_supply_key ||
+    (s.category === 'rising_tide' && /^restock:\s/i.test(s.title))
+  );
 }
 
 function supplyChipLabel(s: WorkSlipRow): string {

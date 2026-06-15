@@ -207,7 +207,7 @@ export async function completeInspection(
       description: `Marked low on the Supplies Check at the end of this inspection.`,
       location: null,
       from_supply_key: key,
-      category: 'rising_tide' as const,
+      category: 'inventory' as const,
       priority: 'normal' as const,
       status: 'open' as const,
       created_by_email: sessionEmail,
