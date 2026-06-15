@@ -228,6 +228,32 @@ export function isStepResolved(status: LaunchStepStatus | undefined | null): boo
 }
 
 /**
+ * Single source of truth for "how many launch steps are resolved" — a
+ * step counts if its DB status is resolved (done/skipped/n_a) OR it's
+ * still `todo` but auto-derives as resolved from property data. Both the
+ * launch page headline AND the property-page chip call this so the two
+ * counts can never disagree (the 1/18-vs-5/18 mismatch on 2026-06-15
+ * came from the chip counting only persisted rows).
+ */
+export function computeLaunchProgress(
+  rows: ReadonlyArray<{ step_key: string; status: LaunchStepStatus }>,
+  ctx: LaunchDerivationContext,
+): { done: number; total: number; allDone: boolean } {
+  const byKey = new Map(rows.map((r) => [r.step_key, r.status]));
+  const total = LAUNCH_STEPS.length;
+  let done = 0;
+  for (const step of LAUNCH_STEPS) {
+    const status = byKey.get(step.key);
+    if (isStepResolved(status)) {
+      done += 1;
+    } else if ((status ?? 'todo') === 'todo' && deriveStepResolved(step.key, ctx)) {
+      done += 1;
+    }
+  }
+  return { done, total, allDone: done >= total };
+}
+
+/**
  * Context for auto-deriving a step's resolved state from data already on
  * the property + adjacent tables. The launch page passes this in so the
  * checklist stops asking the operator to do work that's demonstrably

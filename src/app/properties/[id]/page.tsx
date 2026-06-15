@@ -26,7 +26,7 @@ import { getPropertyDocuments } from '@/lib/property-documents';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
-import { LAUNCH_STEPS, isStepResolved } from '@/lib/launch-checklist';
+import { computeLaunchProgress } from '@/lib/launch-checklist';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 import { OwnersEditor } from './OwnersEditor';
@@ -73,32 +73,48 @@ async function getScaLaunchStatus(
 }
 
 /**
- * Counts of resolved (done | skipped | n_a) vs total launch-checklist
- * steps for this property, so the action-row link can render a quick
- * "Launch checklist N / M" progress chip. Falls back to a `null` row
- * (treated as 0 / total) on any error, including the table missing on
- * older preview envs.
+ * Raw launch-checklist rows for this property. The Overview chip's
+ * progress count is derived from these PLUS property data via
+ * computeLaunchProgress (same calc the launch page uses), so the two
+ * surfaces always agree. Returns [] on any error (table missing on old
+ * preview envs, etc.) — computeLaunchProgress then still derives from
+ * property fields.
  */
-async function getLaunchProgress(
+async function getLaunchStepRows(
   id: string,
-): Promise<{ done: number; total: number; allDone: boolean }> {
-  const total = LAUNCH_STEPS.length;
-  if (!isHelmConfigured) return { done: 0, total, allDone: false };
+): Promise<Array<{ step_key: string; status: import('@/lib/launch-checklist').LaunchStepStatus }>> {
+  if (!isHelmConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('property_launch_steps')
       .select('step_key, status')
       .eq('property_id', id);
-    if (error) return { done: 0, total, allDone: false };
-    const rows = (data ?? []) as { step_key: string; status: import('@/lib/launch-checklist').LaunchStepStatus }[];
-    const byKey = new Map(rows.map((r) => [r.step_key, r.status]));
-    let done = 0;
-    for (const step of LAUNCH_STEPS) {
-      if (isStepResolved(byKey.get(step.key))) done += 1;
-    }
-    return { done, total, allDone: done >= total };
+    if (error) return [];
+    return (data ?? []) as Array<{ step_key: string; status: import('@/lib/launch-checklist').LaunchStepStatus }>;
   } catch {
-    return { done: 0, total, allDone: false };
+    return [];
+  }
+}
+
+/** True if any cleaner_phones row maps to this property — feeds the
+ *  quo_cleaner_mapped step's derivation so the chip matches the launch
+ *  page. Mirrors the launch page's loader. */
+async function hasQuoCleanerMapping(id: string): Promise<boolean> {
+  if (!isHelmConfigured) return false;
+  try {
+    const { data, error } = await supabase
+      .from('cleaner_phones')
+      .select('property_ids')
+      .limit(500);
+    if (error) return false;
+    return (data ?? []).some((r: { property_ids: string[] | null }) => {
+      const ids = r.property_ids ?? [];
+      // Empty array = catch-all cleaner serving all properties (matches
+      // the launch page's loader exactly).
+      return ids.length === 0 || ids.includes(id);
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -329,7 +345,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchProgress, ownerPortfolio] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -343,7 +359,8 @@ export default async function PropertyDetailPage({
     getPropertyDocuments(p.id),
     auth(),
     getScaLaunchStatus(p.id),
-    getLaunchProgress(p.id),
+    getLaunchStepRows(p.id),
+    hasQuoCleanerMapping(p.id),
     // Other properties + open prospects owned by this same person (matched
     // by shared owner email). Surfaces "Also owns…" so a multi-property
     // owner (e.g. Simon Prudenzi's 53 Rocky Neck bottom floor) reads as one
@@ -357,6 +374,25 @@ export default async function PropertyDetailPage({
     }),
   ]);
   const myEmail = session?.user?.email ?? '';
+
+  // Launch progress for the Overview chip — computed with the SAME
+  // derivation the launch page uses (computeLaunchProgress), so the chip
+  // and the launch page never disagree (the 1/18-vs-5/18 mismatch).
+  const launchProgress = computeLaunchProgress(launchRows, {
+    property: {
+      title: p.title ?? null,
+      owner_full: p.owner_full ?? null,
+      owner_emails: p.owner_emails ?? null,
+      owner_phone: p.owner_phone ?? null,
+      management_fee_pct: p.management_fee_pct ?? null,
+      bank_last4: p.bank_last4 ?? null,
+      tax_cert_id: p.tax_cert_id ?? null,
+      guesty_listing_id: (p as { guesty_listing_id?: string | null }).guesty_listing_id ?? null,
+      is_active: !!p.is_active,
+    },
+    scaLaunchStatus: scaLaunch?.status ?? null,
+    hasQuoCleanerMapping: launchCleanerMapped,
+  });
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
