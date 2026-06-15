@@ -2,20 +2,24 @@ import { NextResponse } from 'next/server';
 import { supabase, isConfigured } from '@/lib/supabase';
 
 /**
- * Outbound owner Quo touches feed for stay-concierge.
+ * Owner touches feed for stay-concierge — both directions, both channels.
  *
- * Helm's CRM already persists every outbound Quo SMS to `contact_touches`
- * (see /api/sync-quo + /api/webhooks/quo). When Allie texts an owner
- * directly via Quo — outside Helm's owner-messaging approval flow —
- * those messages land here with direction='outbound', channel='sms', and
- * a contact_id pointing at a row whose type='owner'.
+ * Helm already captures every owner conversation Allie has outside the
+ * /owner-messaging approval flow:
+ *   - Quo SMS (in + out) → /api/sync-quo + /api/webhooks/quo
+ *   - Gmail email (in + out) → /api/cron/sync-gmail-replies
+ * Both land in `contact_touches` keyed by an `external_message_id`
+ * (quo_message_id or gmail_message_id).
  *
- * stay-concierge polls this endpoint every 5 minutes, dedupes by
- * quo_message_id, and writes the rows into owner_messages_log as
- * `sent_direct` so the per-contact history view on /owner-messaging
- * shows both sides of the conversation, not just owner-inbound.
+ * stay-concierge polls this endpoint every 5 minutes and mirrors the
+ * rows into `owner_messages_log`:
+ *   - direction='outbound' → action='sent_direct'   → 'sent_outside' bubble
+ *   - direction='inbound'  → action='inbound_synced' → 'inbound' bubble
+ * Dedupe is by external_message_id. That backfills the entire history
+ * feed for owners who've been talking to Allie before Phase 2 shipped.
  *
- * Auth: same STAY_CONCIERGE_KEY pattern as /api/owners-sync.
+ * Path kept as `/api/owner-outbound-quo` for backward compatibility
+ * with the existing stay-concierge sync; the scope just widened.
  *
  *   GET /api/owner-outbound-quo?since=2026-06-01T00:00:00Z&key=K
  */
@@ -24,7 +28,10 @@ export const revalidate = 0;
 
 type TouchRow = {
   quo_message_id: string | null;
+  gmail_message_id: string | null;
   touched_at: string;
+  channel: string;
+  direction: 'inbound' | 'outbound';
   summary: string | null;
   notes: string | null;
   by_email: string | null;
@@ -32,6 +39,7 @@ type TouchRow = {
     id: string;
     name: string | null;
     phone: string | null;
+    emails: string[] | null;
     linked_property_ids: string[] | null;
     type: string | null;
   } | null;
@@ -51,24 +59,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'helm db not configured' }, { status: 503 });
   }
 
-  // Default to 14 days back if no `since` provided. Cold-start sync from
-  // stay-concierge will use this; subsequent polls pass the last seen
-  // `touched_at` from owner_messages_log so the window stays minimal.
   const sinceParam = url.searchParams.get('since');
   const since = sinceParam || new Date(Date.now() - 14 * 86400_000).toISOString();
 
   const { data, error } = await supabase
     .from('contact_touches')
     .select(
-      'quo_message_id, touched_at, summary, notes, by_email, contacts!inner(id, name, phone, linked_property_ids, type)',
+      'quo_message_id, gmail_message_id, touched_at, channel, direction, summary, notes, by_email, contacts!inner(id, name, phone, emails, linked_property_ids, type)',
     )
-    .eq('channel', 'sms')
-    .eq('direction', 'outbound')
+    .in('channel', ['sms', 'email'])
     .eq('contacts.type', 'owner')
-    .not('quo_message_id', 'is', null)
     .gte('touched_at', since)
     .order('touched_at', { ascending: false })
-    .limit(500);
+    .limit(1000);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -77,12 +80,25 @@ export async function GET(req: Request) {
   const touches = rows
     .map((r) => {
       const c = r.contacts;
-      if (!c || !c.phone) return null;
+      if (!c) return null;
+      const externalId = r.quo_message_id || r.gmail_message_id || '';
+      if (!externalId) return null;
+      // The "owner contact" key the stay-concierge log uses: phone for
+      // SMS, primary email for email. Falls back to whichever is present.
+      const ownerContact =
+        r.channel === 'email'
+          ? (c.emails ?? [])[0] ?? c.phone ?? ''
+          : c.phone ?? (c.emails ?? [])[0] ?? '';
+      if (!ownerContact) return null;
       const propertyId = (c.linked_property_ids ?? [])[0] ?? '';
       return {
+        external_message_id: externalId,
         quo_message_id: r.quo_message_id ?? '',
+        gmail_message_id: r.gmail_message_id ?? '',
+        channel: r.channel === 'email' ? 'email_gmail' : 'sms_quo',
+        direction: r.direction,
         touched_at: r.touched_at,
-        owner_contact: c.phone,
+        owner_contact: ownerContact,
         owner_name: c.name ?? '',
         property_id: propertyId,
         sender_email: r.by_email ?? '',
