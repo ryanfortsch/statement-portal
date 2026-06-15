@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import {
@@ -8,6 +9,33 @@ import {
   buildInitialLaunchSteps,
   type LaunchStepStatus,
 } from '@/lib/launch-checklist';
+
+/** Service-role client for writes to the RLS-protected `properties`
+ *  table (same posture as src/app/properties/actions.ts — the anon
+ *  path has repeatedly dropped property writes via the PostgREST
+ *  schema-cache / column-grants edge cases). The launch_steps table
+ *  itself is permissive, so its writes stay on the anon client. */
+function getServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  return createClient(url, key);
+}
+
+/**
+ * Field-writethrough actions: the four launch steps whose action is a
+ * `set_*` map 1:1 to a real property column. Typing the value on the
+ * step writes the actual column here, and the launch page's existing
+ * deriveStepResolved() then auto-ticks the step — so the checklist
+ * becomes the data-entry surface instead of an inert note + a bounce
+ * to another page.
+ */
+const FIELD_ACTION_COLUMN: Record<string, 'title' | 'tax_cert_id' | 'bank_last4' | 'listing_match'> = {
+  set_external_title: 'title',
+  set_tax_cert: 'tax_cert_id',
+  set_bank_last4: 'bank_last4',
+  set_listing_match: 'listing_match',
+};
 
 /**
  * Server actions for the per-property launch checklist
@@ -87,6 +115,64 @@ export async function setLaunchStepNotes(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/properties/${propertyId}/launch`);
+  return { ok: true };
+}
+
+/**
+ * Write a launch step's value straight onto its property column. The
+ * step auto-resolves on the next render via deriveStepResolved() once
+ * the column is populated, so the caller doesn't set status here.
+ *
+ * `action` is the step's `set_*` action; only the four mapped in
+ * FIELD_ACTION_COLUMN are accepted. Returns { ok, error } so the card
+ * can show an inline error instead of throwing.
+ */
+export async function setLaunchStepField(
+  propertyId: string,
+  action: string,
+  rawValue: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const column = FIELD_ACTION_COLUMN[action];
+  if (!column) return { ok: false, error: 'This step has no editable field.' };
+
+  let value = rawValue.trim();
+  if (!value) return { ok: false, error: 'Enter a value first.' };
+
+  // Per-field validation + normalization.
+  if (column === 'bank_last4') {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length !== 4) return { ok: false, error: 'Bank last 4 must be exactly 4 digits.' };
+    value = digits;
+  } else if (column === 'listing_match') {
+    // Stored lowercase — it's matched as a case-insensitive substring
+    // against incoming Guesty listing names in the statement ingest.
+    value = value.toLowerCase();
+  }
+
+  const sb = getServiceClient();
+  const { data: updated, error } = await sb
+    .from('properties')
+    .update({ [column]: value })
+    .eq('id', propertyId)
+    .select('id');
+  if (error) {
+    console.error('[setLaunchStepField] supabase error', { propertyId, column, error });
+    return { ok: false, error: `Save failed: ${error.message}` };
+  }
+  if (!updated || updated.length === 0) {
+    return { ok: false, error: `Property ${propertyId} not found.` };
+  }
+
+  // The step's resolved state is derived from the column, so revalidate
+  // the launch page (recomputes done/remaining) and the property page +
+  // its deliverables, which also read these fields.
+  revalidatePath(`/properties/${propertyId}/launch`);
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/home-guide`);
+  revalidatePath(`/properties/${propertyId}/wifi-placard`);
   return { ok: true };
 }
 
