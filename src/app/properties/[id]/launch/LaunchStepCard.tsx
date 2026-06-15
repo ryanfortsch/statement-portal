@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   setLaunchStepStatus,
   setLaunchStepNotes,
+  setLaunchStepField,
 } from './actions';
 import type { LaunchStep, LaunchStepRow, LaunchStepStatus } from '@/lib/launch-checklist';
 
@@ -19,6 +20,23 @@ type Props = {
    *  pill + an "Auto" tag, and the deep-link still appears so they can
    *  jump to the underlying surface to verify if they want. */
   autoResolved?: boolean;
+  /** Current value of the property column this step writes through to
+   *  (title / tax_cert_id / bank_last4 / listing_match). Only passed for
+   *  the four `set_*` field steps; prefills the inline editor. */
+  fieldValue?: string | null;
+};
+
+/** The four steps whose action maps to a real property column. For these
+ *  the card renders an inline value field that writes the column straight
+ *  through — the page's deriveStepResolved then ticks the step. */
+const FIELD_ACTION_META: Record<
+  string,
+  { label: string; placeholder: string; mono?: boolean }
+> = {
+  set_external_title: { label: 'External listing title', placeholder: 'Stay at Wingaersheek' },
+  set_tax_cert: { label: 'MA STR tax certificate ID', placeholder: 'C0585051070', mono: true },
+  set_bank_last4: { label: 'Bank account last 4', placeholder: '1234', mono: true },
+  set_listing_match: { label: 'Guesty listing-match substring', placeholder: '16 waterman', mono: true },
 };
 
 /**
@@ -74,13 +92,35 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
  * so live work pops by comparison. Auto-completed steps lose the
  * change affordance entirely and gain a small "Auto" badge.
  */
-export function LaunchStepCard({ propertyId, step, row, autoResolved }: Props) {
+export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState<string>(row?.notes ?? '');
   const [notesPending, setNotesPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Inline field editor (the four set_* steps). Writes the real property
+  // column; the page re-derives this step's resolved state from it.
+  const fieldMeta = step.action ? FIELD_ACTION_META[step.action] : undefined;
+  const [fieldDraft, setFieldDraft] = useState<string>(fieldValue ?? '');
+  const [fieldPending, setFieldPending] = useState(false);
+  const [fieldSaved, setFieldSaved] = useState(false);
+
+  async function saveField() {
+    if (!step.action) return;
+    setFieldPending(true);
+    setError(null);
+    setFieldSaved(false);
+    const res = await setLaunchStepField(propertyId, step.action, fieldDraft);
+    setFieldPending(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setFieldSaved(true);
+    router.refresh();
+  }
 
   // Effective status: the operator's manual choice wins; otherwise the
   // derivation flag from the page bumps a todo row up to done.
@@ -167,6 +207,35 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved }: Props) {
               </div>
             )}
             {error && <div className="rt-launch-row-error">{error}</div>}
+
+            {/* Inline field editor — for the four steps that map to a real
+                property column. Typing the value here writes the column
+                through (via setLaunchStepField) and the step ticks itself
+                off on the next render. No more inert notes / bouncing to
+                another page just to set one field. */}
+            {fieldMeta && (
+              <div className="rt-launch-row-field">
+                <label className="rt-launch-row-field-label">{fieldMeta.label}</label>
+                <div className="rt-launch-row-field-row">
+                  <input
+                    type="text"
+                    value={fieldDraft}
+                    onChange={(e) => { setFieldDraft(e.target.value); setFieldSaved(false); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveField(); } }}
+                    placeholder={fieldMeta.placeholder}
+                    className={`rt-launch-row-field-input${fieldMeta.mono ? ' font-mono' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={saveField}
+                    disabled={fieldPending || fieldDraft.trim() === (fieldValue ?? '').trim()}
+                    className="rt-launch-row-btn rt-launch-row-btn-primary"
+                  >
+                    {fieldPending ? 'Saving…' : fieldSaved ? 'Saved ✓' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Deep-link: jumps to the surface where the step's actual
                 work happens (the property edit page, Stay Cape Ann
@@ -491,10 +560,36 @@ const rowCss = `
     border-bottom-color: var(--ink);
   }
 
+  /* Inline field editor: the primary affordance on set_* steps. A
+     labeled input + Save that writes the real property column. */
+  .rt-launch-row-field { margin-top: 12px; max-width: 480px; }
+  .rt-launch-row-field-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .rt-launch-row-field-row { display: flex; gap: 8px; align-items: stretch; }
+  .rt-launch-row-field-input {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--rule);
+    border-bottom: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    outline: none;
+  }
+  .rt-launch-row-field-input:focus { border-color: var(--ink); }
+
   /* Notes affordance: a quiet button that lights up on hover. When a
      note exists, the preview sits inline next to the button so it's
      scannable while collapsed. */
-  .rt-launch-row-notes { margin-top: 10px; }
+  .rt-launch-row-notes { margin-top: 12px; }
   .rt-launch-row-notes-toggle {
     background: none;
     border: none;

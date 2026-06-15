@@ -272,6 +272,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   step={step}
                   row={byKey.get(step.key) ?? null}
                   autoResolved={autoResolvedKeys.has(step.key)}
+                  fieldValue={launchFieldValue(step.action, p)}
                 />
               ))}
             </PhaseSection>
@@ -280,6 +281,27 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
       </section>
     </div>
   );
+}
+
+/** Current value of the property column a `set_*` step writes through to,
+ *  so the card can prefill its inline editor. Returns undefined for
+ *  non-field steps. */
+function launchFieldValue(
+  action: import('@/lib/launch-checklist').LaunchStep['action'],
+  p: HelmPropertyRow,
+): string | null | undefined {
+  switch (action) {
+    case 'set_external_title':
+      return p.title ?? null;
+    case 'set_tax_cert':
+      return p.tax_cert_id ?? null;
+    case 'set_bank_last4':
+      return p.bank_last4 ?? null;
+    case 'set_listing_match':
+      return (p as { listing_match?: string | null }).listing_match ?? null;
+    default:
+      return undefined;
+  }
 }
 
 /**
