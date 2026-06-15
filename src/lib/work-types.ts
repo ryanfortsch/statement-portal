@@ -1,4 +1,4 @@
-export type WorkSlipCategory = 'maintenance' | 'owner' | 'vendor' | 'other' | 'rising_tide';
+export type WorkSlipCategory = 'maintenance' | 'inventory' | 'owner' | 'vendor' | 'other' | 'rising_tide';
 export type WorkSlipPriority = 'low' | 'normal' | 'high';
 export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked' | 'dismissed';
 export type WorkSlipAssignedToType = 'unassigned' | 'team' | 'owner';
@@ -86,6 +86,7 @@ export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'block
 
 export const WORK_SLIP_CATEGORY_LABELS: Record<WorkSlipCategory, string> = {
   maintenance: 'Maintenance',
+  inventory: 'Inventory',
   owner: 'Owner',
   vendor: 'Vendor',
   other: 'Other',

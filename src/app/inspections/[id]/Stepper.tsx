@@ -1197,6 +1197,7 @@ function WorkSlipModal({
                 style={modalSelectStyle()}
               >
                 <option value="maintenance">Maintenance</option>
+                <option value="inventory">Inventory</option>
                 <option value="owner">Owner</option>
                 <option value="vendor">Vendor</option>
                 <option value="rising_tide">Rising Tide</option>
