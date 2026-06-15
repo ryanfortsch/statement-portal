@@ -51,7 +51,10 @@ export function OwnersEditor({
         email: '',
         phone: '',
         is_primary: prev.length === 0,
-        role: 'owner',
+        // Additional contacts are rarely the owner — default to the most
+        // common case (a co-owner / spouse) rather than mislabeling them
+        // "owner". Operator can change it in the dropdown.
+        role: prev.length === 0 ? 'Owner' : 'Co-owner',
         notes: '',
       },
     ]);
@@ -110,23 +113,27 @@ export function OwnersEditor({
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {owners.map((o, i) => (
+        {owners.map((o, i) => {
+          // Ordinal among non-primary cards (pure: count non-primaries up
+          // to and including this index). Tiny n, so the re-scan is fine.
+          const additionalCount = owners.slice(0, i + 1).filter((x) => !x.is_primary).length;
+          return (
           <div
             key={i}
             style={{
-              border: '1px solid var(--rule)',
-              padding: '14px 16px',
+              border: o.is_primary ? '1px solid var(--ink)' : '1px solid var(--rule)',
+              padding: '16px 18px',
               background: o.is_primary ? 'var(--paper-2)' : 'var(--paper)',
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '10px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
             }}
           >
-            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-                {o.is_primary ? 'Primary (auto-synced)' : `Additional ${i}`}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+              <span className="eyebrow" style={{ color: o.is_primary ? 'var(--ink)' : 'var(--ink-3)' }}>
+                {o.is_primary ? 'Primary owner' : `Additional contact ${additionalCount}`}
               </span>
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 14 }}>
                 {!o.is_primary && (
                   <button type="button" onClick={() => setPrimary(i)} style={linkButton}>
                     make primary
@@ -140,63 +147,42 @@ export function OwnersEditor({
               </div>
             </div>
 
-            {o.is_primary && (
-              <div style={{
-                gridColumn: '1 / -1',
-                fontSize: 11,
-                color: 'var(--ink-4)',
-                lineHeight: 1.5,
-                marginTop: -4,
-              }}>
-                Name, phone, and email come from the Owner block above. Edit
-                there to change them, not here.
+            {o.is_primary ? (
+              // Synced from the Owner block — show as clean read-only rows
+              // (not greyed inputs you're told not to type in). Only the
+              // role + notes below are editable on the primary.
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+                  <ReadonlyRow label="Name" value={[o.first_name, o.last_name].filter(Boolean).join(' ')} />
+                  <ReadonlyRow label="Phone" value={o.phone} mono />
+                  <ReadonlyRow label="Email" value={o.email} mono />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+                  Synced from the Owner block above — edit it there.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
+                  <RoleSelect value={o.role} onChange={(v) => update(i, { role: v })} />
+                  <Field
+                    label="Notes (optional)"
+                    value={o.notes}
+                    onChange={(v) => update(i, { notes: v })}
+                    placeholder="best reached evenings"
+                  />
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
+                <Field label="First name" value={o.first_name} onChange={(v) => update(i, { first_name: v })} placeholder="Bethany" />
+                <Field label="Last name" value={o.last_name} onChange={(v) => update(i, { last_name: v })} placeholder="Giblin" />
+                <Field label="Email" value={o.email} onChange={(v) => update(i, { email: v })} placeholder="bethany@example.com" type="email" />
+                <Field label="Phone" value={o.phone} onChange={(v) => update(i, { phone: v })} placeholder="(508) 662-7440" type="tel" />
+                <RoleSelect value={o.role} onChange={(v) => update(i, { role: v })} />
+                <Field label="Notes (optional)" value={o.notes} onChange={(v) => update(i, { notes: v })} placeholder="best reached evenings" />
               </div>
             )}
-
-            <Field
-              label="First name"
-              value={o.first_name}
-              onChange={(v) => update(i, { first_name: v })}
-              placeholder="Simon"
-              disabled={o.is_primary}
-            />
-            <Field
-              label="Last name"
-              value={o.last_name}
-              onChange={(v) => update(i, { last_name: v })}
-              placeholder="Prudenzi"
-              disabled={o.is_primary}
-            />
-            <Field
-              label="Email"
-              value={o.email}
-              onChange={(v) => update(i, { email: v })}
-              placeholder="simon@example.com"
-              type="email"
-              disabled={o.is_primary}
-            />
-            <Field
-              label="Phone"
-              value={o.phone}
-              onChange={(v) => update(i, { phone: v })}
-              placeholder="+19782658548"
-              type="tel"
-              disabled={o.is_primary}
-            />
-            <Field
-              label="Role"
-              value={o.role}
-              onChange={(v) => update(i, { role: v })}
-              placeholder="owner"
-            />
-            <Field
-              label="Notes (optional)"
-              value={o.notes}
-              onChange={(v) => update(i, { notes: v })}
-              placeholder="best reached evenings"
-            />
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {error && (
@@ -223,6 +209,52 @@ export function OwnersEditor({
         )}
       </div>
     </div>
+  );
+}
+
+/** Static labeled value, for the primary card's synced fields. */
+function ReadonlyRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 9 }}>{label}</span>
+      <span
+        className={mono ? 'font-mono' : undefined}
+        style={{ fontSize: 13, color: value ? 'var(--ink)' : 'var(--ink-4)' }}
+      >
+        {value || '—'}
+      </span>
+    </div>
+  );
+}
+
+const ROLE_OPTIONS = ['Owner', 'Co-owner', 'Spouse / partner', 'Accountant', 'Property manager', 'Other'];
+
+/** Role as a constrained dropdown instead of free text — stops a spouse
+ *  getting labeled "owner" and keeps the values tidy for the messaging
+ *  pipeline. Falls back to showing an unrecognized stored value. */
+function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const options = value && !ROLE_OPTIONS.includes(value) ? [value, ...ROLE_OPTIONS] : ROLE_OPTIONS;
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 9 }}>Role</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          fontFamily: 'inherit',
+          fontSize: 13,
+          color: 'var(--ink)',
+          background: 'var(--paper)',
+          border: '1px solid var(--rule)',
+          padding: '6px 8px',
+          cursor: 'pointer',
+        }}
+      >
+        {options.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 
