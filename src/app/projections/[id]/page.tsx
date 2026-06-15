@@ -19,6 +19,7 @@ import {
 } from '@/components/projections/Pipeline';
 import { supabase } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
+import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { normalizePhone } from '@/lib/quo';
 import { ProspectTexts, type ProspectText } from './ProspectTexts';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -32,6 +33,7 @@ import {
 import {
   updateProjection,
   markSent,
+  toggleMonthlyBreakdown,
   promoteToProperty,
   countersignContract,
   markOnboardingDone,
@@ -100,6 +102,19 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   if (!projection) notFound();
 
   const prospectTexts = projection.prospect_phone ? await getProspectTexts(projection.prospect_phone) : [];
+
+  // Owner portfolio: does this prospect's owner already manage other
+  // properties / have other open prospects with us (matched by email)?
+  // Surfaces an "already an owner with us" banner so a second unit for an
+  // existing owner (e.g. Simon Prudenzi's bottom floor) is obviously tied
+  // to the same person, not a fresh lead.
+  const ownerPortfolio = await getOwnerPortfolio({
+    emails: [
+      projection.prospect_email,
+      ...((projection.owners ?? []).map((o) => o?.email ?? null)),
+    ],
+    excludeProjectionId: id,
+  });
 
   const computed = computeProjection(projection);
   const update = updateProjection.bind(null, id);
@@ -233,6 +248,43 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             {projection.prospect_name}
           </span>
         </p>
+
+        {/* Existing-owner banner: this prospect's owner already manages
+            (or is being prospected for) other properties with us. A
+            second unit for an existing owner reuses their identity by
+            email, so they stay one owner across the portfolio. */}
+        {(ownerPortfolio.properties.length > 0 || ownerPortfolio.prospects.length > 0) && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: '12px 16px',
+              border: '1px solid var(--positive)',
+              background: 'rgba(47,122,58,0.06)',
+              borderRadius: 6,
+              fontSize: 13,
+              color: 'var(--ink)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span style={{ fontWeight: 600, color: 'var(--positive)' }}>Existing owner.</span>
+            <span style={{ color: 'var(--ink-3)' }}>
+              Already with Rising Tide on:
+            </span>
+            {ownerPortfolio.properties.map((op) => (
+              <Link key={op.id} href={`/properties/${op.id}`} style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                {op.name}
+              </Link>
+            ))}
+            {ownerPortfolio.prospects.map((op) => (
+              <Link key={op.id} href={`/projections/${op.id}`} style={{ color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                {op.property_address} (prospect)
+              </Link>
+            ))}
+          </div>
+        )}
         {/* Two hero summaries side-by-side: pipeline progress (left) for
             "where is this deal?" and close-likelihood (right) for "how
             likely are we to get it?" Cover-range / Year-1 detail moved
@@ -283,7 +335,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
                   : 'Not yet sent'
             }
           >
-            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
+            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} toggleBreakdown={toggleMonthlyBreakdown.bind(null, id, !projection.include_monthly_breakdown)} />
           </Stage>
 
           {/* 02 — Partnership Guide, Contract, AND Signing. The
@@ -468,16 +520,19 @@ function ProjectionStageBody({
   markSent,
   canMarkSent,
   projectionId,
+  toggleBreakdown,
 }: {
   projection: ProjectionRow;
   computed: ReturnType<typeof computeProjection>;
   markSent: () => Promise<void>;
   canMarkSent: boolean;
   projectionId: string;
+  toggleBreakdown: () => Promise<void>;
 }) {
   const fullMid = roundToThousand(computed.year1.mid.netPayout);
   const rampMid = roundToThousand(computed.year1Ramped.netPayout);
   const showRamp = rampMid !== fullMid;
+  const breakdownOn = !!projection.include_monthly_breakdown;
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 22, marginBottom: 14 }}>
@@ -490,6 +545,50 @@ function ProjectionStageBody({
       <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.55, marginBottom: 14 }}>
         Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}) · AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}) · Blended gross: {fmtMoney(computed.blendedGrossRevenue)} · Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}
       </div>
+      {/* One-click toggle for the opt-in Year 1 monthly breakdown slide.
+          Surfaces the same setting that lives in the edit form so staff
+          doesn't have to drill in. Submits to toggleMonthlyBreakdown
+          which is pre-bound to the inverse of the current value. */}
+      <form action={toggleBreakdown} style={{ marginBottom: 14 }}>
+        <button
+          type="submit"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: breakdownOn ? 'var(--paper-2)' : 'transparent',
+            border: '1px solid var(--rule)',
+            padding: '8px 12px',
+            fontSize: 12,
+            color: 'var(--ink)',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+          title={
+            breakdownOn
+              ? 'Click to remove the Year 1 monthly breakdown slide from the deck.'
+              : 'Click to add a Year 1 monthly breakdown slide (per-month revenue, cleaning, mgmt fee, owner payout) to the deck.'
+          }
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 14,
+              height: 14,
+              border: '1.5px solid var(--ink)',
+              background: breakdownOn ? 'var(--ink)' : 'transparent',
+              color: 'var(--paper)',
+              fontSize: 10,
+              lineHeight: '11px',
+              textAlign: 'center',
+              fontWeight: 700,
+            }}
+          >
+            {breakdownOn ? '✓' : ''}
+          </span>
+          <span>Include monthly breakdown slide</span>
+        </button>
+      </form>
       <DeliverableActions
         projectionId={projectionId}
         type="projection"
