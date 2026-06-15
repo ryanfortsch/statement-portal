@@ -61,6 +61,11 @@ export type ProjectionRow = {
 
   start_month: number;
   apply_ramp: boolean;             // when false (the new norm), full seasonality from Jan
+  // When true, the deck includes an extra Year 1 monthly breakdown slide
+  // (revenue / cleaning / mgmt fee / owner payout per month). Off by
+  // default; per-prospect opt-in via the Projection editor for owners
+  // who want the line-item detail. See 20260615 migration.
+  include_monthly_breakdown: boolean;
   presentation_month: string;
 
   // Drive time (minutes) from Rising Tide HQ to the prospect's property.

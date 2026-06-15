@@ -181,6 +181,19 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
             </select>
           </Field>
         </Row>
+        <Row>
+          <Field label="Monthly breakdown slide" hint="When on, the deck includes an extra Year 1 slide with revenue / cleaning / management fee / owner payout broken out per month. Off by default — leave on for owners who want line-item detail.">
+            <label style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid var(--rule)', cursor: 'pointer', fontSize: 14 }}>
+              <input
+                type="checkbox"
+                name="include_monthly_breakdown"
+                defaultChecked={!!v.include_monthly_breakdown}
+                style={{ width: 16, height: 16, accentColor: 'var(--signal)' }}
+              />
+              <span>Include monthly breakdown slide</span>
+            </label>
+          </Field>
+        </Row>
       </Section>
 
       {/* ─── Assumptions ───────────────────────────────────────────────────── */}
