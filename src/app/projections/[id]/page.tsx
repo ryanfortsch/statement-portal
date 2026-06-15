@@ -19,6 +19,7 @@ import {
 } from '@/components/projections/Pipeline';
 import { supabase } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
+import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { normalizePhone } from '@/lib/quo';
 import { ProspectTexts, type ProspectText } from './ProspectTexts';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -100,6 +101,19 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
   if (!projection) notFound();
 
   const prospectTexts = projection.prospect_phone ? await getProspectTexts(projection.prospect_phone) : [];
+
+  // Owner portfolio: does this prospect's owner already manage other
+  // properties / have other open prospects with us (matched by email)?
+  // Surfaces an "already an owner with us" banner so a second unit for an
+  // existing owner (e.g. Simon Prudenzi's bottom floor) is obviously tied
+  // to the same person, not a fresh lead.
+  const ownerPortfolio = await getOwnerPortfolio({
+    emails: [
+      projection.prospect_email,
+      ...((projection.owners ?? []).map((o) => o?.email ?? null)),
+    ],
+    excludeProjectionId: id,
+  });
 
   const computed = computeProjection(projection);
   const update = updateProjection.bind(null, id);
@@ -233,6 +247,43 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             {projection.prospect_name}
           </span>
         </p>
+
+        {/* Existing-owner banner: this prospect's owner already manages
+            (or is being prospected for) other properties with us. A
+            second unit for an existing owner reuses their identity by
+            email, so they stay one owner across the portfolio. */}
+        {(ownerPortfolio.properties.length > 0 || ownerPortfolio.prospects.length > 0) && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: '12px 16px',
+              border: '1px solid var(--positive)',
+              background: 'rgba(47,122,58,0.06)',
+              borderRadius: 6,
+              fontSize: 13,
+              color: 'var(--ink)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span style={{ fontWeight: 600, color: 'var(--positive)' }}>Existing owner.</span>
+            <span style={{ color: 'var(--ink-3)' }}>
+              Already with Rising Tide on:
+            </span>
+            {ownerPortfolio.properties.map((op) => (
+              <Link key={op.id} href={`/properties/${op.id}`} style={{ color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                {op.name}
+              </Link>
+            ))}
+            {ownerPortfolio.prospects.map((op) => (
+              <Link key={op.id} href={`/projections/${op.id}`} style={{ color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                {op.property_address} (prospect)
+              </Link>
+            ))}
+          </div>
+        )}
         {/* Two hero summaries side-by-side: pipeline progress (left) for
             "where is this deal?" and close-likelihood (right) for "how
             likely are we to get it?" Cover-range / Year-1 detail moved

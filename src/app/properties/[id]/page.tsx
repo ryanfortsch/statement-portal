@@ -7,6 +7,7 @@ import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { formatUsPhone, telHref } from '@/lib/phone';
+import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
@@ -328,7 +329,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchProgress] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchProgress, ownerPortfolio] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -343,6 +344,17 @@ export default async function PropertyDetailPage({
     auth(),
     getScaLaunchStatus(p.id),
     getLaunchProgress(p.id),
+    // Other properties + open prospects owned by this same person (matched
+    // by shared owner email). Surfaces "Also owns…" so a multi-property
+    // owner (e.g. Simon Prudenzi's 53 Rocky Neck bottom floor) reads as one
+    // owner, not two unrelated records.
+    getOwnerPortfolio({
+      emails: [
+        ...(p.owner_emails ?? []),
+        ...(((p.owners as Array<{ email?: string | null }> | null) ?? []).map((o) => o?.email ?? null)),
+      ],
+      excludePropertyId: p.id,
+    }),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -819,6 +831,63 @@ export default async function PropertyDetailPage({
             </dd>
           </div>
         </dl>
+
+        {/* Also owns — other properties / open prospects under the same
+            owner (matched by shared email). Lets a multi-property owner
+            read as one person across their portfolio. */}
+        {(ownerPortfolio.properties.length > 0 || ownerPortfolio.prospects.length > 0) && (
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--rule)' }}>
+            <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 12 }}>
+              {p.owner_full ? `${p.owner_full} also has` : 'Same owner also has'}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {ownerPortfolio.properties.map((op) => (
+                <Link
+                  key={op.id}
+                  href={`/properties/${op.id}`}
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink)',
+                    textDecoration: 'none',
+                    border: '1px solid var(--rule)',
+                    borderRadius: 4,
+                    padding: '6px 12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>{op.name}</span>
+                  <span style={{ fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: op.is_active === false ? 'var(--ink-4)' : 'var(--positive)' }}>
+                    {op.is_active === false ? 'Inactive' : 'Managed'}
+                  </span>
+                </Link>
+              ))}
+              {ownerPortfolio.prospects.map((op) => (
+                <Link
+                  key={op.id}
+                  href={`/projections/${op.id}`}
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink)',
+                    textDecoration: 'none',
+                    border: '1px dashed var(--rule)',
+                    borderRadius: 4,
+                    padding: '6px 12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>{op.property_address}</span>
+                  <span style={{ fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+                    Prospect
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Additional owner contacts beyond the primary. The primary
             card is auto-derived from the Owner block above (name,
