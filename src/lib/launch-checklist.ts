@@ -311,6 +311,49 @@ export function deriveStepResolved(
   }
 }
 
+/**
+ * Steps whose "value" is a single property column the operator can set
+ * inline from the checklist itself — so typing the external title on the
+ * checklist actually writes properties.title, not an inert note. Writing
+ * the column auto-resolves the step via deriveStepResolved (same column
+ * each rule reads), so there's no separate "mark done" needed.
+ */
+export type LaunchStepFieldColumn = 'title' | 'bank_last4' | 'tax_cert_id' | 'guesty_listing_id';
+
+export type LaunchStepField = {
+  column: LaunchStepFieldColumn;
+  inputLabel: string;
+  placeholder: string;
+};
+
+export const LAUNCH_STEP_FIELDS: Record<string, LaunchStepField> = {
+  external_title: { column: 'title', inputLabel: 'External listing title', placeholder: 'Stay at Rocky Neck' },
+  bank_last4: { column: 'bank_last4', inputLabel: 'Bank account last 4', placeholder: '1234' },
+  tax_cert: { column: 'tax_cert_id', inputLabel: 'MA STR tax certificate ID', placeholder: 'C0585051070' },
+  guesty_listing_match: { column: 'guesty_listing_id', inputLabel: 'Guesty listing ID', placeholder: '67a1355216416a00122e976f' },
+};
+
+export function launchStepField(stepKey: string): LaunchStepField | null {
+  return LAUNCH_STEP_FIELDS[stepKey] ?? null;
+}
+
+/** Current value of a field-backed step, read off the derivation
+ *  context's property subset. Null for non-field steps. */
+export function launchStepFieldValue(
+  stepKey: string,
+  property: LaunchDerivationContext['property'],
+): string | null {
+  const f = LAUNCH_STEP_FIELDS[stepKey];
+  if (!f) return null;
+  switch (f.column) {
+    case 'title': return property.title;
+    case 'bank_last4': return property.bank_last4;
+    case 'tax_cert_id': return property.tax_cert_id;
+    case 'guesty_listing_id': return property.guesty_listing_id;
+    default: return null;
+  }
+}
+
 export type LaunchStepRow = {
   id: string;
   property_id: string;

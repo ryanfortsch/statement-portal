@@ -1,13 +1,24 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import {
   LAUNCH_STEPS,
+  LAUNCH_STEP_FIELDS,
   buildInitialLaunchSteps,
   type LaunchStepStatus,
 } from '@/lib/launch-checklist';
+
+/** Service-role client — writes to `properties` (stricter RLS than
+ *  property_launch_steps). Same rationale as src/app/properties/actions.ts. */
+function getServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+  return createClient(url, key);
+}
 
 /**
  * Server actions for the per-property launch checklist
@@ -57,6 +68,47 @@ export async function setLaunchStepStatus(
     .eq('step_key', stepKey);
 
   if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/properties/${propertyId}/launch`);
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath('/properties');
+  return { ok: true };
+}
+
+/**
+ * Write a field-backed step's value straight onto the property column it
+ * represents (external_title → properties.title, bank_last4, tax_cert →
+ * tax_cert_id, guesty_listing_match → guesty_listing_id). This is the
+ * "feed through the piping" path: the value lands on the real record that
+ * statements / deliverables / Guesty-match read, and deriveStepResolved
+ * then auto-resolves the step from that same column — no separate
+ * "mark done" click. Uses the service role because `properties` rejects
+ * anon writes.
+ */
+export async function setLaunchStepField(
+  propertyId: string,
+  stepKey: string,
+  value: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const field = LAUNCH_STEP_FIELDS[stepKey];
+  if (!field) return { ok: false, error: 'This step has no inline field' };
+
+  const v = value.trim();
+  if (field.column === 'bank_last4' && v && !/^\d{4}$/.test(v)) {
+    return { ok: false, error: 'Bank last 4 must be exactly 4 digits' };
+  }
+
+  const sb = getServiceClient();
+  const { data, error } = await sb
+    .from('properties')
+    .update({ [field.column]: v || null })
+    .eq('id', propertyId)
+    .select('id');
+  if (error) return { ok: false, error: `Save failed: ${error.message}` };
+  if (!data || data.length === 0) return { ok: false, error: `Property ${propertyId} not found` };
 
   revalidatePath(`/properties/${propertyId}/launch`);
   revalidatePath(`/properties/${propertyId}`);

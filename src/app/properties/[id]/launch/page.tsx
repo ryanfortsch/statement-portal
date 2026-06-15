@@ -8,6 +8,7 @@ import {
   LAUNCH_PHASES,
   isStepResolved,
   deriveStepResolved,
+  launchStepFieldValue,
   type LaunchStepRow,
   type LaunchDerivationContext,
 } from '@/lib/launch-checklist';
@@ -272,6 +273,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   step={step}
                   row={byKey.get(step.key) ?? null}
                   autoResolved={autoResolvedKeys.has(step.key)}
+                  fieldValue={launchStepFieldValue(step.key, derivCtx.property)}
                 />
               ))}
             </PhaseSection>

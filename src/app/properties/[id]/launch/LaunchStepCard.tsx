@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import {
   setLaunchStepStatus,
   setLaunchStepNotes,
+  setLaunchStepField,
 } from './actions';
-import type { LaunchStep, LaunchStepRow, LaunchStepStatus } from '@/lib/launch-checklist';
+import { launchStepField, type LaunchStep, type LaunchStepRow, type LaunchStepStatus } from '@/lib/launch-checklist';
 
 type Props = {
   propertyId: string;
@@ -19,6 +20,10 @@ type Props = {
    *  pill + an "Auto" tag, and the deep-link still appears so they can
    *  jump to the underlying surface to verify if they want. */
   autoResolved?: boolean;
+  /** Current value of the property column a field-backed step writes
+   *  (title / bank_last4 / tax_cert_id / guesty_listing_id). Drives the
+   *  inline editor; null/undefined for non-field steps. */
+  fieldValue?: string | null;
 };
 
 /**
@@ -74,13 +79,37 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
  * so live work pops by comparison. Auto-completed steps lose the
  * change affordance entirely and gain a small "Auto" badge.
  */
-export function LaunchStepCard({ propertyId, step, row, autoResolved }: Props) {
+export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState<string>(row?.notes ?? '');
   const [notesPending, setNotesPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Field-backed steps (external title, bank last4, tax cert, Guesty id)
+  // write straight to the property column. Saving auto-resolves the step
+  // via deriveStepResolved, so there's no separate "mark done".
+  const field = launchStepField(step.key);
+  const [fieldDraft, setFieldDraft] = useState<string>(fieldValue ?? '');
+  const [fieldPending, setFieldPending] = useState(false);
+  const [fieldSaved, setFieldSaved] = useState(false);
+  const fieldDirty = field != null && fieldDraft.trim() !== (fieldValue ?? '').trim();
+
+  async function saveField() {
+    if (!field) return;
+    setFieldPending(true);
+    setError(null);
+    const res = await setLaunchStepField(propertyId, step.key, fieldDraft);
+    setFieldPending(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setFieldSaved(true);
+    setTimeout(() => setFieldSaved(false), 1800);
+    router.refresh();
+  }
 
   // Effective status: the operator's manual choice wins; otherwise the
   // derivation flag from the page bumps a todo row up to done.
@@ -167,6 +196,41 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved }: Props) {
               </div>
             )}
             {error && <div className="rt-launch-row-error">{error}</div>}
+
+            {/* Inline field — writes straight to the property column this
+                step represents. Typing the value here IS the work; saving
+                auto-resolves the step. */}
+            {field && (
+              <div className="rt-launch-field">
+                <label className="rt-launch-field-label">{field.inputLabel}</label>
+                <div className="rt-launch-field-row">
+                  <input
+                    type="text"
+                    value={fieldDraft}
+                    onChange={(e) => setFieldDraft(e.target.value)}
+                    placeholder={field.placeholder}
+                    className="rt-launch-field-input"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && fieldDirty && !fieldPending) {
+                        e.preventDefault();
+                        saveField();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={saveField}
+                    disabled={!fieldDirty || fieldPending}
+                    className="rt-launch-row-btn rt-launch-row-btn-primary"
+                  >
+                    {fieldPending ? 'Saving…' : fieldSaved ? 'Saved ✓' : 'Save'}
+                  </button>
+                </div>
+                <div className="rt-launch-field-hint">
+                  Saves to the property record and resolves this step.
+                </div>
+              </div>
+            )}
 
             {/* Deep-link: jumps to the surface where the step's actual
                 work happens (the property edit page, Stay Cape Ann
@@ -513,6 +577,47 @@ const rowCss = `
     font-size: 12px;
     color: var(--ink-3);
     font-style: italic;
+  }
+  .rt-launch-field {
+    margin-top: 12px;
+    max-width: 460px;
+  }
+  .rt-launch-field-label {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .rt-launch-field-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .rt-launch-field-input {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--rule);
+    border-bottom: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  .rt-launch-field-input:focus {
+    outline: none;
+    border-color: var(--ink);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+  }
+  .rt-launch-field-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--ink-4);
+    line-height: 1.4;
   }
   .rt-launch-row-notes-textarea {
     width: 100%;
