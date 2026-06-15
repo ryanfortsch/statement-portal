@@ -260,7 +260,7 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
  * Year 1 monthly breakdown slide. Opt-in (projection.include_monthly_breakdown)
  * for owners who want line-item detail behind the average. Table layout:
  *
- *   Month | Gross Revenue | Cleaning | Mgmt Fee | Owner Payout
+ *   Month | Owner Revenue | Cleaning | Mgmt Fee | Owner Payout
  *
  * Uses monthlyYear1Ramped when ramp is on so the table matches the
  * Launch ramp slide's calendar; otherwise full-year monthlyYear1.
@@ -285,7 +285,7 @@ function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionCompu
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Year 1 monthly detail</h2>
         <p className="rt-section-sub">
-          The same Year 1 projection broken out month-by-month: gross revenue, cleaning, the management
+          The same Year 1 projection broken out month-by-month: owner revenue, cleaning, the management
           fee, and your net payout.
         </p>
         {(() => {
@@ -301,7 +301,7 @@ function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionCompu
             total: number;
             net?: boolean;
           }> = [
-            { label: 'Gross revenue', get: (m) => m.grossRevenue, total: totals.gross },
+            { label: 'Owner revenue', get: (m) => m.grossRevenue, total: totals.gross },
             { label: 'Cleaning', get: (m) => m.cleaningExpense, total: totals.cleaning },
             { label: 'Mgmt fee', get: (m) => m.managementFee, total: totals.mgmt },
             { label: 'Owner payout', get: (m) => m.netPayout, total: totals.net, net: true },
@@ -350,8 +350,8 @@ function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionCompu
             means. The management-fee definition pulls the live fee %. */}
         <div className="rt-mb-legend">
           <div className="rt-mb-def">
-            <div className="rt-mb-def-term">Gross revenue</div>
-            <div className="rt-mb-def-body">What guests pay for their stays, before any costs.</div>
+            <div className="rt-mb-def-term">Owner revenue</div>
+            <div className="rt-mb-def-body">What&rsquo;s deposited after platform fees and taxes, before our fee and cleaning.</div>
           </div>
           <div className="rt-mb-def">
             <div className="rt-mb-def-term">Cleaning</div>
