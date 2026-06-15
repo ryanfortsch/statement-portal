@@ -9,6 +9,7 @@ import { SlipRow } from './SlipRow';
 export const dynamic = 'force-dynamic';
 
 type Params = { id: string };
+type Search = { auto?: string };
 
 async function getData(id: string): Promise<{
   property: HelmPropertyRow;
@@ -41,10 +42,13 @@ async function getData(id: string): Promise<{
 
 export default async function WorkSlipsPrintPage({
   params,
+  searchParams,
 }: {
   params: Promise<Params>;
+  searchParams: Promise<Search>;
 }) {
   const { id } = await params;
+  const { auto } = await searchParams;
   const data = await getData(id);
   if (!data) notFound();
 
@@ -115,7 +119,7 @@ export default async function WorkSlipsPrintPage({
           >
             ← Property folder
           </a>
-          <PrintButton />
+          <PrintButton autoPrint={auto === '1'} />
         </div>
 
         <article className="ws-pdf-sheet">
