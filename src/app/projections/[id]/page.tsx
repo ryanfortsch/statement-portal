@@ -33,6 +33,7 @@ import {
 import {
   updateProjection,
   markSent,
+  toggleMonthlyBreakdown,
   promoteToProperty,
   countersignContract,
   markOnboardingDone,
@@ -334,7 +335,7 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
                   : 'Not yet sent'
             }
           >
-            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} />
+            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} toggleBreakdown={toggleMonthlyBreakdown.bind(null, id, !projection.include_monthly_breakdown)} />
           </Stage>
 
           {/* 02 — Partnership Guide, Contract, AND Signing. The
@@ -519,16 +520,19 @@ function ProjectionStageBody({
   markSent,
   canMarkSent,
   projectionId,
+  toggleBreakdown,
 }: {
   projection: ProjectionRow;
   computed: ReturnType<typeof computeProjection>;
   markSent: () => Promise<void>;
   canMarkSent: boolean;
   projectionId: string;
+  toggleBreakdown: () => Promise<void>;
 }) {
   const fullMid = roundToThousand(computed.year1.mid.netPayout);
   const rampMid = roundToThousand(computed.year1Ramped.netPayout);
   const showRamp = rampMid !== fullMid;
+  const breakdownOn = !!projection.include_monthly_breakdown;
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 22, marginBottom: 14 }}>
@@ -541,6 +545,50 @@ function ProjectionStageBody({
       <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.55, marginBottom: 14 }}>
         Tiered % rule: {fmtMoney(computed.tieredRevenue)} ({fmtPercent(computed.tieredRate)}) · AirDNA 3-yr avg: {fmtMoney(computed.airdna3YrAvg, { decimals: 0 })} ({computed.airdnaYears.map((y) => y.year).join(', ')}) · Blended gross: {fmtMoney(computed.blendedGrossRevenue)} · Annual cleaning: {fmtMoney(computed.year1.mid.cleaningExpense)}
       </div>
+      {/* One-click toggle for the opt-in Year 1 monthly breakdown slide.
+          Surfaces the same setting that lives in the edit form so staff
+          doesn't have to drill in. Submits to toggleMonthlyBreakdown
+          which is pre-bound to the inverse of the current value. */}
+      <form action={toggleBreakdown} style={{ marginBottom: 14 }}>
+        <button
+          type="submit"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: breakdownOn ? 'var(--paper-2)' : 'transparent',
+            border: '1px solid var(--rule)',
+            padding: '8px 12px',
+            fontSize: 12,
+            color: 'var(--ink)',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+          title={
+            breakdownOn
+              ? 'Click to remove the Year 1 monthly breakdown slide from the deck.'
+              : 'Click to add a Year 1 monthly breakdown slide (per-month revenue, cleaning, mgmt fee, owner payout) to the deck.'
+          }
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 14,
+              height: 14,
+              border: '1.5px solid var(--ink)',
+              background: breakdownOn ? 'var(--ink)' : 'transparent',
+              color: 'var(--paper)',
+              fontSize: 10,
+              lineHeight: '11px',
+              textAlign: 'center',
+              fontWeight: 700,
+            }}
+          >
+            {breakdownOn ? '✓' : ''}
+          </span>
+          <span>Include monthly breakdown slide</span>
+        </button>
+      </form>
       <DeliverableActions
         projectionId={projectionId}
         type="projection"

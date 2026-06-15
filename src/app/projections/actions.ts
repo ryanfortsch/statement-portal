@@ -350,6 +350,27 @@ export async function resetContractOverrides(
   return { ok: true };
 }
 
+/**
+ * Flip the include_monthly_breakdown boolean on a projection. Surfaced
+ * as a one-click toggle on the prospect detail page's Projection tile
+ * so staff doesn't have to dive into the edit form to add or remove
+ * the optional Year 1 monthly-detail slide.
+ */
+export async function toggleMonthlyBreakdown(id: string, next: boolean) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ include_monthly_breakdown: next })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/projections/${id}/render`);
+}
+
 export async function markSent(id: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
