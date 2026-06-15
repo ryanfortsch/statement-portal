@@ -115,6 +115,16 @@ export async function ensureLaunchStepsSeeded(propertyId: string): Promise<void>
   );
   if (seed.length === 0) return;
 
-  await supabase.from('property_launch_steps').insert(seed);
-  revalidatePath(`/properties/${propertyId}/launch`);
+  // NOTE: do NOT call revalidatePath here. This runs awaited during the
+  // launch page's render (a backstop seed), and revalidatePath during
+  // render THROWS in Next 16 — which crashed the launch page for every
+  // newly-promoted property (16 Waterman, 36 Granite, 84 Thatcher) whose
+  // missing rows hit this seed branch on first load. The page is
+  // force-dynamic and reads the freshly-inserted rows later in the same
+  // render via getLaunchSteps, so no revalidation is needed.
+  try {
+    await supabase.from('property_launch_steps').insert(seed);
+  } catch {
+    // Best-effort: a failed backstop seed shouldn't take the page down.
+  }
 }
