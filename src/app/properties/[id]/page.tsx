@@ -20,6 +20,8 @@ import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
+import { DocumentsPanel } from './DocumentsPanel';
+import { getPropertyDocuments } from '@/lib/property-documents';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
@@ -326,7 +328,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, session, scaLaunch, launchProgress] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchProgress] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -337,6 +339,7 @@ export default async function PropertyDetailPage({
     loadPropertyActivity(p),
     getPropertyNotices(p.id),
     getPropertyNotes(p.id),
+    getPropertyDocuments(p.id),
     auth(),
     getScaLaunchStatus(p.id),
     getLaunchProgress(p.id),
@@ -524,6 +527,7 @@ export default async function PropertyDetailPage({
           { id: 'operations', label: 'Operations' },
           { id: 'people', label: 'People', badge: crmContactsFull.length || undefined },
           { id: 'history', label: 'History' },
+          { id: 'documents', label: 'Documents', badge: documents.length || undefined },
           { id: 'deliverables', label: 'Deliverables' },
         ]}
       >
@@ -1177,6 +1181,11 @@ export default async function PropertyDetailPage({
         </div>
       </CollapsibleSection>
 
+        </TabSection>
+
+        {/* ════════════ DOCUMENTS ════════════ */}
+        <TabSection tab="documents">
+          <DocumentsPanel propertyId={p.id} documents={documents} />
         </TabSection>
 
         {/* ════════════ DELIVERABLES ════════════ */}

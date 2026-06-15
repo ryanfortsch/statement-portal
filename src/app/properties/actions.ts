@@ -3,9 +3,11 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
 import { formatUsPhone } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
+import type { DocumentCategory } from '@/lib/property-documents';
 
 /**
  * Service-role Supabase client for writes that must bypass anon RLS
@@ -738,6 +740,122 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
     .from('property_notes')
     .update({ resolved_at: nextResolvedAt, resolved_by_email: nextResolvedBy })
     .eq('id', noteId)
+    .eq('property_id', propertyId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+}
+
+// ─── Documents (Documents tab) ──────────────────────────────────────
+
+const DOC_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+const DOC_ALLOWED = new Set([
+  'application/pdf',
+  'image/jpeg', 'image/jpg', 'image/png', 'image/heic', 'image/heif', 'image/webp',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain', 'text/csv',
+]);
+const VALID_DOC_CATEGORIES = new Set<DocumentCategory>([
+  'contract', 'insurance', 'tax', 'inspection', 'financial', 'other',
+]);
+
+export type UploadDocumentState = { error: string | null };
+
+/**
+ * useActionState-compatible document upload. Validates type + size,
+ * pushes the file to Vercel Blob (public access + random suffix, same
+ * store as photos), and inserts a property_documents row. Returns
+ * { error } rather than throwing so the panel shows an inline message
+ * and keeps the form values — same failure-soft pattern as the property
+ * edit form.
+ */
+export async function uploadPropertyDocument(
+  propertyId: string,
+  _prev: UploadDocumentState,
+  formData: FormData,
+): Promise<UploadDocumentState> {
+  const session = await auth();
+  if (!session?.user?.email) return { error: 'Not signed in.' };
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return { error: 'Document storage not configured (no Blob store on this project).' };
+  }
+
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) return { error: 'Choose a file to upload.' };
+  if (!DOC_ALLOWED.has(file.type)) {
+    return { error: `Unsupported file type (${file.type || 'unknown'}). PDF, image, Word, Excel, CSV, or text.` };
+  }
+  if (file.size > DOC_MAX_BYTES) {
+    return { error: `File too large (${Math.round(file.size / 1024 / 1024)} MB). Max is 25 MB.` };
+  }
+
+  const rawCat = String(formData.get('category') ?? 'other') as DocumentCategory;
+  const category: DocumentCategory = VALID_DOC_CATEGORIES.has(rawCat) ? rawCat : 'other';
+  const label = String(formData.get('label') ?? '').trim() || file.name;
+
+  let url: string;
+  try {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60) || 'document';
+    const blob = await put(`property-docs/${propertyId}/${Date.now()}-${safeName}`, file, {
+      access: 'public',
+      addRandomSuffix: true,
+      contentType: file.type || 'application/octet-stream',
+    });
+    url = blob.url;
+  } catch (err) {
+    return { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const sb = getServiceClient();
+  const { error } = await sb.from('property_documents').insert({
+    property_id: propertyId,
+    label,
+    category,
+    file_url: url,
+    file_name: file.name,
+    mime: file.type || null,
+    size_bytes: file.size,
+    source: 'upload',
+    uploaded_by_email: session.user.email,
+  });
+  if (error) {
+    console.error('[uploadPropertyDocument] insert failed', { propertyId, error });
+    return { error: `Saved the file but couldn't record it: ${error.message}` };
+  }
+
+  revalidatePath(`/properties/${propertyId}`);
+  return { error: null };
+}
+
+/** Delete a document: remove the blob (best-effort) then the row. */
+export async function deletePropertyDocument(propertyId: string, documentId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const sb = getServiceClient();
+  const { data: doc } = await sb
+    .from('property_documents')
+    .select('file_url')
+    .eq('id', documentId)
+    .eq('property_id', propertyId)
+    .maybeSingle();
+
+  const fileUrl = (doc as { file_url: string } | null)?.file_url;
+  if (fileUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      await del(fileUrl);
+    } catch {
+      // Blob already gone / not ours — drop the row anyway.
+    }
+  }
+
+  const { error } = await sb
+    .from('property_documents')
+    .delete()
+    .eq('id', documentId)
     .eq('property_id', propertyId);
   if (error) throw new Error(error.message);
 
