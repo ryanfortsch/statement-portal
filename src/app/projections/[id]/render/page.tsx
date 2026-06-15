@@ -42,6 +42,12 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
+        {/* Opt-in line-item detail for owners who want it. Placed right
+            after Year 1 so the prospect reads it as a zoom-in on the
+            monthly average they just saw. */}
+        {projection.include_monthly_breakdown && (
+          <SlideMonthlyBreakdown computed={c} footer={footerLabel} />
+        )}
         <SlideYear2 computed={c} footer={footerLabel} />
         <SlideServices footer={footerLabel} />
         <SlideOwnerControl projection={projection} computed={c} footer={footerLabel} />
@@ -111,7 +117,7 @@ function SlideHero({
   // concrete monthly number to react to alongside the annual range.
   const monthlyLow = Math.round(computed.heroLow / 12 / 100) * 100;
   const monthlyHigh = Math.round(computed.heroHigh / 12 / 100) * 100;
-  const monthlyAnchor = `roughly ${fmtMoney(monthlyLow)} to ${fmtMoney(monthlyHigh)} per month`;
+  const monthlyAnchor = `≈ ${fmtMoney(monthlyLow)} - ${fmtMoney(monthlyHigh)} per month`;
   return (
     <section className="rt-slide">
       <Header label={`${monthYear} | ${projection.property_address.toUpperCase()}${projection.property_city ? `, ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`} />
@@ -243,6 +249,76 @@ function SlideYear1({ computed, footer }: { computed: ProjectionComputed; footer
             );
           })}
         </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+/**
+ * Year 1 monthly breakdown slide. Opt-in (projection.include_monthly_breakdown)
+ * for owners who want line-item detail behind the average. Table layout:
+ *
+ *   Month | Gross Revenue | Cleaning | Mgmt Fee | Owner Payout
+ *
+ * Uses monthlyYear1Ramped when ramp is on so the table matches the
+ * Launch ramp slide's calendar; otherwise full-year monthlyYear1.
+ * Inactive (pre-go-live) months render as dashes so the prospect can see
+ * the runway clearly. Totals row at the bottom keys numbers against the
+ * Year 1 Performance slide's average.
+ */
+function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionComputed; footer: string }) {
+  const rows = computed.inputs.apply_ramp ? computed.monthlyYear1Ramped : computed.monthlyYear1;
+  const totals = rows.reduce(
+    (acc, m) => ({
+      gross: acc.gross + m.grossRevenue,
+      cleaning: acc.cleaning + m.cleaningExpense,
+      mgmt: acc.mgmt + m.managementFee,
+      net: acc.net + m.netPayout,
+    }),
+    { gross: 0, cleaning: 0, mgmt: 0, net: 0 },
+  );
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <h2 className="rt-section-title">Year 1 monthly detail</h2>
+        <p className="rt-section-sub">
+          The same Year 1 projection broken out month-by-month: gross revenue, cleaning, the management
+          fee, and your net payout.
+        </p>
+        <table className="rt-mb-table">
+          <thead>
+            <tr>
+              <th className="rt-mb-th rt-mb-th-month">Month</th>
+              <th className="rt-mb-th rt-mb-th-num">Gross Revenue</th>
+              <th className="rt-mb-th rt-mb-th-num">Cleaning</th>
+              <th className="rt-mb-th rt-mb-th-num">Mgmt Fee</th>
+              <th className="rt-mb-th rt-mb-th-num rt-mb-th-net">Owner Payout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => {
+              const inactive = m.rampMultiplier === 0;
+              return (
+                <tr key={m.monthIndex} className={inactive ? 'rt-mb-row-inactive' : ''}>
+                  <td className="rt-mb-td rt-mb-td-month">{m.monthLabel}</td>
+                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.grossRevenue))}</td>
+                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.cleaningExpense))}</td>
+                  <td className="rt-mb-td rt-mb-td-num">{inactive ? '—' : fmtMoney(Math.round(m.managementFee))}</td>
+                  <td className="rt-mb-td rt-mb-td-num rt-mb-td-net">{inactive ? '—' : fmtMoney(Math.round(m.netPayout))}</td>
+                </tr>
+              );
+            })}
+            <tr className="rt-mb-row-total">
+              <td className="rt-mb-td rt-mb-td-month">Year 1 total</td>
+              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.gross))}</td>
+              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.cleaning))}</td>
+              <td className="rt-mb-td rt-mb-td-num">{fmtMoney(Math.round(totals.mgmt))}</td>
+              <td className="rt-mb-td rt-mb-td-num rt-mb-td-net">{fmtMoney(Math.round(totals.net))}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <Footer label={footer} />
     </section>
@@ -1095,6 +1171,64 @@ const deckCss = `
     letter-spacing: -0.03em;
   }
   .rt-year-unit { font-size: 32px; color: var(--ink-3); letter-spacing: 0; }
+
+  /* Sub-title under .rt-section-title for slides that need a line of
+     context above the data (used by the monthly breakdown slide). */
+  .rt-section-sub {
+    margin: 4px 0 28px;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--ink-3);
+    max-width: 720px;
+  }
+
+  /* ── Year 1 monthly breakdown table (opt-in slide) ── */
+  .rt-mb-table {
+    margin-top: 16px;
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  .rt-mb-th {
+    text-align: right;
+    padding: 12px 14px;
+    border-bottom: 2px solid var(--ink);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .rt-mb-th-month { text-align: left; }
+  .rt-mb-th-net { color: var(--ink); }
+  .rt-mb-td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 14px;
+    color: var(--ink);
+    text-align: right;
+  }
+  .rt-mb-td-month {
+    text-align: left;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .rt-mb-td-net {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .rt-mb-row-inactive .rt-mb-td { color: var(--ink-4); }
+  .rt-mb-row-inactive .rt-mb-td-net { font-weight: 400; }
+  .rt-mb-row-total .rt-mb-td {
+    border-top: 2px solid var(--ink);
+    border-bottom: none;
+    font-weight: 600;
+    padding-top: 14px;
+    color: var(--ink);
+  }
 
   .rt-month-strip {
     margin-top: auto;
