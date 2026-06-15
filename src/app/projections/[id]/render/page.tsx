@@ -7,6 +7,7 @@ import {
   fmtMoney,
   fmtMoneyRange,
   fmtMonthYear,
+  fmtPercent,
   roundToThousand,
   type ProjectionComputed,
 } from '@/lib/projections-model';
@@ -343,6 +344,30 @@ function SlideMonthlyBreakdown({ computed, footer }: { computed: ProjectionCompu
             </table>
           );
         })()}
+
+        {/* Definition legend — a one-line plain-English gloss per line item
+            so an owner reading the deck cold knows exactly what each row
+            means. The management-fee definition pulls the live fee %. */}
+        <div className="rt-mb-legend">
+          <div className="rt-mb-def">
+            <div className="rt-mb-def-term">Gross revenue</div>
+            <div className="rt-mb-def-body">What guests pay for their stays, before any costs.</div>
+          </div>
+          <div className="rt-mb-def">
+            <div className="rt-mb-def-term">Cleaning</div>
+            <div className="rt-mb-def-body">Per-turnover cleaning, billed through at cost.</div>
+          </div>
+          <div className="rt-mb-def">
+            <div className="rt-mb-def-term">Mgmt fee</div>
+            <div className="rt-mb-def-body">
+              Rising Tide&rsquo;s {fmtPercent(computed.inputs.mgmt_fee_pct)}, charged only on what the home earns.
+            </div>
+          </div>
+          <div className="rt-mb-def rt-mb-def-net">
+            <div className="rt-mb-def-term">Owner payout</div>
+            <div className="rt-mb-def-body">What lands in your account that month.</div>
+          </div>
+        </div>
       </div>
       <Footer label={footer} />
     </section>
@@ -1210,39 +1235,45 @@ const deckCss = `
      Transposed: months across the top, four line items as rows, Full
      Year on the right. Compact so 14 columns fit the slide width. */
   .rt-mb-table {
-    margin-top: 18px;
+    margin-top: 22px;
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
     font-variant-numeric: tabular-nums;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
-  /* Month / Full-year headers */
+  /* Month / Full-year headers — sit in a soft band so the row of months
+     reads as a unit rather than floating labels. */
   .rt-mb-th {
     text-align: right;
-    padding: 10px 6px;
-    border-bottom: 2px solid var(--ink);
+    padding: 11px 7px;
+    background: var(--paper-2);
+    border-bottom: 1.5px solid var(--ink);
     font-size: 10.5px;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-3);
     font-weight: 600;
     white-space: nowrap;
   }
-  .rt-mb-th-metric { width: 116px; border-bottom-color: var(--ink); }
+  .rt-mb-th-metric {
+    width: 118px;
+    background: transparent;
+    border-bottom-color: var(--ink);
+  }
   .rt-mb-th-mo { width: auto; }
   .rt-mb-th-inactive { color: var(--ink-4); }
   .rt-mb-th-year {
-    width: 92px;
+    width: 96px;
     color: var(--ink);
-    border-left: 1px solid var(--rule);
+    background: var(--paper-3, #efe7d6);
   }
   /* Body cells */
   .rt-mb-td {
-    padding: 11px 6px;
+    padding: 12px 7px;
     border-bottom: 1px solid var(--rule);
     font-size: 12.5px;
-    color: var(--ink);
+    color: var(--ink-3);
     text-align: right;
     white-space: nowrap;
   }
@@ -1255,21 +1286,53 @@ const deckCss = `
     white-space: nowrap;
   }
   .rt-mb-td-inactive { color: var(--ink-4); }
+  /* Full-year column: the per-line annual total, tinted + inked so it
+     reads as the headline of each row. */
   .rt-mb-td-year {
+    background: var(--paper-2);
     border-left: 1px solid var(--rule);
-    font-weight: 600;
+    font-weight: 700;
     color: var(--ink);
   }
-  /* Owner-payout row: the number that matters, emphasized + ruled off. */
+  /* Owner-payout row: the number that matters. A warm signal band runs
+     the full width so the eye lands here, with the figures inked + larger
+     and the row label in serif signal. */
   .rt-mb-row-net .rt-mb-td {
-    border-top: 2px solid var(--ink);
+    background: rgba(200, 90, 58, 0.08);
+    border-top: 2px solid var(--signal);
     border-bottom: none;
     padding-top: 13px;
-    font-weight: 600;
+    padding-bottom: 13px;
+    font-weight: 700;
     font-size: 13.5px;
     color: var(--ink);
   }
-  .rt-mb-row-net .rt-mb-td-metric { font-weight: 600; }
+  .rt-mb-row-net .rt-mb-td-metric { color: var(--signal); font-weight: 600; }
+  .rt-mb-row-net .rt-mb-td-year { background: rgba(200, 90, 58, 0.16); }
+
+  /* Definition legend below the table — four plain-English glosses. */
+  .rt-mb-legend {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 28px;
+  }
+  .rt-mb-def-term {
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink-3);
+    margin-bottom: 5px;
+  }
+  .rt-mb-def-net .rt-mb-def-term { color: var(--signal); }
+  .rt-mb-def-body {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-3);
+  }
 
   .rt-month-strip {
     margin-top: auto;
