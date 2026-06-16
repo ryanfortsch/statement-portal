@@ -51,6 +51,9 @@ export type InspectionItemRow = {
   interval_days: number | null;
   priority: number | null;
   season_constraint: SeasonConstraint | null;
+  // NULL = a shared "standard" card; set = a custom card scoped to one
+  // property (created from the inspection-layout editor).
+  property_id: string | null;
 };
 
 export type InspectionResultRow = {
@@ -138,4 +141,20 @@ export type PropertyZoneItemRow = {
   property_zone_id: string;
   inspection_item_id: string;
   created_at: string;
+};
+
+// ─── Per-property inspection card layout (rebuild) ──────────────────────
+// Replaces the zone model. Each property owns an explicit, ordered list of
+// inspection cards; `position` is the walk order. A card points at a real
+// inspection_items row (standard, or a property-scoped custom item) so the
+// whole results / notes / work-slip / report pipeline keeps keying on
+// inspection_items.id. What's laid out here is exactly what the inspection
+// runs, in this order, every visit — no rotation, no zone fan-out.
+export type PropertyInspectionCardRow = {
+  id: string;
+  property_id: string;
+  inspection_item_id: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
 };
