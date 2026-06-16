@@ -370,44 +370,18 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 }
 
 /**
- * Top N turnover cards render up front; the rest collapse under a native
- * <details> expander so the pipeline doesn't read as an endless scroll
- * once we onboard more properties. The component is server-rendered so
- * we use the no-JS <details>/<summary> primitive rather than the client
- * useState pattern over on /work.
+ * The full turnover pipeline renders flat — every check-in in range is
+ * always visible, never collapsed behind an expander. The operator works
+ * this list top to bottom, so hiding the tail would hide real work.
+ * Completed-inspection rows are visually deemphasized in TurnoverRow (not
+ * removed) so attention falls on the turnovers that still need a walk.
  */
-const TURNOVER_INITIAL_LIMIT = 5;
-
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
-  const visible = turnovers.slice(0, TURNOVER_INITIAL_LIMIT);
-  const rest = turnovers.slice(TURNOVER_INITIAL_LIMIT);
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
-      {visible.map((t) => (
+      {turnovers.map((t) => (
         <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
       ))}
-      {rest.length > 0 && (
-        <details className="rt-turnover-expander">
-          <summary
-            style={{
-              listStyle: 'none',
-              cursor: 'pointer',
-              borderBottom: '1px solid var(--rule)',
-              padding: '14px 0',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--ink-3)',
-            }}
-          >
-            ↓ Show {rest.length} more turnover{rest.length === 1 ? '' : 's'}
-          </summary>
-          {rest.map((t) => (
-            <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
-          ))}
-        </details>
-      )}
     </div>
   );
 }
@@ -452,7 +426,12 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         gridTemplateColumns: '160px 1fr auto auto',
         gap: 20,
         alignItems: 'baseline',
-        padding: '14px 0',
+        // Completed inspections recede: half opacity + tighter padding so
+        // the eye skips them and lands on the turnovers that still need a
+        // walk. They stay in date order (not re-sorted to the bottom) so
+        // the pipeline still reads chronologically; they just sink back.
+        padding: inspectionDone ? '10px 0' : '14px 0',
+        opacity: inspectionDone ? 0.5 : 1,
         borderBottom: '1px solid var(--rule)',
         // When the "N inspections pending" eyebrow scrolls to this row via
         // a #turnover-... anchor, leave breathing room so the row doesn't
