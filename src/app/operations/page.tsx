@@ -373,23 +373,36 @@ export default async function OperationsPage({ searchParams }: PageProps) {
  * The full turnover pipeline renders flat — every check-in in range is
  * always visible, never collapsed behind an expander. The operator works
  * this list top to bottom, so hiding the tail would hide real work.
- * Completed-inspection rows are visually deemphasized in TurnoverRow (not
- * removed) so attention falls on the turnovers that still need a walk.
+ *
+ * Two tiers: turnovers that still need a walk (not inspected, or an
+ * inspection in progress) render full-size up top in date order; already-
+ * inspected turnovers sink to the bottom as compact, dimmed rows (see
+ * TurnoverRowDone), date-ordered among themselves. The partition is
+ * stable, so it preserves the server-side chronological sort within each
+ * tier. Result: the operator's eye lands on outstanding work, with the
+ * finished walks tucked away but still reachable.
  */
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+  const pending = turnovers.filter((t) => t.inspectionStatus !== 'complete');
+  const done = turnovers.filter((t) => t.inspectionStatus === 'complete');
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
-      {turnovers.map((t) => (
+      {pending.map((t) => (
         <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+      ))}
+      {done.map((t) => (
+        <TurnoverRowDone key={`${t.propertyId}-${t.reservationId}`} t={t} />
       ))}
     </div>
   );
 }
 
+// Renders one actionable turnover (not yet inspected, or an inspection in
+// progress). Completed turnovers never reach here — TurnoverList routes
+// them to the compact TurnoverRowDone below.
 function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: string }) {
   const checkIn = formatDateLong(t.checkIn);
   const checkOut = formatDateShort(t.checkOut);
-  const inspectionDone = t.inspectionStatus === 'complete';
 
   // Cleaning chip: show "Cleaned" once we have a Quo signal for the
   // (property, previousCheckout) pair. If previousCheckout is past and
@@ -426,12 +439,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         gridTemplateColumns: '160px 1fr auto auto',
         gap: 20,
         alignItems: 'baseline',
-        // Completed inspections recede: half opacity + tighter padding so
-        // the eye skips them and lands on the turnovers that still need a
-        // walk. They stay in date order (not re-sorted to the bottom) so
-        // the pipeline still reads chronologically; they just sink back.
-        padding: inspectionDone ? '10px 0' : '14px 0',
-        opacity: inspectionDone ? 0.5 : 1,
+        padding: '14px 0',
         borderBottom: '1px solid var(--rule)',
         // When the "N inspections pending" eyebrow scrolls to this row via
         // a #turnover-... anchor, leave breathing room so the row doesn't
@@ -572,9 +580,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
               <span style={{ color: 'var(--ink-4)' }}>{' · '}</span>
             </>
           )}
-          <span style={{ color: inspectionDone ? 'var(--positive)' : 'var(--signal)' }}>
-            {inspectionDone ? 'Inspected' : 'Not inspected'}
-          </span>
+          <span style={{ color: 'var(--signal)' }}>Not inspected</span>
         </div>
         {t.lockBattery && t.lockBattery.isLow && (
           <span
@@ -597,23 +603,11 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         )}
       </div>
 
-      {/* Action — done shows Summary; in-progress shows Resume; otherwise
-          stack a plan-button + start-inspection CTA so the operator can
-          schedule a walk in advance OR kick one off right now. */}
-      {inspectionDone && t.inspection ? (
-        <Link
-          href={`/inspections/${t.inspection.id}/summary`}
-          className="rt-turnover-action"
-          style={{
-            fontSize: 12,
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Summary →
-        </Link>
-      ) : t.inspection ? (
+      {/* Action — in-progress shows Resume; otherwise stack a plan-button
+          + start-inspection CTA so the operator can schedule a walk in
+          advance OR kick one off right now. (Completed turnovers render
+          via TurnoverRowDone, which carries its own Summary link.) */}
+      {t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}`}
           className="rt-turnover-action"
@@ -665,6 +659,93 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             </button>
           </form>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact, dimmed row for a turnover whose inspection is already complete.
+ * These sink to the bottom of the pipeline (see TurnoverList) and render
+ * at roughly half the height + half the weight of an actionable row, so
+ * the operator skips straight to the walks that still need doing. The
+ * checkout/nights + cleaning lines are dropped (historical once inspected);
+ * what survives is property, check-in date, guest, an "Inspected" mark, any
+ * still-open work slips, and a link into the summary.
+ */
+function TurnoverRowDone({ t }: { t: Turnover }) {
+  return (
+    <div
+      id={`turnover-${t.propertyId}-${t.reservationId}`}
+      className="rt-turnover-row rt-turnover-row--done"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '160px 1fr auto auto',
+        gap: 20,
+        alignItems: 'baseline',
+        padding: '7px 0',
+        opacity: 0.45,
+        borderBottom: '1px solid var(--rule)',
+        scrollMarginTop: 96,
+      }}
+    >
+      <div
+        className="rt-turnover-date"
+        style={{ fontSize: 12, color: 'var(--ink-4)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}
+      >
+        {formatDateShort(t.checkIn)}
+      </div>
+      <div
+        className="rt-turnover-property"
+        style={{ minWidth: 220, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}
+      >
+        <span
+          className="font-serif"
+          style={{ fontSize: 14, fontWeight: 400, color: 'var(--ink-3)', letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}
+        >
+          {t.propertyName}
+        </span>
+        <span
+          style={{ fontSize: 12, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          title={`${t.guestName || 'Unnamed guest'}${t.channel ? ` · ${t.channel}` : ''}`}
+        >
+          {t.guestName || 'Unnamed guest'}
+          {t.channel ? ` · ${channelLabel(t.channel)}` : ''}
+        </span>
+      </div>
+      <div
+        className="rt-turnover-chips"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 2,
+          fontSize: 11,
+          color: 'var(--ink-4)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <span style={{ color: 'var(--positive)' }}>Inspected</span>
+        {t.openWorkSlipsCount > 0 && (
+          <Link
+            href={`/properties/${t.propertyId}/work-slips/print`}
+            title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
+            style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none' }}
+          >
+            {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
+          </Link>
+        )}
+      </div>
+      {t.inspection ? (
+        <Link
+          href={`/inspections/${t.inspection.id}/summary`}
+          className="rt-turnover-action"
+          style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', whiteSpace: 'nowrap' }}
+        >
+          Summary →
+        </Link>
+      ) : (
+        <span className="rt-turnover-action" />
       )}
     </div>
   );
