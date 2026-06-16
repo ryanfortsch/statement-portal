@@ -216,6 +216,103 @@ function buildSeries(monthly: number[], firstMonth: string): MarketChartPoint[] 
   });
 }
 
+const pctChange = (cur: number, prev: number) =>
+  prev === 0 ? 0 : ((cur - prev) / prev) * 100;
+const ppChange = (cur: number, prev: number) => cur - prev;
+
+/** YYYY-MM-DD of the same calendar month one year earlier. */
+function yearAgoKey(monthKey: string): string {
+  const { year, monthIdx } = parseMonth(monthKey);
+  return `${year - 1}-${String(monthIdx + 1).padStart(2, "0")}-01`;
+}
+
+type MetricKind = "money" | "pct" | "count";
+
+type MetricCalc = {
+  curT3M: number;
+  /** Percent for money/count, percentage-points for pct metrics. */
+  t3mDelta: number;
+  /** null when there's no year-ago value to compare the latest month to. */
+  recentDelta: number | null;
+  /** Month index (0-11) of THIS metric's latest non-null reading. */
+  recentMonthIdx: number;
+};
+
+/**
+ * Compute a metric's headline numbers from ONLY the months where that
+ * metric is actually present.
+ *
+ * Why per-metric: AirDNA's single-metric exports (Average Revenue,
+ * Occupancy, Occupancy by Bedrooms) don't carry an active-listings
+ * column. So a market can be current through May on revenue + occupancy
+ * but only through, say, March on listings. The old code assumed the
+ * latest ROW had all three metrics and compared a null latest listings
+ * against last year, producing a bogus "-100% (May YoY)". Sourcing each
+ * card from its own latest non-null reading fixes that: listings shows
+ * its real last value with an honest "(Mar YoY)" label instead.
+ */
+function computeMetric(
+  sorted: MarketRow[],
+  pick: (r: MarketRow) => number | null,
+  isPct: boolean,
+): MetricCalc | null {
+  const series = sorted
+    .map((r) => ({ month: r.month, value: Number(pick(r)) }))
+    .filter((x) => Number.isFinite(x.value));
+  if (series.length === 0) return null;
+
+  const byMonth = new Map<string, number>(series.map((s) => [s.month, s.value]));
+  const latest = series[series.length - 1];
+  const { monthIdx: recentMonthIdx } = parseMonth(latest.month);
+
+  // T3M = the last up-to-3 months that HAVE this metric (not the last 3
+  // calendar months, which may be null for this metric).
+  const last3 = series.slice(-3);
+  const curT3M = avg(last3.map((s) => s.value));
+  const yaT3M = avg(
+    last3
+      .map((s) => byMonth.get(yearAgoKey(s.month)))
+      .filter((v): v is number => v !== undefined),
+  );
+  const t3mDelta = isPct ? ppChange(curT3M, yaT3M) : pctChange(curT3M, yaT3M);
+
+  const recentYa = byMonth.get(yearAgoKey(latest.month));
+  const recentDelta =
+    recentYa === undefined
+      ? null
+      : isPct
+        ? ppChange(latest.value, recentYa)
+        : pctChange(latest.value, recentYa);
+
+  return { curT3M, t3mDelta, recentDelta, recentMonthIdx };
+}
+
+function toCard(label: string, kind: MetricKind, m: MetricCalc | null): MarketMetricCard {
+  if (!m) {
+    return {
+      label,
+      current: "—",
+      t3m: "—",
+      t3mPositive: true,
+      recent: "—",
+      recentPositive: true,
+      recentLabel: "",
+    };
+  }
+  const deltaFmt = kind === "pct" ? fmtPpDelta : fmtPctDelta;
+  const current =
+    kind === "money" ? fmtMoney(m.curT3M) : kind === "pct" ? fmtPct(m.curT3M) : fmtCount(m.curT3M);
+  return {
+    label,
+    current,
+    t3m: deltaFmt(m.t3mDelta),
+    t3mPositive: m.t3mDelta >= 0,
+    recent: m.recentDelta === null ? "—" : deltaFmt(m.recentDelta),
+    recentPositive: m.recentDelta === null ? true : m.recentDelta >= 0,
+    recentLabel: `(${MONTH_SHORT[m.recentMonthIdx]} YoY)`,
+  };
+}
+
 /** Build the full snapshot the public API returns. Pure function of
  *  the rows — no DB access — so the cron can pass synthetic rows
  *  in tests. */
@@ -227,101 +324,24 @@ export function buildSnapshot(rows: MarketRow[]): MarketSnapshot | null {
   const { year: latestYear, monthIdx: latestMonthIdx } = parseMonth(latest.month);
 
   // --- Card-level numbers ----------------------------------------
+  // Each card is computed from ONLY the months where its metric is
+  // present, so a market that's current-through-May on revenue but
+  // only-through-March on listings shows each honestly (see
+  // computeMetric). The old code assumed the latest row had all three
+  // metrics and produced a bogus "-100% (May YoY)" when listings were
+  // null for the freshest months.
   const last3 = sorted.slice(-3);
 
-  const last3Revenue = last3
-    .map((r) => Number(r.avg_listing_revenue))
-    .filter((n) => Number.isFinite(n));
-  const last3Occupancy = last3
-    .map((r) => Number(r.occupancy_rate))
-    .filter((n) => Number.isFinite(n));
-  const last3Listings = last3
-    .map((r) => Number(r.active_listings))
-    .filter((n) => Number.isFinite(n));
+  const revCalc = computeMetric(sorted, (r) => r.avg_listing_revenue, false);
+  const occCalc = computeMetric(sorted, (r) => r.occupancy_rate, true);
+  const listCalc = computeMetric(sorted, (r) => r.active_listings, false);
 
-  // Year-ago T3M = same 3 calendar months one year earlier.
-  const last3MonthKeys = last3.map((r) => r.month);
-  const yearAgoMonthKeys = last3MonthKeys.map((m) => {
-    const { year, monthIdx } = parseMonth(m);
-    const yaY = year - 1;
-    const yaM = String(monthIdx + 1).padStart(2, "0");
-    return `${yaY}-${yaM}-01`;
-  });
-  const yearAgoRows = sorted.filter((r) => yearAgoMonthKeys.includes(r.month));
+  const revenue = toCard("Avg monthly rental revenue", "money", revCalc);
+  const occupancy = toCard("Market occupancy", "pct", occCalc);
+  const listings = toCard("Active listings", "count", listCalc);
 
-  const yaRevenue = yearAgoRows
-    .map((r) => Number(r.avg_listing_revenue))
-    .filter((n) => Number.isFinite(n));
-  const yaOccupancy = yearAgoRows
-    .map((r) => Number(r.occupancy_rate))
-    .filter((n) => Number.isFinite(n));
-  const yaListings = yearAgoRows
-    .map((r) => Number(r.active_listings))
-    .filter((n) => Number.isFinite(n));
-
-  // Year-ago single-month (for "recent" YoY) = latest month one year earlier.
-  const latestYearAgoKey = `${latestYear - 1}-${String(latestMonthIdx + 1).padStart(2, "0")}-01`;
-  const latestYearAgo = sorted.find((r) => r.month === latestYearAgoKey);
-
-  const pctChange = (cur: number, prev: number) =>
-    prev === 0 ? 0 : ((cur - prev) / prev) * 100;
-  const ppChange = (cur: number, prev: number) => cur - prev;
-
-  const recentLabel = `(${MONTH_SHORT[latestMonthIdx]} YoY)`;
-
-  // Revenue card
-  const curRevT3M = avg(last3Revenue);
-  const yaRevT3M = avg(yaRevenue);
-  const revT3MDelta = pctChange(curRevT3M, yaRevT3M);
-  const curRevRecent = Number(latest.avg_listing_revenue ?? 0);
-  const yaRevRecent = Number(latestYearAgo?.avg_listing_revenue ?? 0);
-  const revRecentDelta = pctChange(curRevRecent, yaRevRecent);
-
-  const revenue: MarketMetricCard = {
-    label: "Avg monthly rental revenue",
-    current: fmtMoney(curRevT3M),
-    t3m: fmtPctDelta(revT3MDelta),
-    t3mPositive: revT3MDelta >= 0,
-    recent: fmtPctDelta(revRecentDelta),
-    recentPositive: revRecentDelta >= 0,
-    recentLabel,
-  };
-
-  // Occupancy card (deltas in percentage points)
-  const curOccT3M = avg(last3Occupancy);
-  const yaOccT3M = avg(yaOccupancy);
-  const occT3MDelta = ppChange(curOccT3M, yaOccT3M);
-  const curOccRecent = Number(latest.occupancy_rate ?? 0);
-  const yaOccRecent = Number(latestYearAgo?.occupancy_rate ?? 0);
-  const occRecentDelta = ppChange(curOccRecent, yaOccRecent);
-
-  const occupancy: MarketMetricCard = {
-    label: "Market occupancy",
-    current: fmtPct(curOccT3M),
-    t3m: fmtPpDelta(occT3MDelta),
-    t3mPositive: occT3MDelta >= 0,
-    recent: fmtPpDelta(occRecentDelta),
-    recentPositive: occRecentDelta >= 0,
-    recentLabel,
-  };
-
-  // Listings card
-  const curListT3M = avg(last3Listings);
-  const yaListT3M = avg(yaListings);
-  const listT3MDelta = pctChange(curListT3M, yaListT3M);
-  const curListRecent = Number(latest.active_listings ?? 0);
-  const yaListRecent = Number(latestYearAgo?.active_listings ?? 0);
-  const listRecentDelta = pctChange(curListRecent, yaListRecent);
-
-  const listings: MarketMetricCard = {
-    label: "Active listings",
-    current: fmtCount(curListT3M),
-    t3m: fmtPctDelta(listT3MDelta),
-    t3mPositive: listT3MDelta >= 0,
-    recent: fmtPctDelta(listRecentDelta),
-    recentPositive: listRecentDelta >= 0,
-    recentLabel,
-  };
+  // Revenue T3M YoY drives the health verdict.
+  const revT3MDelta = revCalc?.t3mDelta ?? 0;
 
   // --- Health verdict --------------------------------------------
   // Default to a tone that doesn't over-interpret off-peak swings on
@@ -346,7 +366,9 @@ export function buildSnapshot(rows: MarketRow[]): MarketSnapshot | null {
   }
 
   // --- Chart series ---------------------------------------------
-  const chartMonthly = sorted.map((r) => Number(r.avg_listing_revenue ?? 0));
+  // Round to whole dollars at the source so the chart + its hover
+  // tooltip never render cents (AirDNA hands us values like 4207.68).
+  const chartMonthly = sorted.map((r) => Math.round(Number(r.avg_listing_revenue ?? 0)));
   const chartPoints = buildSeries(chartMonthly, sorted[0].month);
 
   return {
