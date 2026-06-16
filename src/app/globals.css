@@ -571,15 +571,6 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-insights-6 > div:nth-child(n+4) { border-top: 1px solid var(--rule); }
 }
 
-/* /operations turnover-list "Show N more" expander: render the summary as
-   a tappable row rather than a disclosure widget. Cross-browser marker
-   hide so Safari/Firefox don't show their default triangle/arrow next to
-   the all-caps label. */
-.rt-turnover-expander > summary { list-style: none; }
-.rt-turnover-expander > summary::-webkit-details-marker { display: none; }
-.rt-turnover-expander > summary::marker { display: none; }
-.rt-turnover-expander > summary:hover { color: var(--ink); }
-
 /* ─── Mobile menu (trigger + full-screen overlay) ─────────────────────
    The trigger is hidden by default; the mobile media query above flips
    it on. The overlay is rendered into the same component, so its styles
