@@ -172,7 +172,9 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
 
   return (
     <section className="max-w-[820px] mx-auto px-10" style={{ paddingBottom: 96, width: '100%' }}>
-      {/* Status + count bar */}
+      {/* Status + count bar. Sticky so save state ("Saving…" / "Couldn't
+          save") stays visible even when scrolled to the bottom of a long
+          deck. */}
       <div
         style={{
           display: 'flex',
@@ -182,6 +184,10 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
           padding: '12px 0',
           borderBottom: '1px solid var(--ink)',
           marginBottom: 16,
+          position: 'sticky',
+          top: 0,
+          background: 'var(--paper)',
+          zIndex: 5,
         }}
       >
         <span
@@ -399,7 +405,20 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
                 onChange={(e) => setCustomDesc(e.target.value)}
                 style={{ marginTop: 8, minHeight: 56, resize: 'vertical' }}
               />
-              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+              <div
+                style={{
+                  marginTop: 10,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                {status === 'error' && error && (
+                  <span style={{ fontSize: 12, color: 'var(--signal)', marginRight: 'auto' }}>
+                    {error}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="rt-btn-primary"
