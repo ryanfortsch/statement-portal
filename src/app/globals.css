@@ -376,6 +376,13 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     padding: 14px 0 !important;
     gap: 6px !important;
   }
+  /* Completed turnovers stay compact on phones too — the base rule above
+     would otherwise restore full card padding. Opacity comes from the
+     inline style. */
+  .rt-turnover-row--done {
+    padding: 9px 0 !important;
+    gap: 4px !important;
+  }
 
   /* Stepper: + Add note / + Photo / + Work slip currently wraps to two
      rows because the labels are wide. Three equal-width buttons on a
