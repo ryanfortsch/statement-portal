@@ -140,24 +140,42 @@ export function ScaLaunchClient(props: Props) {
         return;
       }
       const p = res.prefill;
-      // Fill blanks only — never clobber what the operator already typed.
+      // If the form already holds copy, this is a re-pull (e.g. Guesty changed
+      // and we want it reflected). Offer to overwrite; otherwise fill blanks
+      // only so we never clobber typed copy by accident.
+      const hasExistingCopy = !!(
+        form.pitch?.trim() ||
+        form.tagline?.trim() ||
+        form.description?.trim() ||
+        form.publicName?.trim() ||
+        form.highlights.some((h) => h.trim())
+      );
+      const overwrite =
+        hasExistingCopy &&
+        window.confirm(
+          'Replace the current listing copy with a fresh draft from Guesty? This overwrites pitch, tagline, About, and highlights (and the dining pick) with the new draft.',
+        );
       setForm((f) => {
-        // Highlights: adopt the drafted set only if the operator hasn't
-        // authored any yet (initial state is empty slots); pad to 3.
+        // overwrite: take the new value but keep the old if Guesty returned
+        // empty. blanks-only: keep the old value, fill in only when empty.
+        const merge = (cur: string, next: string) => (overwrite ? next || cur : cur || next);
         const operatorHasHighlights = f.highlights.some((h) => h.trim());
-        const nextHighlights =
-          operatorHasHighlights || p.highlights.length === 0
+        const padded = [...p.highlights, '', '', ''].slice(0, Math.max(3, p.highlights.length));
+        const nextHighlights = overwrite
+          ? p.highlights.length
+            ? padded
+            : f.highlights
+          : operatorHasHighlights || p.highlights.length === 0
             ? f.highlights
-            : [...p.highlights, '', '', ''].slice(0, Math.max(3, p.highlights.length));
-        // Restaurant: only fill if the operator hasn't named one yet.
+            : padded;
         const favBlank = !f.stayFavorite?.name?.trim();
-        const nextFavorite = favBlank && p.stayFavorite ? { ...p.stayFavorite } : f.stayFavorite;
+        const nextFavorite = (overwrite || favBlank) && p.stayFavorite ? { ...p.stayFavorite } : f.stayFavorite;
         return {
           ...f,
-          publicName: f.publicName || p.publicName,
-          pitch: f.pitch || p.pitch,
-          tagline: f.tagline || p.tagline,
-          description: f.description || p.description,
+          publicName: merge(f.publicName, p.publicName),
+          pitch: merge(f.pitch, p.pitch),
+          tagline: merge(f.tagline, p.tagline),
+          description: merge(f.description ?? '', p.description),
           highlights: nextHighlights,
           stayFavorite: nextFavorite,
         };
@@ -165,9 +183,13 @@ export function ScaLaunchClient(props: Props) {
       setGuestyInfo({ bedrooms: p.bedrooms, bathrooms: p.bathrooms, accommodates: p.accommodates, photos: p.photos, amenities: p.amenities });
       setNotice({
         kind: 'ok',
-        text: p.aiGenerated
-          ? 'Drafted the full listing from Guesty in the Stay Cape Ann voice: pitch, tagline, About, highlights, and a nearby dining pick, filled where blank. Review and tweak, then add the iCal URL.'
-          : 'Pulled and cleaned the Guesty copy (AI draft was unavailable, so this is a lighter pass). Review pitch + the restaurant, then add the iCal URL.',
+        text: overwrite
+          ? p.aiGenerated
+            ? 'Redrafted the listing from Guesty in the Stay Cape Ann voice, replacing the previous copy. Review, then open an update PR.'
+            : 'Re-pulled and cleaned the Guesty copy (AI draft unavailable, lighter pass), replacing the previous copy. Review, then open an update PR.'
+          : p.aiGenerated
+            ? 'Drafted the full listing from Guesty in the Stay Cape Ann voice: pitch, tagline, About, highlights, and a nearby dining pick, filled where blank. Review and tweak, then add the iCal URL.'
+            : 'Pulled and cleaned the Guesty copy (AI draft was unavailable, so this is a lighter pass). Review pitch + the restaurant, then add the iCal URL.',
       });
     });
 
