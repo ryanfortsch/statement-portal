@@ -435,6 +435,132 @@ export async function openScaPr(propertyId: string, draft: ScaFormDraft): Promis
   }
 }
 
+/**
+ * Open (or refresh) an update PR for a listing that's already live. Unlike
+ * openScaPr, this never takes the listing down: the live page keeps serving the
+ * current registry entry until the operator publishes the update. Used when
+ * Guesty (now the source of truth) changes and the copy needs to flow through,
+ * or for any post-launch edit. Tracked on the live row via the same
+ * branch_name/pr_* columns, distinguished by the `sca-update/` branch prefix.
+ */
+export async function openScaUpdatePr(propertyId: string, draft: ScaFormDraft): Promise<ActionResult> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  if (!gh.isGithubConfigured()) {
+    return { ok: false, error: 'GITHUB_TOKEN is not configured on Helm. Add it before opening a PR.' };
+  }
+  const current = await loadRow(propertyId);
+  if (current?.status !== 'live') {
+    return { ok: false, error: 'This listing is not live yet. Use the preview PR / go-live flow to launch it first.' };
+  }
+  const valid = validateScaForm(draft);
+  if (!valid.ok) return { ok: false, errors: valid.errors };
+  const form = valid.data;
+
+  try {
+    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
+    if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH} on ${SCA_PROD_BRANCH}` };
+
+    const entry = buildRegistryEntry(form);
+    const newContent = applyEntryToRegistryJson(file.contentUtf8, form.guestyListingId, entry);
+    const branch = `sca-update/${propertyId}`;
+    const commitMessage = `Update ${form.internalName} (${form.publicName}) on Stay Cape Ann`;
+
+    let fileSha = file.sha;
+    if (await gh.branchExists(branch)) {
+      const onBranch = await gh.getFile(SCA_REGISTRY_PATH, branch);
+      if (onBranch) fileSha = onBranch.sha;
+    } else {
+      await gh.createBranch(branch, await gh.getBranchHeadSha(SCA_PROD_BRANCH));
+    }
+
+    await gh.putFile({ path: SCA_REGISTRY_PATH, branch, contentUtf8: newContent, message: commitMessage, sha: fileSha });
+
+    let pr = await gh.findOpenPrForBranch(branch);
+    if (!pr) {
+      pr = await gh.openPullRequest({ head: branch, base: SCA_PROD_BRANCH, title: commitMessage, body: prBody(form) });
+    }
+
+    const preview = await gh.getBranchPreviewStatus(branch).catch(() => ({ state: 'none' as const, url: null }));
+
+    // Keep status 'live'; record the pending update PR on the same columns.
+    const { error } = await supabase
+      .from('sca_launches')
+      .update({
+        registry_entry: draft,
+        guesty_listing_id: form.guestyListingId,
+        ical_url: form.icalUrl,
+        rank: form.rank,
+        branch_name: branch,
+        pr_number: pr.number,
+        pr_url: pr.html_url,
+        preview_url: preview.url,
+      })
+      .eq('property_id', propertyId);
+    if (error) return { ok: false, error: error.message };
+
+    revalidate(propertyId);
+    const row = await loadRow(propertyId);
+    return row ? { ok: true, row } : { ok: false, error: 'Update PR opened but could not reload' };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Merge a pending update PR for a live listing and refresh the site. Keeps the
+ * listing live throughout; clears the pending-update tracking when done. Mirrors
+ * the merge half of goLiveSca but without the payment gating (the listing is
+ * already live and wired).
+ */
+export async function publishScaUpdate(propertyId: string): Promise<ActionResult> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  const row = await loadRow(propertyId);
+  if (row?.status !== 'live') return { ok: false, error: 'No live listing to update' };
+  if (!row.pr_number || !row.branch_name?.startsWith('sca-update/')) {
+    return { ok: false, error: 'No pending update PR to publish. Open an update PR first.' };
+  }
+  try {
+    const merge = await gh.mergePullRequest(row.pr_number, 'squash');
+    if (!merge.merged) return { ok: false, error: 'GitHub did not merge the update PR' };
+
+    if (row.branch_name) await gh.deleteBranch(row.branch_name).catch(() => {});
+
+    await supabase
+      .from('sca_launches')
+      .update({
+        published_at: new Date().toISOString(),
+        branch_name: null,
+        pr_number: null,
+        pr_url: null,
+        preview_url: null,
+      })
+      .eq('property_id', propertyId);
+
+    // Editorial copy updates on the next Vercel deploy regardless; this refresh
+    // also pulls any Guesty-sourced data (photos/specs). Best-effort: needs
+    // Actions: write on the token, else the nightly cron backstops.
+    try {
+      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
+      await supabase
+        .from('sca_launches')
+        .update({ snapshot_refreshed_at: new Date().toISOString() })
+        .eq('property_id', propertyId);
+    } catch {
+      /* snapshot refresh not triggered (token lacks Actions scope?); cron backstops */
+    }
+
+    revalidate(propertyId);
+    revalidatePath('/properties');
+    const updated = await loadRow(propertyId);
+    return updated ? { ok: true, row: updated } : { ok: false, error: 'Merged but could not reload' };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 /** Poll the Vercel preview deployment status for the open PR's branch. */
 export async function refreshPreviewStatus(
   propertyId: string,
