@@ -130,7 +130,7 @@ export function ScaLaunchClient(props: Props) {
         setNotice({ kind: 'err', text: 'Enter the Guesty listing ID first, then pull.' });
         return;
       }
-      const res = await pullFromGuesty(form.guestyListingId.trim());
+      const res = await pullFromGuesty(props.propertyId, form.guestyListingId.trim());
       if (!res.ok) {
         setNotice({ kind: 'err', text: res.error });
         return;
@@ -138,24 +138,33 @@ export function ScaLaunchClient(props: Props) {
       const p = res.prefill;
       // Fill blanks only — never clobber what the operator already typed.
       setForm((f) => {
-        // Guesty's ✓ summary bullets map to highlights. Only adopt them if
-        // the operator hasn't authored any yet (initial state is empty
-        // slots), and pad to the required 3.
+        // Highlights: adopt the drafted set only if the operator hasn't
+        // authored any yet (initial state is empty slots); pad to 3.
         const operatorHasHighlights = f.highlights.some((h) => h.trim());
         const nextHighlights =
           operatorHasHighlights || p.highlights.length === 0
             ? f.highlights
             : [...p.highlights, '', '', ''].slice(0, Math.max(3, p.highlights.length));
+        // Restaurant: only fill if the operator hasn't named one yet.
+        const favBlank = !f.stayFavorite?.name?.trim();
+        const nextFavorite = favBlank && p.stayFavorite ? { ...p.stayFavorite } : f.stayFavorite;
         return {
           ...f,
           publicName: f.publicName || p.publicName,
+          pitch: f.pitch || p.pitch,
           tagline: f.tagline || p.tagline,
           description: f.description || p.description,
           highlights: nextHighlights,
+          stayFavorite: nextFavorite,
         };
       });
       setGuestyInfo({ bedrooms: p.bedrooms, bathrooms: p.bathrooms, accommodates: p.accommodates, photos: p.photos, amenities: p.amenities });
-      setNotice({ kind: 'ok', text: `Pulled from Guesty: filled name, tagline, About, and highlights where blank. Now fill the gaps (pitch, the restaurant pick, iCal URL) and trim the highlights.` });
+      setNotice({
+        kind: 'ok',
+        text: p.aiGenerated
+          ? 'Drafted the full listing from Guesty in the Stay Cape Ann voice: pitch, tagline, About, highlights, and a nearby dining pick, filled where blank. Review and tweak, then add the iCal URL.'
+          : 'Pulled and cleaned the Guesty copy (AI draft was unavailable, so this is a lighter pass). Review pitch + the restaurant, then add the iCal URL.',
+      });
     });
 
   const onOpenPr = () =>
@@ -265,7 +274,7 @@ export function ScaLaunchClient(props: Props) {
 
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <button type="button" style={btnBase} disabled={busy !== null || isLive} onClick={onPullGuesty}>
-            {busy === 'pull-guesty' ? 'Pulling…' : 'Pull from Guesty'}
+            {busy === 'pull-guesty' ? 'Drafting from Guesty…' : 'Pull from Guesty'}
           </button>
           {guestyInfo ? (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
@@ -279,7 +288,7 @@ export function ScaLaunchClient(props: Props) {
             </span>
           ) : (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-              Enter the Guesty listing ID, then pull name, tagline, and About into the blanks below. Start here, then fill the gaps.
+              Enter the Guesty listing ID, then draft the whole listing — pitch, tagline, About, highlights, and a nearby dining pick — into the blanks below in the Stay Cape Ann voice. Start here, then review and add the iCal URL.
             </span>
           )}
         </div>
@@ -422,7 +431,36 @@ export function ScaLaunchClient(props: Props) {
               {row?.preview_url && (
                 <a href={row.preview_url} target="_blank" rel="noreferrer" style={{ ...linkStyle, marginLeft: 10 }}>Open preview ↗</a>
               )}
-              <button type="button" style={{ ...btnBase, padding: '4px 10px', marginLeft: 10 }} disabled={busy !== null} onClick={() => run('preview', async () => { const r = await refreshPreviewStatus(props.propertyId); if (r.ok) { setPreviewState(r.state); if (r.url) setRow((p) => (p ? { ...p, preview_url: r.url } : p)); } })}>
+              <button
+                type="button"
+                style={{ ...btnBase, padding: '4px 10px', marginLeft: 10 }}
+                disabled={busy !== null}
+                onClick={() =>
+                  run('preview', async () => {
+                    const r = await refreshPreviewStatus(props.propertyId);
+                    if (!r.ok) {
+                      setNotice({ kind: 'err', text: r.error });
+                      return;
+                    }
+                    setPreviewState(r.state);
+                    if (r.url) setRow((p) => (p ? { ...p, preview_url: r.url } : p));
+                    if (r.state === 'success') {
+                      setNotice({ kind: 'ok', text: 'Preview is ready. Open it to review the page.' });
+                    } else if (r.state === 'pending') {
+                      setNotice({ kind: 'ok', text: 'Vercel is still building the preview. Check again in a moment.' });
+                    } else if (r.state === 'failure') {
+                      setNotice({ kind: 'err', text: 'The preview build failed. Open the PR on GitHub to see why.' });
+                    } else {
+                      setNotice({
+                        kind: 'err',
+                        text:
+                          r.hint ||
+                          'No preview deploy reported yet. Vercel usually posts one within a minute of the PR — check again shortly, or open the PR on GitHub to confirm the deploy started.',
+                      });
+                    }
+                  })
+                }
+              >
                 Check now
               </button>
             </Row>

@@ -24,7 +24,9 @@ import {
   SCA_DEMO_MODE_SENTINEL,
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
-import { getGuestyListing } from '@/lib/guesty';
+import { getGuestyListing, type GuestyListingDetail } from '@/lib/guesty';
+import { generateListingCopy } from '@/lib/ai/listing-copy';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
  * Server actions for the Stay Cape Ann launch flow (/properties/[id]/stay-cape-ann).
@@ -59,16 +61,22 @@ function revalidate(propertyId: string): void {
   revalidatePath(`/properties/${propertyId}`);
 }
 
+export type ScaFavorite = { name: string; town: string; blurb: string; lat: number; lng: number };
+
 export type GuestyPrefill = {
   publicName: string;
+  pitch: string;
   tagline: string;
   description: string;
   highlights: string[];
+  stayFavorite: ScaFavorite | null;
   bedrooms: number | null;
   bathrooms: number | null;
   accommodates: number | null;
   photos: number;
   amenities: number;
+  /** True when the AI drafted the editorial copy; false = deterministic fallback. */
+  aiGenerated: boolean;
 };
 
 /**
@@ -133,13 +141,101 @@ function parseGuestySummary(raw: string): { tagline: string; highlights: string[
   return { tagline, highlights: highlights.slice(0, 6) };
 }
 
+/** Assemble the Guesty source material into a brief the AI rewrites into SCA voice. */
+function buildGuestyBrief(l: GuestyListingDetail): string {
+  const summary = (l.publicDescription?.summary || '').trim();
+  const space = (l.publicDescription?.space || '').trim();
+  const neighborhood = (l.publicDescription?.neighborhood || '').trim();
+  const parts: string[] = [
+    "This home already exists in Guesty. Below is its existing marketing copy. Rewrite it into the staycapeann.com editorial voice. Keep every concrete, verifiable detail (rooms, beds, location, amenities); drop the OTA brochure-speak, exclamation marks, and checkmark bullets.",
+  ];
+  if (summary) parts.push('', 'Guesty summary (OTA checkmark copy):', summary);
+  if (space) parts.push('', 'Guesty "The space" description:', space);
+  if (neighborhood) parts.push('', 'Guesty "The neighborhood" copy:', neighborhood);
+  const ams = (l.amenities || []).map((a) => String(a)).filter(Boolean).slice(0, 40);
+  if (ams.length) parts.push('', `Amenities: ${ams.join(', ')}`);
+  const spec: string[] = [];
+  if (l.bedrooms != null) spec.push(`${l.bedrooms} bedrooms`);
+  if (l.bathrooms != null) spec.push(`${l.bathrooms} bathrooms`);
+  if (l.accommodates != null) spec.push(`sleeps ${l.accommodates}`);
+  if (spec.length) parts.push('', `Specs: ${spec.join(', ')}`);
+  return parts.join('\n');
+}
+
+function haversineMiles(a: ScaFavorite | { lat: number; lng: number }, lat: number, lng: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 3958.8;
+  const dLat = toRad(lat - a.lat);
+  const dLng = toRad(lng - a.lng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
 /**
- * Pull what Guesty already has for a listing so the operator edits/fills gaps
- * instead of authoring from scratch. Maps Guesty title/summary/space to
- * publicName/tagline/description and reports the photo/amenity/spec counts.
- * Uses Helm's Guesty creds (server-only); returns a clean error if unavailable.
+ * Pick a verified dining favorite for the property from the live SCA registry.
+ *
+ * The registry (data/ical-urls.json) already holds one hand-picked, verified
+ * `stayFavorite` per launched listing, each with real coordinates. We reuse
+ * that pool — picking the restaurant geographically nearest this property — so
+ * "Pull from Guesty" can fill the required restaurant field with a real,
+ * already-verified business instead of an AI guess. The operator can swap it.
+ */
+async function pickVerifiedStayFavorite(property: HelmPropertyRow): Promise<ScaFavorite | null> {
+  try {
+    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
+    if (!file) return null;
+    const json = JSON.parse(file.contentUtf8) as {
+      listings?: Record<string, { stayFavorite?: Partial<ScaFavorite> }>;
+    };
+    const seen = new Set<string>();
+    const favs: ScaFavorite[] = [];
+    for (const v of Object.values(json.listings ?? {})) {
+      const f = v?.stayFavorite;
+      if (
+        f &&
+        typeof f.name === 'string' &&
+        f.name.trim() &&
+        Number.isFinite(f.lat) &&
+        Number.isFinite(f.lng) &&
+        !seen.has(f.name.toLowerCase())
+      ) {
+        seen.add(f.name.toLowerCase());
+        favs.push({
+          name: f.name.trim(),
+          town: (f.town || '').trim(),
+          blurb: (f.blurb || '').trim(),
+          lat: f.lat as number,
+          lng: f.lng as number,
+        });
+      }
+    }
+    if (!favs.length) return null;
+    const plat = property.latitude;
+    const plng = property.longitude;
+    if (Number.isFinite(plat) && Number.isFinite(plng)) {
+      favs.sort((a, b) => haversineMiles(a, plat!, plng!) - haversineMiles(b, plat!, plng!));
+    }
+    return favs[0];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Draft a launch-ready Stay Cape Ann listing from what Guesty already has, so
+ * the operator reviews and tweaks instead of authoring a whole second listing.
+ *
+ * Loads the Guesty listing + the Helm property row, feeds Guesty's existing copy
+ * (summary, "The space", amenities, specs) to the AI generator in the `sca`
+ * format, and returns pitch / tagline / About / highlights in our editorial
+ * voice, plus a verified nearby dining pick. If the AI is unavailable it falls
+ * back to a deterministic clean of the Guesty summary (tagline + bullets), which
+ * is still far better than dumping the raw checkmark wall.
  */
 export async function pullFromGuesty(
+  propertyId: string,
   guestyListingId: string,
 ): Promise<{ ok: true; prefill: GuestyPrefill } | { ok: false; error: string }> {
   const email = await requireEmail();
@@ -148,19 +244,60 @@ export async function pullFromGuesty(
   if (!id) return { ok: false, error: 'Enter the Guesty listing ID first' };
   try {
     const l = await getGuestyListing(id);
+    const space = (l.publicDescription?.space || '').trim();
+    const counts = {
+      bedrooms: l.bedrooms ?? null,
+      bathrooms: l.bathrooms ?? null,
+      accommodates: l.accommodates ?? null,
+      photos: (l.pictures || []).length,
+      amenities: (l.amenities || []).length,
+    };
+
+    // Property row drives brand-voice examples, taken-title guard, and the
+    // street-name scrub. Without it we can still do the deterministic fallback.
+    const { data } = await supabase.from('properties').select('*').eq('id', propertyId).maybeSingle();
+    const property = (data as HelmPropertyRow | null) ?? null;
+
+    const stayFavorite = property ? await pickVerifiedStayFavorite(property) : null;
+
+    if (property) {
+      try {
+        const copy = await generateListingCopy({
+          property,
+          operatorBrief: buildGuestyBrief(l),
+          format: 'sca',
+        });
+        return {
+          ok: true,
+          prefill: {
+            publicName: (copy.title || l.title || l.nickname || '').trim(),
+            pitch: (copy.pitch || '').trim(),
+            tagline: (copy.tagline || '').trim(),
+            description: (copy.description || space).trim(),
+            highlights: (copy.highlights ?? []).slice(0, 5),
+            stayFavorite,
+            ...counts,
+            aiGenerated: true,
+          },
+        };
+      } catch (e) {
+        console.error('[pullFromGuesty] AI draft failed, using deterministic fallback', e);
+      }
+    }
+
+    // Fallback: clean the Guesty summary into a tagline + highlight bullets.
     const { tagline, highlights } = parseGuestySummary(l.publicDescription?.summary || '');
     return {
       ok: true,
       prefill: {
         publicName: (l.title || l.nickname || '').trim(),
+        pitch: '',
         tagline,
-        description: (l.publicDescription?.space || '').trim(),
+        description: space,
         highlights,
-        bedrooms: l.bedrooms ?? null,
-        bathrooms: l.bathrooms ?? null,
-        accommodates: l.accommodates ?? null,
-        photos: (l.pictures || []).length,
-        amenities: (l.amenities || []).length,
+        stayFavorite,
+        ...counts,
+        aiGenerated: false,
       },
     };
   } catch (e) {
@@ -301,18 +438,24 @@ export async function openScaPr(propertyId: string, draft: ScaFormDraft): Promis
 /** Poll the Vercel preview deployment status for the open PR's branch. */
 export async function refreshPreviewStatus(
   propertyId: string,
-): Promise<{ ok: true; state: gh.PreviewState; url: string | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; state: gh.PreviewState; url: string | null; hint?: string }
+  | { ok: false; error: string }
+> {
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
   const row = await loadRow(propertyId);
-  if (!row?.branch_name) return { ok: false, error: 'No open PR' };
+  if (!row?.branch_name) return { ok: false, error: 'No open PR yet — open the pull request first.' };
   try {
     const status = await gh.getBranchPreviewStatus(row.branch_name);
     if (status.url && status.url !== row.preview_url) {
       await supabase.from('sca_launches').update({ preview_url: status.url }).eq('property_id', propertyId);
       revalidate(propertyId);
     }
-    return { ok: true, state: status.state, url: status.url };
+    const hint = status.forbidden
+      ? 'GitHub blocked the deploy-status read (403). The Helm GitHub token needs read access to Checks and Deployments on the stay-cape-ann repo.'
+      : undefined;
+    return { ok: true, state: status.state, url: status.url, hint };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

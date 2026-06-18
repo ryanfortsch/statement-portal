@@ -217,58 +217,111 @@ export async function deleteBranch(branch: string): Promise<void> {
 // ── Preview deployment status (read from GitHub, no Vercel token needed) ──────
 
 export type PreviewState = 'none' | 'pending' | 'success' | 'failure';
-export type PreviewStatus = { state: PreviewState; url: string | null };
+export type PreviewStatus = {
+  state: PreviewState;
+  url: string | null;
+  /** True when every lookup was blocked by a 403 (token missing read scopes). */
+  forbidden?: boolean;
+};
 
 function mapGhState(s: string): PreviewState {
   if (s === 'success') return 'success';
-  if (s === 'failure' || s === 'error') return 'failure';
+  if (s === 'failure' || s === 'error' || s === 'timed_out' || s === 'cancelled') return 'failure';
   if (s === 'pending' || s === 'in_progress' || s === 'queued') return 'pending';
   return 'none';
 }
 
+function isVercelLabel(...vals: Array<string | undefined | null>): boolean {
+  return vals.some((v) => (v || '').toLowerCase().includes('vercel'));
+}
+
+const isForbidden = (e: unknown): boolean => (e as { status?: number })?.status === 403;
+
 /**
- * Resolves the Vercel preview deployment for a branch by reading the GitHub
- * Deployments the Vercel GitHub app posts, with a fallback to commit statuses.
- * Returns a coarse state + the preview URL when available. Best-effort: any
- * lookup error degrades to {state:'none'}.
+ * Resolves the Vercel preview deployment for a branch across all three places
+ * the Vercel GitHub app may report it: the Checks API (what modern Vercel
+ * posts), the Deployments API (which carries the real *.vercel.app URL), and
+ * legacy commit statuses. Collects candidates from each and returns the most
+ * advanced state plus the best preview URL. Best-effort: any lookup error
+ * degrades that source; if EVERY source 403s we flag `forbidden` so the caller
+ * can tell the operator the token needs Checks/Deployments read access.
  */
 export async function getBranchPreviewStatus(branch: string): Promise<PreviewStatus> {
-  // 1. GitHub Deployments API (Vercel creates a deployment per push).
+  const candidates: Array<{ state: PreviewState; url: string | null }> = [];
+  let forbidden = false;
+  let ok = false;
+
+  // 1. Checks API — Vercel's GitHub app posts a "Vercel" check run per commit.
+  try {
+    const res = await gh<{
+      check_runs?: Array<{
+        name?: string;
+        status?: string;
+        conclusion?: string | null;
+        details_url?: string | null;
+        app?: { slug?: string; name?: string };
+      }>;
+    }>('GET', `${BASE}/commits/${refPath(branch)}/check-runs?per_page=50`);
+    ok = true;
+    const run = (res.check_runs || []).find((r) => isVercelLabel(r.app?.slug, r.app?.name, r.name));
+    if (run) {
+      const state =
+        run.status === 'completed' ? mapGhState(run.conclusion || '') : mapGhState(run.status || '');
+      candidates.push({ state, url: run.details_url || null });
+    }
+  } catch (e) {
+    if (isForbidden(e)) forbidden = true;
+  }
+
+  // 2. Deployments API — carries the actual preview (*.vercel.app) URL.
   try {
     const deployments = await gh<Array<{ id: number }>>(
       'GET',
       `${BASE}/deployments?ref=${encodeURIComponent(branch)}&per_page=1`,
     );
+    ok = true;
     if (deployments.length) {
       const statuses = await gh<
         Array<{ state: string; environment_url?: string; target_url?: string }>
       >('GET', `${BASE}/deployments/${deployments[0].id}/statuses?per_page=20`);
       if (statuses.length) {
         const latest = statuses[0]; // newest first
-        const url = latest.environment_url || latest.target_url || null;
-        const state = mapGhState(latest.state);
-        if (url || state !== 'none') return { state, url };
+        candidates.push({
+          state: mapGhState(latest.state),
+          url: latest.environment_url || latest.target_url || null,
+        });
       }
     }
-  } catch {
-    // fall through to commit statuses
+  } catch (e) {
+    if (isForbidden(e)) forbidden = true;
   }
 
-  // 2. Commit statuses. NOTE: the /statuses (plural) endpoint returns an ARRAY
-  // of statuses, newest first — not the combined { state, statuses } object the
-  // singular /status endpoint returns. Read it as an array.
+  // 3. Legacy commit statuses. The /statuses (plural) endpoint returns an ARRAY
+  // newest-first, not the combined object the singular /status endpoint returns.
   try {
     const statuses = await gh<Array<{ state: string; context: string; target_url?: string }>>(
       'GET',
       `${BASE}/commits/${refPath(branch)}/statuses`,
     );
+    ok = true;
     const vercel = (Array.isArray(statuses) ? statuses : []).find((s) =>
-      (s.context || '').toLowerCase().includes('vercel'),
+      isVercelLabel(s.context),
     );
-    if (vercel) return { state: mapGhState(vercel.state), url: vercel.target_url || null };
-  } catch {
-    // ignore
+    if (vercel) candidates.push({ state: mapGhState(vercel.state), url: vercel.target_url || null });
+  } catch (e) {
+    if (isForbidden(e)) forbidden = true;
   }
 
-  return { state: 'none', url: null };
+  // Prefer a real preview URL (vercel.app) over a dashboard/inspect link.
+  const url =
+    candidates.map((c) => c.url).find((u) => !!u && /vercel\.app/i.test(u)) ||
+    candidates.map((c) => c.url).find((u) => !!u) ||
+    null;
+  // Most-advanced state wins (a ready preview beats a still-pending check).
+  const rank: PreviewState[] = ['success', 'failure', 'pending', 'none'];
+  const state =
+    [...candidates.map((c) => c.state)].sort((a, b) => rank.indexOf(a) - rank.indexOf(b))[0] ??
+    'none';
+
+  return { state, url, forbidden: !ok && forbidden ? true : undefined };
 }

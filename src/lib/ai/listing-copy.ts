@@ -36,7 +36,7 @@ type ScaListing = {
 
 type ListingExample = Pick<ScaListing, 'title' | 'tagline' | 'description' | 'town' | 'bedrooms' | 'bathrooms'>;
 
-export type ListingCopyFormat = 'airbnb' | 'editorial';
+export type ListingCopyFormat = 'airbnb' | 'editorial' | 'sca';
 
 /**
  * Per-format Zod schemas. The .describe() strings are the model's
@@ -74,6 +74,36 @@ function buildSchema(format: ListingCopyFormat) {
       ),
     });
   }
+  if (format === 'sca') {
+    // The staycapeann.com launch form: one output per editable field on
+    // /properties/[id]/stay-cape-ann, so "Pull from Guesty" fills the whole
+    // form in the SCA editorial voice rather than dumping raw Guesty copy.
+    return z.object({
+      title: z.string().describe(
+        'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, harbor, cove, neighborhood). 2-5 words after "Stay at". Must NOT duplicate any title in the taken-titles list. No address, no street name or number.'
+      ),
+      pitch: z.string().describe(
+        'A 4-8 word hook shown on the home-page map. Concrete and place-anchored: "Waterfront on Granite Point", "Steps from Good Harbor Beach", "Harbor views in Rocky Neck". Title Case, no trailing punctuation, no street names, no adjectives like "stunning".'
+      ),
+      tagline: z.string().describe(
+        'The italic subhead on the listing page: ONE line of 8-15 words. Concrete physical detail, not adjectives. No em dashes, no exclamation marks, no street names, no checkmarks.'
+      ),
+      description: z.string().describe(
+        '"About the home": 2-3 short paragraphs separated by blank lines. First paragraph is a grounded scene (specific physical details, never adjectives like "beautiful" or "stunning"). Later paragraphs cover rooms, sleeping arrangements, walkability, and what is nearby. 100-220 words total. No em dashes, no "luxurious", no "perfect", no property counts, no street names. Sentence-case throughout. Do NOT use the "★★★ FLOOR ★★★" Airbnb structure — this is flowing editorial prose.'
+      ),
+      highlights: z
+        .array(
+          z.string().describe(
+            'One concrete selling point, 4-12 words, no leading bullet glyph, no trailing period. E.g. "Private deck overlooking the cove", "Walk to galleries and the working harbor".'
+          ),
+        )
+        .min(3)
+        .max(5)
+        .describe(
+          '3 to 5 highlight bullets. Each is one concrete feature or location perk, distinct from the tagline. No street names. No duplicates. No checkmark glyphs.'
+        ),
+    });
+  }
   return z.object({
     title: z.string().describe(
       'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, harbor, cove, neighborhood). 2-5 words after "Stay at". Must NOT duplicate any title in the taken-titles list. No address, no street name or number.'
@@ -101,6 +131,10 @@ export type ListingCopy = {
   space?: string;
   guest_access?: string;
   neighborhood?: string;
+  /** sca format: the home-page map hook (4-8 words). */
+  pitch?: string;
+  /** sca format: 3-5 highlight bullets. */
+  highlights?: string[];
 };
 
 export type GenerateListingCopyArgs = {
@@ -183,7 +217,10 @@ function findStreetViolations(draft: ListingCopy, property: HelmPropertyRow): st
     patterns.push(new RegExp(`\\b${esc(streetNumber)}\\s+${esc(nameOnly)}\\b`, 'gi'));
   }
 
-  const text = Object.values(draft).filter(Boolean).join('\n');
+  const text = Object.values(draft)
+    .flatMap((v) => (Array.isArray(v) ? v : [v]))
+    .filter((v): v is string => typeof v === 'string' && !!v)
+    .join('\n');
   const found = new Set<string>();
   for (const re of patterns) {
     for (const m of text.matchAll(re)) found.add(m[0]);
@@ -194,9 +231,17 @@ function findStreetViolations(draft: ListingCopy, property: HelmPropertyRow): st
 /** Trim + scrub every populated field of a generated object into the
  *  flat ListingCopy shape. */
 function cleanCopy(raw: Record<string, unknown>): ListingCopy {
-  const out: Record<string, string> = {};
+  const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (typeof v === 'string' && v.trim()) out[k] = stripEmDashes(v.trim());
+    if (typeof v === 'string' && v.trim()) {
+      out[k] = stripEmDashes(v.trim());
+    } else if (Array.isArray(v)) {
+      // sca highlights: keep as a trimmed, scrubbed string[].
+      const arr = v
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => stripEmDashes(x.trim()));
+      if (arr.length) out[k] = arr;
+    }
   }
   return out as unknown as ListingCopy;
 }
@@ -208,8 +253,8 @@ async function rewriteWithoutStreet(
   format: ListingCopyFormat,
 ): Promise<ListingCopy> {
   const draftBlock = Object.entries(draft)
-    .filter(([, v]) => typeof v === 'string' && v)
-    .map(([k, v]) => `${k}:\n${v}`)
+    .filter(([, v]) => (typeof v === 'string' && v) || (Array.isArray(v) && v.length))
+    .map(([k, v]) => `${k}:\n${Array.isArray(v) ? v.map((x) => `- ${x}`).join('\n') : v}`)
     .join('\n\n');
   const { object } = await generateObject({
     model: 'anthropic/claude-sonnet-4.5',
@@ -280,6 +325,7 @@ function composeSystemPrompt(
     intro,
     BRAND_VOICE_RULES,
     format === 'airbnb' ? AIRBNB_FORMAT_RULES : LISTING_SPECIFIC_RULES,
+    ...(format === 'sca' ? [SCA_FORMAT_RULES] : []),
     `TAKEN TITLES — these are live listings in the same catalog. Your title must not duplicate or closely echo any of them:\n${taken.map((t) => `- ${t}`).join('\n')}`,
     'EXAMPLES OF EXISTING STAY CAPE ANN LISTING COPY (voice reference — sentence texture, named places, concrete details):',
     examples
@@ -291,6 +337,18 @@ function composeSystemPrompt(
   ];
   return parts.join('\n\n');
 }
+
+const SCA_FORMAT_RULES = `
+STAY CAPE ANN LAUNCH-FORM RULES (in addition to the editorial rules above):
+
+You are filling the staycapeann.com launch form. The source material is the home's existing Guesty copy (a checkmark "summary", a "The space" description, an amenity list, and bed/bath counts). Rewrite it into our voice. Keep every concrete, verifiable detail; discard OTA brochure-speak, exclamation marks, and "✓" bullets.
+
+- pitch: a 4-8 word map hook. Lead with the single most place-defining fact (the water, the beach, the neighborhood). No trailing punctuation.
+- tagline: ONE line, 8-15 words. Not a paragraph. The single most evocative true sentence about being there.
+- description: flowing editorial prose, 2-3 short paragraphs. NEVER the "★★★ FLOOR ★★★ / → Room:" Airbnb structure.
+- highlights: 3-5 short bullets, each a distinct concrete perk. Do not restate the tagline. No "✓".
+- Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate or invent finishes, views, or amenities not in the source.
+- Never include the street name or street number anywhere.`;
 
 const AIRBNB_FORMAT_RULES = `
 GUESTY / AIRBNB LISTING RULES (in addition to the brand voice rules above):

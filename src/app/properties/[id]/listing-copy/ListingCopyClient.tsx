@@ -201,7 +201,9 @@ function ResultPane({ copy }: { copy: ListingCopy }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       {FIELD_ORDER.map(({ key, label, multiline, charLimit }) => {
         const body = copy[key];
-        if (!body) return null;
+        // FIELD_ORDER only lists string fields; skip any non-string (the sca
+        // format's highlights[] is rendered by the launch form, not here).
+        if (typeof body !== 'string' || !body) return null;
         return <Block key={key} label={label} body={body} multiline={multiline} charLimit={charLimit} />;
       })}
     </div>
