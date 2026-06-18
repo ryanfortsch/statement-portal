@@ -18,6 +18,8 @@ import {
   unlistSca,
   refreshScaSiteData,
   pullFromGuesty,
+  openScaUpdatePr,
+  publishScaUpdate,
 } from './actions';
 
 type Props = {
@@ -68,6 +70,8 @@ export function ScaLaunchClient(props: Props) {
   const status = row?.status ?? 'draft';
   const prOpen = status === 'pr_open' || status === 'live' || status === 'unlisted';
   const isLive = status === 'live';
+  // A live listing with an open update PR (copy edited post-launch, awaiting publish).
+  const hasPendingUpdate = isLive && (row?.branch_name?.startsWith('sca-update/') ?? false);
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
   const webhookUrl = scaStripeWebhookUrl(form.stripeAccountKey || 'ACCOUNT_KEY');
   const paymentsReady = !!(row?.payment_publishable_set && row?.payment_secret_set && row?.payment_webhook_set);
@@ -185,6 +189,34 @@ export function ScaLaunchClient(props: Props) {
       }
     });
 
+  const onUpdateLive = () =>
+    run('update', async () => {
+      setErrors({});
+      const res = await openScaUpdatePr(props.propertyId, form);
+      if (res.ok) {
+        setRow(res.row);
+        setPreviewState('pending');
+        setNotice({ kind: 'ok', text: 'Update PR opened. The listing stays live until you publish. Review the preview, then click Publish update.' });
+      } else if (res.errors) {
+        setErrors(res.errors);
+        setNotice({ kind: 'err', text: `Can't open the update PR yet — ${Object.values(res.errors).join('; ')}` });
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        setNotice({ kind: 'err', text: res.error ?? 'Could not open update PR' });
+      }
+    });
+
+  const onPublishUpdate = () =>
+    run('publish', async () => {
+      if (!window.confirm('Publish this update? It merges the PR and the live page updates within a couple minutes.')) return;
+      const res = await publishScaUpdate(props.propertyId);
+      if (res.ok) {
+        setRow(res.row);
+        setPreviewState('none');
+        setNotice({ kind: 'ok', text: 'Update published. The live page refreshes within a couple minutes.' });
+      } else setNotice({ kind: 'err', text: res.error ?? 'Publish failed' });
+    });
+
   const onTogglePayment = (step: 'publishable' | 'secret' | 'webhook', value: boolean) =>
     run(`pay-${step}`, async () => {
       const res = await setPaymentStep(props.propertyId, step, value);
@@ -273,7 +305,7 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button type="button" style={btnBase} disabled={busy !== null || isLive} onClick={onPullGuesty}>
+          <button type="button" style={btnBase} disabled={busy !== null} onClick={onPullGuesty}>
             {busy === 'pull-guesty' ? 'Drafting from Guesty…' : 'Pull from Guesty'}
           </button>
           {guestyInfo ? (
@@ -401,10 +433,29 @@ export function ScaLaunchClient(props: Props) {
         />
 
         {isLive ? (
-          <p style={{ ...hintStyle, marginTop: 24 }}>
-            This listing is live on Stay Cape Ann, so content is locked here to prevent stray edits and
-            duplicate PRs. Use <strong>Unlist</strong> in Step 4 to take it down before relaunching with changes.
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
+            <p style={hintStyle}>
+              This listing is live. Edit the copy above (or <strong>Pull from Guesty</strong> to refresh it from the
+              source of truth), then open an update PR. The live page keeps serving the current copy until you publish.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
+              <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onUpdateLive}>
+                {busy === 'update' ? 'Opening update PR…' : hasPendingUpdate ? 'Refresh update PR' : 'Update live listing →'}
+              </button>
+              {hasPendingUpdate && (
+                <>
+                  {row?.pr_url && <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>Update PR ↗</a>}
+                  <button type="button" style={btnBase} disabled={busy !== null} onClick={onPublishUpdate}>
+                    {busy === 'publish' ? 'Publishing…' : 'Publish update'}
+                  </button>
+                </>
+              )}
+            </div>
+            {hasPendingUpdate && (
+              <p style={hintStyle}>Review it in Step 2 (preview the page), then <strong>Publish update</strong> to merge and refresh the live page.</p>
+            )}
+          </div>
         ) : (
           <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
             <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
