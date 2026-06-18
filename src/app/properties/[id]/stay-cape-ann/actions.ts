@@ -63,12 +63,75 @@ export type GuestyPrefill = {
   publicName: string;
   tagline: string;
   description: string;
+  highlights: string[];
   bedrooms: number | null;
   bathrooms: number | null;
   accommodates: number | null;
   photos: number;
   amenities: number;
 };
+
+/**
+ * Parse a raw Guesty `publicDescription.summary` into a clean editorial
+ * tagline + highlight bullets.
+ *
+ * Guesty owners author OTA brochure-speak: an optional headline followed
+ * by a stack of "✓ Selling point" bullets, sometimes run together on a
+ * single line with no newlines ("...Harbor✓ Beautiful 4-bedroom..."). The
+ * live stay-cape-ann site never renders that wall — it reduces the summary
+ * to one tagline line (see cleanTagline in the SCA repo). We mirror that
+ * here AND route the bullets to the highlights field, since that is exactly
+ * what they are. Without this, "Pull from Guesty" dumped the entire ✓ block
+ * into the single-line tagline.
+ */
+function parseGuestySummary(raw: string): { tagline: string; highlights: string[] } {
+  if (!raw) return { tagline: '', highlights: [] };
+  // Check-mark / bullet glyphs Guesty owners lead lines with. A plain
+  // hyphen is intentionally excluded ("4-Minute Walk" is not a bullet).
+  const CHECK_LEADING = /^[✔✓✅☑•]\s*/;
+  // Break on newlines AND inline glyphs, then keep only substantive lines
+  // (>= 5 letters) so stray punctuation or "✓✓" runs drop out.
+  const lines = raw
+    .replace(/([✔✓✅☑•])/g, '\n$1')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.replace(/[^a-zA-Z]/g, '').length >= 5);
+  if (lines.length === 0) return { tagline: '', highlights: [] };
+
+  const isBullet = (s: string) => CHECK_LEADING.test(s);
+  const stripGlyph = (s: string) => s.replace(CHECK_LEADING, '').trim();
+
+  // Tagline = first substantive line. If it is a bullet, peel a short
+  // "Label: detail" / "Label - detail" prefix so the readable detail wins.
+  const first = lines[0];
+  let tagline: string;
+  if (!isBullet(first)) {
+    tagline = first;
+  } else {
+    const stripped = stripGlyph(first);
+    const sep = stripped.match(/\s[-–—]\s|:\s/);
+    tagline =
+      sep && sep.index !== undefined && sep.index > 0 && sep.index < 30
+        ? stripped.slice(sep.index + sep[0].length).trim()
+        : stripped;
+  }
+
+  // Highlights = the bullet lines, minus the first one if it became the
+  // tagline (SCA authors tagline + highlights to NOT overlap). Deduped,
+  // capped so we offer a sane set the operator can trim rather than a wall.
+  const bullets = lines.filter(isBullet).map(stripGlyph);
+  const rest = isBullet(first) ? bullets.slice(1) : bullets;
+  const seen = new Set<string>();
+  const highlights: string[] = [];
+  for (const b of rest) {
+    const key = b.toLowerCase();
+    if (b && !seen.has(key)) {
+      seen.add(key);
+      highlights.push(b);
+    }
+  }
+  return { tagline, highlights: highlights.slice(0, 6) };
+}
 
 /**
  * Pull what Guesty already has for a listing so the operator edits/fills gaps
@@ -85,12 +148,14 @@ export async function pullFromGuesty(
   if (!id) return { ok: false, error: 'Enter the Guesty listing ID first' };
   try {
     const l = await getGuestyListing(id);
+    const { tagline, highlights } = parseGuestySummary(l.publicDescription?.summary || '');
     return {
       ok: true,
       prefill: {
         publicName: (l.title || l.nickname || '').trim(),
-        tagline: (l.publicDescription?.summary || '').trim(),
+        tagline,
         description: (l.publicDescription?.space || '').trim(),
+        highlights,
         bedrooms: l.bedrooms ?? null,
         bathrooms: l.bathrooms ?? null,
         accommodates: l.accommodates ?? null,

@@ -137,14 +137,25 @@ export function ScaLaunchClient(props: Props) {
       }
       const p = res.prefill;
       // Fill blanks only — never clobber what the operator already typed.
-      setForm((f) => ({
-        ...f,
-        publicName: f.publicName || p.publicName,
-        tagline: f.tagline || p.tagline,
-        description: f.description || p.description,
-      }));
+      setForm((f) => {
+        // Guesty's ✓ summary bullets map to highlights. Only adopt them if
+        // the operator hasn't authored any yet (initial state is empty
+        // slots), and pad to the required 3.
+        const operatorHasHighlights = f.highlights.some((h) => h.trim());
+        const nextHighlights =
+          operatorHasHighlights || p.highlights.length === 0
+            ? f.highlights
+            : [...p.highlights, '', '', ''].slice(0, Math.max(3, p.highlights.length));
+        return {
+          ...f,
+          publicName: f.publicName || p.publicName,
+          tagline: f.tagline || p.tagline,
+          description: f.description || p.description,
+          highlights: nextHighlights,
+        };
+      });
       setGuestyInfo({ bedrooms: p.bedrooms, bathrooms: p.bathrooms, accommodates: p.accommodates, photos: p.photos, amenities: p.amenities });
-      setNotice({ kind: 'ok', text: `Pulled from Guesty: filled name, tagline, and About where blank. Now fill the gaps (pitch, highlights, the restaurant pick, iCal URL).` });
+      setNotice({ kind: 'ok', text: `Pulled from Guesty: filled name, tagline, About, and highlights where blank. Now fill the gaps (pitch, the restaurant pick, iCal URL) and trim the highlights.` });
     });
 
   const onOpenPr = () =>
