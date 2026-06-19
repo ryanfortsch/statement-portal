@@ -89,7 +89,7 @@ function buildSchema(format: ListingCopyFormat) {
         'The italic subhead on the listing page: ONE line of 8-15 words. Concrete physical detail, not adjectives. No em dashes, no exclamation marks, no street names, no checkmarks.'
       ),
       description: z.string().describe(
-        '"About the home": 2-3 short paragraphs separated by blank lines. First paragraph is a grounded scene (specific physical details, never adjectives like "beautiful" or "stunning"). Later paragraphs cover rooms, sleeping arrangements, walkability, and what is nearby. 100-220 words total. No em dashes, no "luxurious", no "perfect", no property counts, no street names. Sentence-case throughout. Do NOT use the "★★★ FLOOR ★★★" Airbnb structure — this is flowing editorial prose.'
+        '"About the home", in our structured house format — IDENTICAL to the Guesty/Airbnb "The space" field so the two surfaces match. Structure, in this exact order:\n(1) One grounded 2-4 sentence intro paragraph describing the home as a guest experiences it.\n(2) A blank line, then floor-by-floor sections. Each section is a header line like "★★★ 1ST FLOOR ★★★" (also "★★★ 2ND FLOOR ★★★", "★★★ 3RD FLOOR ★★★", "★★★ OUTDOORS ★★★", "★★★ GUEST HOUSE ★★★" as applicable), followed by "→ <Room>: <detail>" lines, one per room or feature (e.g. "→ Kitchen: Fully equipped for cooking and entertaining" / "→ Primary bedroom: King bed, water views, ensuite"). Group every room under its floor. Only include floors/areas the source supports. 150-350 words total. No em dashes. No "luxurious". No "perfect". No street names.'
       ),
       highlights: z
         .array(
@@ -345,7 +345,7 @@ You are filling the staycapeann.com launch form. The source material is the home
 
 - pitch: a 4-8 word map hook. Lead with the single most place-defining fact (the water, the beach, the neighborhood). No trailing punctuation.
 - tagline: ONE line, 8-15 words. Not a paragraph. The single most evocative true sentence about being there.
-- description: flowing editorial prose, 2-3 short paragraphs. NEVER the "★★★ FLOOR ★★★ / → Room:" Airbnb structure.
+- description: our structured house format, IDENTICAL to the Guesty/Airbnb "The space" field so the two surfaces match. One grounded 2-4 sentence intro paragraph, then "★★★ <FLOOR/AREA> ★★★" headers (1ST FLOOR, 2ND FLOOR, 3RD FLOOR, OUTDOORS, GUEST HOUSE as applicable) with "→ <Room>: <detail>" lines under each. Group every room under its floor; only include floors/areas the source supports.
 - highlights: 3-5 short bullets, each a distinct concrete perk. Do not restate the tagline. No "✓".
 - Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate or invent finishes, views, or amenities not in the source.
 - Never include the street name or street number anywhere.`;

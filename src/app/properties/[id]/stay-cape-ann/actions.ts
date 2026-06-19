@@ -260,44 +260,39 @@ export async function pullFromGuesty(
 
     const stayFavorite = property ? await pickVerifiedStayFavorite(property) : null;
 
+    // Match Airbnb: prefer the operator's own Guesty copy verbatim when it is
+    // already in the structured house format, so the SCA page is identical to
+    // the Airbnb listing. Only AI-generate the parts Guesty lacks (the map
+    // pitch) or where Guesty is thin (no structured space / no ✓ bullets).
+    const summary = (l.publicDescription?.summary || '').trim();
+    const spaceStructured = /★★★|\bFLOOR\b/i.test(space);
+    const { tagline: cleanTag, highlights: bulletHighlights } = parseGuestySummary(summary);
+
+    let ai: Awaited<ReturnType<typeof generateListingCopy>> | null = null;
     if (property) {
       try {
-        const copy = await generateListingCopy({
-          property,
-          operatorBrief: buildGuestyBrief(l),
-          format: 'sca',
-        });
-        return {
-          ok: true,
-          prefill: {
-            publicName: (copy.title || l.title || l.nickname || '').trim(),
-            pitch: (copy.pitch || '').trim(),
-            tagline: (copy.tagline || '').trim(),
-            description: (copy.description || space).trim(),
-            highlights: (copy.highlights ?? []).slice(0, 5),
-            stayFavorite,
-            ...counts,
-            aiGenerated: true,
-          },
-        };
+        ai = await generateListingCopy({ property, operatorBrief: buildGuestyBrief(l), format: 'sca' });
       } catch (e) {
-        console.error('[pullFromGuesty] AI draft failed, using deterministic fallback', e);
+        console.error('[pullFromGuesty] AI draft failed, using Guesty copy + deterministic fallback', e);
       }
     }
 
-    // Fallback: clean the Guesty summary into a tagline + highlight bullets.
-    const { tagline, highlights } = parseGuestySummary(l.publicDescription?.summary || '');
+    const description = spaceStructured ? space : (ai?.description || space);
+    const highlights = (bulletHighlights.length ? bulletHighlights : (ai?.highlights ?? [])).slice(0, 5);
+
     return {
       ok: true,
       prefill: {
-        publicName: (l.title || l.nickname || '').trim(),
-        pitch: '',
-        tagline,
-        description: space,
+        publicName: (l.title || l.nickname || ai?.title || '').trim(),
+        pitch: (ai?.pitch || '').trim(),
+        tagline: cleanTag || ai?.tagline || '',
+        description,
         highlights,
         stayFavorite,
         ...counts,
-        aiGenerated: false,
+        // For the notice: true only when the AI had to draft the body because
+        // Guesty's own copy wasn't already structured.
+        aiGenerated: !spaceStructured && !!ai,
       },
     };
   } catch (e) {
