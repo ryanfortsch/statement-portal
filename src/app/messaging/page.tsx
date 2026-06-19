@@ -18,6 +18,7 @@ import {
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
+import { RemindersSection } from './RemindersSection';
 import { PerformanceDropdown } from './PerformanceDropdown';
 
 export const dynamic = 'force-dynamic';
@@ -107,6 +108,7 @@ export default async function MessagingPage() {
         <>
           <MessagingQueue initialPending={data.pending} />
           <RecentStrip initialRecent={data.recent} />
+          <RemindersSection />
           <PerformanceDropdown
             initialStats={data.stats}
             initialError={data.statsError}

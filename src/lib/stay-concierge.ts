@@ -129,6 +129,76 @@ async function request<T>(
   }
 }
 
+// --- Proactive: reservations picker + recurring reminders ----------------
+
+export type ReservationPick = {
+  reservation_id: string;
+  conversation_id: string;
+  listing_id: string;
+  property_name: string;
+  guest_full: string;
+  guest_first: string;
+  check_in: string;
+  check_out: string;
+  module: string;
+  channel: string;
+};
+
+export type RecurringMessage = {
+  id: string;
+  label: string;
+  conversation_id: string;
+  listing_id: string;
+  module: string;
+  channel: string;
+  guest_first: string;
+  body: string;
+  weekdays: string;
+  at_local: string;
+  start_date: string;
+  end_date: string;
+  send_mode: string;
+  status: string;
+  last_sent_date: string;
+};
+
+export async function listReservationsForPicker() {
+  return request<{ reservations: ReservationPick[]; count: number }>(
+    '/api/reservations?days=60',
+  );
+}
+
+export async function listRecurring() {
+  return request<{ recurring: RecurringMessage[]; count: number }>('/api/recurring');
+}
+
+export type CreateRecurringInput = {
+  label: string;
+  conversation_id: string;
+  listing_id: string;
+  module: string;
+  guest_first: string;
+  body: string;
+  weekdays: string;
+  at_local: string;
+  start_date: string;
+  end_date: string;
+  send_mode: string;
+};
+
+export async function createRecurring(input: CreateRecurringInput) {
+  return request<{ ok: true; id: string }>('/api/recurring', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function endRecurring(id: string) {
+  return request<{ ok: true }>(`/api/recurring/${encodeURIComponent(id)}/end`, {
+    method: 'POST',
+  });
+}
+
 export async function listApprovals() {
   return request<ApprovalsResponse>('/api/approvals');
 }
