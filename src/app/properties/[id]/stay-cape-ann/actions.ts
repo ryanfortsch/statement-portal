@@ -559,79 +559,111 @@ export async function publishScaUpdate(propertyId: string): Promise<ActionResult
 // ── Bulk conform to the structured Airbnb format ──────────────────────────────
 
 export type ConformCandidate = {
-  propertyId: string;
-  publicName: string;
   guestyListingId: string;
-  /** True when the saved About already uses the structured ★★★ house format. */
+  internalName: string;
+  publicName: string;
+  /** True when the registry About already uses the structured ★★★ house format. */
   conformed: boolean;
-  /** True when there's already an open update PR for this listing. */
-  pendingUpdate: boolean;
-  prUrl: string | null;
+  /** Public staycapeann.com page, for review. */
+  liveUrl: string;
 };
 
 const isStructured = (s: string | null | undefined): boolean => /★★★|\bFLOOR\b/i.test(s || '');
 
-/** List every live SCA listing with whether its About already conforms. Backs
- *  the /properties/conform-sca bulk tool. */
+/** Branch that batches every conform edit so the whole run merges (and the site
+ *  rebuilds) once, instead of one deploy per listing. */
+const CONFORM_BRANCH = 'sca-conform';
+
+type RegistryShape = { description?: string; listings?: Record<string, Record<string, unknown>> };
+
+/**
+ * List every listing in the SCA registry with whether its About already uses
+ * the structured ★★★ format. Reads the registry directly (the source of what is
+ * on the site), so it covers ALL listings, not only the ones Helm launched.
+ */
 export async function listScaConformCandidates(): Promise<
   { ok: true; candidates: ConformCandidate[] } | { ok: false; error: string }
 > {
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
-  const { data, error } = await supabase
-    .from('sca_launches')
-    .select('property_id, guesty_listing_id, registry_entry, status, branch_name, pr_url')
-    .eq('status', 'live');
-  if (error) return { ok: false, error: error.message };
-  const candidates: ConformCandidate[] = (data ?? []).map((r) => {
-    const entry = (r.registry_entry ?? {}) as Partial<ScaFormDraft>;
-    return {
-      propertyId: r.property_id as string,
-      publicName: (entry.publicName as string) || (r.property_id as string),
-      guestyListingId: (r.guesty_listing_id as string) || '',
-      conformed: isStructured(entry.description),
-      pendingUpdate: typeof r.branch_name === 'string' && r.branch_name.startsWith('sca-update/'),
-      prUrl: (r.pr_url as string) ?? null,
-    };
-  });
-  // Unconformed first so the work is at the top of the list.
-  candidates.sort((a, b) => Number(a.conformed) - Number(b.conformed) || a.publicName.localeCompare(b.publicName));
-  return { ok: true, candidates };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  try {
+    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
+    if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH}` };
+    const obj = JSON.parse(file.contentUtf8) as RegistryShape;
+    const candidates: ConformCandidate[] = Object.entries(obj.listings ?? {}).map(([id, v]) => ({
+      guestyListingId: id,
+      internalName: String(v.internalName ?? '').trim(),
+      publicName: String(v.publicName ?? id).trim(),
+      conformed: isStructured(v.description as string | undefined),
+      liveUrl: scaListingUrl(id),
+    }));
+    candidates.sort(
+      (a, b) => Number(a.conformed) - Number(b.conformed) || a.publicName.localeCompare(b.publicName),
+    );
+    return { ok: true, candidates };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
 
 /**
- * Conform one live listing's About to the structured Airbnb format and open an
- * update PR. Idempotent: a listing whose saved About is already structured is
- * skipped. Prefers the operator's own Guesty "The space" verbatim when it's
- * already structured; otherwise AI-generates the ★★★ from the Guesty data.
+ * Conform one registry listing's About to the structured Airbnb format and stage
+ * it on the shared `sca-conform` branch (no merge yet — publishScaConform merges
+ * the whole batch at once so the site rebuilds once). Prefers the operator's own
+ * Guesty "The space" verbatim when it's already structured; when Guesty is thin,
+ * AI-generates the ★★★ from the mapped Helm property. Idempotent: a listing
+ * already structured on the branch is skipped.
  */
 export async function conformOneScaListing(
-  propertyId: string,
+  guestyListingId: string,
 ): Promise<
-  | { ok: true; status: 'conformed' | 'skipped'; detail?: string; prUrl?: string }
-  | { ok: false; error: string }
+  { ok: true; status: 'conformed' | 'skipped'; detail?: string } | { ok: false; error: string }
 > {
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
-  const row = await loadRow(propertyId);
-  if (row?.status !== 'live') return { ok: false, error: 'Listing is not live' };
-  const existing = row.registry_entry;
-  if (!existing) return { ok: false, error: 'No saved listing draft to conform' };
-  if (isStructured(existing.description)) return { ok: true, status: 'skipped', detail: 'Already structured' };
-  if (!row.guesty_listing_id) return { ok: false, error: 'No Guesty listing ID' };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  const id = guestyListingId.trim();
+  if (!id) return { ok: false, error: 'Missing listing id' };
 
   try {
-    const l = await getGuestyListing(row.guesty_listing_id);
+    // Read from the conform branch if it exists (so batched edits accumulate),
+    // otherwise from production (and create the branch off it first).
+    const branchExisted = await gh.branchExists(CONFORM_BRANCH);
+    if (!branchExisted) {
+      await gh.createBranch(CONFORM_BRANCH, await gh.getBranchHeadSha(SCA_PROD_BRANCH));
+    }
+    const file = await gh.getFile(SCA_REGISTRY_PATH, branchExisted ? CONFORM_BRANCH : SCA_PROD_BRANCH);
+    if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH}` };
+
+    const obj = JSON.parse(file.contentUtf8) as RegistryShape;
+    const entry = (obj.listings ?? {})[id];
+    if (!entry) return { ok: false, error: 'Listing not found in the registry' };
+    if (isStructured(entry.description as string | undefined)) {
+      return { ok: true, status: 'skipped', detail: 'Already structured' };
+    }
+
+    const l = await getGuestyListing(id);
     const space = (l.publicDescription?.space || '').trim();
     const summary = (l.publicDescription?.summary || '').trim();
     const { tagline: cleanTag, highlights: bulletHighlights } = parseGuestySummary(summary);
 
     let description = isStructured(space) ? space : '';
     if (!description) {
-      // Guesty space isn't structured — AI-generate the ★★★ from Guesty data.
-      const { data } = await supabase.from('properties').select('*').eq('id', propertyId).maybeSingle();
+      // Guesty space isn't structured — AI-generate the ★★★ from the mapped property.
+      const { data } = await supabase
+        .from('properties')
+        .select('*')
+        .eq('guesty_listing_id', id)
+        .maybeSingle();
       const property = (data as HelmPropertyRow | null) ?? null;
-      if (!property) return { ok: false, error: 'Property row not found for the AI draft' };
+      if (!property) {
+        return {
+          ok: false,
+          error:
+            "Guesty's “The space” isn't structured and no Helm property maps to this listing. Structure it in Guesty (or Draft listing), then re-conform.",
+        };
+      }
       const ai = await generateListingCopy({ property, operatorBrief: buildGuestyBrief(l), format: 'sca' });
       description = (ai.description || '').trim();
       if (!isStructured(description)) {
@@ -639,18 +671,59 @@ export async function conformOneScaListing(
       }
     }
 
-    const updated: ScaFormDraft = {
-      ...existing,
+    const existingHighlights = Array.isArray(entry.highlights) ? (entry.highlights as string[]) : [];
+    const mergedEntry = {
+      ...entry,
       description,
-      tagline: cleanTag || existing.tagline,
-      highlights: bulletHighlights.length >= 3 ? bulletHighlights.slice(0, 5) : existing.highlights,
-    };
+      tagline: cleanTag || (entry.tagline as string) || '',
+      highlights: bulletHighlights.length >= 3 ? bulletHighlights.slice(0, 5) : existingHighlights,
+    } as Parameters<typeof applyEntryToRegistryJson>[2];
 
-    const res = await openScaUpdatePr(propertyId, updated);
-    if (!res.ok) {
-      return { ok: false, error: res.error || (res.errors ? Object.values(res.errors).join('; ') : 'Update PR failed') };
+    const newContent = applyEntryToRegistryJson(file.contentUtf8, id, mergedEntry);
+    if (newContent === file.contentUtf8) return { ok: true, status: 'skipped', detail: 'No change' };
+
+    await gh.putFile({
+      path: SCA_REGISTRY_PATH,
+      branch: CONFORM_BRANCH,
+      contentUtf8: newContent,
+      message: `Conform ${entry.internalName || entry.publicName || id} to the Airbnb format`,
+      sha: file.sha,
+    });
+    return { ok: true, status: 'conformed' };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Merge the staged conform batch (sca-conform branch) and refresh the site. */
+export async function publishScaConform(): Promise<
+  { ok: true; prUrl: string } | { ok: false; error: string }
+> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  try {
+    if (!(await gh.branchExists(CONFORM_BRANCH))) {
+      return { ok: false, error: 'Nothing staged to publish. Conform some listings first.' };
     }
-    return { ok: true, status: 'conformed', prUrl: res.row.pr_url ?? undefined };
+    let pr = await gh.findOpenPrForBranch(CONFORM_BRANCH);
+    if (!pr) {
+      pr = await gh.openPullRequest({
+        head: CONFORM_BRANCH,
+        base: SCA_PROD_BRANCH,
+        title: 'Conform Stay Cape Ann listing copy to the Airbnb format',
+        body: 'Opened from Helm. Restructures listing About copy in data/ical-urls.json to the structured ★★★ house format, matching the Guesty/Airbnb listings.',
+      });
+    }
+    const merged = await gh.mergePullRequest(pr.number, 'squash');
+    if (!merged.merged) return { ok: false, error: `GitHub did not merge the PR. Review it at ${pr.html_url}` };
+    await gh.deleteBranch(CONFORM_BRANCH).catch(() => {});
+    try {
+      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
+    } catch {
+      /* snapshot refresh needs Actions: write; nightly cron backstops */
+    }
+    return { ok: true, prUrl: pr.html_url };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
