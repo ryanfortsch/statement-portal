@@ -556,6 +556,106 @@ export async function publishScaUpdate(propertyId: string): Promise<ActionResult
   }
 }
 
+// ── Bulk conform to the structured Airbnb format ──────────────────────────────
+
+export type ConformCandidate = {
+  propertyId: string;
+  publicName: string;
+  guestyListingId: string;
+  /** True when the saved About already uses the structured ★★★ house format. */
+  conformed: boolean;
+  /** True when there's already an open update PR for this listing. */
+  pendingUpdate: boolean;
+  prUrl: string | null;
+};
+
+const isStructured = (s: string | null | undefined): boolean => /★★★|\bFLOOR\b/i.test(s || '');
+
+/** List every live SCA listing with whether its About already conforms. Backs
+ *  the /properties/conform-sca bulk tool. */
+export async function listScaConformCandidates(): Promise<
+  { ok: true; candidates: ConformCandidate[] } | { ok: false; error: string }
+> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  const { data, error } = await supabase
+    .from('sca_launches')
+    .select('property_id, guesty_listing_id, registry_entry, status, branch_name, pr_url')
+    .eq('status', 'live');
+  if (error) return { ok: false, error: error.message };
+  const candidates: ConformCandidate[] = (data ?? []).map((r) => {
+    const entry = (r.registry_entry ?? {}) as Partial<ScaFormDraft>;
+    return {
+      propertyId: r.property_id as string,
+      publicName: (entry.publicName as string) || (r.property_id as string),
+      guestyListingId: (r.guesty_listing_id as string) || '',
+      conformed: isStructured(entry.description),
+      pendingUpdate: typeof r.branch_name === 'string' && r.branch_name.startsWith('sca-update/'),
+      prUrl: (r.pr_url as string) ?? null,
+    };
+  });
+  // Unconformed first so the work is at the top of the list.
+  candidates.sort((a, b) => Number(a.conformed) - Number(b.conformed) || a.publicName.localeCompare(b.publicName));
+  return { ok: true, candidates };
+}
+
+/**
+ * Conform one live listing's About to the structured Airbnb format and open an
+ * update PR. Idempotent: a listing whose saved About is already structured is
+ * skipped. Prefers the operator's own Guesty "The space" verbatim when it's
+ * already structured; otherwise AI-generates the ★★★ from the Guesty data.
+ */
+export async function conformOneScaListing(
+  propertyId: string,
+): Promise<
+  | { ok: true; status: 'conformed' | 'skipped'; detail?: string; prUrl?: string }
+  | { ok: false; error: string }
+> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  const row = await loadRow(propertyId);
+  if (row?.status !== 'live') return { ok: false, error: 'Listing is not live' };
+  const existing = row.registry_entry;
+  if (!existing) return { ok: false, error: 'No saved listing draft to conform' };
+  if (isStructured(existing.description)) return { ok: true, status: 'skipped', detail: 'Already structured' };
+  if (!row.guesty_listing_id) return { ok: false, error: 'No Guesty listing ID' };
+
+  try {
+    const l = await getGuestyListing(row.guesty_listing_id);
+    const space = (l.publicDescription?.space || '').trim();
+    const summary = (l.publicDescription?.summary || '').trim();
+    const { tagline: cleanTag, highlights: bulletHighlights } = parseGuestySummary(summary);
+
+    let description = isStructured(space) ? space : '';
+    if (!description) {
+      // Guesty space isn't structured — AI-generate the ★★★ from Guesty data.
+      const { data } = await supabase.from('properties').select('*').eq('id', propertyId).maybeSingle();
+      const property = (data as HelmPropertyRow | null) ?? null;
+      if (!property) return { ok: false, error: 'Property row not found for the AI draft' };
+      const ai = await generateListingCopy({ property, operatorBrief: buildGuestyBrief(l), format: 'sca' });
+      description = (ai.description || '').trim();
+      if (!isStructured(description)) {
+        return { ok: false, error: 'Could not produce a structured About (Guesty data too thin)' };
+      }
+    }
+
+    const updated: ScaFormDraft = {
+      ...existing,
+      description,
+      tagline: cleanTag || existing.tagline,
+      highlights: bulletHighlights.length >= 3 ? bulletHighlights.slice(0, 5) : existing.highlights,
+    };
+
+    const res = await openScaUpdatePr(propertyId, updated);
+    if (!res.ok) {
+      return { ok: false, error: res.error || (res.errors ? Object.values(res.errors).join('; ') : 'Update PR failed') };
+    }
+    return { ok: true, status: 'conformed', prUrl: res.row.pr_url ?? undefined };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 /** Poll the Vercel preview deployment status for the open PR's branch. */
 export async function refreshPreviewStatus(
   propertyId: string,

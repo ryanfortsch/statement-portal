@@ -82,6 +82,25 @@ export default async function PropertiesPage() {
         }
       />
 
+      {/* Cross-listing Stay Cape Ann tools. */}
+      <div
+        className="max-w-[1100px] mx-auto px-10 w-full"
+        style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
+      >
+        <Link
+          href="/properties/conform-sca"
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+        >
+          Conform Stay Cape Ann copy →
+        </Link>
+        <Link
+          href="/properties/bedroom-photos"
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+        >
+          Bedroom photos →
+        </Link>
+      </div>
+
       {/* MAP — geographic portfolio view above the list. Click a pin to
           surface a card with property name + slip count + Open link. */}
       {!error && active.length > 0 && (
