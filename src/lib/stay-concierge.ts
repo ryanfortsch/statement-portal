@@ -33,6 +33,13 @@ export type Approval = {
   guest_received_at: string | null;
   age_minutes: number | null;
   module: string;
+  /** Human channel label derived from module: "Airbnb", "VRBO",
+   * "Booking.com", "Email", "Direct". Empty when unknown. */
+  channel: string;
+  /** Stay dates (YYYY-MM-DD) for the reservation this conversation belongs
+   * to. Empty when not resolvable. */
+  check_in: string;
+  check_out: string;
 };
 
 export type ApprovalsResponse = {

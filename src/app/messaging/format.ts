@@ -91,6 +91,56 @@ export function relativeTimeShort(iso: string | null | undefined): string {
 }
 
 
+/**
+ * Format a stay date range compactly: "Jun 18-22" when same month,
+ * "Jun 28 - Jul 5" across months, "Jun 18" when only check-in is known.
+ * Returns '' when neither date is present.
+ */
+export function formatStayDates(checkIn: string, checkOut: string): string {
+  const ci = parseYmd(checkIn);
+  const co = parseYmd(checkOut);
+  if (!ci && !co) return '';
+  const mon = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+  const day = (d: Date) => d.getUTCDate();
+  if (ci && co) {
+    if (ci.getUTCMonth() === co.getUTCMonth() && ci.getUTCFullYear() === co.getUTCFullYear()) {
+      return `${mon(ci)} ${day(ci)}-${day(co)}`;
+    }
+    return `${mon(ci)} ${day(ci)} - ${mon(co)} ${day(co)}`;
+  }
+  const only = ci || co!;
+  return `${mon(only)} ${day(only)}`;
+}
+
+function parseYmd(s: string): Date | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Brand-ish tint for a channel badge. Subtle — the warm paper theme
+ * doesn't want loud platform colors, so these are muted. */
+export function channelTone(channel: string): string {
+  switch (channel) {
+    case 'Airbnb':
+      return '#c2615a';
+    case 'VRBO':
+      return '#3b5d8f';
+    case 'Booking.com':
+      return '#37548c';
+    case 'Email':
+      return 'var(--ink-3)';
+    case 'Direct':
+      return '#5b7b4e';
+    default:
+      return 'var(--ink-3)';
+  }
+}
+
+
 export function statusToneColor(status: string): string {
   switch (status) {
     case 'approved':

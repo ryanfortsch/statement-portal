@@ -11,6 +11,8 @@ import {
   guestFirstFromDraft,
   ageToneColor,
   relativeTimeShort,
+  formatStayDates,
+  channelTone,
 } from './format';
 
 type Props = {
@@ -112,6 +114,7 @@ function ApprovalCard({
     guestFirstFromDraft(approval.draft) ||
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
+  const stayLabel = formatStayDates(approval.check_in, approval.check_out);
 
   const ageLabel =
     approval.age_minutes == null
@@ -221,6 +224,16 @@ function ApprovalCard({
           >
             {guestLabel} · {propertyLabel}
           </span>
+          {approval.channel && <ChannelBadge channel={approval.channel} />}
+          {stayLabel && (
+            <span
+              className="eyebrow"
+              style={{ color: 'var(--ink-3)' }}
+              title={`${approval.check_in || '?'} to ${approval.check_out || '?'}`}
+            >
+              {stayLabel}
+            </span>
+          )}
           <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
             {topicLabel}
           </span>
@@ -383,6 +396,27 @@ function ApprovalCard({
         </div>
       )}
     </article>
+  );
+}
+
+function ChannelBadge({ channel }: { channel: string }) {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        fontWeight: 700,
+        color: 'var(--paper)',
+        background: channelTone(channel),
+        padding: '2px 7px',
+        borderRadius: 2,
+        whiteSpace: 'nowrap',
+      }}
+      title={`Sent / received via ${channel}`}
+    >
+      {channel}
+    </span>
   );
 }
 
