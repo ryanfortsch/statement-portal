@@ -67,6 +67,8 @@ export type PacketRow = {
   submitted_at: string | null;
   approved_at: string | null;
   approved_by_email: string | null;
+  paid_at: string | null;
+  paid_by_email: string | null;
   published_at: string | null;
   notes: string | null;
   auto_generated: boolean;

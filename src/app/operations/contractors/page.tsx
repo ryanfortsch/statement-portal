@@ -3,8 +3,12 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
-import type { ContractorRow } from '@/lib/field-types';
+import { getContractorPayStats } from '@/lib/field-packets';
+import { dollars, type ContractorRow } from '@/lib/field-types';
+import { getVendor1099Report } from '@/lib/vendor-1099';
 import { inviteContractor } from '../packets/actions';
+
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +38,19 @@ export default async function ContractorsPage() {
     .order('created_at', { ascending: false });
   const contractors = (data ?? []) as ContractorRow[];
   const base = fieldBaseUrl();
+
+  // Field's own payout ledger + the books/1099 rollup for reconciliation. The
+  // 1099 read is by normalized vendor name (or the contractor's vendor_key if
+  // set) — it's the actual bank payment, kept separate from Field's agreed
+  // price so nothing double-counts.
+  const [payStats, report] = await Promise.all([
+    getContractorPayStats(),
+    getVendor1099Report().catch(() => null),
+  ]);
+  const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
+  if (report) {
+    for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
+  }
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -74,9 +91,27 @@ export default async function ContractorsPage() {
                 </div>
                 <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>
                   {c.status}
-                  {c.w9_on_file ? ' · W-9' : ''}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--font-mono-dash), monospace', wordBreak: 'break-all', maxWidth: 280 }}>
+                {(() => {
+                  const ps = payStats.get(c.id);
+                  const books = booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name));
+                  return (
+                    <div style={{ fontSize: 11, textAlign: 'right', minWidth: 150 }}>
+                      <div>
+                        {ps && ps.owedCents > 0 && <span style={{ color: 'var(--signal)' }}>{dollars(ps.owedCents)} owed</span>}
+                        {ps && ps.owedCents > 0 && ps.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+                        {ps && ps.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps.paidCents)} paid</span>}
+                        {(!ps || (ps.owedCents === 0 && ps.paidCents === 0)) && <span style={{ color: 'var(--ink-4)' }}>no approved work</span>}
+                      </div>
+                      <div style={{ color: 'var(--ink-4)', marginTop: 2 }}>
+                        books YTD {books ? dollars(Math.round(books.ytd * 100)) : '$0'}
+                        {books?.over ? ' · 1099' : ''} ·{' '}
+                        <span style={{ color: books?.w9 ? 'var(--positive)' : 'var(--signal)' }}>{books?.w9 ? 'W-9 on file' : 'no W-9'}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--font-mono-dash), monospace', wordBreak: 'break-all', maxWidth: 240 }}>
                   {base}/field/{c.portal_token}
                 </div>
               </div>
