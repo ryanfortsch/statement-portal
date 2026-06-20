@@ -413,6 +413,13 @@ export type HelmPropertyRow = {
   internet_provider: string | null;
   cable_provider: string | null;
   wifi_name: string | null;
+  // SENSITIVE access credentials below (wifi_password, wifi_password_2,
+  // thermostat_code, smart_lock_code, key_code_location, alarm_system,
+  // gate_code, garage_code) physically live on the RLS-locked
+  // public.property_access table, NOT public.properties — they were split
+  // out in migration 20260620b to close an anon-key read leak. They're
+  // merged back onto this row by the server-side helpers in
+  // src/lib/property-access.ts, so reads still see them on the property.
   wifi_password: string | null;
   // Dual-network support (two-unit homes: main house + guest/boat
   // house each on their own router). Labels name the unit a network

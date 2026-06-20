@@ -7,6 +7,7 @@ import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
 import { formatUsPhone } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
+import { upsertPropertyAccess } from '@/lib/property-access';
 import type { DocumentCategory } from '@/lib/property-documents';
 
 /**
@@ -169,10 +170,8 @@ async function performPropertyUpdate(
     internet_provider: strOrNull(formData, 'internet_provider'),
     cable_provider: strOrNull(formData, 'cable_provider'),
     wifi_name: strOrNull(formData, 'wifi_name'),
-    wifi_password: strOrNull(formData, 'wifi_password'),
     wifi_label: strOrNull(formData, 'wifi_label'),
     wifi_name_2: strOrNull(formData, 'wifi_name_2'),
-    wifi_password_2: strOrNull(formData, 'wifi_password_2'),
     wifi_label_2: strOrNull(formData, 'wifi_label_2'),
     num_tvs: intOrNull(formData, 'num_tvs'),
     smart_tv: strOrNull(formData, 'smart_tv'),
@@ -184,18 +183,12 @@ async function performPropertyUpdate(
     str_insurance_carrier: strOrNull(formData, 'str_insurance_carrier'),
     guest_access_method: strOrNull(formData, 'guest_access_method'),
     smart_lock_brand: strOrNull(formData, 'smart_lock_brand'),
-    smart_lock_code: strOrNull(formData, 'smart_lock_code'),
     security_cameras: strOrNull(formData, 'security_cameras'),
 
     // Smart thermostat (Utilities subsection on the edit page).
     thermostat_brand: strOrNull(formData, 'thermostat_brand'),
-    thermostat_code: strOrNull(formData, 'thermostat_code'),
 
     // Property access & notes
-    key_code_location: strOrNull(formData, 'key_code_location'),
-    alarm_system: strOrNull(formData, 'alarm_system'),
-    gate_code: strOrNull(formData, 'gate_code'),
-    garage_code: strOrNull(formData, 'garage_code'),
     known_issues: strOrNull(formData, 'known_issues'),
     upcoming_maintenance: strOrNull(formData, 'upcoming_maintenance'),
     // property_notes is no longer a column — it lives in
@@ -268,6 +261,24 @@ async function performPropertyUpdate(
   if (!updated || updated.length === 0) {
     console.error('[updateProperty] 0 rows updated', { id, payloadKeys: Object.keys(payload) });
     return { error: `Property ${id} not updated (0 rows affected). Check the property id.` };
+  }
+
+  // Sensitive entry credentials live on the RLS-locked property_access table
+  // (not the anon-readable properties table). Write them there. strOrNull
+  // gives '' -> null so a cleared field clears the column.
+  const { error: accessErr } = await upsertPropertyAccess(id, {
+    wifi_password: strOrNull(formData, 'wifi_password'),
+    wifi_password_2: strOrNull(formData, 'wifi_password_2'),
+    smart_lock_code: strOrNull(formData, 'smart_lock_code'),
+    thermostat_code: strOrNull(formData, 'thermostat_code'),
+    key_code_location: strOrNull(formData, 'key_code_location'),
+    alarm_system: strOrNull(formData, 'alarm_system'),
+    gate_code: strOrNull(formData, 'gate_code'),
+    garage_code: strOrNull(formData, 'garage_code'),
+  });
+  if (accessErr) {
+    console.error('[updateProperty] property_access upsert failed', { id, accessErr });
+    return { error: `Saved most fields, but the access codes didn't save: ${accessErr}` };
   }
 
   revalidatePath('/properties');

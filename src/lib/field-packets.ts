@@ -18,6 +18,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
+import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, maxPairwiseMiles, nearestNeighborOrder } from '@/lib/proximity';
 import {
   accessBundle,
@@ -41,9 +42,25 @@ const PROXIMITY_MILES = 3; // max straight-line spread within one packet
 const MAX_STOPS = 5;
 const TRAVEL_PER_MILE_CENTS = 300; // small spread premium so dispersed clusters pay a bit more
 
+// The sensitive access codes (smart_lock_code, key_code_location, gate_code,
+// garage_code, alarm_system) moved to the RLS-locked property_access table;
+// they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
   'id, name, title, address, city, latitude, longitude, inspection_base_price_cents, ' +
-  'guest_access_method, smart_lock_brand, smart_lock_code, key_code_location, gate_code, garage_code, alarm_system, parking';
+  'guest_access_method, smart_lock_brand, parking';
+
+/** Layer a property's access codes (from property_access) onto the row read
+ *  from properties, producing the full FieldProperty the access bundle needs. */
+function mergeAccess(p: FieldProperty, access: PropertyAccess | undefined): FieldProperty {
+  return {
+    ...p,
+    smart_lock_code: access?.smart_lock_code ?? null,
+    key_code_location: access?.key_code_location ?? null,
+    gate_code: access?.gate_code ?? null,
+    garage_code: access?.garage_code ?? null,
+    alarm_system: access?.alarm_system ?? null,
+  };
+}
 
 function todayStr(): string {
   return new Date().toISOString().split('T')[0];
@@ -70,7 +87,11 @@ export async function loadFieldProperties(): Promise<FieldProperty[]> {
     .from('properties')
     .select(PROPERTY_COLS)
     .eq('is_active', true);
-  return ((data ?? []) as unknown as FieldProperty[]).filter((p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id));
+  const rows = ((data ?? []) as unknown as FieldProperty[]).filter(
+    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id),
+  );
+  const accessMap = await getPropertyAccessMap(rows.map((p) => p.id));
+  return rows.map((p) => mergeAccess(p, accessMap.get(p.id)));
 }
 
 type BookingRaw = {
@@ -374,7 +395,10 @@ async function stopsWithProperties(
   if (stops.length === 0) return [];
   const ids = [...new Set(stops.map((s) => s.property_id))];
   const { data } = await fieldDb().from('properties').select(PROPERTY_COLS).in('id', ids);
-  const propById = new Map(((data ?? []) as unknown as FieldProperty[]).map((p) => [p.id, p]));
+  const accessMap = await getPropertyAccessMap(ids);
+  const propById = new Map(
+    ((data ?? []) as unknown as FieldProperty[]).map((p) => [p.id, mergeAccess(p, accessMap.get(p.id))]),
+  );
   return stops
     .slice()
     .sort((a, b) => a.walk_order - b.walk_order)
