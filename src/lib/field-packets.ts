@@ -203,7 +203,18 @@ async function deriveDayCandidates(
       }
     }
   }
-  return out;
+  // A property with two upcoming stays can produce the same (property, day)
+  // candidate twice (e.g. two bookings both leaving the property inspectable
+  // that day). Collapse to one per (property, day) — the earliest stay wins,
+  // since candidates are emitted in check-in order — so a property never
+  // appears twice in the work list or twice in one packet.
+  const seen = new Set<string>();
+  return out.filter((c) => {
+    const k = `${c.propertyId}:${c.day}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function priceCents(basePrices: number[], spreadMiles: number): number {
