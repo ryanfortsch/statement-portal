@@ -188,6 +188,49 @@ export async function inviteContractor(formData: FormData): Promise<void> {
   revalidatePath('/operations/contractors');
 }
 
+/** Pause / reactivate / archive an inspector. Paused can still see their
+ *  claimed packets but can't claim new work (canClaim checks status==='active').
+ *  Archived is cut off entirely — the token + session stop resolving — so we
+ *  also drop their sessions. */
+export async function setContractorStatus(formData: FormData): Promise<void> {
+  await staffEmail();
+  const id = String(formData.get('contractor_id') || '');
+  const status = String(formData.get('status') || '');
+  if (!['active', 'paused', 'archived'].includes(status)) return;
+  await fieldDb().from('contractors').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+  if (status === 'archived') {
+    await fieldDb().from('contractor_sessions').delete().eq('contractor_id', id);
+  }
+  revalidatePath('/operations/contractors');
+}
+
+/** Rotate an inspector's portal token (kills the old link + all live sessions)
+ *  and email them the fresh link. Use when a link may have leaked. */
+export async function rotateContractorToken(formData: FormData): Promise<void> {
+  await staffEmail();
+  const id = String(formData.get('contractor_id') || '');
+  const { data } = await fieldDb()
+    .from('contractors')
+    .update({ portal_token: newPortalToken(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single();
+  await fieldDb().from('contractor_sessions').delete().eq('contractor_id', id);
+  const c = (data as ContractorRow | null) ?? null;
+  if (c) await sendInviteEmail(c).catch(() => {});
+  revalidatePath('/operations/contractors');
+}
+
+/** Re-send the existing portal link (no rotation). */
+export async function resendInvite(formData: FormData): Promise<void> {
+  await staffEmail();
+  const id = String(formData.get('contractor_id') || '');
+  const { data } = await fieldDb().from('contractors').select('*').eq('id', id).maybeSingle();
+  const c = (data as ContractorRow | null) ?? null;
+  if (c) await sendInviteEmail(c).catch(() => {});
+  revalidatePath('/operations/contractors');
+}
+
 /** Mark an inspector's W-9 on file (or clear it). The W-9 PDF itself stays in
  *  QuickBooks per the established boundary — this just drives the on-file flag
  *  the 1099 rollup reads, keyed by the contractor's vendor_key (stamped here
