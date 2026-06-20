@@ -8,6 +8,7 @@ import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { PlanButton } from './PlanButton';
+import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
   RANGE_LABEL,
@@ -97,6 +98,21 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
   ]);
   const myEmail = session?.user?.email ?? '';
+
+  // Attach Field packet status to each turnover so the row shows who's
+  // covering its inspection. The service-role Field read lives here, out of
+  // the anon-client operations lib; if Field isn't configured it degrades to
+  // no chip rather than erroring the whole page.
+  try {
+    const packetByBooking = await loadPacketStatusByBooking(data.turnovers.map((t) => t.reservationId));
+    for (const t of data.turnovers) {
+      const ps = packetByBooking.get(t.reservationId);
+      if (ps) t.fieldPacket = { packetId: ps.packetId, status: ps.status, contractorName: ps.contractorName };
+    }
+  } catch {
+    // Field tables unconfigured / unavailable — leave turnovers chip-less.
+  }
+
   const initialFooter = lastSyncedAt
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
@@ -617,6 +633,15 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
           </Link>
         )}
+        {t.fieldPacket && (
+          <Link
+            href={`/operations/packets/${t.fieldPacket.packetId}`}
+            title="This inspection is bundled into a Field contractor packet"
+            style={{ fontSize: 11, color: fieldChipColor(t.fieldPacket.status), textDecoration: 'none', fontWeight: 600 }}
+          >
+            {fieldChipLabel(t.fieldPacket)} →
+          </Link>
+        )}
       </div>
 
       {/* Action — in-progress shows Resume; otherwise stack a plan-button
@@ -751,6 +776,15 @@ function TurnoverRowDone({ t }: { t: Turnover }) {
             {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
           </Link>
         )}
+        {t.fieldPacket && (
+          <Link
+            href={`/operations/packets/${t.fieldPacket.packetId}`}
+            title="This inspection is bundled into a Field contractor packet"
+            style={{ fontSize: 11, color: fieldChipColor(t.fieldPacket.status), textDecoration: 'none', fontWeight: 600 }}
+          >
+            {fieldChipLabel(t.fieldPacket)} →
+          </Link>
+        )}
       </div>
       {t.inspection ? (
         <Link
@@ -765,6 +799,39 @@ function TurnoverRowDone({ t }: { t: Turnover }) {
       )}
     </div>
   );
+}
+
+function fieldChipLabel(fp: NonNullable<Turnover['fieldPacket']>): string {
+  switch (fp.status) {
+    case 'draft':
+      return 'Field · drafted';
+    case 'published':
+      return 'Field · open for claim';
+    case 'claimed':
+    case 'in_progress':
+      return `Field · ${fp.contractorName ?? 'claimed'}`;
+    case 'submitted':
+      return 'Field · submitted';
+    case 'approved':
+      return 'Field · done';
+    default:
+      return 'Field';
+  }
+}
+
+function fieldChipColor(status: string): string {
+  switch (status) {
+    case 'published':
+      return 'var(--signal)';
+    case 'claimed':
+    case 'in_progress':
+    case 'submitted':
+      return 'var(--tide-deep)';
+    case 'approved':
+      return 'var(--positive)';
+    default:
+      return 'var(--ink-4)';
+  }
 }
 
 function formatRelativeShort(iso: string | null): string {

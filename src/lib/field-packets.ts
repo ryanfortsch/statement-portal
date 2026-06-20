@@ -472,3 +472,138 @@ export async function loadContractorMarketplace(contractorId: string): Promise<{
 
   return { available, mine };
 }
+
+// ── Window re-validation ──────────────────────────────────────────────
+// A stop is STALE for its packet's visit_date if a guest is now mid-stay
+// that day (a booking strictly spans it: check_in < day < check_out) or the
+// day was calendar-blocked since the packet was built. A turnover day
+// (check_in == day or check_out == day) is NOT stale — that's the whole
+// point of the visit window.
+async function staleStopIds(
+  visitDate: string,
+  stops: Array<{ id: string; property_id: string }>,
+): Promise<Set<string>> {
+  if (stops.length === 0) return new Set();
+  const ids = [...new Set(stops.map((s) => s.property_id))];
+  const { data: bData } = await fieldDb()
+    .from('bookings')
+    .select('property_id')
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
+    .in('property_id', ids)
+    .lt('check_in', visitDate)
+    .gt('check_out', visitDate);
+  const occupied = new Set(((bData ?? []) as { property_id: string }[]).map((r) => r.property_id));
+  const { data: blkData } = await fieldDb()
+    .from('property_calendar_blocks')
+    .select('property_id')
+    .eq('date', visitDate)
+    .in('property_id', ids);
+  const blocked = new Set(((blkData ?? []) as { property_id: string }[]).map((r) => r.property_id));
+  const stale = new Set<string>();
+  for (const s of stops) {
+    if (occupied.has(s.property_id) || blocked.has(s.property_id)) stale.add(s.id);
+  }
+  return stale;
+}
+
+/**
+ * Re-check a packet against current bookings/blocks: drop any stop whose
+ * property is no longer inspectable on the visit date, reprice from the
+ * survivors, and cancel the packet if nothing valid remains. Returns what
+ * changed so callers (publish, claim, cron) can react.
+ */
+export async function revalidatePacket(
+  packetId: string,
+): Promise<{ removed: number; remaining: number; emptied: boolean }> {
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, visit_date')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; visit_date: string } | null;
+  if (!packet) return { removed: 0, remaining: 0, emptied: true };
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id, base_price_cents')
+    .eq('packet_id', packetId);
+  const stops = (sData ?? []) as Array<{ id: string; property_id: string; base_price_cents: number }>;
+  const stale = await staleStopIds(packet.visit_date, stops);
+  if (stale.size === 0) return { removed: 0, remaining: stops.length, emptied: false };
+
+  await fieldDb().from('packet_stops').delete().in('id', [...stale]);
+  const remaining = stops.filter((s) => !stale.has(s.id));
+  const emptied = remaining.length === 0;
+  await fieldDb()
+    .from('inspection_packets')
+    .update({
+      stop_count: remaining.length,
+      posted_price_cents: remaining.reduce((a, s) => a + s.base_price_cents, 0),
+      status: emptied ? 'cancelled' : packet.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', packetId);
+  return { removed: stale.size, remaining: remaining.length, emptied };
+}
+
+/** Cron helper: re-validate every published packet so the marketplace never
+ *  shows a packet a guest has since moved into. */
+export async function revalidatePublishedPackets(): Promise<{ checked: number; changed: number }> {
+  const { data } = await fieldDb().from('inspection_packets').select('id').eq('status', 'published');
+  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+  let changed = 0;
+  for (const id of ids) {
+    const r = await revalidatePacket(id);
+    if (r.removed > 0 || r.emptied) changed++;
+  }
+  return { checked: ids.length, changed };
+}
+
+// ── Turnover integration ──────────────────────────────────────────────
+export type PacketStatusForBooking = {
+  packetId: string;
+  status: string;
+  contractorName: string | null;
+  visitDate: string;
+};
+
+/** Map a set of booking ids to the live (non-cancelled) packet that preps
+ *  them, so the Turnovers page can show a "Field" chip on each row. */
+export async function loadPacketStatusByBooking(
+  bookingIds: string[],
+): Promise<Map<string, PacketStatusForBooking>> {
+  const map = new Map<string, PacketStatusForBooking>();
+  const ids = [...new Set(bookingIds.filter(Boolean))];
+  if (ids.length === 0) return map;
+  const { data } = await fieldDb()
+    .from('packet_stops')
+    .select('booking_id, inspection_packets!inner(id, status, awarded_contractor_id, visit_date)')
+    .in('booking_id', ids);
+  type Row = {
+    booking_id: string | null;
+    inspection_packets: { id: string; status: string; awarded_contractor_id: string | null; visit_date: string };
+  };
+  const rows = ((data ?? []) as unknown as Row[]).filter(
+    (r) => r.inspection_packets && r.inspection_packets.status !== 'cancelled',
+  );
+  const cids = [
+    ...new Set(rows.map((r) => r.inspection_packets.awarded_contractor_id).filter(Boolean) as string[]),
+  ];
+  const names = new Map<string, string>();
+  if (cids.length) {
+    const { data: c } = await fieldDb().from('contractors').select('id, full_name').in('id', cids);
+    for (const row of (c ?? []) as { id: string; full_name: string }[]) names.set(row.id, row.full_name);
+  }
+  for (const r of rows) {
+    if (!r.booking_id) continue;
+    const ip = r.inspection_packets;
+    map.set(r.booking_id, {
+      packetId: ip.id,
+      status: ip.status,
+      contractorName: ip.awarded_contractor_id ? names.get(ip.awarded_contractor_id) ?? null : null,
+      visitDate: ip.visit_date,
+    });
+  }
+  return map;
+}

@@ -6,6 +6,7 @@ import { headers } from 'next/headers';
 import { fieldDb } from '@/lib/field-db';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
+import { revalidatePacket } from '@/lib/field-packets';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendClaimConfirmation, sendPacketSubmittedEmail } from '@/lib/field-notify';
@@ -82,6 +83,14 @@ export async function claimPacket(formData: FormData) {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
   if (!canClaim(contractor)) redirect('/field/onboarding');
+
+  // Re-validate windows at the moment of claim: if a guest moved into one of
+  // the stops since publish, drop it and bounce the contractor back to the
+  // refreshed packet rather than letting them walk into an occupied house.
+  const reval = await revalidatePacket(packetId);
+  if (reval.emptied || reval.removed > 0) {
+    redirect(`/field/packet/${packetId}?stale=1`);
+  }
 
   const { data, error } = await fieldDb()
     .from('inspection_packets')
