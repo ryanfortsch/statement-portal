@@ -6,7 +6,7 @@ import { fieldBaseUrl } from '@/lib/field-notify';
 import { getContractorPayStats } from '@/lib/field-packets';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
-import { inviteContractor } from '../packets/actions';
+import { inviteContractor, setContractorW9 } from '../packets/actions';
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -108,6 +108,16 @@ export default async function ContractorsPage() {
                         {books?.over ? ' · 1099' : ''} ·{' '}
                         <span style={{ color: books?.w9 ? 'var(--positive)' : 'var(--signal)' }}>{books?.w9 ? 'W-9 on file' : 'no W-9'}</span>
                       </div>
+                      <form action={setContractorW9} style={{ marginTop: 4 }}>
+                        <input type="hidden" name="contractor_id" value={c.id} />
+                        <input type="hidden" name="on_file" value={books?.w9 ? 'false' : 'true'} />
+                        <button
+                          type="submit"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline', padding: 0 }}
+                        >
+                          {books?.w9 ? 'clear W-9' : 'mark W-9 on file'}
+                        </button>
+                      </form>
                     </div>
                   );
                 })()}

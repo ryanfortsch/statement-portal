@@ -5,7 +5,11 @@
  */
 import 'server-only';
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { dollars } from '@/lib/field-types';
+import { sendMessage, listPhoneNumbers, normalizePhone } from '@/lib/quo';
+import { haversineMiles } from '@/lib/proximity';
+import { loadPacketDetail } from '@/lib/field-packets';
+import { fieldDb } from '@/lib/field-db';
+import { dollars, packetHeadline } from '@/lib/field-types';
 import type { ContractorRow, PacketRow } from '@/lib/field-types';
 
 const FROM_NAME = 'Rising Tide Field';
@@ -66,6 +70,99 @@ export async function sendClaimConfirmation(
     html,
     text: `You claimed ${packet.title} on ${packet.visit_date} for ${dollars(packet.posted_price_cents)}. ${link}`,
   });
+}
+
+export async function sendContractorOnboardedEmail(contractor: ContractorRow): Promise<boolean> {
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New inspector ready: ${contractor.full_name}</h1>
+    <p>${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) finished setup and can claim work. Collect their W-9 into QuickBooks, then hit <strong>mark W-9 on file</strong> on the roster so 1099 tracking stays current.</p>
+    ${btn(`${fieldBaseUrl()}/operations/contractors`, 'Open roster')}
+  `);
+  return sendTransactionalViaResend({
+    to: OFFICE_CC,
+    subject: `Field: ${contractor.full_name} onboarded`,
+    fromName: FROM_NAME,
+    html,
+    text: `${contractor.full_name} onboarded and can claim work. Collect their W-9 and mark it on file on the roster.`,
+  });
+}
+
+async function resolveQuoFrom(): Promise<string | null> {
+  if (!process.env.QUO_API_KEY) return null;
+  let from = process.env.QUO_FROM_NUMBER;
+  if (!from) {
+    try {
+      const phones = await listPhoneNumbers();
+      from = phones[0]?.number;
+    } catch {
+      return null;
+    }
+  }
+  if (!from) return null;
+  return from.startsWith('+') ? from : `+1${normalizePhone(from)}`;
+}
+
+/**
+ * Text active inspectors when a packet publishes — "new work near you" — so
+ * they don't have to keep refreshing the portal. Only contractors whose home
+ * is within their service radius of the cluster are notified (those without a
+ * home location get everything). No-op if Quo isn't configured.
+ */
+export async function notifyContractorsOfPacket(packetId: string): Promise<number> {
+  const from = await resolveQuoFrom();
+  if (!from) return 0;
+  const packet = await loadPacketDetail(packetId);
+  if (!packet || packet.status !== 'published') return 0;
+
+  const { data } = await fieldDb()
+    .from('contractors')
+    .select('full_name, phone, portal_token, home_lat, home_lng, service_radius_miles, status, trade')
+    .eq('status', 'active')
+    .eq('trade', 'inspection')
+    .not('phone', 'is', null);
+  const contractors = (data ?? []) as Array<
+    Pick<ContractorRow, 'full_name' | 'phone' | 'portal_token' | 'home_lat' | 'home_lng' | 'service_radius_miles'>
+  >;
+
+  const date = (() => {
+    try {
+      return new Date(`${packet.visit_date}T00:00:00`).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return packet.visit_date;
+    }
+  })();
+  const headline = packetHeadline(packet);
+
+  let sent = 0;
+  for (const c of contractors) {
+    if (!c.phone) continue;
+    if (
+      c.home_lat != null &&
+      c.home_lng != null &&
+      packet.centroid_lat != null &&
+      packet.centroid_lng != null
+    ) {
+      const miles = haversineMiles(
+        { lat: c.home_lat, lng: c.home_lng },
+        { lat: packet.centroid_lat, lng: packet.centroid_lng },
+      );
+      if (miles > (c.service_radius_miles ?? 40)) continue;
+    }
+    const link = `${fieldBaseUrl()}/field/${c.portal_token}`;
+    const to = c.phone.startsWith('+') ? c.phone : `+1${normalizePhone(c.phone)}`;
+    const content = `Rising Tide Field: new work near you — ${headline}, ${date} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
+    try {
+      await sendMessage({ from, to, content });
+      sent++;
+    } catch {
+      // swallow per-contractor send errors
+    }
+  }
+  return sent;
 }
 
 export async function sendPacketSubmittedEmail(

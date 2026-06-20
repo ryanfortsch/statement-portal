@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket } from '@/lib/field-packets';
-import { sendInviteEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -79,6 +79,10 @@ export async function publishPacket(formData: FormData): Promise<void> {
     actor_email: email,
     event_type: 'published',
   });
+  // Text active inspectors near the cluster — fire-and-forget so a Quo hiccup
+  // never blocks the publish. No-op when Quo isn't configured or the packet
+  // didn't actually go live (revalidation may have emptied it).
+  notifyContractorsOfPacket(packetId).catch(() => {});
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
@@ -181,5 +185,34 @@ export async function inviteContractor(formData: FormData): Promise<void> {
     .single();
   const contractor = (data as ContractorRow | null) ?? null;
   if (contractor) await sendInviteEmail(contractor).catch(() => {});
+  revalidatePath('/operations/contractors');
+}
+
+/** Mark an inspector's W-9 on file (or clear it). The W-9 PDF itself stays in
+ *  QuickBooks per the established boundary — this just drives the on-file flag
+ *  the 1099 rollup reads, keyed by the contractor's vendor_key (stamped here
+ *  so future name-matching stays stable). */
+export async function setContractorW9(formData: FormData): Promise<void> {
+  await staffEmail();
+  const contractorId = String(formData.get('contractor_id') || '');
+  const onFile = formData.get('on_file') === 'true';
+  const { data } = await fieldDb()
+    .from('contractors')
+    .select('id, full_name, vendor_key')
+    .eq('id', contractorId)
+    .maybeSingle();
+  const c = data as { id: string; full_name: string; vendor_key: string | null } | null;
+  if (!c) return;
+  const key = (c.vendor_key || c.full_name).trim().toLowerCase().replace(/\s+/g, ' ');
+  await fieldDb()
+    .from('vendor_w9')
+    .upsert(
+      { vendor_key: key, display_name: c.full_name, on_file: onFile, updated_at: new Date().toISOString() },
+      { onConflict: 'vendor_key' },
+    );
+  await fieldDb()
+    .from('contractors')
+    .update({ w9_on_file: onFile, vendor_key: key, updated_at: new Date().toISOString() })
+    .eq('id', contractorId);
   revalidatePath('/operations/contractors');
 }

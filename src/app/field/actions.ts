@@ -10,7 +10,7 @@ import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types'
 import { revalidatePacket } from '@/lib/field-packets';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
 
 async function reqContext() {
   const h = await headers();
@@ -88,6 +88,11 @@ export async function completeOnboarding(formData: FormData) {
     .eq('id', contractor.id);
 
   await logEvent({ contractorId: contractor.id, actorEmail: contractor.email, eventType: 'onboarded' });
+  await sendContractorOnboardedEmail({
+    ...contractor,
+    full_name: fullName || contractor.full_name,
+    phone: phone || contractor.phone,
+  }).catch(() => {});
   revalidatePath('/field');
   redirect('/field');
 }
