@@ -155,6 +155,10 @@ export type PacketStopDetail = PacketStopRow & {
 export type PacketDetail = PacketRow & {
   stops: PacketStopDetail[];
   contractor: ContractorRow | null;
+  /** Straight-line miles from the viewing contractor's home to the cluster
+   *  centroid, when their home location is known. Set by the marketplace
+   *  loader for "near you" ranking; undefined for internal views. */
+  distanceMiles?: number;
 };
 
 /** A draft packet produced by the grouping algorithm, before persistence. */

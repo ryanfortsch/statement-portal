@@ -6,6 +6,7 @@ import { loadPacketDetail } from '@/lib/field-packets';
 import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { FieldShell } from '../../FieldShell';
+import { PacketRouteMap } from '../../PacketRouteMap';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -117,6 +118,15 @@ export default async function PacketPage({
           per home). Addresses and entry details unlock as soon as you claim.
         </p>
       )}
+
+      <PacketRouteMap
+        stops={packet.stops.map((s) => ({
+          label: isMine ? s.property.address : s.property.title || s.property.name,
+          lat: s.property.latitude ?? NaN,
+          lng: s.property.longitude ?? NaN,
+          order: s.walk_order,
+        }))}
+      />
 
       <section>
         {packet.stops.map((s, i) => (
