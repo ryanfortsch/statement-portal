@@ -65,6 +65,10 @@ export async function createWorkSlip(args: {
 export async function updateWorkSlipStatus(args: {
   id: string;
   status: WorkSlipStatus;
+  /** When the status change is triggered from a property page, pass the
+   *  property id so its Open Work list + the /properties slip counts
+   *  revalidate alongside the work board. */
+  propertyId?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -87,6 +91,11 @@ export async function updateWorkSlipStatus(args: {
 
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
+  // Marking a slip done anywhere feeds through every read path: the work
+  // board (above), the property's Open Work list, and the /properties
+  // slip-count badges. All filter by status, so a revalidate is enough.
+  revalidatePath('/properties');
+  if (args.propertyId) revalidatePath(`/properties/${args.propertyId}`);
   return { ok: true };
 }
 
