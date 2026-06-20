@@ -8,9 +8,28 @@ import {
   coachApproval,
   markHandledApproval,
   explainError,
+  type StayConciergeError,
 } from '@/lib/stay-concierge';
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+// `stale: true` means the card moved on under the operator: a 409 from the
+// service (coaching superseded it, or it was already resolved elsewhere). The
+// queue treats this as "refresh to the latest version" rather than a hard,
+// red error. This is the fix for an approve landing on a card that a just-
+// submitted coaching pass had already replaced.
+export type ActionResult =
+  | { ok: true }
+  | { ok: false; error: string; stale?: boolean };
+
+type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
+
+function mapResult(result: ClientResult): ActionResult {
+  if (result.ok) {
+    revalidatePath('/messaging');
+    return { ok: true };
+  }
+  const stale = result.error.kind === 'http' && result.error.status === 409;
+  return { ok: false, error: explainError(result.error), stale };
+}
 
 async function requireSession(): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
@@ -21,28 +40,19 @@ async function requireSession(): Promise<{ ok: true } | { ok: false; error: stri
 export async function approveDraft(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const result = await approveApproval(approvalId);
-  if (!result.ok) return { ok: false, error: explainError(result.error) };
-  revalidatePath('/messaging');
-  return { ok: true };
+  return mapResult(await approveApproval(approvalId));
 }
 
 export async function rejectDraft(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const result = await rejectApproval(approvalId);
-  if (!result.ok) return { ok: false, error: explainError(result.error) };
-  revalidatePath('/messaging');
-  return { ok: true };
+  return mapResult(await rejectApproval(approvalId));
 }
 
 export async function markHandled(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const result = await markHandledApproval(approvalId);
-  if (!result.ok) return { ok: false, error: explainError(result.error) };
-  revalidatePath('/messaging');
-  return { ok: true };
+  return mapResult(await markHandledApproval(approvalId));
 }
 
 export async function coachDraft(approvalId: string, feedback: string): Promise<ActionResult> {
@@ -50,8 +60,5 @@ export async function coachDraft(approvalId: string, feedback: string): Promise<
   if (!sess.ok) return sess;
   const trimmed = feedback.trim();
   if (!trimmed) return { ok: false, error: 'Add a coaching note before sending' };
-  const result = await coachApproval(approvalId, trimmed);
-  if (!result.ok) return { ok: false, error: explainError(result.error) };
-  revalidatePath('/messaging');
-  return { ok: true };
+  return mapResult(await coachApproval(approvalId, trimmed));
 }

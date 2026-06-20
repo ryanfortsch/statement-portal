@@ -145,6 +145,9 @@ function ApprovalCard({
     startTransition(async () => {
       const res = await approveDraft(approval.id);
       if (!res.ok) {
+        // Card moved on (e.g. coaching just superseded it). Refresh to the
+        // latest version instead of flashing a red error.
+        if (res.stale) { onResolved(); return; }
         setError(res.error);
         setPendingAction(null);
         return;
@@ -159,6 +162,7 @@ function ApprovalCard({
     startTransition(async () => {
       const res = await rejectDraft(approval.id);
       if (!res.ok) {
+        if (res.stale) { onResolved(); return; }
         setError(res.error);
         setPendingAction(null);
         return;
@@ -173,6 +177,7 @@ function ApprovalCard({
     startTransition(async () => {
       const res = await markHandled(approval.id);
       if (!res.ok) {
+        if (res.stale) { onResolved(); return; }
         setError(res.error);
         setPendingAction(null);
         return;
@@ -191,6 +196,8 @@ function ApprovalCard({
     startTransition(async () => {
       const res = await coachDraft(approval.id, feedback);
       if (!res.ok) {
+        // Card already moved on (superseded/resolved). Refresh to the latest.
+        if (res.stale) { onResolved(); return; }
         setError(res.error);
         setPendingAction(null);
         // Re-open the textarea so the user can revise their note instead
