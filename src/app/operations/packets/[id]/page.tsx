@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail } from '@/lib/field-packets';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, removeStop } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, removeStop } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,6 +84,18 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               <input type="hidden" name="packet_id" value={packet.id} />
               <button type="submit" style={btnDark}>Approve packet</button>
             </form>
+          )}
+          {packet.status === 'approved' && !packet.paid_at && (
+            <form action={markPacketPaid}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
+            </form>
+          )}
+          {packet.status === 'approved' && packet.paid_at && (
+            <span style={{ fontSize: 12, color: 'var(--positive)', alignSelf: 'center' }}>
+              Paid {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {packet.contractor ? ` to ${packet.contractor.full_name}` : ''}
+            </span>
           )}
           {isLive && packet.status !== 'submitted' && (
             <form action={cancelPacket}>

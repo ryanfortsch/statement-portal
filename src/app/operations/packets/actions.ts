@@ -29,12 +29,31 @@ export async function setPacketPrice(formData: FormData): Promise<void> {
   const packetId = String(formData.get('packet_id') || '');
   const dollarsValue = Number(formData.get('price_dollars') || 0);
   if (!packetId || !Number.isFinite(dollarsValue) || dollarsValue < 0) return;
+  // Price is only editable while the packet is a draft — once it's published
+  // or claimed the pay is locked, so a contractor's agreed price can't move
+  // out from under them.
   await fieldDb()
     .from('inspection_packets')
     .update({ posted_price_cents: Math.round(dollarsValue * 100), updated_at: new Date().toISOString() })
-    .eq('id', packetId);
+    .eq('id', packetId)
+    .eq('status', 'draft');
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
+}
+
+/** Record that the awarded contractor has been paid for an approved packet.
+ *  Field's own ledger; the actual payment runs through QuickBooks/books. */
+export async function markPacketPaid(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ paid_at: new Date().toISOString(), paid_by_email: email, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .eq('status', 'approved');
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+  revalidatePath('/operations/contractors');
 }
 
 export async function publishPacket(formData: FormData): Promise<void> {

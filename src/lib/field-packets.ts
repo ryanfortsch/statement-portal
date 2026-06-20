@@ -607,3 +607,39 @@ export async function loadPacketStatusByBooking(
   }
   return map;
 }
+
+// ── Field payout ledger ───────────────────────────────────────────────
+export type ContractorPayStats = {
+  approvedCount: number;
+  paidCount: number;
+  owedCents: number; // approved packets not yet marked paid
+  paidCents: number; // approved packets marked paid
+};
+
+/** Per-contractor Field earnings: only APPROVED packets count toward pay, so
+ *  unreviewed work never shows as owed. This is Field's own ledger, separate
+ *  from the books/1099 rollup (which tracks the actual bank payment). */
+export async function getContractorPayStats(): Promise<Map<string, ContractorPayStats>> {
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('awarded_contractor_id, posted_price_cents, paid_at')
+    .eq('status', 'approved')
+    .not('awarded_contractor_id', 'is', null);
+  const map = new Map<string, ContractorPayStats>();
+  for (const r of (data ?? []) as Array<{
+    awarded_contractor_id: string;
+    posted_price_cents: number;
+    paid_at: string | null;
+  }>) {
+    const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0 };
+    s.approvedCount++;
+    if (r.paid_at) {
+      s.paidCount++;
+      s.paidCents += r.posted_price_cents;
+    } else {
+      s.owedCents += r.posted_price_cents;
+    }
+    map.set(r.awarded_contractor_id, s);
+  }
+  return map;
+}
