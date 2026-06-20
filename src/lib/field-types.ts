@@ -181,3 +181,36 @@ export type PacketSuggestion = {
 export function dollars(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+
+/** Drop the trailing state ("Gloucester MA" -> "Gloucester") for display. */
+export function cityShort(city: string | null): string {
+  if (!city) return '';
+  return city.replace(/,?\s*(MA|CT|FL|NH|RI|ME)$/i, '').trim();
+}
+
+function streetName(name: string): string {
+  const m = (name || '').match(/[A-Za-z][A-Za-z\s]+$/);
+  return (m ? m[0] : name).trim();
+}
+
+/** A shared street/neighborhood when 2+ stops sit on it (e.g. "Rocky Neck"),
+ *  otherwise null. */
+export function sharedArea(p: PacketDetail): string | null {
+  const counts = new Map<string, number>();
+  for (const s of p.stops) {
+    const k = streetName(s.property.name);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return top && top[1] > 1 ? top[0] : null;
+}
+
+/** The card/detail headline: carries what + where. The property name for a
+ *  single stop, otherwise "N inspections on <neighborhood>" or "in <town>". */
+export function packetHeadline(p: PacketDetail): string {
+  if (p.stop_count === 1) return p.stops[0]?.property.name ?? '1 inspection';
+  const area = sharedArea(p);
+  if (area) return `${p.stop_count} inspections on ${area}`;
+  const city = cityShort(p.stops[0]?.property.city ?? null);
+  return city ? `${p.stop_count} inspections in ${city}` : `${p.stop_count} inspections`;
+}

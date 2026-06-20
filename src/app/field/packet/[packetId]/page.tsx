@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail } from '@/lib/field-packets';
-import { canClaim, dollars, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
+import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { FieldShell } from '../../FieldShell';
 
@@ -80,9 +80,11 @@ export default async function PacketPage({
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{fmtDate(packet.visit_date)}</div>
+      <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
+        {fmtDate(packet.visit_date)}
+      </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
-        {packet.title}
+        {packetHeadline(packet)}
       </h1>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
         <span className="font-mono" style={{ fontSize: 30 }}>{dollars(packet.posted_price_cents)}</span>
