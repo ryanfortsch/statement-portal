@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { resolveInspectionActor } from '@/lib/field-auth';
+import { fieldDb } from '@/lib/field-db';
 import {
   HELM_CORE_TEMPLATE_ID,
   type InspectionStatus,
@@ -64,8 +66,8 @@ export async function saveResult(args: {
   status: InspectionStatus;
   notes: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const actor = await resolveInspectionActor();
+  if (!actor) return { ok: false, error: 'Not signed in' };
 
   if (args.status !== 'pass' && args.status !== 'issue' && args.status !== 'na') {
     return { ok: false, error: `Invalid status: ${args.status}` };
@@ -101,10 +103,10 @@ export async function completeInspection(
   inspectionId: string,
   opts: { suppliesLow?: string[] } = {},
 ) {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
+  const actor = await resolveInspectionActor();
+  if (!actor) throw new Error('Not signed in');
   // Pin to a local so TS keeps the narrowing past the async fanouts below.
-  const sessionEmail: string = session.user.email;
+  const sessionEmail: string = actor.email;
 
   // Stepper sends the list of supply keys the inspector flipped to LOW
   // on the review screen. Empty array (or omitted for back-compat) means
@@ -225,6 +227,20 @@ export async function completeInspection(
 
   revalidatePath('/inspections');
   revalidatePath(`/inspections/${inspectionId}`);
+
+  // A contractor finishing a packet stop returns to their packet hub (the
+  // internal summary page is auth-gated). Mark the stop complete on the way.
+  if (actor.kind === 'contractor') {
+    const { data: stopRow } = await fieldDb()
+      .from('packet_stops')
+      .update({ status: 'complete' })
+      .eq('inspection_id', inspectionId)
+      .select('packet_id')
+      .maybeSingle();
+    const packetId = (stopRow as { packet_id: string } | null)?.packet_id;
+    redirect(packetId ? `/field/packet/${packetId}` : '/field');
+  }
+
   redirect(`/inspections/${inspectionId}/summary`);
 }
 
@@ -241,8 +257,8 @@ export async function addInspectionNote(args: {
   noteType: InspectionNoteType;
   photoUrls?: string[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const actor = await resolveInspectionActor();
+  if (!actor) return { ok: false, error: 'Not signed in' };
 
   const text = args.text.trim();
   const photos = (args.photoUrls ?? []).filter((u) => typeof u === 'string' && u.length > 0);
@@ -258,7 +274,7 @@ export async function addInspectionNote(args: {
       inspection_id: args.inspectionId,
       property_id: args.propertyId,
       inspection_item_id: args.itemId ?? null,
-      author_email: session.user.email,
+      author_email: actor.email,
       note_text: text || '(photo)',
       note_type: args.noteType,
       photo_urls: photos,
@@ -323,8 +339,8 @@ export async function createWorkSlipFromInspection(args: {
   priority: WorkSlipPriority;
   photoUrls?: string[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const actor = await resolveInspectionActor();
+  if (!actor) return { ok: false, error: 'Not signed in' };
 
   const title = args.title.trim();
   if (!title) return { ok: false, error: 'Title is required' };
@@ -352,7 +368,7 @@ export async function createWorkSlipFromInspection(args: {
       category: args.category,
       priority: args.priority,
       status: 'open',
-      created_by_email: session.user.email,
+      created_by_email: actor.email,
       photo_urls: photos,
     })
     .select('id')

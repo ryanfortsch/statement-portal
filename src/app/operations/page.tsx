@@ -305,6 +305,22 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>+</span>
             Start inspection
           </Link>
+          <Link
+            href="/operations/packets"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--rule)',
+              padding: '5px 11px',
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+            }}
+          >
+            Field packets
+          </Link>
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>

@@ -23,6 +23,11 @@ const PUBLIC_PATH_PREFIXES = [
   // Direct booking flow lives under /book/<propertyId> and is intentionally
   // guest-facing — it's the Helm-native counterpart to a public Airbnb listing.
   "/book/",
+  // Field: the external contractor portal. Inspectors reach it via a
+  // per-contractor magic-link token and a session cookie, NOT Helm's Google
+  // SSO. The Field tables are RLS-locked and read only through the
+  // service-role client, so opening this prefix exposes no internal data.
+  "/field/",
 ];
 
 /**
