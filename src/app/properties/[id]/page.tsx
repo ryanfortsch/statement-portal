@@ -22,6 +22,7 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
+import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { getPropertyDocuments } from '@/lib/property-documents';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
@@ -719,17 +720,14 @@ export default async function PropertyDetailPage({
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {openSlips.map((s) => (
-              <Link
+              <div
                 key={s.id}
-                href={`/work/${s.id}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 14,
                   padding: '14px 0',
                   borderBottom: '1px solid var(--rule)',
-                  textDecoration: 'none',
-                  color: 'inherit',
                 }}
               >
                 <span
@@ -744,14 +742,17 @@ export default async function PropertyDetailPage({
                       'var(--ink-4)',
                   }}
                 />
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <Link
+                  href={`/work/${s.id}`}
+                  style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
+                >
                   <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.title}</div>
                   <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
                     {s.assigned_to_label || (s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed')}
                     {s.location ? ` · ${s.location}` : ''}
                     {s.scheduled_date ? ` · scheduled ${s.scheduled_date}` : ''}
                   </div>
-                </div>
+                </Link>
                 {s.owner_action_required && (
                   <span
                     style={{
@@ -780,7 +781,8 @@ export default async function PropertyDetailPage({
                 >
                   {s.status.replace('_', ' ')}
                 </span>
-              </Link>
+                <MarkSlipDoneButton slipId={s.id} propertyId={p.id} />
+              </div>
             ))}
           </div>
         )}
