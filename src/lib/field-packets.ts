@@ -22,6 +22,7 @@ import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access
 import { centroid, maxPairwiseMiles, nearestNeighborOrder } from '@/lib/proximity';
 import {
   accessBundle,
+  cityShort,
   type FieldProperty,
   type PacketDetail,
   type PacketRow,
@@ -212,7 +213,9 @@ function priceCents(basePrices: number[], spreadMiles: number): number {
 }
 
 function clusterName(props: FieldProperty[]): string {
-  // Friendly cluster label from the dominant street/city.
+  // A tight place label: the dominant shared street/neighborhood, else the
+  // town (no "cluster", no state suffix). The stored title appends the stop
+  // count, e.g. "Rocky Neck · 3 stops" / "Gloucester · 3 stops".
   if (props.length === 1) return props[0].name;
   const streets = props.map((p) => {
     const m = (p.name || '').match(/[A-Za-z][A-Za-z\s]+$/);
@@ -221,8 +224,8 @@ function clusterName(props: FieldProperty[]): string {
   const counts = new Map<string, number>();
   for (const s of streets) counts.set(s, (counts.get(s) ?? 0) + 1);
   const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  if (dominant && (counts.get(dominant) ?? 0) > 1) return `${dominant} cluster`;
-  return props[0].city ? `${props[0].city} cluster` : `${props[0].name} cluster`;
+  if (dominant && (counts.get(dominant) ?? 0) > 1) return dominant;
+  return cityShort(props[0].city) || props[0].name;
 }
 
 /**

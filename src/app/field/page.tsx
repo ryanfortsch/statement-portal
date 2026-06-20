@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace } from '@/lib/field-packets';
-import { canClaim, dollars, type PacketDetail } from '@/lib/field-types';
+import { canClaim, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 
 export const dynamic = 'force-dynamic';
@@ -11,18 +11,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
-function fmtDate(d: string): string {
-  try {
-    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return d;
-  }
-}
-
 function windowSummary(p: PacketDetail): string {
   const bases = p.stops.map((s) => s.window_basis);
   if (bases.every((b) => b === 'vacant')) return 'all vacant that day';
@@ -30,10 +18,24 @@ function windowSummary(p: PacketDetail): string {
   if (bases.includes('checkout_day')) parts.push('after morning checkout');
   if (bases.includes('vacant')) parts.push('vacant');
   if (bases.includes('pre_checkin')) parts.push('before check-in');
-  return parts.join(' · ');
+  return parts.join(', then ');
+}
+
+function eyebrowDate(d: string): string {
+  try {
+    return new Date(`${d}T00:00:00`)
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+      .toUpperCase();
+  } catch {
+    return d.toUpperCase();
+  }
 }
 
 function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; featured?: boolean }) {
+  const spread =
+    p.stop_count > 1 && p.max_pairwise_miles != null
+      ? `${p.max_pairwise_miles < 1 ? '<1' : Math.round(p.max_pairwise_miles)} mi apart · `
+      : '';
   return (
     <Link
       href={href}
@@ -49,17 +51,17 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="font-serif" style={{ fontSize: 19, fontWeight: 400 }}>
-            {p.title}
+          <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
+            {eyebrowDate(p.visit_date)}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>{fmtDate(p.visit_date)}</div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5 }}>
+          <div className="font-serif" style={{ fontSize: 20, fontWeight: 400, lineHeight: 1.15 }}>
+            {packetHeadline(p)}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
             {p.stops.map((s) => s.property.name).join(' · ')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
-            {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
-            {p.max_pairwise_miles != null ? ` · ${p.max_pairwise_miles < 1 ? '<1' : Math.round(p.max_pairwise_miles)} mi apart` : ''}
-            {' · '}
+            {spread}
             {windowSummary(p)}
           </div>
         </div>
