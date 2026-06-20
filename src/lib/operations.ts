@@ -166,6 +166,15 @@ export type Turnover = {
    *  null when every lock is healthy or unmonitored. Drives the "bring
    *  batteries" chip so the team member packs spares before they drive. */
   lockBattery: LockBattery | null;
+  /** Set when this turnover's inspection is bundled into a Field contractor
+   *  packet, so the row can show who's covering it. Attached by the
+   *  Operations page (not loadOperationsData) to keep the service-role Field
+   *  read out of this anon-client module. */
+  fieldPacket?: {
+    packetId: string;
+    status: string;
+    contractorName: string | null;
+  } | null;
 };
 
 export type CalendarCell = {

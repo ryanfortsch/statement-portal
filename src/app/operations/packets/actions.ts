@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket } from '@/lib/field-packets';
 import { sendInviteEmail } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -40,6 +40,11 @@ export async function setPacketPrice(formData: FormData): Promise<void> {
 export async function publishPacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
+  // Re-check against current bookings/blocks before it goes live: a guest may
+  // have moved into one of these properties since the packet was suggested.
+  // Stale stops are dropped (and the packet cancelled if none survive, in
+  // which case the publish update below no-ops on the status guard).
+  await revalidatePacket(packetId);
   await fieldDb()
     .from('inspection_packets')
     .update({
