@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { getPropertyAccess } from '@/lib/property-access';
 import {
   HOME_GUIDE_CATALOG,
   type HelmPropertyRow,
@@ -12,7 +13,11 @@ export const dynamic = 'force-dynamic';
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   const { data } = await supabase.from('properties').select('*').eq('id', id).maybeSingle();
-  return (data as HelmPropertyRow | null) ?? null;
+  if (!data) return null;
+  // wifi_password / wifi_password_2 live on property_access now; merge them
+  // back via the service-role client so the Wi-Fi cell renders.
+  const access = await getPropertyAccess(id);
+  return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
 /**

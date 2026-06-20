@@ -8,6 +8,7 @@ import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { formatUsPhone, telHref } from '@/lib/phone';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
+import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
@@ -54,7 +55,12 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
-  return (data as HelmPropertyRow) ?? null;
+  if (!data) return null;
+  // Sensitive access codes (lock/gate/garage/wifi/alarm/thermostat) live on
+  // the RLS-locked property_access table now, not properties. Merge them back
+  // via the service-role client so the access rows below render unchanged.
+  const access = await getPropertyAccess(id);
+  return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
 async function getScaLaunchStatus(

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
 
@@ -7,7 +8,11 @@ export const dynamic = 'force-dynamic';
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   const { data } = await supabase.from('properties').select('*').eq('id', id).maybeSingle();
-  return (data as HelmPropertyRow | null) ?? null;
+  if (!data) return null;
+  // The Wi-Fi password lives on property_access now; merge it back via the
+  // service-role client so the placard's QR + password render.
+  const access = await getPropertyAccess(id);
+  return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
 /**

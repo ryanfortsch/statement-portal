@@ -8,6 +8,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { upsertPropertyAccess } from '@/lib/property-access';
 import type {
   OnboardingData,
   CustomClause,
@@ -703,6 +704,11 @@ export async function promoteToProperty(projectionId: string) {
   const { error: insertErr } = await sb.from('properties').insert(propertyPayload);
   if (insertErr) throw new Error(insertErr.message);
 
+  // Sensitive entry credentials from the onboarding answers go to the
+  // RLS-locked property_access table, not the anon-readable properties row.
+  const { error: accessErr } = await upsertPropertyAccess(propertyId, accessColumnsFromOnboarding(ob));
+  if (accessErr) throw new Error(accessErr);
+
   // If the owner's onboarding included freeform notes, seed them as the
   // first row of the new structured property_notes table so the data
   // isn't dropped on the floor when the legacy column went away.
@@ -1108,6 +1114,10 @@ export async function saveOnboardingDraft(
     .eq('onboarding_token', token);
   if (error) return { ok: false, reason: error.message };
 
+  // Sensitive codes to the RLS-locked property_access table.
+  const { error: accessErr } = await upsertPropertyAccess(propHit.id, accessColumnsFromOnboarding(data));
+  if (accessErr) return { ok: false, reason: accessErr };
+
   return { ok: true, savedAt: new Date().toISOString() };
 }
 
@@ -1209,6 +1219,10 @@ export async function submitOnboarding(formData: FormData) {
     .eq('onboarding_token', token);
 
   if (error) throw new Error(error.message);
+
+  // Sensitive codes to the RLS-locked property_access table.
+  const { error: accessErr } = await upsertPropertyAccess(propHit.id, accessColumnsFromOnboarding(data));
+  if (accessErr) throw new Error(accessErr);
 
   // Staff notification — same idempotent pattern as the projection
   // branch above. Looks up the property to get address + notification
@@ -1330,7 +1344,6 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     internet_provider: ob.internet_provider || null,
     cable_provider: ob.cable_provider || null,
     wifi_name: ob.wifi_name || null,
-    wifi_password: ob.wifi_password || null,
     num_tvs: numOr(ob.num_tvs, null),
     smart_tv: ob.smart_tv || null,
 
@@ -1340,11 +1353,12 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     str_insurance_carrier: ob.str_insurance || null,
     guest_access_method: ob.guest_access_method || null,
     smart_lock_brand: ob.smart_lock_brand || null,
-    smart_lock_code: ob.smart_lock_code || null,
     security_cameras: ob.security_cameras || null,
 
-    key_code_location: ob.key_code_location || null,
-    alarm_system: ob.alarm_system || null,
+    // wifi_password / smart_lock_code / key_code_location / alarm_system are
+    // sensitive entry credentials and live on the RLS-locked property_access
+    // table now, not properties. See accessColumnsFromOnboarding below; the
+    // callers upsert those separately after the property insert/update.
     known_issues: ob.known_issues || null,
     upcoming_maintenance: ob.upcoming_maintenance || null,
     // ob.notes used to flow into properties.property_notes (a freeform
@@ -1372,6 +1386,19 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     smoke_detector_locations: ob.smoke_detector_locations || null,
     fire_exit_locations: ob.fire_exit_locations || null,
     str_permit_expires: ob.str_permit_expires || null,
+  };
+}
+
+/** The sensitive subset of an onboarding submission, destined for the
+ *  RLS-locked property_access table rather than properties. Only the codes
+ *  the onboarding form actually collects (gate/garage/thermostat/wifi-2 are
+ *  not asked, so they're left untouched on the access row). */
+function accessColumnsFromOnboarding(ob: OnboardingData) {
+  return {
+    wifi_password: ob.wifi_password || null,
+    smart_lock_code: ob.smart_lock_code || null,
+    key_code_location: ob.key_code_location || null,
+    alarm_system: ob.alarm_system || null,
   };
 }
 

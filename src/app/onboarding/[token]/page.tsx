@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { getPropertyAccess } from '@/lib/property-access';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { submitOnboarding } from '@/app/projections/actions';
@@ -66,7 +67,12 @@ async function getOnboardingTarget(token: string): Promise<OnboardingTarget | nu
     .select('*')
     .eq('onboarding_token', token)
     .maybeSingle();
-  if (propRow) return { kind: 'property', row: propRow as HelmPropertyRow };
+  if (propRow) {
+    // Access codes (wifi/lock/key-location/alarm) moved to property_access;
+    // merge them back so the form pre-fills what's already on file.
+    const access = await getPropertyAccess((propRow as HelmPropertyRow).id);
+    return { kind: 'property', row: { ...(propRow as HelmPropertyRow), ...access } };
+  }
 
   return null;
 }

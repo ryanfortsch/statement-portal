@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { getPropertyAccess } from '@/lib/property-access';
 import { updatePropertyWithState } from '@/app/properties/actions';
 import { EditFormShell } from './EditFormShell';
 import type { HelmPropertyRow } from '@/lib/properties';
@@ -17,7 +18,11 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
-  return (data as HelmPropertyRow) ?? null;
+  if (!data) return null;
+  // Access codes moved to the RLS-locked property_access table; merge them
+  // back so the form's defaultValues pre-fill the same as before.
+  const access = await getPropertyAccess(id);
+  return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
 /**
