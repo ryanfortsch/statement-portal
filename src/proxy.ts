@@ -84,6 +84,9 @@ export default auth((req) => {
 
   const { pathname } = req.nextUrl;
 
+  // The "/field/" prefix covers contractor sub-routes; the marketplace home
+  // is exactly "/field" (no trailing slash), so allow it explicitly too.
+  if (pathname === "/field") return;
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
   if (PROJECTION_DELIVERABLE_RE.test(pathname)) return;
   if (PROPERTY_DELIVERABLE_RE.test(pathname)) return;
