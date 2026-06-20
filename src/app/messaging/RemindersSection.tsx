@@ -8,6 +8,7 @@ import {
   fetchReminderData,
   createReminderAction,
   endReminderAction,
+  polishProactiveAction,
 } from './reminders-actions';
 
 const WEEKDAYS = [
@@ -20,8 +21,13 @@ const WEEKDAYS = [
   { v: '6', label: 'Sun' },
 ];
 
-function weekdayLabel(weekdays: string): string {
-  const set = new Set(weekdays.split(',').filter(Boolean));
+type Mode = 'recurring' | 'once';
+
+function cadenceLabel(r: RecurringMessage): string {
+  if ((r.kind || 'recurring') === 'once') {
+    return r.fire_date ? `Once · ${r.fire_date}` : 'One-time';
+  }
+  const set = new Set((r.weekdays || '').split(',').filter(Boolean));
   const picked = WEEKDAYS.filter((d) => set.has(d.v)).map((d) => d.label);
   if (picked.length === 0) return '—';
   if (picked.length === 7) return 'Every day';
@@ -54,8 +60,8 @@ export function RemindersSection() {
 
   return (
     <Section
-      title="Recurring reminders"
-      eyebrow={recurring.length > 0 ? `${recurring.length} active` : 'proactive · scheduled'}
+      title="Proactive messages"
+      eyebrow={recurring.length > 0 ? `${recurring.length} scheduled` : 'recurring + one-time'}
       paddingTop={36}
       right={
         <button
@@ -87,8 +93,9 @@ export function RemindersSection() {
             color: 'var(--ink-3)',
           }}
         >
-          Schedule a message to a guest on a repeating cadence (e.g. trash-day
-          reminder every Monday). Click <b>Show</b> to set one up.
+          Send a guest a message you initiate, on a repeating cadence (trash day
+          every Monday) or as a one-time scheduled note. Type it quick and the AI
+          polishes it into our voice. Click <b>Show</b> to set one up.
         </div>
       ) : !loaded ? (
         <div
@@ -120,7 +127,7 @@ function ActiveList({
   if (recurring.length === 0) {
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-4)', marginBottom: 24 }}>
-        No active recurring reminders.
+        Nothing scheduled.
       </div>
     );
   }
@@ -158,14 +165,16 @@ function ActiveList({
                 {r.label}
               </span>
               <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-                {weekdayLabel(r.weekdays)} · {r.at_local}
+                {cadenceLabel(r)} · {r.at_local}
                 {r.channel ? ` · ${r.channel}` : ''}
                 {r.send_mode === 'auto' ? ' · auto-send' : ' · needs approval'}
               </span>
             </div>
             <div style={{ fontSize: 13, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{r.body}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
-              {r.start_date} {r.end_date ? `→ ${r.end_date}` : '(no end)'}
+              {(r.kind || 'recurring') === 'once'
+                ? `fires ${r.fire_date}`
+                : `${r.start_date} ${r.end_date ? `→ ${r.end_date}` : '(no end)'}`}
               {r.last_sent_date ? ` · last sent ${r.last_sent_date}` : ' · not yet sent'}
             </div>
           </div>
@@ -208,13 +217,17 @@ function CreateForm({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [polishing, startPolish] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
+  const [mode, setMode] = useState<Mode>('recurring');
   const [resId, setResId] = useState('');
   const [label, setLabel] = useState('');
   const [body, setBody] = useState('');
+  const [polished, setPolished] = useState(false);
   const [days, setDays] = useState<Set<string>>(new Set());
+  const [fireDate, setFireDate] = useState('');
   const [atLocal, setAtLocal] = useState('09:00');
   const [sendMode, setSendMode] = useState('approve');
 
@@ -229,6 +242,23 @@ function CreateForm({
     });
   };
 
+  const handlePolish = () => {
+    setError(null);
+    if (!body.trim()) {
+      setError('Write a rough note first');
+      return;
+    }
+    startPolish(async () => {
+      const res = await polishProactiveAction(picked?.reservation_id || '', body);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setBody(res.polished);
+      setPolished(true);
+    });
+  };
+
   const handleCreate = () => {
     setError(null);
     setDone(false);
@@ -238,13 +268,15 @@ function CreateForm({
     }
     startTransition(async () => {
       const res = await createReminderAction({
-        label: label.trim() || `Reminder · ${picked.guest_first || picked.property_name}`,
+        label: label.trim() || `${mode === 'once' ? 'Message' : 'Reminder'} · ${picked.guest_first || picked.property_name}`,
         conversation_id: picked.conversation_id,
         listing_id: picked.listing_id,
         module: picked.module || 'sms',
         guest_first: picked.guest_first,
         body: body.trim(),
-        weekdays: Array.from(days).sort().join(','),
+        kind: mode,
+        weekdays: mode === 'recurring' ? Array.from(days).sort().join(',') : '',
+        fire_date: mode === 'once' ? fireDate : '',
         at_local: atLocal,
         start_date: picked.check_in,
         end_date: picked.check_out,
@@ -258,7 +290,9 @@ function CreateForm({
       setResId('');
       setLabel('');
       setBody('');
+      setPolished(false);
       setDays(new Set());
+      setFireDate('');
       onCreated();
       router.refresh();
     });
@@ -274,10 +308,55 @@ function CreateForm({
     color: 'var(--ink)',
   };
 
+  const canCreate =
+    !!resId &&
+    !!body.trim() &&
+    (mode === 'recurring' ? days.size > 0 : !!fireDate);
+
   return (
     <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: 18 }}>
-      <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 14 }}>
-        New recurring reminder
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 14,
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+          New proactive message
+        </div>
+        {/* Mode toggle — the "slightly different UI" per mode */}
+        <div style={{ display: 'inline-flex', border: '1px solid var(--ink)' }} role="tablist">
+          {(['recurring', 'once'] as Mode[]).map((m) => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setMode(m)}
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  fontWeight: 600,
+                  padding: '6px 12px',
+                  border: 'none',
+                  borderRight: m === 'recurring' ? '1px solid var(--ink)' : 'none',
+                  background: active ? 'var(--ink)' : 'var(--paper)',
+                  color: active ? 'var(--paper)' : 'var(--ink-3)',
+                  cursor: 'pointer',
+                }}
+              >
+                {m === 'recurring' ? 'Recurring' : 'One-time'}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -302,54 +381,94 @@ function CreateForm({
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Trash day"
+            placeholder={mode === 'once' ? 'Gate code heads-up' : 'Trash day'}
             style={inputStyle}
           />
         </label>
       </div>
 
-      <label style={{ display: 'block', marginBottom: 12 }}>
-        <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 4 }}>
-          Message
-        </span>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+          <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10 }}>
+            Message {polished && <span style={{ color: '#5b7b4e' }}>· polished</span>}
+          </span>
+          <button
+            type="button"
+            onClick={handlePolish}
+            disabled={polishing || !body.trim()}
+            title="Rewrite your note in our voice using the property's knowledge base — the same engine that drafts guest replies."
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              color: polishing || !body.trim() ? 'var(--ink-4)' : 'var(--ink)',
+              background: 'transparent',
+              border: '1px solid var(--ink-3)',
+              padding: '4px 10px',
+              cursor: polishing || !body.trim() ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {polishing ? 'Polishing…' : '✨ Polish into our voice'}
+          </button>
+        </div>
         <textarea
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={(e) => {
+            setBody(e.target.value);
+            setPolished(false);
+          }}
           rows={3}
-          placeholder="Reminder: trash day is Tuesday, please put the bins out by the curb the night before. Thanks!"
+          placeholder="Type quick and dirty — e.g. 'trash day is tuesday, bins on the side of the house, put them out night before'. Then hit Polish."
           style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
         />
-      </label>
+      </div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
-        <div>
-          <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
-            Days
-          </span>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {WEEKDAYS.map((d) => {
-              const active = days.has(d.v);
-              return (
-                <button
-                  key={d.v}
-                  type="button"
-                  onClick={() => toggleDay(d.v)}
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: '6px 9px',
-                    border: '1px solid var(--ink)',
-                    background: active ? 'var(--ink)' : 'var(--paper)',
-                    color: active ? 'var(--paper)' : 'var(--ink-3)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {d.label}
-                </button>
-              );
-            })}
+        {mode === 'recurring' ? (
+          <div>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
+              Days
+            </span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {WEEKDAYS.map((d) => {
+                const active = days.has(d.v);
+                return (
+                  <button
+                    key={d.v}
+                    type="button"
+                    onClick={() => toggleDay(d.v)}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '6px 9px',
+                      border: '1px solid var(--ink)',
+                      background: active ? 'var(--ink)' : 'var(--paper)',
+                      color: active ? 'var(--paper)' : 'var(--ink-3)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ) : (
+          <label>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
+              Date
+            </span>
+            <input
+              type="date"
+              value={fireDate}
+              min={picked?.check_in || undefined}
+              max={picked?.check_out || undefined}
+              onChange={(e) => setFireDate(e.target.value)}
+              style={{ ...inputStyle, width: 160 }}
+            />
+          </label>
+        )}
         <label>
           <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
             Time
@@ -369,7 +488,9 @@ function CreateForm({
 
       {picked && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 12 }}>
-          Runs {picked.check_in} → {picked.check_out} (the stay window)
+          {mode === 'recurring'
+            ? `Runs ${picked.check_in} → ${picked.check_out} (the stay window)`
+            : 'Fires once on the chosen date'}
           {picked.channel ? ` · sends via ${picked.channel}` : ''}.
         </div>
       )}
@@ -381,17 +502,16 @@ function CreateForm({
       )}
       {done && (
         <p style={{ margin: '0 0 10px', fontSize: 12, color: '#5b7b4e', fontWeight: 500 }}>
-          Reminder created.
+          Scheduled.
         </p>
       )}
 
       <button
         type="button"
         onClick={handleCreate}
-        disabled={isPending || !resId || !body.trim() || days.size === 0}
+        disabled={isPending || !canCreate}
         style={{
-          background:
-            isPending || !resId || !body.trim() || days.size === 0 ? 'var(--ink-4)' : 'var(--ink)',
+          background: isPending || !canCreate ? 'var(--ink-4)' : 'var(--ink)',
           color: 'var(--paper)',
           border: 'none',
           padding: '10px 18px',
@@ -399,11 +519,10 @@ function CreateForm({
           letterSpacing: '0.16em',
           textTransform: 'uppercase',
           fontWeight: 700,
-          cursor:
-            isPending || !resId || !body.trim() || days.size === 0 ? 'not-allowed' : 'pointer',
+          cursor: isPending || !canCreate ? 'not-allowed' : 'pointer',
         }}
       >
-        Create reminder
+        {mode === 'once' ? 'Schedule message' : 'Create reminder'}
       </button>
     </div>
   );

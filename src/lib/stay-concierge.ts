@@ -153,7 +153,9 @@ export type RecurringMessage = {
   channel: string;
   guest_first: string;
   body: string;
+  kind: string;
   weekdays: string;
+  fire_date: string;
   at_local: string;
   start_date: string;
   end_date: string;
@@ -179,7 +181,10 @@ export type CreateRecurringInput = {
   module: string;
   guest_first: string;
   body: string;
+  /** 'recurring' (weekday cadence) or 'once' (single fire_date). */
+  kind: string;
   weekdays: string;
+  fire_date: string;
   at_local: string;
   start_date: string;
   end_date: string;
@@ -191,6 +196,13 @@ export async function createRecurring(input: CreateRecurringInput) {
     method: 'POST',
     body: input,
   });
+}
+
+export async function polishProactive(reservationId: string, roughText: string) {
+  return request<{ polished: string; guest_first: string }>(
+    '/api/proactive/polish',
+    { method: 'POST', body: { reservation_id: reservationId, rough_text: roughText } },
+  );
 }
 
 export async function endRecurring(id: string) {

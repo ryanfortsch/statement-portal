@@ -7,6 +7,7 @@ import {
   listRecurring,
   createRecurring,
   endRecurring,
+  polishProactive,
   explainError,
   type ReservationPick,
   type RecurringMessage,
@@ -60,4 +61,16 @@ export async function endReminderAction(
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/messaging');
   return { ok: true };
+}
+
+export async function polishProactiveAction(
+  reservationId: string,
+  roughText: string,
+): Promise<{ ok: true; polished: string } | { ok: false; error: string }> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  if (!roughText.trim()) return { ok: false, error: 'Write a rough note first' };
+  const res = await polishProactive(reservationId, roughText.trim());
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  return { ok: true, polished: res.data.polished };
 }
