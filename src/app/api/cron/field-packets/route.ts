@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { suggestPackets, persistSuggestions, revalidatePublishedPackets } from '@/lib/field-packets';
+import { revalidatePublishedPackets } from '@/lib/field-packets';
 
 export const maxDuration = 300;
 
 /**
  * GET /api/cron/field-packets
  *
- * Nightly Field maintenance (schedule in vercel.json):
- *   1. Re-suggest packets over the upcoming window so the board stays fresh
- *      as bookings change. New draft packets only — Ryan still publishes.
- *   2. Re-validate every published packet against current bookings/blocks so
- *      the marketplace never shows a packet a guest has since moved into.
+ * Nightly Field maintenance (schedule in vercel.json): re-validate every
+ * published packet against current bookings/blocks so the marketplace never
+ * shows a packet a guest has since moved into. The board reads the inspection
+ * work list live from bookings, so there are no draft packets to pre-generate.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -20,10 +19,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const suggestions = await suggestPackets();
-    const created = await persistSuggestions(suggestions, 'cron@risingtidestr.com');
     const revalidated = await revalidatePublishedPackets();
-    return NextResponse.json({ ok: true, suggested: suggestions.length, created, revalidated });
+    return NextResponse.json({ ok: true, revalidated });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
