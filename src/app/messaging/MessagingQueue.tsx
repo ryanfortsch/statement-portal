@@ -13,6 +13,8 @@ import {
   relativeTimeShort,
   formatStayDates,
   channelTone,
+  proactiveKind,
+  proactiveBadge,
 } from './format';
 
 type Props = {
@@ -115,6 +117,12 @@ function ApprovalCard({
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
+  const kind = proactiveKind(approval.guesty_message_id, approval.topic);
+  const badge = proactiveBadge(kind);
+  // Proactive cards have no guest message — relabel the left column so it
+  // reads as the trigger/context, not "Guest said".
+  const leftColumnLabel =
+    kind === 'extension' ? 'Why this offer' : kind ? 'Context' : 'Guest said';
 
   const ageLabel =
     approval.age_minutes == null
@@ -203,6 +211,9 @@ function ApprovalCard({
     <article
       style={{
         border: '1px solid var(--rule)',
+        // Revenue accent: an extension offer is a money-making opportunity,
+        // so give it a sage left rule that sets it apart from reply drafts.
+        borderLeft: badge ? `3px solid ${badge.tone}` : '1px solid var(--rule)',
         background: 'var(--paper-2)',
         padding: 20,
       }}
@@ -234,9 +245,13 @@ function ApprovalCard({
               {stayLabel}
             </span>
           )}
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-            {topicLabel}
-          </span>
+          {badge ? (
+            <ProactiveBadge label={badge.label} tone={badge.tone} />
+          ) : (
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              {topicLabel}
+            </span>
+          )}
         </div>
         <span
           className="eyebrow"
@@ -262,8 +277,8 @@ function ApprovalCard({
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}
       >
         <FieldBlock
-          label="Guest said"
-          subLabel={guestReceivedSubLabel(approval.guest_received_at, approval.created_at)}
+          label={leftColumnLabel}
+          subLabel={kind ? '' : guestReceivedSubLabel(approval.guest_received_at, approval.created_at)}
           subLabelTitle={approval.guest_received_at || approval.created_at || undefined}
         >
           <BodyText>{approval.guest_text || '(empty)'}</BodyText>
@@ -396,6 +411,30 @@ function ApprovalCard({
         </div>
       )}
     </article>
+  );
+}
+
+function ProactiveBadge({ label, tone }: { label: string; tone: string }) {
+  // A filled pill (vs the plain topic eyebrow) so a system-initiated card —
+  // especially a revenue-bearing extension offer — is unmistakable in the
+  // queue at a glance.
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        fontWeight: 700,
+        color: 'var(--paper)',
+        background: tone,
+        padding: '2px 7px',
+        borderRadius: 2,
+        whiteSpace: 'nowrap',
+      }}
+      title="System-initiated message — review and approve before it sends"
+    >
+      {label}
+    </span>
   );
 }
 

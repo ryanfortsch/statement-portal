@@ -15,6 +15,50 @@ export function prettifySlug(slug: string): string {
     .join(' ');
 }
 
+/**
+ * Proactive (system-initiated) cards vs reactive guest-reply drafts.
+ *
+ * A proactive card wasn't triggered by a guest message, so the queue frames
+ * it differently: a colored "kind" badge instead of a plain topic eyebrow,
+ * and a "Why this" context label instead of "Guest said" (the guest didn't
+ * say anything). Identified by the synthetic guesty_message_id prefix the
+ * backend stamps (extension: / nudge: / recurring: / sched:), with a topic
+ * fallback. Mirrors the backend's stale-prune exemption for the same rows.
+ */
+export type ProactiveKind = 'extension' | 'nudge' | 'reminder' | 'scheduled' | null;
+
+export function proactiveKind(
+  guestyMessageId: string | null | undefined,
+  topic: string | null | undefined,
+): ProactiveKind {
+  const id = (guestyMessageId || '').toLowerCase();
+  const t = (topic || '').toLowerCase();
+  if (id.startsWith('extension:') || t === 'extension_offer') return 'extension';
+  if (id.startsWith('nudge:') || t === 'guest_count_nudge') return 'nudge';
+  if (id.startsWith('recurring:') || t === 'recurring_reminder') return 'reminder';
+  if (id.startsWith('sched:')) return 'scheduled';
+  return null;
+}
+
+/** Label + tone for the proactive badge. Extension offers get the revenue
+ * sage so a money-making opportunity stands out from routine outreach. */
+export function proactiveBadge(
+  kind: ProactiveKind,
+): { label: string; tone: string } | null {
+  switch (kind) {
+    case 'extension':
+      return { label: 'Extension offer', tone: '#5b7b4e' };
+    case 'nudge':
+      return { label: 'Nudge', tone: '#3b5d8f' };
+    case 'reminder':
+      return { label: 'Reminder', tone: '#7a6a3a' };
+    case 'scheduled':
+      return { label: 'Scheduled', tone: '#7a6a3a' };
+    default:
+      return null;
+  }
+}
+
 export function prettifyTopic(topic: string): string {
   if (!topic) return '';
   // DATE_CHANGE -> "Date change". POLICY_QUESTION -> "Policy question".
