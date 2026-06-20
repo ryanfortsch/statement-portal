@@ -76,6 +76,15 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
   },
   {
+    id: 'field',
+    href: '/operations/packets',
+    number: '03',
+    title: 'Field',
+    description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
+    status: 'active',
+    primary: false,
+  },
+  {
     id: 'work',
     href: '/work',
     number: '04',
