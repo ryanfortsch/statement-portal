@@ -626,6 +626,196 @@ export async function loadPacketStatusByBooking(
   return map;
 }
 
+// ── Work-first board: inspections needing coverage ───────────────────
+export type WorkItem = {
+  propertyId: string;
+  propertyName: string;
+  bookingId: string | null;
+  basis: WindowBasis;
+  priorCheckout: string | null;
+  nextCheckin: string | null;
+  basePriceCents: number;
+  lat: number | null;
+  lng: number | null;
+  /** Index of the auto-cluster this item falls in on its day (for the
+   *  "Suggest groupings" assist). */
+  clusterId: number;
+  /** Straight-line miles to the nearest other inspection that day, or null. */
+  nearestMiles: number | null;
+};
+export type WorkDay = { date: string; items: WorkItem[] };
+
+/**
+ * The work-first board's primary data: upcoming inspections that need
+ * covering, one row per property at its earliest feasible day, grouped by
+ * day, with proximity hints + an auto-cluster id. Properties already out to
+ * a contractor (live packet) are excluded — those have left the to-do list.
+ */
+export async function loadInspectionWorkItems(
+  windowStart: string = todayStr(),
+  windowEnd: string = addDays(todayStr(), 14),
+): Promise<WorkDay[]> {
+  const properties = await loadFieldProperties();
+  const propById = new Map(properties.map((p) => [p.id, p]));
+  const withCoords = properties.filter((p) => p.latitude != null && p.longitude != null);
+
+  const { data: activeStops } = await fieldDb()
+    .from('packet_stops')
+    .select('property_id, inspection_packets!inner(status)')
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
+  const committed = new Set(((activeStops ?? []) as { property_id: string }[]).map((s) => s.property_id));
+
+  const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
+    (c) => !committed.has(c.propertyId),
+  );
+  const earliestDay = new Map<string, string>();
+  for (const c of candidates) {
+    const cur = earliestDay.get(c.propertyId);
+    if (!cur || c.day < cur) earliestDay.set(c.propertyId, c.day);
+  }
+  const byDay = new Map<string, DayCandidate[]>();
+  for (const c of candidates) {
+    if (earliestDay.get(c.propertyId) !== c.day) continue;
+    const arr = byDay.get(c.day) ?? [];
+    arr.push(c);
+    byDay.set(c.day, arr);
+  }
+
+  const days: WorkDay[] = [];
+  for (const date of [...byDay.keys()].sort()) {
+    const cands = byDay.get(date)!;
+    // Greedy proximity clusters (same gate as the suggester) → clusterId.
+    const clusterOf = new Map<string, number>();
+    const remaining = cands.slice();
+    let cid = 0;
+    while (remaining.length) {
+      const seed = remaining.shift()!;
+      const cluster = [seed];
+      const props = [propById.get(seed.propertyId)!];
+      let changed = true;
+      while (changed && cluster.length < MAX_STOPS) {
+        changed = false;
+        for (let i = 0; i < remaining.length; i++) {
+          const p = propById.get(remaining[i].propertyId)!;
+          const trial = [...props, p].map((q) => ({ lat: q.latitude!, lng: q.longitude! }));
+          if (maxPairwiseMiles(trial) <= PROXIMITY_MILES) {
+            cluster.push(remaining[i]);
+            props.push(p);
+            remaining.splice(i, 1);
+            changed = true;
+            break;
+          }
+        }
+      }
+      for (const c of cluster) clusterOf.set(c.propertyId, cid);
+      cid++;
+    }
+
+    const items: WorkItem[] = cands
+      .map((c) => {
+        const p = propById.get(c.propertyId)!;
+        let nearest: number | null = null;
+        for (const o of cands) {
+          if (o.propertyId === c.propertyId) continue;
+          const op = propById.get(o.propertyId)!;
+          if (p.latitude != null && p.longitude != null && op.latitude != null && op.longitude != null) {
+            const d = haversineMiles({ lat: p.latitude, lng: p.longitude }, { lat: op.latitude, lng: op.longitude });
+            if (nearest == null || d < nearest) nearest = d;
+          }
+        }
+        return {
+          propertyId: p.id,
+          propertyName: p.name,
+          bookingId: c.bookingId,
+          basis: c.basis,
+          priorCheckout: c.priorCheckout,
+          nextCheckin: c.nextCheckin,
+          basePriceCents: p.inspection_base_price_cents ?? 7500,
+          lat: p.latitude,
+          lng: p.longitude,
+          clusterId: clusterOf.get(c.propertyId) ?? 0,
+          nearestMiles: nearest,
+        };
+      })
+      .sort((a, b) => a.clusterId - b.clusterId || a.propertyName.localeCompare(b.propertyName));
+    days.push({ date, items });
+  }
+  return days;
+}
+
+/**
+ * Build a packet from a hand-picked set of properties on a day (the
+ * "bundle & send" action). Re-derives each stop's window from current
+ * bookings server-side, so the client's selection is never trusted for
+ * timing/price. Publishes immediately when publish=true.
+ */
+export async function createPacketFromProperties(args: {
+  propertyIds: string[];
+  visitDate: string;
+  priceCentsOverride?: number;
+  createdByEmail: string;
+  publish: boolean;
+}): Promise<string | null> {
+  const properties = await loadFieldProperties();
+  const propById = new Map(properties.map((p) => [p.id, p]));
+  const sel = args.propertyIds
+    .map((id) => propById.get(id))
+    .filter((p): p is FieldProperty => !!p && p.latitude != null && p.longitude != null);
+  if (sel.length === 0) return null;
+
+  const cands = await deriveDayCandidates(sel, args.visitDate, args.visitDate);
+  const candByProp = new Map(cands.map((c) => [c.propertyId, c]));
+
+  const pts = sel.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
+  const order = nearestNeighborOrder(pts);
+  const orderedProps = order.map((i) => sel[i]);
+  const spread = maxPairwiseMiles(pts);
+  const cen = centroid(pts);
+  const basePrices = orderedProps.map((p) => p.inspection_base_price_cents ?? 7500);
+  const posted = args.priceCentsOverride ?? priceCents(basePrices, spread);
+
+  const { data: packet, error } = await fieldDb()
+    .from('inspection_packets')
+    .insert({
+      title: `${clusterName(orderedProps)} · ${orderedProps.length} ${orderedProps.length === 1 ? 'stop' : 'stops'}`,
+      status: args.publish ? 'published' : 'draft',
+      visit_date: args.visitDate,
+      window_start: args.visitDate,
+      window_end: args.visitDate,
+      centroid_lat: cen?.lat ?? null,
+      centroid_lng: cen?.lng ?? null,
+      max_pairwise_miles: spread,
+      stop_count: orderedProps.length,
+      posted_price_cents: posted,
+      auto_generated: false,
+      suggestion_key: null,
+      created_by_email: args.createdByEmail,
+      published_at: args.publish ? new Date().toISOString() : null,
+    })
+    .select('id')
+    .single();
+  if (error || !packet) return null;
+  const packetId = (packet as { id: string }).id;
+  await fieldDb()
+    .from('packet_stops')
+    .insert(
+      orderedProps.map((p, i) => {
+        const c = candByProp.get(p.id);
+        return {
+          packet_id: packetId,
+          property_id: p.id,
+          booking_id: c?.bookingId ?? null,
+          window_basis: c?.basis ?? 'vacant',
+          prior_checkout: c?.priorCheckout ?? null,
+          next_checkin: c?.nextCheckin ?? null,
+          base_price_cents: p.inspection_base_price_cents ?? 7500,
+          walk_order: i,
+        };
+      }),
+    );
+  return packetId;
+}
+
 // ── Field payout ledger ───────────────────────────────────────────────
 export type ContractorPayStats = {
   approvedCount: number;

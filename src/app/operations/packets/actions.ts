@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties } from '@/lib/field-packets';
 import { sendInviteEmail, notifyContractorsOfPacket } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -21,6 +21,31 @@ export async function runSuggest(formData: FormData): Promise<void> {
   const windowEnd = String(formData.get('window_end') || '') || undefined;
   const suggestions = await suggestPackets(windowStart, windowEnd);
   await persistSuggestions(suggestions, email);
+  revalidatePath('/operations/packets');
+}
+
+/** Work-first board: bundle the operator's hand-picked inspections for a day
+ *  into one packet and publish it to contractors in a single step. */
+export async function bundleAndSend(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const visitDate = String(formData.get('visit_date') || '');
+  const ids = String(formData.get('property_ids') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  if (!visitDate || ids.length === 0) return;
+  const packetId = await createPacketFromProperties({
+    propertyIds: ids,
+    visitDate,
+    priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+    createdByEmail: email,
+    publish: true,
+  });
+  if (packetId) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    notifyContractorsOfPacket(packetId).catch(() => {});
+  }
   revalidatePath('/operations/packets');
 }
 
