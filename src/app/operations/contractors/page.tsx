@@ -6,7 +6,13 @@ import { fieldBaseUrl } from '@/lib/field-notify';
 import { getContractorPayStats } from '@/lib/field-packets';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
-import { inviteContractor, setContractorW9 } from '../packets/actions';
+import {
+  inviteContractor,
+  setContractorW9,
+  setContractorStatus,
+  rotateContractorToken,
+  resendInvite,
+} from '../packets/actions';
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -124,6 +130,37 @@ export default async function ContractorsPage() {
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--font-mono-dash), monospace', wordBreak: 'break-all', maxWidth: 240 }}>
                   {base}/field/{c.portal_token}
                 </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', width: '100%', marginTop: 2 }}>
+                  {c.status === 'active' && (
+                    <form action={setContractorStatus} style={{ margin: 0 }}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input type="hidden" name="status" value="paused" />
+                      <button type="submit" style={ctlBtn}>pause</button>
+                    </form>
+                  )}
+                  {(c.status === 'paused' || c.status === 'archived') && (
+                    <form action={setContractorStatus} style={{ margin: 0 }}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input type="hidden" name="status" value="active" />
+                      <button type="submit" style={ctlBtn}>reactivate</button>
+                    </form>
+                  )}
+                  <form action={resendInvite} style={{ margin: 0 }}>
+                    <input type="hidden" name="contractor_id" value={c.id} />
+                    <button type="submit" style={ctlBtn}>resend invite</button>
+                  </form>
+                  <form action={rotateContractorToken} style={{ margin: 0 }}>
+                    <input type="hidden" name="contractor_id" value={c.id} />
+                    <button type="submit" style={ctlBtn} title="Kill the old link + all sessions and email a fresh one">rotate link</button>
+                  </form>
+                  {c.status !== 'archived' && (
+                    <form action={setContractorStatus} style={{ margin: 0 }}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input type="hidden" name="status" value="archived" />
+                      <button type="submit" style={{ ...ctlBtn, color: 'var(--signal)' }}>archive</button>
+                    </form>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -154,4 +191,13 @@ const btnDark: React.CSSProperties = {
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
   padding: '10px 18px',
+};
+const ctlBtn: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ink-4)',
+  fontSize: 11,
+  textDecoration: 'underline',
+  padding: 0,
 };
