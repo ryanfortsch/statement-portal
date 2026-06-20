@@ -107,8 +107,8 @@ export default async function MessagingPage() {
       {data.ok && (
         <>
           <MessagingQueue initialPending={data.pending} />
-          <RecentStrip initialRecent={data.recent} />
           <RemindersSection />
+          <RecentStrip initialRecent={data.recent} />
           <PerformanceDropdown
             initialStats={data.stats}
             initialError={data.statsError}
