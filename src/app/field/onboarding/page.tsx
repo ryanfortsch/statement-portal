@@ -64,6 +64,13 @@ export default async function OnboardingPage({
           <label style={labelStyle}>Mobile phone</label>
           <input name="phone" type="tel" defaultValue={contractor.phone ?? ''} placeholder="(978) 555-0123" style={inputStyle} />
         </div>
+        <div>
+          <label style={labelStyle}>Home base (town or ZIP)</label>
+          <input name="home_address" type="text" placeholder="Gloucester, MA" style={inputStyle} />
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginTop: 4, display: 'block' }}>
+            So we can show you the closest work first. Optional.
+          </span>
+        </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
           <input type="checkbox" name="w9_confirm" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />

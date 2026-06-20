@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadContractorMarketplace } from '@/lib/field-packets';
+import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
 import { canClaim, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 
@@ -36,6 +36,8 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
     p.stop_count > 1 && p.max_pairwise_miles != null
       ? `${p.max_pairwise_miles < 1 ? '<1' : Math.round(p.max_pairwise_miles)} mi apart · `
       : '';
+  const away =
+    p.distanceMiles != null ? `${p.distanceMiles < 1 ? '<1' : Math.round(p.distanceMiles)} mi away · ` : '';
   return (
     <Link
       href={href}
@@ -61,6 +63,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
             {p.stops.map((s) => s.property.name).join(' · ')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
+            {away}
             {spread}
             {windowSummary(p)}
           </div>
@@ -134,18 +137,37 @@ export default async function FieldHome({
     );
   }
 
-  const { available, mine } = await loadContractorMarketplace(contractor.id);
+  const [{ available, mine }, payStats] = await Promise.all([
+    loadContractorMarketplace(contractor),
+    getContractorPayStats(),
+  ]);
+  const pay = payStats.get(contractor.id);
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4 }}>
-        Hi {contractor.full_name.split(' ')[0]}
-      </h1>
-      <p style={{ fontSize: 14, color: 'var(--ink-3)', marginBottom: 28 }}>
-        {available.length > 0
-          ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
-          : 'No open packets right now. Check back soon.'}
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+        <div>
+          <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4 }}>
+            Hi {contractor.full_name.split(' ')[0]}
+          </h1>
+          <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>
+            {available.length > 0
+              ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
+              : 'No open packets right now. Check back soon.'}
+          </p>
+        </div>
+        {pay && (pay.paidCents > 0 || pay.owedCents > 0) && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+              Earned to date
+            </div>
+            <div className="font-mono" style={{ fontSize: 22, color: 'var(--ink)' }}>{dollars(pay.paidCents)}</div>
+            {pay.owedCents > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--signal)' }}>{dollars(pay.owedCents)} pending</div>
+            )}
+          </div>
+        )}
+      </div>
 
       {mine.length > 0 && (
         <section style={{ marginBottom: 36 }}>

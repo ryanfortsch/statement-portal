@@ -19,7 +19,7 @@
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
-import { centroid, maxPairwiseMiles, nearestNeighborOrder } from '@/lib/proximity';
+import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder } from '@/lib/proximity';
 import {
   accessBundle,
   cityShort,
@@ -445,7 +445,7 @@ export async function loadPacketDetail(
  * any packet already awarded to them. Access details are only revealed for
  * packets awarded to this contractor.
  */
-export async function loadContractorMarketplace(contractorId: string): Promise<{
+export async function loadContractorMarketplace(contractor: ContractorRow): Promise<{
   available: PacketDetail[];
   mine: PacketDetail[];
 }> {
@@ -457,11 +457,11 @@ export async function loadContractorMarketplace(contractorId: string): Promise<{
   const { data: mineData } = await fieldDb()
     .from('inspection_packets')
     .select('id')
-    .eq('awarded_contractor_id', contractorId)
+    .eq('awarded_contractor_id', contractor.id)
     .in('status', ['claimed', 'in_progress', 'submitted', 'approved'])
     .order('visit_date', { ascending: true });
 
-  const available = (
+  const availableRaw = (
     await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id)))
   ).filter(Boolean) as PacketDetail[];
   const mine = (
@@ -469,6 +469,24 @@ export async function loadContractorMarketplace(contractorId: string): Promise<{
       ((mineData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id, { revealAccess: true })),
     )
   ).filter(Boolean) as PacketDetail[];
+
+  // "Near you" ranking: attach straight-line distance from the contractor's
+  // home to each packet's centroid and sort closest-first. Falls back to the
+  // existing date order when home location isn't known.
+  const home =
+    contractor.home_lat != null && contractor.home_lng != null
+      ? { lat: contractor.home_lat, lng: contractor.home_lng }
+      : null;
+  const available = availableRaw.map((p) => ({
+    ...p,
+    distanceMiles:
+      home && p.centroid_lat != null && p.centroid_lng != null
+        ? haversineMiles(home, { lat: p.centroid_lat, lng: p.centroid_lng })
+        : undefined,
+  }));
+  if (home) {
+    available.sort((a, b) => (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity));
+  }
 
   return { available, mine };
 }

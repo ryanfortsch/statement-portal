@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { fieldDb } from '@/lib/field-db';
+import { geocodeAddress } from '@/lib/geocode';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket } from '@/lib/field-packets';
@@ -51,8 +52,21 @@ export async function completeOnboarding(formData: FormData) {
   const w9 = formData.get('w9_confirm') === 'on';
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
+  const homeAddress = String(formData.get('home_address') || '').trim();
   if (!agree || !w9 || signedName.length < 3) {
     redirect('/field/onboarding?error=incomplete');
+  }
+
+  // Geocode their home base so the marketplace can rank packets "near you".
+  // Best-effort: a failed lookup just leaves coords null (no ranking).
+  let homeLat = contractor.home_lat;
+  let homeLng = contractor.home_lng;
+  if (homeAddress) {
+    const coords = await geocodeAddress(homeAddress);
+    if (coords) {
+      homeLat = coords.lat;
+      homeLng = coords.lng;
+    }
   }
 
   const { ip, userAgent } = await reqContext();
@@ -61,6 +75,8 @@ export async function completeOnboarding(formData: FormData) {
     .update({
       full_name: fullName || contractor.full_name,
       phone: phone || contractor.phone,
+      home_lat: homeLat,
+      home_lng: homeLng,
       w9_on_file: true,
       agreement_signed_at: new Date().toISOString(),
       agreement_signed_name: signedName,
