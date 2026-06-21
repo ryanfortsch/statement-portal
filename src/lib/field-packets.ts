@@ -892,6 +892,9 @@ export type CalRow = {
   lng: number | null;
   basePriceCents: number;
   cells: CalCell[];
+  /** Soonest uncovered upcoming check-in (the tightest deadline this property
+   *  still needs covered), for urgency sorting + at-risk flags. */
+  nextDeadline: string | null;
 };
 export type InspectionCalendarData = { days: string[]; rows: CalRow[] };
 
@@ -954,10 +957,11 @@ export async function loadInspectionCalendar(
   const rows: CalRow[] = [];
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
-    const needsInspecting = pb.some(
+    const uncovered = pb.filter(
       (b) => b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
     );
-    if (!needsInspecting) continue;
+    if (uncovered.length === 0) continue;
+    const nextDeadline = uncovered.map((b) => b.check_in).sort()[0];
 
     const cells: CalCell[] = days.map((D) => {
       const occupied = pb.some((b) => b.check_in <= D && D < b.check_out);
@@ -977,9 +981,16 @@ export async function loadInspectionCalendar(
       lng: p.longitude,
       basePriceCents: p.inspection_base_price_cents ?? 7500,
       cells,
+      nextDeadline,
     });
   }
-  rows.sort((a, b) => a.propertyName.localeCompare(b.propertyName));
+  // Urgency first: the tightest deadline floats to the top so the about-to-slip
+  // turnover is never buried in an alphabetical list.
+  rows.sort(
+    (a, b) =>
+      (a.nextDeadline ?? '9999-99-99').localeCompare(b.nextDeadline ?? '9999-99-99') ||
+      a.propertyName.localeCompare(b.propertyName),
+  );
   return { days, rows };
 }
 
