@@ -7,6 +7,9 @@ import {
   rejectApproval,
   coachApproval,
   markHandledApproval,
+  scheduleApproval,
+  cancelScheduleApproval,
+  editApproval,
   explainError,
   type StayConciergeError,
 } from '@/lib/stay-concierge';
@@ -61,4 +64,28 @@ export async function coachDraft(approvalId: string, feedback: string): Promise<
   const trimmed = feedback.trim();
   if (!trimmed) return { ok: false, error: 'Add a coaching note before sending' };
   return mapResult(await coachApproval(approvalId, trimmed));
+}
+
+/** Queue the draft to send at a future time. sendAt is a UTC ISO string. */
+export async function scheduleDraft(approvalId: string, sendAt: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
+  return mapResult(await scheduleApproval(approvalId, sendAt));
+}
+
+/** Unschedule a queued send, returning it to the pending queue. */
+export async function cancelSchedule(approvalId: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  return mapResult(await cancelScheduleApproval(approvalId));
+}
+
+/** Save an operator edit to the draft text (distinct from coaching). */
+export async function editDraft(approvalId: string, text: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, error: 'The reply cannot be empty' };
+  return mapResult(await editApproval(approvalId, trimmed));
 }

@@ -40,6 +40,9 @@ export type Approval = {
    * to. Empty when not resolvable. */
   check_in: string;
   check_out: string;
+  /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
+   * Empty for a normal pending draft. */
+  send_at: string;
 };
 
 export type ApprovalsResponse = {
@@ -229,6 +232,30 @@ export async function rejectApproval(id: string) {
 
 export async function markHandledApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+/** Queue an approved draft to send later. sendAtUtc is a UTC ISO string. */
+export async function scheduleApproval(id: string, sendAtUtc: string) {
+  return request<{ status: string; id: string; send_at: string }>(
+    `/api/approvals/${id}/schedule`,
+    { method: 'POST', body: { send_at: sendAtUtc } },
+  );
+}
+
+/** Unschedule a queued send, returning it to the pending queue. */
+export async function cancelScheduleApproval(id: string) {
+  return request<{ status: string; id: string }>(
+    `/api/approvals/${id}/cancel_schedule`,
+    { method: 'POST' },
+  );
+}
+
+/** Replace the draft text directly (operator edit, distinct from coaching). */
+export async function editApproval(id: string, text: string) {
+  return request<{ status: string; id: string; draft: string }>(
+    `/api/approvals/${id}/draft`,
+    { method: 'PUT', body: { text } },
+  );
 }
 
 // ── Owner-messaging surface (mirrors the guest one) ──────────────────────
@@ -458,6 +485,12 @@ export function explainError(error: StayConciergeError): string {
   if (error.status === 401) return 'Stay Concierge rejected the dashboard key.';
   if (error.status === 404) return 'That approval no longer exists.';
   if (error.status === 409) return `That approval is no longer pending (${error.detail}).`;
+  if (error.status === 400 && error.detail === 'send_at_too_far') {
+    return 'That time is too far out. Pick a time within the next 48 hours.';
+  }
+  if (error.status === 400 && error.detail === 'send_at_in_past') {
+    return 'That time has already passed. Pick a time a little further out.';
+  }
   if (error.status === 503) return 'Guesty is in OAuth cooldown. Try again in a minute.';
   if (error.status === 502) return 'Guesty refused the send. The draft is still pending.';
   return `Service error (${error.status}): ${error.detail}`;

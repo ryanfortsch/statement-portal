@@ -136,6 +136,27 @@ export function relativeTimeShort(iso: string | null | undefined): string {
 
 
 /**
+ * Label for a queued (scheduled) send. Near term reads as a countdown
+ * ("Sends in 12m") so the operator feels the clock; further out it names the
+ * clock time in Eastern ("Sends at 3:30 PM") since a 4-hour countdown is less
+ * useful than the actual time. Distinct from relativeTimeShort (past-only).
+ */
+export function sendsInLabel(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMin = Math.round((then - Date.now()) / 60_000);
+  if (diffMin <= 0) return 'Sending now';
+  if (diffMin < 90) return `Sends in ${diffMin}m`;
+  const t = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/New_York',
+  }).format(then);
+  return `Sends at ${t}`;
+}
+
+/**
  * Format a stay date range compactly: "Jun 18-22" when same month,
  * "Jun 28 - Jul 5" across months, "Jun 18" when only check-in is known.
  * Returns '' when neither date is present.
