@@ -670,23 +670,35 @@ export async function loadInspectionWorkItems(
   const propById = new Map(properties.map((p) => [p.id, p]));
   const withCoords = properties.filter((p) => p.latitude != null && p.longitude != null);
 
+  // Exclude only the SPECIFIC turnovers a live packet already covers (by
+  // booking), NOT the whole property — a property can be in one packet and
+  // still have other upcoming turnovers that need inspecting.
   const { data: activeStops } = await fieldDb()
     .from('packet_stops')
-    .select('property_id, inspection_packets!inner(status)')
+    .select('booking_id, inspection_packets!inner(status)')
     .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
-  const committed = new Set(((activeStops ?? []) as { property_id: string }[]).map((s) => s.property_id));
-
-  const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
-    (c) => !committed.has(c.propertyId),
+  const coveredBookings = new Set(
+    ((activeStops ?? []) as { booking_id: string | null }[])
+      .map((s) => s.booking_id)
+      .filter((b): b is string => !!b),
   );
-  const earliestDay = new Map<string, string>();
+
+  // One row per UNCOVERED turnover (booking), on its earliest inspectable day.
+  const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
+    (c) => c.bookingId && !coveredBookings.has(c.bookingId),
+  );
+  const earliestByBooking = new Map<string, DayCandidate>();
   for (const c of candidates) {
-    const cur = earliestDay.get(c.propertyId);
-    if (!cur || c.day < cur) earliestDay.set(c.propertyId, c.day);
+    const cur = earliestByBooking.get(c.bookingId!);
+    if (!cur || c.day < cur.day) earliestByBooking.set(c.bookingId!, c);
   }
+  // ...but never list the same property twice on the same day.
   const byDay = new Map<string, DayCandidate[]>();
-  for (const c of candidates) {
-    if (earliestDay.get(c.propertyId) !== c.day) continue;
+  const seenPropDay = new Set<string>();
+  for (const c of [...earliestByBooking.values()].sort((a, b) => a.day.localeCompare(b.day))) {
+    const pd = `${c.propertyId}:${c.day}`;
+    if (seenPropDay.has(pd)) continue;
+    seenPropDay.add(pd);
     const arr = byDay.get(c.day) ?? [];
     arr.push(c);
     byDay.set(c.day, arr);
