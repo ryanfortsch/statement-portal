@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail } from '@/lib/field-packets';
 import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
-import { claimPacket, startStopInspection, submitPacket } from '../../actions';
+import { claimPacket, startStopInspection, submitPacket, completeMaintenanceStop } from '../../actions';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
@@ -67,7 +67,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -78,6 +78,7 @@ export default async function PacketPage({
   if (!packet) redirect('/field');
 
   const isMine = packet.awarded_contractor_id === contractor.id;
+  const isMaint = packet.trade === 'maintenance';
   if (!isMine && packet.status !== 'published') redirect('/field');
   // Reveal door/access codes only while the contractor is actively engaged
   // (claimed or in progress) — never after they submit/approve/cancel, so a
@@ -118,6 +119,11 @@ export default async function PacketPage({
           Finish every stop before submitting the packet.
         </div>
       )}
+      {sp.note && (
+        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+          Add a short note on what you did before marking the job done.
+        </div>
+      )}
       {sp.stale && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
           A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
@@ -132,8 +138,9 @@ export default async function PacketPage({
 
       {!isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
-          Each stop is a quick guest-readiness walk (the Helm Core 12 — about a dozen checks, ~20 minutes
-          per home). Addresses and entry details unlock as soon as you claim.
+          {isMaint
+            ? 'Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock as soon as you claim.'
+            : 'Each stop is a quick guest-readiness walk (the Helm Core 12 — about a dozen checks, ~20 minutes per home). Addresses and entry details unlock as soon as you claim.'}
         </p>
       )}
 
@@ -172,7 +179,21 @@ export default async function PacketPage({
               <div className="font-serif" style={{ fontSize: 17 }}>
                 {isMine ? s.property.address : s.property.title || s.property.name}
               </div>
-              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s)}</div>
+              {s.workSlip ? (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.workSlip.title}</div>
+                  {(s.workSlip.action_summary || s.workSlip.description) && (
+                    <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.5 }}>
+                      {s.workSlip.action_summary || s.workSlip.description}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
+                    {s.workSlip.location ? `${s.workSlip.location} · ` : ''}priority: {s.workSlip.priority}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s)}</div>
+              )}
               {isMine && (
                 <a
                   href={mapsUrl(s)}
@@ -188,8 +209,27 @@ export default async function PacketPage({
                   <AccessLines a={s.access} />
                 </div>
               )}
+              {isMine && s.workSlip && s.status !== 'complete' && (
+                <form action={completeMaintenanceStop} style={{ margin: '12px 0 0' }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input type="hidden" name="stop_id" value={s.id} />
+                  <textarea
+                    name="resolution"
+                    required
+                    rows={2}
+                    placeholder="What did you do? (e.g. replaced the disposal, tested, cleaned up)"
+                    style={{ width: '100%', font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
+                  />
+                  <button
+                    type="submit"
+                    style={{ marginTop: 8, background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '9px 16px' }}
+                  >
+                    Mark job done
+                  </button>
+                </form>
+              )}
             </div>
-            {isMine && (
+            {isMine && !s.workSlip && (
               <div style={{ flexShrink: 0 }}>
                 {s.status === 'complete' ? (
                   <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
@@ -215,6 +255,11 @@ export default async function PacketPage({
                     </button>
                   </form>
                 )}
+              </div>
+            )}
+            {isMine && s.workSlip && s.status === 'complete' && (
+              <div style={{ flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
               </div>
             )}
           </div>

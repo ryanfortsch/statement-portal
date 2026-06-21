@@ -108,6 +108,8 @@ export default async function PacketsBoard({
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
               Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.{' '}
+              <Link href="/operations/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs →</Link>
+              {' · '}
               <Link href="/operations/contractors" style={{ color: 'var(--tide-deep)' }}>Manage contractors →</Link>
             </div>
           </div>

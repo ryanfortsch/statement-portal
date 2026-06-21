@@ -24,6 +24,7 @@ import {
   PROXIMITY_MILES,
   MAX_STOPS,
   DEFAULT_BASE_CENTS,
+  MAINTENANCE_BASE_CENTS,
   baseForProperty,
   priceCents,
   isRushVisit,
@@ -39,6 +40,7 @@ import {
   type PacketSuggestion,
   type WindowBasis,
   type ContractorRow,
+  type WorkSlipLite,
 } from '@/lib/field-types';
 
 // Same exclusions the Operations turnover pipeline uses: out-of-region
@@ -426,6 +428,16 @@ async function stopsWithProperties(
   const propById = new Map(
     ((data ?? []) as unknown as FieldProperty[]).map((p) => [p.id, mergeAccess(p, accessMap.get(p.id))]),
   );
+  // Maintenance stops carry the work slip the contractor is being sent to fix.
+  const slipIds = stops.map((s) => s.work_slip_id).filter((v): v is string => !!v);
+  const slipById = new Map<string, WorkSlipLite>();
+  if (slipIds.length) {
+    const { data: slips } = await fieldDb()
+      .from('work_slips')
+      .select('id, title, description, action_summary, location, priority, photo_urls')
+      .in('id', slipIds);
+    for (const s of (slips ?? []) as WorkSlipLite[]) slipById.set(s.id, s);
+  }
   return stops
     .slice()
     .sort((a, b) => a.walk_order - b.walk_order)
@@ -435,6 +447,7 @@ async function stopsWithProperties(
         ...s,
         property,
         access: revealAccess && property ? accessBundle(property) : null,
+        workSlip: s.work_slip_id ? slipById.get(s.work_slip_id) ?? null : null,
       };
     });
 }
@@ -477,6 +490,7 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
     .from('inspection_packets')
     .select('id')
     .eq('status', 'published')
+    .eq('trade', contractor.trade) // only show work this contractor's trade does
     .order('visit_date', { ascending: true });
   const { data: mineData } = await fieldDb()
     .from('inspection_packets')
@@ -885,6 +899,162 @@ export async function createPacketFromProperties(args: {
           walk_order: i,
         };
       }),
+    );
+  return packetId;
+}
+
+// ── Maintenance trade: work slips → claimable packets ─────────────────
+export type MaintenanceSlip = {
+  id: string;
+  property_id: string;
+  property_name: string;
+  property_address: string;
+  lat: number | null;
+  lng: number | null;
+  title: string;
+  description: string | null;
+  action_summary: string | null;
+  location: string | null;
+  priority: string;
+  created_at: string;
+};
+
+/** Open, unassigned maintenance work slips that aren't already on a live packet
+ *  — the pool the operator bundles into maintenance packets. Ops properties
+ *  only (same exclusions as inspections). */
+export async function loadOpenMaintenance(): Promise<MaintenanceSlip[]> {
+  const { data: slips } = await fieldDb()
+    .from('work_slips')
+    .select('id, property_id, title, description, action_summary, location, priority, created_at')
+    .eq('status', 'open')
+    .eq('category', 'maintenance')
+    .eq('assigned_to_type', 'unassigned')
+    .order('created_at', { ascending: true });
+  const rows = (slips ?? []) as Array<Omit<MaintenanceSlip, 'property_name' | 'property_address' | 'lat' | 'lng'>>;
+  if (rows.length === 0) return [];
+
+  // Drop slips already covered by a live packet stop.
+  const { data: liveStops } = await fieldDb()
+    .from('packet_stops')
+    .select('work_slip_id, inspection_packets!inner(status)')
+    .in('inspection_packets.status', ['draft', 'published', 'claimed', 'in_progress', 'submitted', 'approved'])
+    .not('work_slip_id', 'is', null);
+  const taken = new Set(
+    ((liveStops ?? []) as { work_slip_id: string | null }[]).map((s) => s.work_slip_id).filter((v): v is string => !!v),
+  );
+
+  const props = await loadFieldProperties();
+  const propById = new Map(props.map((p) => [p.id, p]));
+  return rows
+    .filter((r) => !taken.has(r.id) && propById.has(r.property_id))
+    .map((r) => {
+      const p = propById.get(r.property_id)!;
+      return {
+        ...r,
+        property_name: p.name,
+        property_address: p.address,
+        lat: p.latitude,
+        lng: p.longitude,
+      };
+    });
+}
+
+/** Bundle selected work slips into a maintenance packet (trade='maintenance').
+ *  Stops are ordered by drive time across the distinct properties; each stop
+ *  points at its work slip. Price = per-job base + travel, operator-overridable
+ *  with the same fat-finger clamp as inspections. */
+export async function createMaintenancePacket(args: {
+  workSlipIds: string[];
+  visitDate: string;
+  priceCentsOverride?: number;
+  createdByEmail: string;
+  publish: boolean;
+}): Promise<string | null> {
+  const pool = await loadOpenMaintenance();
+  const byId = new Map(pool.map((s) => [s.id, s]));
+  const sel = args.workSlipIds.map((id) => byId.get(id)).filter((s): s is MaintenanceSlip => !!s);
+  if (sel.length === 0) return null;
+
+  // Group slips by property, preserve a stable property order, then reorder the
+  // properties by drive time (keeping each property's slips together).
+  const slipsByProp = new Map<string, MaintenanceSlip[]>();
+  const propOrder: string[] = [];
+  for (const s of sel) {
+    if (!slipsByProp.has(s.property_id)) {
+      slipsByProp.set(s.property_id, []);
+      propOrder.push(s.property_id);
+    }
+    slipsByProp.get(s.property_id)!.push(s);
+  }
+  const firstOf = (pid: string) => slipsByProp.get(pid)![0];
+  const haveCoords = propOrder.every((pid) => firstOf(pid).lat != null && firstOf(pid).lng != null);
+  const order =
+    haveCoords && propOrder.length > 1
+      ? await osrmOptimalOrder(propOrder.map((pid) => ({ lat: firstOf(pid).lat!, lng: firstOf(pid).lng! })))
+      : propOrder.map((_, i) => i);
+  const orderedProps = order.map((i) => propOrder[i]);
+  const orderedSlips: MaintenanceSlip[] = [];
+  for (const pid of orderedProps) orderedSlips.push(...slipsByProp.get(pid)!);
+
+  const pts = orderedProps
+    .filter((pid) => firstOf(pid).lat != null && firstOf(pid).lng != null)
+    .map((pid) => ({ lat: firstOf(pid).lat!, lng: firstOf(pid).lng! }));
+  const spread = pts.length > 1 ? maxPairwiseMiles(pts) : 0;
+  const cen = pts.length ? centroid(pts) : null;
+  const computed = priceCents({
+    basePrices: orderedSlips.map(() => MAINTENANCE_BASE_CENTS),
+    spreadMiles: spread,
+    center: cen,
+    isRush: isRushVisit(args.visitDate),
+  });
+  let posted = args.priceCentsOverride ?? computed;
+  if (args.priceCentsOverride != null && (args.priceCentsOverride > computed * 6 || args.priceCentsOverride < computed * 0.2)) {
+    posted = computed;
+  }
+
+  const title =
+    orderedProps.length === 1
+      ? `Maintenance · ${firstOf(orderedProps[0]).property_name}`
+      : `Maintenance · ${orderedSlips.length} jobs · ${orderedProps.length} homes`;
+
+  const { data: packet, error } = await fieldDb()
+    .from('inspection_packets')
+    .insert({
+      title,
+      status: args.publish ? 'published' : 'draft',
+      trade: 'maintenance',
+      visit_date: args.visitDate,
+      window_start: args.visitDate,
+      window_end: args.visitDate,
+      claim_deadline: args.visitDate,
+      centroid_lat: cen?.lat ?? null,
+      centroid_lng: cen?.lng ?? null,
+      max_pairwise_miles: spread,
+      stop_count: orderedSlips.length,
+      posted_price_cents: posted,
+      auto_generated: false,
+      suggestion_key: null,
+      created_by_email: args.createdByEmail,
+      published_at: args.publish ? new Date().toISOString() : null,
+    })
+    .select('id')
+    .single();
+  if (error || !packet) return null;
+  const packetId = (packet as { id: string }).id;
+  await fieldDb()
+    .from('packet_stops')
+    .insert(
+      orderedSlips.map((s, i) => ({
+        packet_id: packetId,
+        property_id: s.property_id,
+        booking_id: null,
+        work_slip_id: s.id,
+        window_basis: 'vacant' as WindowBasis,
+        prior_checkout: null,
+        next_checkin: null,
+        base_price_cents: MAINTENANCE_BASE_CENTS,
+        walk_order: i,
+      })),
     );
   return packetId;
 }

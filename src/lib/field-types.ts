@@ -89,8 +89,20 @@ export type PacketStopRow = {
   base_price_cents: number;
   walk_order: number;
   inspection_id: string | null;
+  work_slip_id: string | null;
   status: StopStatus;
   created_at: string;
+};
+
+/** The work-slip detail a maintenance stop covers (shown to the contractor). */
+export type WorkSlipLite = {
+  id: string;
+  title: string;
+  description: string | null;
+  action_summary: string | null;
+  location: string | null;
+  priority: string;
+  photo_urls: string[];
 };
 
 /** Property fields the Field module needs: location + the access bundle. */
@@ -150,6 +162,7 @@ export function hasAnyAccessInfo(a: AccessBundle): boolean {
 export type PacketStopDetail = PacketStopRow & {
   property: FieldProperty;
   access: AccessBundle | null;
+  workSlip: WorkSlipLite | null;
 };
 
 /** A packet joined with its stops, for both internal and contractor views. */
@@ -215,9 +228,10 @@ export function sharedArea(p: PacketDetail): string | null {
 /** The card/detail headline: carries what + where. The property name for a
  *  single stop, otherwise "N inspections on <neighborhood>" or "in <town>". */
 export function packetHeadline(p: PacketDetail): string {
-  if (p.stop_count === 1) return p.stops[0]?.property.name ?? '1 inspection';
+  const noun = p.trade === 'maintenance' ? 'jobs' : p.trade === 'cleaning' ? 'cleans' : 'inspections';
+  if (p.stop_count === 1) return p.stops[0]?.property.name ?? `1 ${noun}`;
   const area = sharedArea(p);
-  if (area) return `${p.stop_count} inspections on ${area}`;
+  if (area) return `${p.stop_count} ${noun} on ${area}`;
   const city = cityShort(p.stops[0]?.property.city ?? null);
-  return city ? `${p.stop_count} inspections in ${city}` : `${p.stop_count} inspections`;
+  return city ? `${p.stop_count} ${noun} in ${city}` : `${p.stop_count} ${noun}`;
 }

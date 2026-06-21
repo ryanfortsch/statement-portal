@@ -129,14 +129,14 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
   const packet = await loadPacketDetail(packetId);
   if (!packet || packet.status !== 'published') return 0;
 
-  // Only text inspectors who can actually claim right now — active, onboarded
-  // (agreement signed + W-9 on file), with a phone. Texting someone a job they
-  // can't take is noise that erodes trust in the alerts.
+  // Only text contractors of this packet's trade who can actually claim right
+  // now — active, onboarded (agreement signed + W-9 on file), with a phone.
+  // Texting someone a job they can't take is noise that erodes trust.
   const { data } = await fieldDb()
     .from('contractors')
     .select('id, full_name, phone, portal_token, home_lat, home_lng, service_radius_miles, status, trade')
     .eq('status', 'active')
-    .eq('trade', 'inspection')
+    .eq('trade', packet.trade)
     .eq('w9_on_file', true)
     .not('agreement_signed_at', 'is', null)
     .not('phone', 'is', null);

@@ -92,6 +92,14 @@ export default async function ContractorsPage() {
             Phone
             <input name="phone" type="tel" placeholder="(978) 555-0123" style={inp} />
           </label>
+          <label style={lbl}>
+            Trade
+            <select name="trade" defaultValue="inspection" style={inp}>
+              <option value="inspection">Inspection</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="cleaning">Cleaning</option>
+            </select>
+          </label>
           <button type="submit" style={btnDark}>Send invite</button>
         </form>
 
@@ -102,7 +110,14 @@ export default async function ContractorsPage() {
             {contractors.map((c) => (
               <div key={c.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <div className="font-serif" style={{ fontSize: 16 }}>{c.full_name}</div>
+                  <div className="font-serif" style={{ fontSize: 16 }}>
+                    {c.full_name}
+                    {c.trade && c.trade !== 'inspection' && (
+                      <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px', marginLeft: 8, verticalAlign: 'middle' }}>
+                        {c.trade}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
                 </div>
                 <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>

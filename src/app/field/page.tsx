@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 };
 
 function windowSummary(p: PacketDetail): string {
+  if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
   const bases = p.stops.map((s) => s.window_basis);
   if (bases.every((b) => b === 'vacant')) return 'all vacant that day';
   const parts: string[] = [];
