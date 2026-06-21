@@ -839,6 +839,113 @@ export async function createPacketFromProperties(args: {
   return packetId;
 }
 
+// ── Inspection calendar (open-window view) ───────────────────────────
+export type CalCellState = 'open' | 'occupied' | 'blocked';
+export type CalCell = {
+  date: string;
+  state: CalCellState;
+  /** A guest checks in this day — the deadline marker. */
+  checkIn: boolean;
+  /** Open + a real upcoming uncovered guest after this day, so inspecting
+   *  here covers a turnover. These are the clickable cells. */
+  inspectable: boolean;
+};
+export type CalRow = {
+  propertyId: string;
+  propertyName: string;
+  lat: number | null;
+  lng: number | null;
+  basePriceCents: number;
+  cells: CalCell[];
+};
+export type InspectionCalendarData = { days: string[]; rows: CalRow[] };
+
+/**
+ * The calendar-of-open-windows board: each property that needs inspecting in
+ * the window gets a row of day cells — occupied / blocked / open — with the
+ * next check-in marked as the deadline. An open day is "inspectable" when the
+ * next guest after it is real and not already covered, so the operator can
+ * inspect on ANY open day before the deadline, not just the checkout day.
+ */
+export async function loadInspectionCalendar(
+  windowStart: string = todayStr(),
+  windowEnd: string = addDays(todayStr(), 14),
+): Promise<InspectionCalendarData> {
+  const properties = await loadFieldProperties();
+  const withCoords = properties.filter((p) => p.latitude != null && p.longitude != null);
+  const propIds = withCoords.map((p) => p.id);
+
+  // Look 30 days past the window so we can see the next check-in even when it
+  // falls just after the visible range.
+  const fetchStart = addDays(windowStart, -30);
+  const fetchEnd = addDays(windowEnd, 30);
+  const { data: bData } = await fieldDb()
+    .from('bookings')
+    .select('id, property_id, check_in, check_out, status')
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
+    .in('property_id', propIds)
+    .lte('check_in', fetchEnd)
+    .gte('check_out', fetchStart)
+    .order('check_in', { ascending: true });
+  const bookings = ((bData ?? []) as BookingRaw[]).filter((b) => b.check_in && b.check_out);
+
+  const { data: blkData } = await fieldDb()
+    .from('property_calendar_blocks')
+    .select('property_id, date')
+    .gte('date', windowStart)
+    .lte('date', windowEnd);
+  const blocked = new Set(
+    ((blkData ?? []) as { property_id: string; date: string }[]).map((b) => `${b.property_id}:${b.date}`),
+  );
+
+  const { data: activeStops } = await fieldDb()
+    .from('packet_stops')
+    .select('booking_id, inspection_packets!inner(status)')
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
+  const coveredBookings = new Set(
+    ((activeStops ?? []) as { booking_id: string | null }[]).map((s) => s.booking_id).filter((b): b is string => !!b),
+  );
+
+  const byProp = new Map<string, BookingRaw[]>();
+  for (const b of bookings) {
+    const a = byProp.get(b.property_id) ?? [];
+    a.push(b);
+    byProp.set(b.property_id, a);
+  }
+
+  const days = daysBetween(windowStart, windowEnd);
+  const today = todayStr();
+  const rows: CalRow[] = [];
+  for (const p of withCoords) {
+    const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
+    const needsInspecting = pb.some(
+      (b) => b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
+    );
+    if (!needsInspecting) continue;
+
+    const cells: CalCell[] = days.map((D) => {
+      const occupied = pb.some((b) => b.check_in <= D && D < b.check_out);
+      const isBlocked = blocked.has(`${p.id}:${D}`);
+      const checkIn = pb.some((b) => b.check_in === D);
+      const state: CalCellState = isBlocked ? 'blocked' : occupied ? 'occupied' : 'open';
+      const next = pb.find((b) => b.check_in > D);
+      const inspectable = state === 'open' && D >= today && !!next && !coveredBookings.has(next.id);
+      return { date: D, state, checkIn, inspectable };
+    });
+    rows.push({
+      propertyId: p.id,
+      propertyName: p.name,
+      lat: p.latitude,
+      lng: p.longitude,
+      basePriceCents: p.inspection_base_price_cents ?? 7500,
+      cells,
+    });
+  }
+  rows.sort((a, b) => a.propertyName.localeCompare(b.propertyName));
+  return { days, rows };
+}
+
 // ── Field payout ledger ───────────────────────────────────────────────
 export type ContractorPayStats = {
   approvedCount: number;

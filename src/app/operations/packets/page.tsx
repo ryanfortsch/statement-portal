@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
-import { loadInspectionWorkItems, loadPackets } from '@/lib/field-packets';
+import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
-import { PacketBuilder } from './PacketBuilder';
+import { InspectionCalendar } from './InspectionCalendar';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,8 +54,8 @@ export default async function PacketsBoard({
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
 
-  const [workDays, packets, { data: cData }] = await Promise.all([
-    loadInspectionWorkItems(from, to),
+  const [calendar, packets, { data: cData }] = await Promise.all([
+    loadInspectionCalendar(from, to),
     loadPackets(),
     fieldDb().from('contractors').select('id, full_name'),
   ]);
@@ -74,7 +74,7 @@ export default async function PacketsBoard({
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              The inspections coming up. Check the nearby ones, bundle them, send them out.{' '}
+              Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.{' '}
               <Link href="/operations/contractors" style={{ color: 'var(--tide-deep)' }}>Manage contractors →</Link>
             </div>
           </div>
@@ -92,7 +92,7 @@ export default async function PacketsBoard({
         </div>
 
         <div style={{ marginTop: 28 }}>
-          <PacketBuilder days={workDays} />
+          <InspectionCalendar days={calendar.days} rows={calendar.rows} />
         </div>
 
         {live.length > 0 && (
