@@ -889,6 +889,142 @@ export async function createPacketFromProperties(args: {
   return packetId;
 }
 
+// ── Recurring off-season inspections ──────────────────────────────────
+// A home with no upcoming guest never triggers a turnover inspection, so it can
+// go un-walked for months. This auto-DRAFTS a single-stop check for any idle
+// property that's overdue, on its soonest open day. Draft-only: the operator
+// reviews + publishes (or dismisses) from the board, so the system never sends
+// work to a contractor on its own.
+const RECURRING_CADENCE_DAYS = 21; // walk an idle home at least this often
+const RECURRING_LEAD_DAYS = 3; // schedule the draft a few days out, not tomorrow
+const RECURRING_HORIZON_DAYS = 10; // search this many days for an open slot
+
+/** Whole days from a..b (both YYYY-MM-DD), b - a. */
+function dayDiff(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+export async function suggestRecurringInspections(): Promise<number> {
+  const today = todayStr();
+  const horizonEnd = addDays(today, RECURRING_LEAD_DAYS + RECURRING_HORIZON_DAYS);
+  const cadenceEnd = addDays(today, RECURRING_CADENCE_DAYS);
+
+  const properties = (await loadFieldProperties()).filter((p) => p.latitude != null && p.longitude != null);
+  if (properties.length === 0) return 0;
+  const propIds = new Set(properties.map((p) => p.id));
+
+  // Last completed inspection per property (recent history only).
+  const { data: insp } = await fieldDb()
+    .from('inspections')
+    .select('property_id, completed_at')
+    .not('completed_at', 'is', null)
+    .gte('completed_at', `${addDays(today, -180)}T00:00:00Z`);
+  const lastInspected = new Map<string, string>();
+  for (const r of (insp ?? []) as { property_id: string; completed_at: string }[]) {
+    const d = etDate(r.completed_at);
+    const prev = lastInspected.get(r.property_id);
+    if (!prev || d > prev) lastInspected.set(r.property_id, d);
+  }
+
+  // Bookings near the window — to find vacant days and to skip homes with an
+  // upcoming turnover (the checkout-driven inspection will cover those).
+  const { data: bData } = await fieldDb()
+    .from('bookings')
+    .select('id, property_id, check_in, check_out, status')
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
+    .lte('check_in', horizonEnd)
+    .gte('check_out', today);
+  const byProp = new Map<string, BookingRaw[]>();
+  for (const b of ((bData ?? []) as BookingRaw[]).filter((b) => propIds.has(b.property_id) && b.check_in && b.check_out)) {
+    const arr = byProp.get(b.property_id) ?? [];
+    arr.push(b);
+    byProp.set(b.property_id, arr);
+  }
+
+  const { data: blkData } = await fieldDb()
+    .from('property_calendar_blocks')
+    .select('property_id, date')
+    .gte('date', today)
+    .lte('date', horizonEnd);
+  const blocked = new Set(((blkData ?? []) as { property_id: string; date: string }[]).map((b) => `${b.property_id}:${b.date}`));
+
+  // Properties already in an upcoming live packet (incl. drafts from a prior
+  // run) — don't stack a second one. Approved/past packets don't count; their
+  // inspection already lands in `inspections` above.
+  const { data: livePkts } = await fieldDb()
+    .from('inspection_packets')
+    .select('id')
+    .in('status', ['draft', 'published', 'claimed', 'in_progress', 'submitted'])
+    .gte('visit_date', today);
+  const liveIds = ((livePkts ?? []) as { id: string }[]).map((p) => p.id);
+  const covered = new Set<string>();
+  if (liveIds.length) {
+    const { data: stops } = await fieldDb().from('packet_stops').select('property_id').in('packet_id', liveIds);
+    for (const s of (stops ?? []) as { property_id: string }[]) covered.add(s.property_id);
+  }
+
+  let created = 0;
+  for (const p of properties) {
+    if (covered.has(p.id)) continue;
+    const bks = byProp.get(p.id) ?? [];
+    // Skip homes with a guest arriving or leaving within the cadence window —
+    // the normal turnover flow will surface those days on the board.
+    if (bks.some((b) => (b.check_out >= today && b.check_out <= cadenceEnd) || (b.check_in >= today && b.check_in <= cadenceEnd))) {
+      continue;
+    }
+    const last = lastInspected.get(p.id);
+    if (last && dayDiff(last, today) < RECURRING_CADENCE_DAYS) continue;
+
+    const occupiedOn = (d: string) => bks.some((b) => b.check_in <= d && d < b.check_out);
+    let day: string | null = null;
+    for (let i = RECURRING_LEAD_DAYS; i <= RECURRING_LEAD_DAYS + RECURRING_HORIZON_DAYS; i++) {
+      const d = addDays(today, i);
+      if (blocked.has(`${p.id}:${d}`) || occupiedOn(d)) continue;
+      day = d;
+      break;
+    }
+    if (!day) continue;
+
+    const center = { lat: p.latitude!, lng: p.longitude! };
+    const price = priceCents({ basePrices: [p.inspection_base_price_cents], spreadMiles: 0, center, isRush: false });
+    const { data: packet, error } = await fieldDb()
+      .from('inspection_packets')
+      .insert({
+        title: `${p.name} · routine check`,
+        status: 'draft',
+        trade: 'inspection',
+        visit_date: day,
+        window_start: day,
+        window_end: day,
+        claim_deadline: day,
+        centroid_lat: center.lat,
+        centroid_lng: center.lng,
+        max_pairwise_miles: 0,
+        stop_count: 1,
+        posted_price_cents: price,
+        auto_generated: true,
+        suggestion_key: `recurring:${p.id}:${day}`,
+        created_by_email: 'cron@field',
+      })
+      .select('id')
+      .single();
+    if (error || !packet) continue; // unique suggestion_key clash = already drafted
+    await fieldDb().from('packet_stops').insert({
+      packet_id: (packet as { id: string }).id,
+      property_id: p.id,
+      booking_id: null,
+      window_basis: 'vacant',
+      prior_checkout: null,
+      next_checkin: null,
+      base_price_cents: p.inspection_base_price_cents,
+      walk_order: 0,
+    });
+    created++;
+  }
+  return created;
+}
+
 // ── Packet review (the real Approve screen) ──────────────────────────
 export type StopReview = {
   propertyName: string;
