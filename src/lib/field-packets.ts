@@ -849,6 +849,9 @@ export type CalCell = {
   /** Open + a real upcoming uncovered guest after this day, so inspecting
    *  here covers a turnover. These are the clickable cells. */
   inspectable: boolean;
+  /** Open, but the next guest is already out to a contractor in a live
+   *  packet — so this day is handled, not actionable. */
+  covered: boolean;
 };
 export type CalRow = {
   propertyId: string;
@@ -930,8 +933,10 @@ export async function loadInspectionCalendar(
       const checkIn = pb.some((b) => b.check_in === D);
       const state: CalCellState = isBlocked ? 'blocked' : occupied ? 'occupied' : 'open';
       const next = pb.find((b) => b.check_in > D);
-      const inspectable = state === 'open' && D >= today && !!next && !coveredBookings.has(next.id);
-      return { date: D, state, checkIn, inspectable };
+      const nextCovered = !!next && coveredBookings.has(next.id);
+      const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
+      const covered = state === 'open' && nextCovered;
+      return { date: D, state, checkIn, inspectable, covered };
     });
     rows.push({
       propertyId: p.id,

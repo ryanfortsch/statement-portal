@@ -153,6 +153,7 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
+        <Swatch bg="rgba(58,107,138,0.16)" label="already out to a contractor" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 4, height: 14, background: 'var(--signal)' }} /> next check-in
@@ -267,6 +268,7 @@ function CalendarRow({
         else if (c?.state === 'occupied') bg = 'rgba(30,46,52,0.08)';
         else if (isSel) bg = 'var(--signal)';
         else if (c?.inspectable) bg = 'rgba(63,153,34,0.18)';
+        else if (c?.covered) bg = 'rgba(58,107,138,0.16)';
         else bg = 'rgba(30,46,52,0.025)';
         return (
           <button
@@ -274,7 +276,13 @@ function CalendarRow({
             type="button"
             disabled={!clickable}
             onClick={() => clickable && onToggle(row.propertyId, d)}
-            title={clickable ? `${row.propertyName} is open ${fmtDay(d)} — click to inspect that day` : undefined}
+            title={
+              clickable
+                ? `${row.propertyName} is open ${fmtDay(d)} — click to inspect that day`
+                : c?.covered
+                  ? `${row.propertyName}'s next guest is already out to a contractor`
+                  : undefined
+            }
             style={{
               minHeight: 34,
               margin: 2,
