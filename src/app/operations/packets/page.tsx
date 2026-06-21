@@ -5,8 +5,16 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { InspectionCalendar } from './InspectionCalendar';
+import { approvePacket, markPacketPaid } from './actions';
 
 export const dynamic = 'force-dynamic';
+
+function todayET(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+function daysUntilET(d: string): number {
+  return Math.round((Date.parse(`${d}T00:00:00`) - Date.parse(`${todayET()}T00:00:00`)) / 86_400_000);
+}
 
 function statusChip(status: string): { label: string; bg: string; color: string } {
   switch (status) {
@@ -76,6 +84,13 @@ export default async function PacketsBoard({
   const live = packets.filter((p) => ['published', 'claimed', 'in_progress', 'submitted'].includes(p.status));
   const closed = packets.filter((p) => ['approved', 'cancelled'].includes(p.status));
 
+  const today = todayET();
+  const outToday = packets.filter((p) => p.visit_date === today && (p.status === 'claimed' || p.status === 'in_progress'));
+  const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
+  const awaitingApproval = packets.filter((p) => p.status === 'submitted');
+  const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
+  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="operations" />
@@ -100,6 +115,20 @@ export default async function PacketsBoard({
             <button type="submit" style={btnGhost}>Apply</button>
           </form>
         </div>
+
+        {hasBrief && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
+            {outToday.length > 0 && (
+              <TodayStat n={outToday.length} label="out today" sub={`${startedToday} started`} tone="var(--tide-deep)" />
+            )}
+            {awaitingApproval.length > 0 && (
+              <TodayStat n={awaitingApproval.length} label="awaiting your approval" tone="var(--signal)" />
+            )}
+            {unclaimedSoon.length > 0 && (
+              <TodayStat n={unclaimedSoon.length} label="unclaimed within 48h" tone="#7a5512" />
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
@@ -136,36 +165,68 @@ export default async function PacketsBoard({
   );
 }
 
-function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: boolean }) {
+function TodayStat({ n, label, sub, tone }: { n: number; label: string; sub?: string; tone: string }) {
   return (
-    <Link
-      href={`/operations/packets/${p.id}`}
-      style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 16, textDecoration: 'none', color: 'var(--ink)', opacity: dim ? 0.6 : 1 }}
+    <div style={{ border: '1px solid var(--rule)', borderLeft: `3px solid ${tone}`, borderRadius: 8, padding: '10px 16px', minWidth: 130, background: 'var(--paper-2, #fff)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span className="font-mono" style={{ fontSize: 22, color: 'var(--ink)' }}>{n}</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{label}</span>
+      </div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: boolean }) {
+  const c = statusChip(p.status);
+  return (
+    <div
+      style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, opacity: dim ? 0.6 : 1, flexWrap: 'wrap' }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <Link href={`/operations/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
         </div>
-      </div>
+      </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-        {(() => {
-          const c = statusChip(p.status);
-          return (
-            <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
-              {c.label}
-            </span>
-          );
-        })()}
+        <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
+          {c.label}
+        </span>
         <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
           {dollars(p.posted_price_cents)}
           {who ? ` · ${who}` : ''}
           {p.status === 'approved' && p.paid_at ? ' · paid' : ''}
         </div>
       </div>
-    </Link>
+      {p.status === 'submitted' && (
+        <form action={approvePacket} style={{ margin: 0 }}>
+          <input type="hidden" name="packet_id" value={p.id} />
+          <button type="submit" style={btnDark}>Approve</button>
+        </form>
+      )}
+      {p.status === 'approved' && !p.paid_at && (
+        <form action={markPacketPaid} style={{ margin: 0 }}>
+          <input type="hidden" name="packet_id" value={p.id} />
+          <button type="submit" style={btnGhost}>Mark paid</button>
+        </form>
+      )}
+    </div>
   );
 }
+
+const btnDark: React.CSSProperties = {
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  padding: '8px 14px',
+};
 
 const inDate: React.CSSProperties = {
   display: 'block',
