@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -310,12 +311,9 @@ export async function POST(request: NextRequest) {
 }
 
 async function handle(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    const isManual = request.headers.get('x-helm-manual-sync') === '1';
-    if (!isManual) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  // Cron auth: Vercel Cron bearer, or a signed-in Helm user (manual trigger).
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   const url = new URL(request.url);
   // ?days=N selects a backfill window (1..730); otherwise the hourly

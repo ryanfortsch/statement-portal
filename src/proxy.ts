@@ -11,8 +11,11 @@ import { NextResponse } from "next/server";
  *                           contract is signed; gated by knowledge of a
  *                           per-prospect random token
  *
- * Other API routes (/api/ingest, /api/sync-*, etc.) also stay open for now;
- * they're called manually from inside the dashboard. We can gate them later.
+ * API routes are gated by default too (see PUBLIC_API_PREFIXES below):
+ * everything under /api now requires a Helm session EXCEPT the handful of
+ * endpoints that carry their own auth (webhook signatures, CRON_SECRET, the
+ * stay-concierge shared key, per-token PDF access) or that serve the guest /
+ * owner-facing portals. A gated /api request with no session gets a 401.
  */
 const PUBLIC_PATH_PREFIXES = [
   "/auth/",
@@ -28,6 +31,41 @@ const PUBLIC_PATH_PREFIXES = [
   // SSO. The Field tables are RLS-locked and read only through the
   // service-role client, so opening this prefix exposes no internal data.
   "/field/",
+];
+
+/**
+ * /api prefixes that must stay reachable WITHOUT a Helm session because they
+ * carry their own authentication or serve an external caller:
+ *
+ *   /api/auth/...            NextAuth callback handlers (also above)
+ *   /api/webhooks/...        Quo / Seam / inquiry — HMAC/Svix signature verified
+ *   /api/cron/...            Vercel Cron (CRON_SECRET) + signed-in manual trigger
+ *   /api/channels/ical/...   per-property high-entropy iCal export token
+ *   /api/guests/subscribe    staycapeann.com signup (CORS preflight + POST)
+ *   /api/guests/unsubscribe  one-click unsubscribe from a marketing email
+ *   /api/guests/resend-webhook  Resend engagement events (Svix signature)
+ *   /api/projection-pdf      self-guards: Helm auth OR a valid onboarding token
+ *                            (lets a prospect download their signed contract)
+ *   /api/archive-onboarding  fired by the public onboarding thank-you page
+ *   /api/owner-outbound-quo  } the stay-concierge service authenticates to these
+ *   /api/owners-sync         } three with the STAY_CONCIERGE_KEY shared secret;
+ *   /api/backfill-owner-phones } it has no Helm session
+ *
+ * Everything else under /api requires a valid session.
+ */
+const PUBLIC_API_PREFIXES = [
+  "/api/auth/",
+  "/api/webhooks/",
+  "/api/cron/",
+  "/api/channels/ical/",
+  "/api/guests/subscribe",
+  "/api/guests/unsubscribe",
+  "/api/guests/resend-webhook",
+  "/api/projection-pdf",
+  "/api/archive-onboarding",
+  "/api/owner-outbound-quo",
+  "/api/owners-sync",
+  "/api/backfill-owner-phones",
 ];
 
 /**
@@ -92,7 +130,15 @@ export default auth((req) => {
   if (PROPERTY_DELIVERABLE_RE.test(pathname)) return;
   if (PROPERTY_NOTICE_RE.test(pathname)) return;
   if (INSPECTION_RENDER_RE.test(pathname)) return;
-  if (pathname.startsWith("/api/")) return;
+
+  // API routes: gate everything except the self-authenticating / portal set.
+  // Anonymous callers get a 401 JSON (not an HTML sign-in redirect, which a
+  // fetch/integration caller can't follow).
+  if (pathname.startsWith("/api/")) {
+    if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) return;
+    if (req.auth) return;
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
   if (!req.auth) {
     const url = req.nextUrl.clone();
