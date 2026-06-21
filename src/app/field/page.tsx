@@ -108,31 +108,38 @@ export default async function FieldHome({
   const onboarded = canClaim(contractor);
 
   if (!onboarded) {
+    // Read-only marketplace before onboarding — let invitees see the pay/work
+    // first, then "claim → finish 2-min setup".
+    const { available } = await loadContractorMarketplace(contractor);
     return (
       <FieldShell contractorName={contractor.full_name}>
-        <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>
-          One step before you can claim work
-        </h1>
-        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, marginBottom: 24 }}>
-          We just need your W-9 on file and a quick contractor agreement. It takes about two minutes, then
-          you can browse and claim inspection packets.
-        </p>
-        <Link
-          href="/field/onboarding"
-          style={{
-            display: 'inline-block',
-            background: 'var(--ink)',
-            color: 'var(--paper)',
-            textDecoration: 'none',
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: '0.16em',
-            textTransform: 'uppercase',
-            padding: '14px 28px',
-          }}
-        >
-          Finish setup
-        </Link>
+        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', borderRadius: 10, padding: '16px 20px', marginBottom: 28 }}>
+          <h1 className="font-serif" style={{ fontSize: 24, fontWeight: 300, marginBottom: 8 }}>
+            Finish setup to claim work
+          </h1>
+          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 14, maxWidth: 480 }}>
+            Have a look at what&apos;s open below. To claim a packet we just need your W-9 and a quick
+            agreement — about two minutes.
+          </p>
+          <Link
+            href="/field/onboarding"
+            style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}
+          >
+            Finish setup
+          </Link>
+        </div>
+        {available.length > 0 ? (
+          <>
+            <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>
+              Open near you
+            </h2>
+            {available.map((p, i) => (
+              <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
+            ))}
+          </>
+        ) : (
+          <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No open packets right now. Check back soon.</p>
+        )}
       </FieldShell>
     );
   }
