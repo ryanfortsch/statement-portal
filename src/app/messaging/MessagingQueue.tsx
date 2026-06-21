@@ -4,7 +4,15 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
-import { approveDraft, rejectDraft, coachDraft, markHandled } from './actions';
+import {
+  approveDraft,
+  rejectDraft,
+  coachDraft,
+  markHandled,
+  scheduleDraft,
+  cancelSchedule,
+  editDraft,
+} from './actions';
 import {
   prettifySlug,
   prettifyTopic,
@@ -15,6 +23,7 @@ import {
   channelTone,
   proactiveKind,
   proactiveBadge,
+  sendsInLabel,
 } from './format';
 
 type Props = {
@@ -22,6 +31,38 @@ type Props = {
 };
 
 const REFRESH_MS = 15_000;
+
+// Muted bronze for the queued (scheduled) state. Reused from the proactive
+// 'scheduled'/'reminder' badge tone on purpose, and deliberately NOT
+// var(--signal) (which already means stale/aging/error on this card).
+const QUEUED_TONE = '#7a6a3a';
+
+// Quick-send presets, in minutes.
+const SEND_PRESETS: { label: string; minutes: number }[] = [
+  { label: 'In 10 minutes', minutes: 10 },
+  { label: 'In 30 minutes', minutes: 30 },
+  { label: 'In 2 hours', minutes: 120 },
+];
+
+function isoInMinutes(minutes: number): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+/** Build a UTC ISO from the operator's local Today/Tomorrow + HH:MM pick. */
+function isoFromDayTime(day: 'today' | 'tomorrow', hhmm: string): string {
+  const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
+  const d = new Date();
+  if (day === 'tomorrow') d.setDate(d.getDate() + 1);
+  d.setHours(h || 0, m || 0, 0, 0);
+  return d.toISOString();
+}
+
+/** Default time-input value: now rounded up to the next quarter hour (local). */
+function nextQuarterHour(): string {
+  const d = new Date();
+  d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15, 0, 0);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 export function MessagingQueue({ initialPending }: Props) {
   const router = useRouter();
@@ -33,16 +74,32 @@ export function MessagingQueue({ initialPending }: Props) {
     return () => clearInterval(t);
   }, [router]);
 
+  // Queued cards float to the top, ordered by when they actually fire (the
+  // countdown they show); pending drafts stay in newest-first order below.
+  const queued = initialPending
+    .filter((a) => a.status === 'scheduled')
+    .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
+  const pending = initialPending.filter((a) => a.status !== 'scheduled');
+  const ordered = [...queued, ...pending];
+  const queuedCount = queued.length;
+  const pendingCount = pending.length;
+  const title =
+    initialPending.length === 0
+      ? 'Inbox zero'
+      : pendingCount === 0
+        ? `Queued (${queuedCount})`
+        : `Pending (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
+
   return (
     <Section
-      title={initialPending.length === 0 ? 'Inbox zero' : `Pending (${initialPending.length})`}
+      title={title}
       eyebrow={`refreshes every ${REFRESH_MS / 1000}s`}
       right={<RefreshChip onClick={() => router.refresh()} />}
       empty={initialPending.length === 0}
       emptyMessage="No drafts waiting. New guest messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {initialPending.map((approval) => (
+        {ordered.map((approval) => (
           <ApprovalCard key={approval.id} approval={approval} onResolved={() => router.refresh()} />
         ))}
       </div>
@@ -92,7 +149,16 @@ function RefreshChip({ onClick }: { onClick: () => void }) {
 // instead of every button just going equally faded via `disabled`. Stays
 // set after a successful action too, so the button keeps reading as
 // in-progress right up until router.refresh remounts the card.
-type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
+type PendingAction =
+  | 'approve'
+  | 'reject'
+  | 'mark-handled'
+  | 'coach'
+  | 'schedule'
+  | 'save-edit'
+  | 'cancel-schedule'
+  | 'send-now'
+  | null;
 
 function ApprovalCard({
   approval,
@@ -106,6 +172,69 @@ function ApprovalCard({
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // Inline edit + schedule UI. Mutually exclusive (opening one closes the
+  // others) so only one drawer is ever armed at a time.
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(approval.draft);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleCustom, setScheduleCustom] = useState(false);
+  const [customDay, setCustomDay] = useState<'today' | 'tomorrow'>('today');
+  const [customTime, setCustomTime] = useState(nextQuarterHour);
+  const cardRef = useRef<HTMLElement | null>(null);
+  // The draft text the editor was seeded from, so we can detect the AI/another
+  // operator regenerating the draft underneath an open editor.
+  const editBaseRef = useRef(approval.draft);
+  // Last draft value we reconciled, to react when it changes in place (the card
+  // is keyed by id, so router.refresh reconciles rather than remounts).
+  const prevDraftRef = useRef(approval.draft);
+
+  const isScheduled = approval.status === 'scheduled';
+  // The draft changed server-side while the editor is open and the operator
+  // hasn't already typed the new text: warn instead of silently overwriting.
+  const draftChangedUnderEdit =
+    editing && approval.draft !== editBaseRef.current && approval.draft !== draftText;
+
+  const closeDrawers = () => {
+    setShowCoach(false);
+    setShowSchedule(false);
+    setScheduleCustom(false);
+    setEditing(false);
+  };
+
+  // Dismiss the schedule menu on Escape or a click outside this card.
+  useEffect(() => {
+    if (!showSchedule) return;
+    const close = () => {
+      setShowSchedule(false);
+      setScheduleCustom(false);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showSchedule]);
+
+  // The card is keyed by id, so a 15s router.refresh reconciles it in place
+  // when the draft is regenerated (coach/webhook) without a remount. Keep a
+  // closed editor's buffer fresh and clear the coach drawer; while the editor
+  // is OPEN we deliberately leave the buffer alone and surface a conflict
+  // banner (draftChangedUnderEdit) instead of clobbering the operator's text.
+  useEffect(() => {
+    if (prevDraftRef.current === approval.draft) return;
+    prevDraftRef.current = approval.draft;
+    if (isPending || editing) return;
+    setDraftText(approval.draft);
+    setShowCoach(false);
+    setFeedback('');
+  }, [approval.draft, isPending, editing]);
 
   const propertyLabel =
     approval.listing_name ||
@@ -214,13 +343,93 @@ function ApprovalCard({
     });
   };
 
+  // Shared transition runner for the new actions: same stale/error/refresh
+  // contract as the handlers above.
+  const run = (
+    action: PendingAction,
+    fn: () => Promise<{ ok: true } | { ok: false; error: string; stale?: boolean }>,
+    onErr?: () => void,
+    onStale?: () => void,
+  ) => {
+    setError(null);
+    setPendingAction(action);
+    startTransition(async () => {
+      const res = await fn();
+      if (!res.ok) {
+        if (res.stale) {
+          // Default: the card moved on, refresh to the latest. A handler can
+          // override (e.g. inline edit keeps the operator's typed text).
+          if (onStale) onStale();
+          else onResolved();
+          return;
+        }
+        setError(res.error);
+        setPendingAction(null);
+        if (onErr) onErr();
+        return;
+      }
+      onResolved();
+    });
+  };
+
+  const handleSchedule = (sendAtIso: string) => {
+    setShowSchedule(false);
+    setScheduleCustom(false);
+    run('schedule', () => scheduleDraft(approval.id, sendAtIso));
+  };
+  const handleSendNow = () => run('send-now', () => approveDraft(approval.id));
+  const handleCancelSchedule = () => run('cancel-schedule', () => cancelSchedule(approval.id));
+  const handleSaveEdit = () =>
+    run(
+      'save-edit',
+      () => editDraft(approval.id, draftText),
+      // Transient error: keep the editor open with the operator's text intact.
+      () => setEditing(true),
+      // Stale (e.g. the card was scheduled in another tab): don't silently
+      // discard the typed text via a refresh. Keep it and explain.
+      () => {
+        setEditing(true);
+        setPendingAction(null);
+        setError('This draft was just queued or changed elsewhere. Copy your text, then cancel the send to keep editing.');
+      },
+    );
+
+  const startEdit = () => {
+    closeDrawers();
+    setDraftText(approval.draft);
+    editBaseRef.current = approval.draft;
+    setEditing(true);
+  };
+  const toggleSchedule = () => {
+    if (showSchedule) {
+      setShowSchedule(false);
+      setScheduleCustom(false);
+      return;
+    }
+    closeDrawers();
+    setShowSchedule(true);
+  };
+  const toggleCoach = () => {
+    if (showCoach) {
+      setShowCoach(false);
+      return;
+    }
+    closeDrawers();
+    setShowCoach(true);
+  };
+
   return (
     <article
+      ref={cardRef}
       style={{
         border: '1px solid var(--rule)',
-        // Revenue accent: an extension offer is a money-making opportunity,
-        // so give it a sage left rule that sets it apart from reply drafts.
-        borderLeft: badge ? `3px solid ${badge.tone}` : '1px solid var(--rule)',
+        // A queued card wears a bronze left rule; otherwise the proactive
+        // (e.g. extension-offer) accent; otherwise the plain rule.
+        borderLeft: isScheduled
+          ? `3px solid ${QUEUED_TONE}`
+          : badge
+            ? `3px solid ${badge.tone}`
+            : '1px solid var(--rule)',
         background: 'var(--paper-2)',
         padding: 20,
       }}
@@ -252,7 +461,14 @@ function ApprovalCard({
               {stayLabel}
             </span>
           )}
-          {badge ? (
+          {isScheduled ? (
+            <>
+              <ProactiveBadge label="Queued" tone={QUEUED_TONE} />
+              <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
+                {sendsInLabel(approval.send_at)}
+              </span>
+            </>
+          ) : badge ? (
             <ProactiveBadge label={badge.label} tone={badge.tone} />
           ) : (
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
@@ -260,23 +476,27 @@ function ApprovalCard({
             </span>
           )}
         </div>
-        <span
-          className="eyebrow"
-          style={{ color: 'var(--ink-4)' }}
-          title={approval.created_at}
-        >
-          {'drafted '}
+        {/* Suppress the "drafted X ago" cue on a queued card so the only time
+            readout is the countdown above. */}
+        {!isScheduled && (
           <span
-            style={{
-              color: ageToneColor(approval.age_minutes),
-              fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
-            }}
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)' }}
+            title={approval.created_at}
           >
-            {ageLabel}
+            {'drafted '}
+            <span
+              style={{
+                color: ageToneColor(approval.age_minutes),
+                fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
+              }}
+            >
+              {ageLabel}
+            </span>
+            {' · id '}
+            {approval.short_id}
           </span>
-          {' · id '}
-          {approval.short_id}
-        </span>
+        )}
       </header>
 
       <div
@@ -290,8 +510,96 @@ function ApprovalCard({
         >
           <BodyText>{approval.guest_text || '(empty)'}</BodyText>
         </FieldBlock>
-        <FieldBlock label="Proposed reply">
-          <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
+        <FieldBlock
+          label={editing ? 'Editing reply' : 'Proposed reply'}
+          labelTone={editing ? 'var(--ink)' : undefined}
+          action={
+            !isScheduled && !editing ? (
+              <button
+                type="button"
+                onClick={startEdit}
+                disabled={isPending}
+                className="eyebrow"
+                style={{
+                  color: 'var(--ink-4)',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  cursor: isPending ? 'not-allowed' : 'pointer',
+                }}
+                title="Edit the reply text yourself (the AI will not rewrite it)"
+              >
+                Edit
+              </button>
+            ) : null
+          }
+        >
+          {editing ? (
+            <div>
+              <textarea
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                autoFocus
+                onFocus={(e) => e.currentTarget.setSelectionRange(draftText.length, draftText.length)}
+                rows={Math.max(4, Math.min(14, draftText.split('\n').length + 2))}
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  // 2px ink border = "armed": this surface is what sends.
+                  border: '2px solid var(--ink)',
+                  background: 'var(--paper)',
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                  color: 'var(--ink)',
+                  resize: 'vertical',
+                }}
+              />
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
+                You are setting the exact text that sends. The AI will not rewrite this.
+              </p>
+              {draftChangedUnderEdit && (
+                <div style={{ marginTop: 10, padding: '8px 10px', border: '1px solid var(--signal)', background: 'var(--paper)' }}>
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
+                    The AI regenerated this draft while you were editing. Saving will keep your version.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftText(approval.draft);
+                      editBaseRef.current = approval.draft;
+                    }}
+                    className="eyebrow"
+                    style={{
+                      marginTop: 4,
+                      color: 'var(--ink-3)',
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Load the new draft instead (discards your changes)
+                  </button>
+                </div>
+              )}
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <PrimaryButton
+                  onClick={handleSaveEdit}
+                  disabled={isPending || !draftText.trim()}
+                  loading={pendingAction === 'save-edit'}
+                  loadingLabel="Saving"
+                >
+                  Save
+                </PrimaryButton>
+                <SecondaryButton onClick={() => setEditing(false)} disabled={isPending}>
+                  Cancel
+                </SecondaryButton>
+              </div>
+            </div>
+          ) : (
+            <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
+          )}
         </FieldBlock>
       </div>
 
@@ -334,41 +642,82 @@ function ApprovalCard({
           alignItems: 'center',
         }}
       >
-        <PrimaryButton
-          onClick={handleApprove}
-          disabled={isPending}
-          loading={pendingAction === 'approve'}
-          loadingLabel="Sending"
-        >
-          Approve & send
-        </PrimaryButton>
-        <SecondaryButton
-          onClick={() => setShowCoach((v) => !v)}
-          disabled={isPending}
-          loading={pendingAction === 'coach'}
-          loadingLabel="Regenerating"
-        >
-          {showCoach ? 'Cancel coaching' : 'Coach the AI'}
-        </SecondaryButton>
-        <SecondaryButton
-          onClick={handleMarkHandled}
-          disabled={isPending}
-          loading={pendingAction === 'mark-handled'}
-          loadingLabel="Marking"
-          title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
-        >
-          Mark handled
-        </SecondaryButton>
-        <SecondaryButton
-          onClick={handleReject}
-          disabled={isPending}
-          loading={pendingAction === 'reject'}
-          loadingLabel="Rejecting"
-          title="This guest message doesn't need a reply. Drops the draft."
-        >
-          Reject
-        </SecondaryButton>
+        {isScheduled ? (
+          <>
+            <SecondaryButton
+              onClick={handleSendNow}
+              disabled={isPending}
+              loading={pendingAction === 'send-now'}
+              loadingLabel="Sending"
+              title="Send this draft right now instead of waiting."
+            >
+              Send now
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={handleCancelSchedule}
+              disabled={isPending}
+              loading={pendingAction === 'cancel-schedule'}
+              loadingLabel="Cancelling"
+              title="Stop the scheduled send and return this draft to the queue."
+            >
+              Cancel send
+            </SecondaryButton>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              Cancel send to edit or coach
+            </span>
+          </>
+        ) : (
+          <>
+            <SplitSendButton
+              onApprove={handleApprove}
+              onToggle={toggleSchedule}
+              disabled={isPending}
+              loading={pendingAction === 'approve'}
+              open={showSchedule}
+            />
+            <SecondaryButton
+              onClick={toggleCoach}
+              disabled={isPending}
+              loading={pendingAction === 'coach'}
+              loadingLabel="Regenerating"
+            >
+              {showCoach ? 'Cancel coaching' : 'Coach the AI'}
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={handleMarkHandled}
+              disabled={isPending}
+              loading={pendingAction === 'mark-handled'}
+              loadingLabel="Marking"
+              title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
+            >
+              Mark handled
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={handleReject}
+              disabled={isPending}
+              loading={pendingAction === 'reject'}
+              loadingLabel="Rejecting"
+              title="This guest message doesn't need a reply. Drops the draft."
+            >
+              Reject
+            </SecondaryButton>
+          </>
+        )}
       </footer>
+
+      {showSchedule && !isScheduled && (
+        <SchedulePopover
+          custom={scheduleCustom}
+          onPreset={(minutes) => handleSchedule(isoInMinutes(minutes))}
+          onOpenCustom={() => setScheduleCustom(true)}
+          customDay={customDay}
+          setCustomDay={setCustomDay}
+          customTime={customTime}
+          setCustomTime={setCustomTime}
+          onConfirmCustom={() => handleSchedule(isoFromDayTime(customDay, customTime))}
+          disabled={isPending}
+        />
+      )}
 
       {showCoach && (
         <div style={{ marginTop: 14 }}>
@@ -438,7 +787,7 @@ function ProactiveBadge({ label, tone }: { label: string; tone: string }) {
         borderRadius: 2,
         whiteSpace: 'nowrap',
       }}
-      title="System-initiated message — review and approve before it sends"
+      title="System-initiated message. Review and approve before it sends"
     >
       {label}
     </span>
@@ -466,15 +815,196 @@ function ChannelBadge({ channel }: { channel: string }) {
   );
 }
 
+// Welded two-segment send control: the wide left segment is the unchanged
+// one-tap "Approve & send (now)"; the narrow chevron opens the schedule
+// menu. The chevron is the only new pixel on a resting card.
+function SplitSendButton({
+  onApprove,
+  onToggle,
+  disabled,
+  loading,
+  open,
+}: {
+  onApprove: () => void;
+  onToggle: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  open?: boolean;
+}) {
+  const seg = (extra: React.CSSProperties): React.CSSProperties => ({
+    background: disabled && !loading ? 'var(--ink-4)' : 'var(--ink)',
+    color: 'var(--paper)',
+    border: '2px solid var(--ink)',
+    fontSize: 12,
+    letterSpacing: '0.18em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled && !loading ? 0.7 : 1,
+    ...extra,
+  });
+  return (
+    <div style={{ display: 'inline-flex' }}>
+      <button
+        type="button"
+        onClick={onApprove}
+        disabled={disabled}
+        aria-busy={loading || undefined}
+        style={seg({ padding: '13px 20px', borderRight: 'none' })}
+      >
+        {loading ? <LoadingLabel label="Sending" /> : 'Approve & send'}
+      </button>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open || undefined}
+        aria-label="Send later"
+        title="Send later"
+        style={seg({ padding: '13px 11px', borderLeft: '1px solid rgba(255,255,255,0.28)' })}
+      >
+        <span
+          style={{
+            display: 'inline-block',
+            fontSize: 10,
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▾
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// The send-later menu. Relative presets fire immediately; "At a set time"
+// reveals a time + Today/Tomorrow picker in place (progressive disclosure).
+function SchedulePopover({
+  custom,
+  onPreset,
+  onOpenCustom,
+  customDay,
+  setCustomDay,
+  customTime,
+  setCustomTime,
+  onConfirmCustom,
+  disabled,
+}: {
+  custom: boolean;
+  onPreset: (minutes: number) => void;
+  onOpenCustom: () => void;
+  customDay: 'today' | 'tomorrow';
+  setCustomDay: (d: 'today' | 'tomorrow') => void;
+  customTime: string;
+  setCustomTime: (t: string) => void;
+  onConfirmCustom: () => void;
+  disabled?: boolean;
+}) {
+  const rowStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '1px solid var(--rule)',
+    padding: '10px 12px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: 10,
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    color: 'var(--ink-2)',
+  };
+  return (
+    <div
+      role="menu"
+      style={{ marginTop: 10, maxWidth: 320, border: '1px solid var(--rule)', background: 'var(--paper-2)' }}
+    >
+      {SEND_PRESETS.map((p) => (
+        <button key={p.minutes} type="button" disabled={disabled} onClick={() => onPreset(p.minutes)} style={rowStyle}>
+          {p.label}
+        </button>
+      ))}
+      {!custom ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onOpenCustom}
+          style={{ ...rowStyle, borderBottom: 'none', color: 'var(--ink-3)' }}
+        >
+          At a set time…
+        </button>
+      ) : (
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['today', 'tomorrow'] as const).map((d) => {
+              const on = customDay === d;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setCustomDay(d)}
+                  style={{
+                    flex: 1,
+                    padding: '7px 8px',
+                    cursor: 'pointer',
+                    fontSize: 10,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    fontWeight: 600,
+                    border: `1px solid ${on ? 'var(--ink)' : 'var(--rule)'}`,
+                    background: on ? 'var(--ink)' : 'var(--paper)',
+                    color: on ? 'var(--paper)' : 'var(--ink-3)',
+                  }}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="time"
+              value={customTime}
+              onChange={(e) => setCustomTime(e.target.value)}
+              style={{
+                width: 120,
+                padding: '8px 10px',
+                border: '1px solid var(--rule)',
+                background: 'var(--paper)',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                color: 'var(--ink)',
+              }}
+            />
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title="Eastern Time">
+              ET
+            </span>
+          </div>
+          <PrimaryButton onClick={onConfirmCustom} disabled={disabled}>
+            Schedule
+          </PrimaryButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FieldBlock({
   label,
   subLabel,
   subLabelTitle,
+  labelTone,
+  action,
   children,
 }: {
   label: string;
   subLabel?: string;
   subLabelTitle?: string;
+  labelTone?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -483,7 +1013,7 @@ function FieldBlock({
         className="eyebrow"
         style={{
           marginBottom: 6,
-          color: 'var(--ink-4)',
+          color: labelTone || 'var(--ink-4)',
           display: 'flex',
           alignItems: 'baseline',
           gap: 8,
@@ -505,6 +1035,7 @@ function FieldBlock({
             {subLabel}
           </span>
         )}
+        {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
       </div>
       {children}
     </div>
