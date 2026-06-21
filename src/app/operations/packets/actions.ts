@@ -173,6 +173,15 @@ export async function cancelPacket(formData: FormData): Promise<void> {
 export async function releasePacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
+  // Capture who was released BEFORE we clear them — the release is a reliability
+  // signal (a claim that fell through pre-start) and the update nulls the field.
+  const { data: pre } = await fieldDb()
+    .from('inspection_packets')
+    .select('awarded_contractor_id')
+    .eq('id', packetId)
+    .eq('status', 'claimed')
+    .maybeSingle();
+  const releasedContractorId = (pre as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id ?? null;
   const { data } = await fieldDb()
     .from('inspection_packets')
     .update({ status: 'published', awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() })
@@ -181,7 +190,9 @@ export async function releasePacket(formData: FormData): Promise<void> {
     .select('id')
     .maybeSingle();
   if (data) {
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'released' });
+    await fieldDb()
+      .from('packet_events')
+      .insert({ packet_id: packetId, contractor_id: releasedContractorId, actor_email: email, event_type: 'released' });
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/operations/packets');
@@ -228,13 +239,17 @@ export async function requestChanges(formData: FormData): Promise<void> {
     .update({ status: 'in_progress', notes: note || null, submitted_at: null, updated_at: new Date().toISOString() })
     .eq('id', packetId)
     .eq('status', 'submitted')
-    .select('id')
+    .select('id, awarded_contractor_id')
     .maybeSingle();
   if (data) {
     await fieldDb().from('packet_stops').update({ status: 'pending', inspection_id: null }).eq('packet_id', packetId);
-    await fieldDb()
-      .from('packet_events')
-      .insert({ packet_id: packetId, actor_email: email, event_type: 'changes_requested', payload: note ? { note } : null });
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      contractor_id: (data as { awarded_contractor_id: string | null }).awarded_contractor_id ?? null,
+      actor_email: email,
+      event_type: 'changes_requested',
+      payload: note ? { note } : null,
+    });
   }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');

@@ -1099,3 +1099,96 @@ export async function getContractorPayStats(): Promise<Map<string, ContractorPay
   }
   return map;
 }
+
+// ── Reliability scores ────────────────────────────────────────────────
+export type ReliabilityTier = 'new' | 'watch' | 'steady' | 'top';
+export type ReliabilityStats = {
+  completed: number; // approved packets
+  onTime: number; // submitted on/before the visit date
+  late: number; // submitted after the visit date
+  reworked: number; // approved/in-flight packets that drew a "changes requested"
+  flaked: number; // claims released before the contractor started
+  score: number | null; // 0-100, null until there's history
+  tier: ReliabilityTier;
+};
+
+function etDate(ts: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(ts));
+}
+
+/**
+ * Per-contractor reliability from the packet history we already record:
+ * completion (approved vs released-after-claim), on-time submission (submitted
+ * date vs the visit date), and rework (changes-requested bounces). The score is
+ * a transparent weighted blend — completion 50%, on-time 30%, low-rework 20% —
+ * surfaced on the roster and used to order who gets pinged first.
+ */
+export async function getContractorReliability(): Promise<Map<string, ReliabilityStats>> {
+  const db = fieldDb();
+  const [{ data: pkts }, { data: evts }] = await Promise.all([
+    db
+      .from('inspection_packets')
+      .select('id, awarded_contractor_id, status, visit_date, submitted_at')
+      .not('awarded_contractor_id', 'is', null),
+    db
+      .from('packet_events')
+      .select('packet_id, contractor_id, event_type')
+      .in('event_type', ['changes_requested', 'released']),
+  ]);
+
+  type Raw = { completed: number; onTime: number; late: number; reworkedSet: Set<string>; flaked: number };
+  const raw = new Map<string, Raw>();
+  const get = (cid: string): Raw => {
+    let r = raw.get(cid);
+    if (!r) {
+      r = { completed: 0, onTime: 0, late: 0, reworkedSet: new Set(), flaked: 0 };
+      raw.set(cid, r);
+    }
+    return r;
+  };
+
+  const packetCid = new Map<string, string>();
+  for (const p of (pkts ?? []) as Array<{
+    id: string;
+    awarded_contractor_id: string;
+    status: string;
+    visit_date: string;
+    submitted_at: string | null;
+  }>) {
+    packetCid.set(p.id, p.awarded_contractor_id);
+    if (p.status === 'approved') {
+      const r = get(p.awarded_contractor_id);
+      r.completed++;
+      if (p.submitted_at) {
+        if (etDate(p.submitted_at) <= p.visit_date) r.onTime++;
+        else r.late++;
+      }
+    }
+  }
+  for (const e of (evts ?? []) as Array<{ packet_id: string; contractor_id: string | null; event_type: string }>) {
+    if (e.event_type === 'released') {
+      if (e.contractor_id) get(e.contractor_id).flaked++;
+    } else {
+      // changes_requested — attribute to the recorded contractor, else the
+      // packet's current owner (older events predate contractor stamping).
+      const cid = e.contractor_id ?? packetCid.get(e.packet_id);
+      if (cid) get(cid).reworkedSet.add(e.packet_id);
+    }
+  }
+
+  const out = new Map<string, ReliabilityStats>();
+  for (const [cid, r] of raw) {
+    const reworked = r.reworkedSet.size;
+    const hasHistory = r.completed > 0 || r.flaked > 0;
+    const completionRate = r.completed + r.flaked > 0 ? r.completed / (r.completed + r.flaked) : 1;
+    const onTimeRate = r.onTime + r.late > 0 ? r.onTime / (r.onTime + r.late) : 1;
+    const reworkRate = r.completed > 0 ? Math.min(1, reworked / r.completed) : 0;
+    const score = hasHistory
+      ? Math.round(100 * (0.5 * completionRate + 0.3 * onTimeRate + 0.2 * (1 - reworkRate)))
+      : null;
+    const tier: ReliabilityTier =
+      score == null ? 'new' : score >= 90 ? 'top' : score >= 75 ? 'steady' : 'watch';
+    out.set(cid, { completed: r.completed, onTime: r.onTime, late: r.late, reworked, flaked: r.flaked, score, tier });
+  }
+  return out;
+}
