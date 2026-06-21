@@ -5,7 +5,7 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { InspectionCalendar } from './InspectionCalendar';
-import { approvePacket, markPacketPaid, releasePacket } from './actions';
+import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPacket } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +83,11 @@ export default async function PacketsBoard({
 
   const live = packets.filter((p) => ['published', 'claimed', 'in_progress', 'submitted'].includes(p.status));
   const closed = packets.filter((p) => ['approved', 'cancelled'].includes(p.status));
+  // Auto-drafted routine checks for idle homes (and any hand-saved drafts),
+  // soonest first — waiting for the operator to publish or dismiss.
+  const drafts = packets
+    .filter((p) => p.status === 'draft')
+    .sort((a, b) => a.visit_date.localeCompare(b.visit_date));
 
   const today = todayET();
   const outToday = packets.filter((p) => p.visit_date === today && (p.status === 'claimed' || p.status === 'in_progress'));
@@ -140,6 +145,22 @@ export default async function PacketsBoard({
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
         </div>
 
+        {drafts.length > 0 && (
+          <div style={{ marginTop: 40 }}>
+            <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+              Suggested · {drafts.length}
+            </h2>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>
+              Routine checks for idle homes. Publish to send to inspectors, or dismiss.
+            </div>
+            <div style={{ border: '1px dashed var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
+              {drafts.map((p) => (
+                <DraftRow key={p.id} p={p} />
+              ))}
+            </div>
+          </div>
+        )}
+
         {live.length > 0 && (
           <div style={{ marginTop: 40 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
@@ -179,6 +200,27 @@ function TodayStat({ n, label, sub, tone }: { n: number; label: string; sub?: st
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{label}</span>
       </div>
       {sub && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function DraftRow({ p }: { p: PacketRow }) {
+  return (
+    <div style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+      <Link href={`/operations/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
+        <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
+        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
+          {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'} · {dollars(p.posted_price_cents)}
+        </div>
+      </Link>
+      <form action={publishPacket} style={{ margin: 0 }}>
+        <input type="hidden" name="packet_id" value={p.id} />
+        <button type="submit" style={btnDark}>Publish</button>
+      </form>
+      <form action={cancelPacket} style={{ margin: 0 }}>
+        <input type="hidden" name="packet_id" value={p.id} />
+        <button type="submit" style={btnGhost} title="Dismiss this suggestion">Dismiss</button>
+      </form>
     </div>
   );
 }

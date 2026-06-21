@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePublishedPackets } from '@/lib/field-packets';
+import { revalidatePublishedPackets, suggestRecurringInspections } from '@/lib/field-packets';
 import { renotifyDuePackets } from '@/lib/field-notify';
 
 export const maxDuration = 300;
@@ -9,8 +9,9 @@ export const maxDuration = 300;
  *
  * Nightly Field maintenance (schedule in vercel.json): re-validate every
  * published packet against current bookings/blocks so the marketplace never
- * shows a packet a guest has since moved into. The board reads the inspection
- * work list live from bookings, so there are no draft packets to pre-generate.
+ * shows a packet a guest has since moved into, re-ping inspectors about
+ * unclaimed-but-due packets, and draft routine checks for idle homes (the
+ * operator reviews + publishes those from the board).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -27,7 +28,9 @@ export async function GET(request: NextRequest) {
   try {
     const revalidated = await revalidatePublishedPackets();
     const renotified = await renotifyDuePackets();
-    return NextResponse.json({ ok: true, revalidated, renotified });
+    // Draft routine checks for idle homes; the operator publishes them.
+    const drafted = await suggestRecurringInspections().catch(() => 0);
+    return NextResponse.json({ ok: true, revalidated, renotified, drafted });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
