@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeCron } from '@/lib/cron-auth';
 import { POST as syncPost } from '../../sync-competitors/route';
 
 /**
@@ -18,14 +19,9 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 async function handle(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    const isManual = request.headers.get('x-helm-manual-sync') === '1';
-    if (!isManual) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-  }
+  // Cron auth: Vercel Cron bearer, or a signed-in Helm user (manual trigger).
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   // Tag downstream so the work handler skips the session check when this
   // came from the cron path with a valid bearer.

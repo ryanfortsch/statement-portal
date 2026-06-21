@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeCron } from '@/lib/cron-auth';
 
 /**
  * Daily-ish refresh for everything Guesty owns: listings map, recent
@@ -23,14 +24,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { POST as syncGuestyPost } from '../../sync-guesty/route';
 
 async function handle(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    const isManual = request.headers.get('x-helm-manual-sync') === '1';
-    if (!isManual) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-  }
+  // Cron auth: Vercel Cron bearer, or a signed-in Helm user (manual trigger).
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     // Forward to the existing sync handler. Body is empty; sync-guesty

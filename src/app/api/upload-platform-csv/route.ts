@@ -44,12 +44,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 2. Freshen the guesty_reservations cache by handing the same CSV text
     //    to the existing /api/ingest-guesty-csv route. Server-side fetch so
-    //    the work happens in the same request.
+    //    the work happens in the same request. /api/ingest-guesty-csv is now
+    //    behind the session gate (see src/proxy.ts), so forward this request's
+    //    own auth cookie -- the caller is already a signed-in Helm user.
     const csvText = await file.text();
     const origin = request.nextUrl.origin;
     const ingestRes = await fetch(`${origin}/api/ingest-guesty-csv`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        cookie: request.headers.get('cookie') ?? '',
+      },
       body: JSON.stringify({ csv: csvText }),
     });
     const ingestSummary = await ingestRes.json().catch(() => ({}));
