@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
@@ -48,6 +48,32 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/operations/packets');
+}
+
+/** Bundle selected open maintenance work slips into a published maintenance
+ *  packet and text the maintenance contractors. */
+export async function bundleMaintenanceAndSend(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const visitDate = String(formData.get('visit_date') || '');
+  const slipIds = String(formData.get('work_slip_ids') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  if (!visitDate || slipIds.length === 0) return;
+  const packetId = await createMaintenancePacket({
+    workSlipIds: slipIds,
+    visitDate,
+    priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+    createdByEmail: email,
+    publish: true,
+  });
+  if (packetId) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    notifyContractorsOfPacket(packetId).catch(() => {});
+  }
+  revalidatePath('/operations/packets');
+  revalidatePath('/operations/packets/maintenance');
 }
 
 export async function setPacketPrice(formData: FormData): Promise<void> {
@@ -291,6 +317,8 @@ export async function inviteContractor(formData: FormData): Promise<void> {
   const fullName = String(formData.get('full_name') || '').trim();
   const contractorEmail = String(formData.get('email') || '').trim().toLowerCase();
   const phone = String(formData.get('phone') || '').trim() || null;
+  const tradeIn = String(formData.get('trade') || 'inspection');
+  const trade = tradeIn === 'maintenance' || tradeIn === 'cleaning' ? tradeIn : 'inspection';
   if (!fullName || !contractorEmail) return;
 
   const { data } = await fieldDb()
@@ -299,7 +327,7 @@ export async function inviteContractor(formData: FormData): Promise<void> {
       full_name: fullName,
       email: contractorEmail,
       phone,
-      trade: 'inspection',
+      trade,
       status: 'invited',
       portal_token: newPortalToken(),
       invited_by_email: email,

@@ -14,6 +14,7 @@ export const MAX_STOPS = 5;
 
 // Pricing knobs.
 export const DEFAULT_BASE_CENTS = 7500; // the per-stop placeholder rate ($75)
+export const MAINTENANCE_BASE_CENTS = 6000; // placeholder per-job maintenance rate ($60); operator overrides per packet
 export const TRAVEL_PER_MILE_CENTS = 300; // premium per mile of in-cluster spread
 // Cape Ann core is "free"; clusters whose center sits beyond it pay for the
 // real drive out and back, so a far/solo job (Beverly, Fairfield) isn't priced

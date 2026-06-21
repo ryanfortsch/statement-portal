@@ -221,6 +221,60 @@ export async function startStopInspection(formData: FormData) {
   redirect(`/field/inspect/${inspectionId}`);
 }
 
+/** Complete a maintenance stop: record the resolution on the work slip and mark
+ *  the stop done. No inspection deck — the "work" is the slip's job, and a short
+ *  note on what was done is the maintenance quality floor. */
+export async function completeMaintenanceStop(formData: FormData) {
+  const packetId = String(formData.get('packet_id') || '');
+  const stopId = String(formData.get('stop_id') || '');
+  const note = String(formData.get('resolution') || '').trim();
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
+  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('*')
+    .eq('id', stopId)
+    .eq('packet_id', packetId)
+    .maybeSingle();
+  const stop = sData as PacketStopRow | null;
+  if (!stop || !stop.work_slip_id) redirect(`/field/packet/${packetId}`);
+  if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
+
+  await fieldDb()
+    .from('work_slips')
+    .update({
+      status: 'done',
+      completed_at: new Date().toISOString(),
+      resolution_notes: note,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', stop.work_slip_id);
+  await fieldDb().from('packet_stops').update({ status: 'complete' }).eq('id', stopId);
+  if (packet.status === 'claimed') {
+    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
+  }
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    eventType: 'stop_completed',
+    propertyId: stop.property_id,
+    payload: { work_slip_id: stop.work_slip_id },
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  redirect(`/field/packet/${packetId}`);
+}
+
 /** Submit the whole packet for office review once every stop is complete. */
 export async function submitPacket(formData: FormData) {
   const packetId = String(formData.get('packet_id') || '');
