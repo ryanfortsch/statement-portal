@@ -9,6 +9,7 @@ import { getVendor1099Report } from '@/lib/vendor-1099';
 import {
   inviteContractor,
   setContractorW9,
+  markContractorPaid,
   setContractorStatus,
   rotateContractorToken,
   resendInvite,
@@ -109,6 +110,14 @@ export default async function ContractorsPage() {
                         {ps && ps.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps.paidCents)} paid</span>}
                         {(!ps || (ps.owedCents === 0 && ps.paidCents === 0)) && <span style={{ color: 'var(--ink-4)' }}>no approved work</span>}
                       </div>
+                      {ps && ps.owedCents > 0 && (
+                        <form action={markContractorPaid} style={{ marginTop: 3 }}>
+                          <input type="hidden" name="contractor_id" value={c.id} />
+                          <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--positive)', fontSize: 11, textDecoration: 'underline', padding: 0 }}>
+                            mark {dollars(ps.owedCents)} paid
+                          </button>
+                        </form>
+                      )}
                       <div style={{ color: 'var(--ink-4)', marginTop: 2 }}>
                         books YTD {books ? dollars(Math.round(books.ytd * 100)) : '$0'}
                         {books?.over ? ' · 1099' : ''} ·{' '}

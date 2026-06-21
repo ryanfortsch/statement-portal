@@ -66,6 +66,22 @@ export async function setPacketPrice(formData: FormData): Promise<void> {
   revalidatePath('/operations/packets');
 }
 
+/** Mark every approved-but-unpaid packet for one contractor as paid (the
+ *  weekly "pay everything owed to X" batch). */
+export async function markContractorPaid(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const contractorId = String(formData.get('contractor_id') || '');
+  if (!contractorId) return;
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ paid_at: new Date().toISOString(), paid_by_email: email, updated_at: new Date().toISOString() })
+    .eq('awarded_contractor_id', contractorId)
+    .eq('status', 'approved')
+    .is('paid_at', null);
+  revalidatePath('/operations/contractors');
+  revalidatePath('/operations/packets');
+}
+
 /** Record that the awarded contractor has been paid for an approved packet.
  *  Field's own ledger; the actual payment runs through QuickBooks/books. */
 export async function markPacketPaid(formData: FormData): Promise<void> {
