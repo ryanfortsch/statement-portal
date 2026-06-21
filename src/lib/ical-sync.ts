@@ -151,32 +151,52 @@ export async function syncListing(opts: {
       }
     }
 
-    // Anything previously imported but missing this run is a cancellation /
-    // disappearance. Mark cancelled rather than delete — keeps history.
-    const disappeared = (existing ?? [])
-      .filter((r) => r.status !== 'cancelled' && !incomingUids.has(r.ical_uid as string))
-      .map((r) => r.id as string);
+    // Guard against a transient or broken feed wiping a live calendar.
+    // A 200-but-empty (or unparseable) response parses to zero booking rows.
+    // If we proceeded, every still-live booking for this listing would be
+    // marked cancelled and vanish from the turnover and check-in views, only
+    // to reappear on the next good sync (and this cron runs every 30 min). So
+    // when the parse comes back empty but we still hold live bookings, skip
+    // the diff/cancel pass entirely and surface a soft failure for review.
+    // Mirrors the competitors sync's zero-result guard. The only case this
+    // declines to act on is a feed that legitimately emptied to nothing, which
+    // is rare for an active listing and ages out by checkout date anyway; that
+    // is a safe trade against silently cancelling real upcoming stays.
+    const liveExisting = (existing ?? []).filter((r) => r.status !== 'cancelled');
+    if (rows.length === 0 && liveExisting.length > 0) {
+      result.bookings_added = 0;
+      result.bookings_updated = 0;
+      result.bookings_cancelled = 0;
+      result.success = false;
+      result.error = `empty-feed guard: parsed 0 bookings but ${liveExisting.length} live booking(s) exist; skipped cancel pass (suspected transient or broken feed)`;
+    } else {
+      // Anything previously imported but missing this run is a cancellation /
+      // disappearance. Mark cancelled rather than delete, to keep history.
+      const disappeared = (existing ?? [])
+        .filter((r) => r.status !== 'cancelled' && !incomingUids.has(r.ical_uid as string))
+        .map((r) => r.id as string);
 
-    // --- Upsert ---
-    if (rows.length > 0) {
-      const { error: upsertErr } = await sb
-        .from('bookings')
-        .upsert(rows, { onConflict: 'channel,ical_uid' });
-      if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
+      // --- Upsert ---
+      if (rows.length > 0) {
+        const { error: upsertErr } = await sb
+          .from('bookings')
+          .upsert(rows, { onConflict: 'channel,ical_uid' });
+        if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
+      }
+
+      if (disappeared.length > 0) {
+        const { error: cancelErr } = await sb
+          .from('bookings')
+          .update({ status: 'cancelled', cancelled_at: startedAt.toISOString() })
+          .in('id', disappeared);
+        if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
+      }
+
+      result.bookings_added = added;
+      result.bookings_updated = updated;
+      result.bookings_cancelled = disappeared.length;
+      result.success = true;
     }
-
-    if (disappeared.length > 0) {
-      const { error: cancelErr } = await sb
-        .from('bookings')
-        .update({ status: 'cancelled', cancelled_at: startedAt.toISOString() })
-        .in('id', disappeared);
-      if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
-    }
-
-    result.bookings_added = added;
-    result.bookings_updated = updated;
-    result.bookings_cancelled = disappeared.length;
-    result.success = true;
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
     result.success = false;
