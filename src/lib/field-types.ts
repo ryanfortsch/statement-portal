@@ -102,7 +102,8 @@ export type FieldProperty = {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
-  inspection_base_price_cents: number;
+  inspection_base_price_cents: number; // effective per-stop base (size-aware; see field-pricing)
+  bedrooms: number | null;
   // Access bundle (revealed to the awarded contractor only).
   guest_access_method: string | null;
   smart_lock_brand: string | null;
