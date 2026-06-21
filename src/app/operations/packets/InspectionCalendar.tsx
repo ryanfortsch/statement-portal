@@ -241,7 +241,10 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
 
       {selectedRows.length > 1 && (
         <div style={{ marginTop: 16 }}>
+          {/* key on the selection so the map remounts and redraws when the
+              picked stops change (PacketRouteMap draws once on mount). */}
           <PacketRouteMap
+            key={`${selDay}:${[...selProps].sort().join(',')}`}
             stops={selectedRows
               .filter((r) => r.lat != null && r.lng != null)
               .map((r, i) => ({ label: r.propertyName, lat: r.lat!, lng: r.lng!, order: i }))}
