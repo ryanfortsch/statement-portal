@@ -5,7 +5,7 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { InspectionCalendar } from './InspectionCalendar';
-import { approvePacket, markPacketPaid } from './actions';
+import { approvePacket, markPacketPaid, releasePacket } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +89,10 @@ export default async function PacketsBoard({
   const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
   const awaitingApproval = packets.filter((p) => p.status === 'submitted');
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
-  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0;
+  // At risk: claimed but never started, and the visit day has arrived/passed —
+  // the contractor may no-show before the guest arrives.
+  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && daysUntilET(p.visit_date) <= 0);
+  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -118,6 +121,9 @@ export default async function PacketsBoard({
 
         {hasBrief && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
+            {atRiskPackets.length > 0 && (
+              <TodayStat n={atRiskPackets.length} label="at risk · not started" tone="#c0392b" />
+            )}
             {outToday.length > 0 && (
               <TodayStat n={outToday.length} label="out today" sub={`${startedToday} started`} tone="var(--tide-deep)" />
             )}
@@ -179,6 +185,7 @@ function TodayStat({ n, label, sub, tone }: { n: number; label: string; sub?: st
 
 function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: boolean }) {
   const c = statusChip(p.status);
+  const atRisk = p.status === 'claimed' && daysUntilET(p.visit_date) <= 0;
   return (
     <div
       style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, opacity: dim ? 0.6 : 1, flexWrap: 'wrap' }}
@@ -190,15 +197,27 @@ function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: bool
         </div>
       </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-        <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
-          {c.label}
-        </span>
+        {atRisk ? (
+          <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: 'rgba(192,57,43,0.14)', color: '#c0392b', whiteSpace: 'nowrap' }}>
+            At risk · not started
+          </span>
+        ) : (
+          <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
+            {c.label}
+          </span>
+        )}
         <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
           {dollars(p.posted_price_cents)}
           {who ? ` · ${who}` : ''}
           {p.status === 'approved' && p.paid_at ? ' · paid' : ''}
         </div>
       </div>
+      {p.status === 'claimed' && (
+        <form action={releasePacket} style={{ margin: 0 }}>
+          <input type="hidden" name="packet_id" value={p.id} />
+          <button type="submit" style={btnGhost} title="Release back to the open marketplace and re-notify inspectors">Release</button>
+        </form>
+      )}
       {p.status === 'submitted' && (
         <form action={approvePacket} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />

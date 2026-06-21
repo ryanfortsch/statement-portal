@@ -151,6 +151,28 @@ export async function cancelPacket(formData: FormData): Promise<void> {
   revalidatePath('/operations/packets');
 }
 
+/** Release a stalled (claimed but not started) packet back to the open
+ *  marketplace — clears the contractor so door codes stop revealing, reopens
+ *  for claim, and re-notifies. The graceful failover when a 1099 falls through
+ *  before they've started. */
+export async function releasePacket(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .update({ status: 'published', awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .eq('status', 'claimed')
+    .select('id')
+    .maybeSingle();
+  if (data) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'released' });
+    notifyContractorsOfPacket(packetId).catch(() => {});
+  }
+  revalidatePath('/operations/packets');
+  revalidatePath(`/operations/packets/${packetId}`);
+}
+
 export async function approvePacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');

@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail } from '@/lib/field-packets';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, removeStop } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, removeStop } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +77,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <form action={unpublishPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <button type="submit" style={btnGhost}>Unpublish</button>
+            </form>
+          )}
+          {packet.status === 'claimed' && (
+            <form action={releasePacket}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <button type="submit" style={btnGhost} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
             </form>
           )}
           {packet.status === 'submitted' && (

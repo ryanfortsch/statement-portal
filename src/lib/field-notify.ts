@@ -165,6 +165,24 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
   return sent;
 }
 
+/** Daily cron: re-ping inspectors about published packets whose claim
+ *  deadline has arrived and are still unclaimed. Once per cron run, so no
+ *  spam tracking needed. */
+export async function renotifyDuePackets(): Promise<number> {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('id')
+    .eq('status', 'published')
+    .lte('claim_deadline', `${today}T23:59:59`);
+  let n = 0;
+  for (const r of (data ?? []) as { id: string }[]) {
+    const sent = await notifyContractorsOfPacket(r.id).catch(() => 0);
+    if (sent) n++;
+  }
+  return n;
+}
+
 export async function sendPacketSubmittedEmail(
   contractor: ContractorRow,
   packet: PacketRow,
