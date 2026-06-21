@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePublishedPackets } from '@/lib/field-packets';
+import { renotifyDuePackets } from '@/lib/field-notify';
 
 export const maxDuration = 300;
 
@@ -25,7 +26,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const revalidated = await revalidatePublishedPackets();
-    return NextResponse.json({ ok: true, revalidated });
+    const renotified = await renotifyDuePackets();
+    return NextResponse.json({ ok: true, revalidated, renotified });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until

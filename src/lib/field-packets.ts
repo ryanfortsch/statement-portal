@@ -837,6 +837,7 @@ export async function createPacketFromProperties(args: {
       visit_date: args.visitDate,
       window_start: args.visitDate,
       window_end: args.visitDate,
+      claim_deadline: args.visitDate,
       centroid_lat: cen?.lat ?? null,
       centroid_lng: cen?.lng ?? null,
       max_pairwise_miles: spread,
