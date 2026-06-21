@@ -7,7 +7,7 @@ import 'server-only';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import { sendMessage, listPhoneNumbers, normalizePhone } from '@/lib/quo';
 import { haversineMiles } from '@/lib/proximity';
-import { loadPacketDetail } from '@/lib/field-packets';
+import { loadPacketDetail, getContractorReliability } from '@/lib/field-packets';
 import { fieldDb } from '@/lib/field-db';
 import { dollars, packetHeadline } from '@/lib/field-types';
 import type { ContractorRow, PacketRow } from '@/lib/field-types';
@@ -134,15 +134,21 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
   // can't take is noise that erodes trust in the alerts.
   const { data } = await fieldDb()
     .from('contractors')
-    .select('full_name, phone, portal_token, home_lat, home_lng, service_radius_miles, status, trade')
+    .select('id, full_name, phone, portal_token, home_lat, home_lng, service_radius_miles, status, trade')
     .eq('status', 'active')
     .eq('trade', 'inspection')
     .eq('w9_on_file', true)
     .not('agreement_signed_at', 'is', null)
     .not('phone', 'is', null);
   const contractors = (data ?? []) as Array<
-    Pick<ContractorRow, 'full_name' | 'phone' | 'portal_token' | 'home_lat' | 'home_lng' | 'service_radius_miles'>
+    Pick<ContractorRow, 'id' | 'full_name' | 'phone' | 'portal_token' | 'home_lat' | 'home_lng' | 'service_radius_miles'>
   >;
+
+  // Ping the most reliable inspectors first (proven on-time + low-rework get
+  // the head start on a first-come claim). New/unproven inspectors sort in the
+  // middle, not last, so they still get a real shot to build a record.
+  const reliability = await getContractorReliability();
+  contractors.sort((a, b) => (reliability.get(b.id)?.score ?? 70) - (reliability.get(a.id)?.score ?? 70));
 
   const date = (() => {
     try {

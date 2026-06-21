@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
-import { getContractorPayStats } from '@/lib/field-packets';
+import { getContractorPayStats, getContractorReliability } from '@/lib/field-packets';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import {
@@ -25,6 +25,14 @@ const STATUS_TINT: Record<string, string> = {
   active: 'var(--positive)',
   paused: 'var(--ink-4)',
   archived: 'var(--ink-4)',
+};
+
+const TIER_LABEL: Record<string, string> = { new: 'New', watch: 'Watch', steady: 'Steady', top: 'Top rated' };
+const TIER_TINT: Record<string, string> = {
+  new: 'var(--ink-4)',
+  watch: 'var(--signal)',
+  steady: 'var(--tide-deep)',
+  top: 'var(--positive)',
 };
 
 export default async function ContractorsPage() {
@@ -50,9 +58,10 @@ export default async function ContractorsPage() {
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) — it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report] = await Promise.all([
+  const [payStats, report, reliability] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
+    getContractorReliability(),
   ]);
   const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
   if (report) {
@@ -99,6 +108,25 @@ export default async function ContractorsPage() {
                 <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>
                   {c.status}
                 </div>
+                {(() => {
+                  const rel = reliability.get(c.id);
+                  if (!rel) return null;
+                  const parts: string[] = [`${rel.completed} done`];
+                  if (rel.onTime + rel.late > 0) parts.push(`${Math.round((rel.onTime / (rel.onTime + rel.late)) * 100)}% on-time`);
+                  if (rel.reworked) parts.push(`${rel.reworked} redo`);
+                  if (rel.flaked) parts.push(`${rel.flaked} flaked`);
+                  return (
+                    <div style={{ textAlign: 'right', minWidth: 120 }}>
+                      <span
+                        title="Reliability: completion 50% + on-time 30% + low-rework 20%"
+                        style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[rel.tier], border: `1px solid ${TIER_TINT[rel.tier]}`, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}
+                      >
+                        {TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}
+                      </span>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 3 }}>{parts.join(' · ')}</div>
+                    </div>
+                  );
+                })()}
                 {(() => {
                   const ps = payStats.get(c.id);
                   const books = booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name));
