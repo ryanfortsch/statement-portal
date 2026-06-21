@@ -8,14 +8,24 @@ import { InspectionCalendar } from './InspectionCalendar';
 
 export const dynamic = 'force-dynamic';
 
-const STATUS_LABEL: Record<string, string> = {
-  published: 'Open for claim',
-  claimed: 'Claimed',
-  in_progress: 'In progress',
-  submitted: 'Needs review',
-  approved: 'Approved',
-  cancelled: 'Cancelled',
-};
+function statusChip(status: string): { label: string; bg: string; color: string } {
+  switch (status) {
+    case 'published':
+      return { label: 'Open · unclaimed', bg: 'rgba(186,117,23,0.14)', color: '#7a5512' };
+    case 'claimed':
+      return { label: 'Claimed', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
+    case 'in_progress':
+      return { label: 'In progress', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
+    case 'submitted':
+      return { label: 'Needs review', bg: 'rgba(200,90,58,0.14)', color: 'var(--signal)' };
+    case 'approved':
+      return { label: 'Approved', bg: 'rgba(63,153,34,0.16)', color: 'var(--positive)' };
+    case 'cancelled':
+      return { label: 'Cancelled', bg: 'rgba(30,46,52,0.06)', color: 'var(--ink-4)' };
+    default:
+      return { label: status, bg: 'rgba(30,46,52,0.06)', color: 'var(--ink-4)' };
+  }
+}
 
 function fmtDate(d: string): string {
   try {
@@ -138,11 +148,16 @@ function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: bool
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
         </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.status === 'approved' ? 'var(--positive)' : 'var(--signal)' }}>
-          {STATUS_LABEL[p.status] ?? p.status}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
+        {(() => {
+          const c = statusChip(p.status);
+          return (
+            <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
+              {c.label}
+            </span>
+          );
+        })()}
+        <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
           {dollars(p.posted_price_cents)}
           {who ? ` · ${who}` : ''}
           {p.status === 'approved' && p.paid_at ? ' · paid' : ''}
