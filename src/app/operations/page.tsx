@@ -679,26 +679,33 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             assignedToEmail={t.plan?.assigned_to_email ?? null}
             myEmail={myEmail}
           />
-          <form action={startInspection} style={{ margin: 0 }}>
-            <input type="hidden" name="property_id" value={t.propertyId} />
-            <button
-              type="submit"
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.16em',
-                textTransform: 'uppercase',
-                padding: '9px 16px',
-                border: 'none',
-                cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-              Start Inspection
-            </button>
-          </form>
+          {/* Hide the staff Start-Inspection CTA when a Field packet already
+              covers this turnover — otherwise a staff walk + a contractor walk
+              both happen (and the contractor gets paid for it). The Field chip
+              in the status column shows who's covering it; cancel the packet to
+              take it back. */}
+          {!t.fieldPacket && (
+            <form action={startInspection} style={{ margin: 0 }}>
+              <input type="hidden" name="property_id" value={t.propertyId} />
+              <button
+                type="submit"
+                style={{
+                  background: 'var(--ink)',
+                  color: 'var(--paper)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: '0.16em',
+                  textTransform: 'uppercase',
+                  padding: '9px 16px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Start Inspection
+              </button>
+            </form>
+          )}
         </div>
       )}
     </div>

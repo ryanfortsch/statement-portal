@@ -71,7 +71,11 @@ export default async function PacketPage({
 
   const isMine = packet.awarded_contractor_id === contractor.id;
   if (!isMine && packet.status !== 'published') redirect('/field');
-  if (isMine) {
+  // Reveal door/access codes only while the contractor is actively engaged
+  // (claimed or in progress) — never after they submit/approve/cancel, so a
+  // departed or cancelled inspector can't keep live codes for an owner's home.
+  const canSeeAccess = isMine && (packet.status === 'claimed' || packet.status === 'in_progress');
+  if (canSeeAccess) {
     packet = (await loadPacketDetail(packetId, { revealAccess: true }))!;
   }
 

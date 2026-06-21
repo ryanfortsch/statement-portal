@@ -64,7 +64,10 @@ function mergeAccess(p: FieldProperty, access: PropertyAccess | undefined): Fiel
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  // America/New_York local date. Using UTC here rolled "today" to tomorrow
+  // every evening (~7-8pm ET until midnight UTC) — exactly when the operator
+  // plans the next day — dropping same-day windows and inventing phantom ones.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
 function addDays(base: string, n: number): string {
   const d = new Date(`${base}T00:00:00Z`);
@@ -256,7 +259,7 @@ export async function suggestPackets(
   const { data: activeStops } = await fieldDb()
     .from('packet_stops')
     .select('property_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
   const committed = new Set(((activeStops ?? []) as { property_id: string }[]).map((s) => s.property_id));
 
   const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
@@ -475,10 +478,10 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
   const availableRaw = (
     await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id)))
   ).filter(Boolean) as PacketDetail[];
+  // Access codes are never loaded into the marketplace payload — the cards
+  // don't render them, and the detail page reveals them gated on active status.
   const mine = (
-    await Promise.all(
-      ((mineData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id, { revealAccess: true })),
-    )
+    await Promise.all(((mineData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id)))
   ).filter(Boolean) as PacketDetail[];
 
   // "Near you" ranking: attach straight-line distance from the contractor's
@@ -552,6 +555,13 @@ export async function revalidatePacket(
     .maybeSingle();
   const packet = pData as { id: string; status: string; visit_date: string } | null;
   if (!packet) return { removed: 0, remaining: 0, emptied: true };
+
+  // Only revalidate before anyone's pay is locked. Once a packet is claimed,
+  // never silently reprice or delete a contractor's agreed work — a guest's
+  // late booking must surface to the operator, not cut the inspector's pay.
+  if (!['draft', 'published'].includes(packet.status)) {
+    return { removed: 0, remaining: 0, emptied: false };
+  }
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -676,7 +686,7 @@ export async function loadInspectionWorkItems(
   const { data: activeStops } = await fieldDb()
     .from('packet_stops')
     .select('booking_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
   const coveredBookings = new Set(
     ((activeStops ?? []) as { booking_id: string | null }[])
       .map((s) => s.booking_id)
@@ -789,13 +799,35 @@ export async function createPacketFromProperties(args: {
   const cands = await deriveDayCandidates(sel, args.visitDate, args.visitDate);
   const candByProp = new Map(cands.map((c) => [c.propertyId, c]));
 
-  const pts = sel.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
+  // Guard against double-booking a turnover: drop any selected property whose
+  // booking is already in a live packet (a bundle race / double-submit beyond
+  // the client button guard). Bail if nothing valid remains.
+  const { data: activeStops } = await fieldDb()
+    .from('packet_stops')
+    .select('booking_id, inspection_packets!inner(status)')
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
+  const coveredBookings = new Set(
+    ((activeStops ?? []) as { booking_id: string | null }[]).map((s) => s.booking_id).filter((b): b is string => !!b),
+  );
+  const usable = sel.filter((p) => {
+    const c = candByProp.get(p.id);
+    return c && (!c.bookingId || !coveredBookings.has(c.bookingId));
+  });
+  if (usable.length === 0) return null;
+
+  const pts = usable.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
   const order = nearestNeighborOrder(pts);
-  const orderedProps = order.map((i) => sel[i]);
+  const orderedProps = order.map((i) => usable[i]);
   const spread = maxPairwiseMiles(pts);
   const cen = centroid(pts);
   const basePrices = orderedProps.map((p) => p.inspection_base_price_cents ?? 7500);
-  const posted = args.priceCentsOverride ?? priceCents(basePrices, spread);
+  const computed = priceCents(basePrices, spread);
+  // Reject an obviously fat-fingered override (extra/missing zero) — fall back
+  // to the computed price rather than publish a binding mistake to inspectors.
+  let posted = args.priceCentsOverride ?? computed;
+  if (args.priceCentsOverride != null && (args.priceCentsOverride > computed * 5 || args.priceCentsOverride < computed * 0.3)) {
+    posted = computed;
+  }
 
   const { data: packet, error } = await fieldDb()
     .from('inspection_packets')
@@ -905,7 +937,7 @@ export async function loadInspectionCalendar(
   const { data: activeStops } = await fieldDb()
     .from('packet_stops')
     .select('booking_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted']);
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
   const coveredBookings = new Set(
     ((activeStops ?? []) as { booking_id: string | null }[]).map((s) => s.booking_id).filter((b): b is string => !!b),
   );
