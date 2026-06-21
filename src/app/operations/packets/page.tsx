@@ -100,7 +100,7 @@ export default async function PacketsBoard({
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
               Out to contractors · {live.length}
             </h2>
-            <div style={{ borderTop: '1px solid var(--rule)' }}>
+            <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {live.map((p) => (
                 <LiveRow key={p.id} p={p} who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null} />
               ))}
@@ -113,7 +113,7 @@ export default async function PacketsBoard({
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
               Closed · {closed.length}
             </h2>
-            <div style={{ borderTop: '1px solid var(--rule)' }}>
+            <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {closed.map((p) => (
                 <LiveRow key={p.id} p={p} who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null} dim />
               ))}
@@ -130,7 +130,7 @@ function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: bool
   return (
     <Link
       href={`/operations/packets/${p.id}`}
-      style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', alignItems: 'center', gap: 16, textDecoration: 'none', color: 'var(--ink)', opacity: dim ? 0.6 : 1 }}
+      style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 16, textDecoration: 'none', color: 'var(--ink)', opacity: dim ? 0.6 : 1 }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
