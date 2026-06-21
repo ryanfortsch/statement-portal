@@ -28,6 +28,7 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
   const [selDay, setSelDay] = useState<string | null>(null);
   const [selProps, setSelProps] = useState<string[]>([]);
   const [priceStr, setPriceStr] = useState('');
+  const [sending, setSending] = useState(false);
 
   const rowById = new Map(rows.map((r) => [r.propertyId, r]));
 
@@ -162,6 +163,7 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
       {selectedRows.length > 0 && selDay && (
         <form
           action={bundleAndSend}
+          onSubmit={() => setSending(true)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -202,12 +204,14 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
             </div>
             <button
               type="submit"
+              disabled={sending}
               style={{
                 background: 'var(--signal)',
                 color: 'var(--paper)',
                 border: 'none',
                 borderRadius: 8,
-                cursor: 'pointer',
+                cursor: sending ? 'default' : 'pointer',
+                opacity: sending ? 0.6 : 1,
                 fontSize: 12,
                 fontWeight: 600,
                 letterSpacing: '0.08em',
@@ -216,7 +220,7 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
                 whiteSpace: 'nowrap',
               }}
             >
-              Bundle &amp; send →
+              {sending ? 'Sending…' : 'Bundle & send →'}
             </button>
           </div>
         </form>
