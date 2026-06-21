@@ -1,14 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { maxPairwiseMiles } from '@/lib/proximity';
+import { centroid, maxPairwiseMiles } from '@/lib/proximity';
+import { PROXIMITY_MILES, MAX_STOPS, priceCents, isRushVisit } from '@/lib/field-pricing';
 import type { CalRow, InspectionCalendarData } from '@/lib/field-packets';
 import { PacketRouteMap } from '@/app/field/PacketRouteMap';
 import { bundleAndSend } from './actions';
-
-const TRAVEL_PER_MILE_CENTS = 300;
-const PROXIMITY_MILES = 3;
-const MAX_STOPS = 5;
 
 // Greedy proximity clusters of the properties open (inspectable) on a given
 // day. Each cluster is one feasible "one visit"; the largest is the best bundle.
@@ -135,8 +132,14 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
   const selectedRows = selDay ? (selProps.map((id) => rowById.get(id)).filter(Boolean) as CalRow[]) : [];
   const pts = selectedRows.filter((r) => r.lat != null && r.lng != null).map((r) => ({ lat: r.lat!, lng: r.lng! }));
   const spread = pts.length > 1 ? maxPairwiseMiles(pts) : 0;
-  const baseSum = selectedRows.reduce((a, r) => a + r.basePriceCents, 0);
-  const suggestedDollars = Math.round((baseSum + Math.round(spread * TRAVEL_PER_MILE_CENTS)) / 100);
+  const suggestedDollars = Math.round(
+    priceCents({
+      basePrices: selectedRows.map((r) => r.basePriceCents),
+      spreadMiles: spread,
+      center: pts.length > 0 ? centroid(pts) : null,
+      isRush: isRushVisit(selDay),
+    }) / 100,
+  );
   const area = (() => {
     const counts = new Map<string, number>();
     for (const r of selectedRows) {

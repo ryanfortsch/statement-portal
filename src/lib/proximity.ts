@@ -102,3 +102,35 @@ export async function osrmRouteMinutes(waypoints: LatLng[]): Promise<number | nu
     return null;
   }
 }
+
+/**
+ * Drive-time-optimal visiting order via the OSRM trip service (open TSP, fixed
+ * first stop, one-way). Returns indices into `points`. Falls back to the
+ * straight-line nearest-neighbor order on any failure or for tiny/large sets,
+ * so a flaky public router never blocks a bundle.
+ */
+export async function osrmOptimalOrder(points: LatLng[]): Promise<number[]> {
+  const n = points.length;
+  if (n <= 2) return points.map((_, i) => i);
+  if (n > 10) return nearestNeighborOrder(points); // trip service practical ceiling
+  const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
+  const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    if (!r.ok) return nearestNeighborOrder(points);
+    const data = (await r.json()) as {
+      code?: string;
+      waypoints?: Array<{ waypoint_index: number }>;
+    };
+    if (data.code !== 'Ok' || !data.waypoints || data.waypoints.length !== n) {
+      return nearestNeighborOrder(points);
+    }
+    // waypoints[i].waypoint_index = position of input point i in the trip.
+    return data.waypoints
+      .map((w, i) => ({ i, pos: w.waypoint_index }))
+      .sort((a, b) => a.pos - b.pos)
+      .map((x) => x.i);
+  } catch {
+    return nearestNeighborOrder(points);
+  }
+}

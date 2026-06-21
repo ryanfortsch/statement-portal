@@ -19,7 +19,15 @@
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
-import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder } from '@/lib/proximity';
+import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
+import {
+  PROXIMITY_MILES,
+  MAX_STOPS,
+  DEFAULT_BASE_CENTS,
+  baseForProperty,
+  priceCents,
+  isRushVisit,
+} from '@/lib/field-pricing';
 import {
   accessBundle,
   cityShort,
@@ -38,16 +46,14 @@ import {
 const NON_OPERATIONS_PROPERTY_IDS = new Set(['65_calderwood', '3246_ne_27th']);
 const TURNOVER_STATUSES = ['confirmed', 'completed'];
 
-// Clustering knobs.
-const PROXIMITY_MILES = 3; // max straight-line spread within one packet
-const MAX_STOPS = 5;
-const TRAVEL_PER_MILE_CENTS = 300; // small spread premium so dispersed clusters pay a bit more
+// Clustering + pricing knobs now live in @/lib/field-pricing (shared with the
+// operator's live preview so the two can't drift).
 
 // The sensitive access codes (smart_lock_code, key_code_location, gate_code,
 // garage_code, alarm_system) moved to the RLS-locked property_access table;
 // they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
-  'id, name, title, address, city, latitude, longitude, inspection_base_price_cents, ' +
+  'id, name, title, address, city, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
   'guest_access_method, smart_lock_brand, parking';
 
 /** Layer a property's access codes (from property_access) onto the row read
@@ -95,7 +101,12 @@ export async function loadFieldProperties(): Promise<FieldProperty[]> {
     (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id),
   );
   const accessMap = await getPropertyAccessMap(rows.map((p) => p.id));
-  return rows.map((p) => mergeAccess(p, accessMap.get(p.id)));
+  // Fold home size into the per-stop base once, here, so every downstream
+  // consumer (suggest, bundle, preview) reads the same effective price.
+  return rows.map((p) => ({
+    ...mergeAccess(p, accessMap.get(p.id)),
+    inspection_base_price_cents: baseForProperty(p.inspection_base_price_cents, p.bedrooms),
+  }));
 }
 
 type BookingRaw = {
@@ -220,12 +231,6 @@ async function deriveDayCandidates(
   });
 }
 
-function priceCents(basePrices: number[], spreadMiles: number): number {
-  const base = basePrices.reduce((a, b) => a + b, 0);
-  const travel = Math.round(spreadMiles * TRAVEL_PER_MILE_CENTS);
-  return base + travel;
-}
-
 function clusterName(props: FieldProperty[]): string {
   // A tight place label: the dominant shared street/neighborhood, else the
   // town (no "cluster", no state suffix). The stored title appends the stop
@@ -337,7 +342,12 @@ export async function suggestPackets(
         centroidLat: cen?.lat ?? null,
         centroidLng: cen?.lng ?? null,
         maxPairwiseMiles: spread,
-        postedPriceCents: priceCents(stops.map((s) => s.basePriceCents), spread),
+        postedPriceCents: priceCents({
+          basePrices: stops.map((s) => s.basePriceCents),
+          spreadMiles: spread,
+          center: cen,
+          isRush: isRushVisit(day),
+        }),
         suggestionKey: `${day}:${sortedIds.join(',')}`,
         stops,
       });
@@ -816,12 +826,19 @@ export async function createPacketFromProperties(args: {
   if (usable.length === 0) return null;
 
   const pts = usable.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
-  const order = nearestNeighborOrder(pts);
+  // Order the route by real drive time (OSRM trip), falling back to
+  // straight-line nearest-neighbor if the public router is unavailable.
+  const order = await osrmOptimalOrder(pts);
   const orderedProps = order.map((i) => usable[i]);
   const spread = maxPairwiseMiles(pts);
   const cen = centroid(pts);
-  const basePrices = orderedProps.map((p) => p.inspection_base_price_cents ?? 7500);
-  const computed = priceCents(basePrices, spread);
+  const basePrices = orderedProps.map((p) => p.inspection_base_price_cents ?? DEFAULT_BASE_CENTS);
+  const computed = priceCents({
+    basePrices,
+    spreadMiles: spread,
+    center: cen,
+    isRush: isRushVisit(args.visitDate),
+  });
   // Reject an obviously fat-fingered override (extra/missing zero) — fall back
   // to the computed price rather than publish a binding mistake to inspectors.
   let posted = args.priceCentsOverride ?? computed;
