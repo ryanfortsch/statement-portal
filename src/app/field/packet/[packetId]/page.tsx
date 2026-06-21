@@ -7,6 +7,14 @@ import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDe
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
+import { CopyCode } from '../../CopyCode';
+
+function mapsUrl(s: PacketStopDetail): string {
+  if (s.property.latitude != null && s.property.longitude != null) {
+    return `https://www.google.com/maps/search/?api=1&query=${s.property.latitude},${s.property.longitude}`;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.property.address || s.property.name)}`;
+}
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -47,7 +55,7 @@ function AccessLines({ a }: { a: AccessBundle }) {
       {present.map(([k, v]) => (
         <div key={k} style={{ display: 'contents' }}>
           <span style={{ color: 'var(--ink-4)' }}>{k}</span>
-          <span className="font-mono" style={{ color: 'var(--ink)' }}>{v}</span>
+          <CopyCode value={String(v)} mono={k !== 'Parking' && k !== 'Entry'} />
         </div>
       ))}
     </div>
@@ -165,6 +173,16 @@ export default async function PacketPage({
                 {isMine ? s.property.address : s.property.title || s.property.name}
               </div>
               <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s)}</div>
+              {isMine && (
+                <a
+                  href={mapsUrl(s)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-block', marginTop: 4 }}
+                >
+                  Open in Maps ↗
+                </a>
+              )}
               {isMine && s.access && (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--rule)' }}>
                   <AccessLines a={s.access} />

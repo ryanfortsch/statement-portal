@@ -87,6 +87,21 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
   });
 }
 
+export async function sendPaidEmail(contractor: ContractorRow, amountCents: number): Promise<boolean> {
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">You've been paid</h1>
+    <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you for completed inspections. Thanks for the great work — more packets are always posting.</p>
+    ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Payment recorded — ${dollars(amountCents)}`,
+    fromName: FROM_NAME,
+    html,
+    text: `Rising Tide recorded ${dollars(amountCents)} paid to you for completed inspections.`,
+  });
+}
+
 async function resolveQuoFrom(): Promise<string | null> {
   if (!process.env.QUO_API_KEY) return null;
   let from = process.env.QUO_FROM_NUMBER;
