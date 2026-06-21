@@ -872,6 +872,58 @@ export async function createPacketFromProperties(args: {
   return packetId;
 }
 
+// ── Packet review (the real Approve screen) ──────────────────────────
+export type StopReview = {
+  propertyName: string;
+  pass: number;
+  issue: number;
+  na: number;
+  photos: number;
+  issues: string[];
+};
+
+/** Per-stop inspection findings for the office's approve review — pass/issue/
+ *  na counts, photo count, and the titles of flagged issues. */
+export async function loadPacketReview(packetId: string): Promise<StopReview[]> {
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('property_id, inspection_id, walk_order')
+    .eq('packet_id', packetId)
+    .order('walk_order', { ascending: true });
+  const stops = ((sData ?? []) as { property_id: string; inspection_id: string | null }[]).filter((s) => s.inspection_id);
+  if (stops.length === 0) return [];
+  const { data: pData } = await fieldDb()
+    .from('properties')
+    .select('id, name')
+    .in('id', stops.map((s) => s.property_id));
+  const nameById = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+
+  const out: StopReview[] = [];
+  for (const s of stops) {
+    const { data: rData } = await fieldDb()
+      .from('inspection_results')
+      .select('status, photo_urls, item_id')
+      .eq('inspection_id', s.inspection_id!);
+    const rs = (rData ?? []) as { status: string; photo_urls: string[] | null; item_id: string }[];
+    const issueItemIds = rs.filter((r) => r.status === 'issue').map((r) => r.item_id);
+    let issues: string[] = [];
+    if (issueItemIds.length) {
+      const { data: iData } = await fieldDb().from('inspection_items').select('id, title').in('id', issueItemIds);
+      const titleById = new Map(((iData ?? []) as { id: string; title: string }[]).map((i) => [i.id, i.title]));
+      issues = issueItemIds.map((id) => titleById.get(id) ?? 'Issue');
+    }
+    out.push({
+      propertyName: nameById.get(s.property_id) ?? s.property_id,
+      pass: rs.filter((r) => r.status === 'pass').length,
+      issue: rs.filter((r) => r.status === 'issue').length,
+      na: rs.filter((r) => r.status === 'na').length,
+      photos: rs.reduce((a, r) => a + (r.photo_urls?.length ?? 0), 0),
+      issues,
+    });
+  }
+  return out;
+}
+
 // ── Inspection calendar (open-window view) ───────────────────────────
 export type CalCellState = 'open' | 'occupied' | 'blocked';
 export type CalCell = {

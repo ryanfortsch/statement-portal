@@ -115,6 +115,12 @@ export default async function PacketPage({
           A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
         </div>
       )}
+      {isMine && packet.status === 'in_progress' && packet.notes && (
+        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+          <strong style={{ color: 'var(--signal)' }}>Changes requested:</strong>{' '}
+          <span style={{ color: 'var(--ink)' }}>{packet.notes}</span> Please re-do the stops and submit again.
+        </div>
+      )}
 
       {!isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>

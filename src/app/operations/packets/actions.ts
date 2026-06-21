@@ -6,6 +6,7 @@ import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties } from '@/lib/field-packets';
 import { sendInviteEmail, notifyContractorsOfPacket } from '@/lib/field-notify';
+import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -176,7 +177,7 @@ export async function releasePacket(formData: FormData): Promise<void> {
 export async function approvePacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
-  await fieldDb()
+  const { data: approved } = await fieldDb()
     .from('inspection_packets')
     .update({
       status: 'approved',
@@ -185,12 +186,42 @@ export async function approvePacket(formData: FormData): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq('id', packetId)
-    .eq('status', 'submitted');
-  await fieldDb().from('packet_events').insert({
-    packet_id: packetId,
-    actor_email: email,
-    event_type: 'approved',
-  });
+    .eq('status', 'submitted')
+    .select('id')
+    .maybeSingle();
+  if (approved) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'approved' });
+    // The contractor's inspection reports were held at completion — fan them
+    // out to the office now that the work has passed review.
+    const { data: stops } = await fieldDb().from('packet_stops').select('inspection_id').eq('packet_id', packetId);
+    for (const s of (stops ?? []) as { inspection_id: string | null }[]) {
+      if (s.inspection_id) await sendInspectionReportEmail(s.inspection_id).catch(() => {});
+    }
+  }
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Bounce a submitted packet back to the contractor for a redo, with a note.
+ *  Reopens it (in_progress) and resets the stops so they re-inspect; the prior
+ *  inspection rows stay as an audit trail. */
+export async function requestChanges(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const note = String(formData.get('note') || '').trim();
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .update({ status: 'in_progress', notes: note || null, submitted_at: null, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .eq('status', 'submitted')
+    .select('id')
+    .maybeSingle();
+  if (data) {
+    await fieldDb().from('packet_stops').update({ status: 'pending', inspection_id: null }).eq('packet_id', packetId);
+    await fieldDb()
+      .from('packet_events')
+      .insert({ packet_id: packetId, actor_email: email, event_type: 'changes_requested', payload: note ? { note } : null });
+  }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }

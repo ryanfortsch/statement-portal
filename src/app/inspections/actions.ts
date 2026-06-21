@@ -119,17 +119,37 @@ export async function completeInspection(
   const [{ data: results }, { data: insp }] = await Promise.all([
     supabase
       .from('inspection_results')
-      .select('item_id, status')
+      .select('item_id, property_zone_id, status, photo_urls')
       .eq('inspection_id', inspectionId),
     supabase
       .from('inspections')
-      .select('property_id, template_id')
+      .select('property_id, template_id, ordered_cards')
       .eq('id', inspectionId)
       .maybeSingle(),
   ]);
 
-  const allResults = (results ?? []) as { item_id: string; status: InspectionStatus }[];
+  const allResults = (results ?? []) as {
+    item_id: string;
+    property_zone_id: string | null;
+    status: InspectionStatus;
+    photo_urls: string[] | null;
+  }[];
   if (allResults.length === 0) throw new Error('Mark at least one item before completing');
+
+  // Quality floor for EXTERNAL contractors (guest-readiness is the product):
+  // every card must be marked, and every Issue must carry a photo. Staff keep
+  // the lenient one-item minimum.
+  if (actor.kind === 'contractor') {
+    const cards = (insp as { ordered_cards?: unknown[] } | null)?.ordered_cards;
+    const cardCount = Array.isArray(cards) ? cards.length : 0;
+    const markedCards = new Set(allResults.map((r) => `${r.item_id}::${r.property_zone_id ?? '_'}`)).size;
+    if (cardCount > 0 && markedCards < cardCount) {
+      throw new Error(`Mark every card before submitting — ${markedCards} of ${cardCount} done.`);
+    }
+    if (allResults.some((r) => r.status === 'issue' && (!r.photo_urls || r.photo_urls.length === 0))) {
+      throw new Error('Add a photo to each Issue before submitting.');
+    }
+  }
 
   const passCount = allResults.filter((r) => r.status === 'pass').length;
   const issueCount = allResults.filter((r) => r.status === 'issue').length;
@@ -219,11 +239,14 @@ export async function completeInspection(
     if (slipErr) console.warn('[completeInspection] restock slip insert failed', slipErr);
   }
 
-  // Fan the finalized report out to Allie + Ryan. Errors are swallowed inside
-  // the helper so a Resend hiccup never blocks the inspector from finishing.
-  await sendInspectionReportEmail(inspectionId).catch((err) =>
-    console.warn('[completeInspection] report email failed', err),
-  );
+  // Staff: fan the finalized report to Allie + Ryan now. Contractor: HOLD it
+  // until the office approves the packet, so an unreviewed external inspection
+  // isn't broadcast before the QA gate (fired in approvePacket).
+  if (actor.kind !== 'contractor') {
+    await sendInspectionReportEmail(inspectionId).catch((err) =>
+      console.warn('[completeInspection] report email failed', err),
+    );
+  }
 
   revalidatePath('/inspections');
   revalidatePath(`/inspections/${inspectionId}`);

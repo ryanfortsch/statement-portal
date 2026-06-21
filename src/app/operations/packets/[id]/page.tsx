@@ -3,9 +3,9 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketReview } from '@/lib/field-packets';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, removeStop } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +26,9 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const packet = await loadPacketDetail(id, { revealAccess: true });
   if (!packet) notFound();
+
+  const review =
+    packet.status === 'submitted' || packet.status === 'approved' ? await loadPacketReview(id) : [];
 
   const { data: evData } = await fieldDb()
     .from('packet_events')
@@ -56,6 +59,31 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
           </div>
         </div>
+
+        {review.length > 0 && (
+          <div style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
+              Review before approving
+            </div>
+            {review.map((r, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--rule)' : 'none', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 160 }}>
+                  <div className="font-serif" style={{ fontSize: 15 }}>{r.propertyName}</div>
+                  {r.issues.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 2 }}>{r.issues.join(', ')}</div>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--positive)' }}>{r.pass} pass</span>
+                  {r.issue > 0 && <span style={{ color: 'var(--signal)' }}> · {r.issue} issue</span>}
+                  {r.na > 0 && <span> · {r.na} n/a</span>}
+                  {' · '}
+                  {r.photos} {r.photos === 1 ? 'photo' : 'photos'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Price + lifecycle controls */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 18 }}>
@@ -89,6 +117,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <form action={approvePacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <button type="submit" style={btnDark}>Approve packet</button>
+            </form>
+          )}
+          {packet.status === 'submitted' && (
+            <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+              <button type="submit" style={btnGhost}>Request changes</button>
             </form>
           )}
           {packet.status === 'approved' && !packet.paid_at && (
