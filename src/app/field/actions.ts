@@ -176,6 +176,17 @@ export async function claimPacket(formData: FormData) {
   redirect(`/field/packet/${packetId}`);
 }
 
+/** Save the contractor's profile photo URL (uploaded via /api/field/upload). */
+export async function saveProfilePhoto(url: string): Promise<void> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return;
+  await fieldDb()
+    .from('contractors')
+    .update({ photo_url: url || null, updated_at: new Date().toISOString() })
+    .eq('id', contractor.id);
+  revalidatePath('/field');
+}
+
 /** Start (or resume) the inspection for one stop, then drop the contractor
  *  into the existing Stepper. */
 export async function startStopInspection(formData: FormData) {

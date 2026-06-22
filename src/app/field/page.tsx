@@ -5,6 +5,7 @@ import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-pa
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
 import { canClaim, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
+import { ProfilePhoto } from './ProfilePhoto';
 
 const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
 const NEXT_TIER: Record<string, { name: string; at: number }> = {
@@ -223,15 +224,18 @@ export default async function FieldHome({
   return (
     <FieldShell contractorName={contractor.full_name}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
-        <div>
-          <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4 }}>
-            Hi {contractor.full_name.split(' ')[0]}
-          </h1>
-          <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>
-            {available.length > 0
-              ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
-              : 'No open packets right now. Check back soon.'}
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} />
+          <div>
+            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4 }}>
+              Hi {contractor.full_name.split(' ')[0]}
+            </h1>
+            <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>
+              {available.length > 0
+                ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
+                : 'No open packets right now. Check back soon.'}
+            </p>
+          </div>
         </div>
         {pay && (pay.paidCents > 0 || pay.owedCents > 0) && (
           <div style={{ textAlign: 'right' }}>

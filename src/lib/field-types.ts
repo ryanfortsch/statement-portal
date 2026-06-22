@@ -36,6 +36,7 @@ export type ContractorRow = {
   home_lat: number | null;
   home_lng: number | null;
   service_radius_miles: number;
+  photo_url: string | null;
   vendor_key: string | null;
   invited_by_email: string | null;
   last_seen_at: string | null;
