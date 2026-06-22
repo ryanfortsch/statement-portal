@@ -229,10 +229,23 @@ export function sharedArea(p: PacketDetail): string | null {
 /** The card/detail headline: carries what + where. The property name for a
  *  single stop, otherwise "N inspections on <neighborhood>" or "in <town>". */
 export function packetHeadline(p: PacketDetail): string {
-  const noun = p.trade === 'maintenance' ? 'jobs' : p.trade === 'cleaning' ? 'cleans' : 'inspections';
-  if (p.stop_count === 1) return p.stops[0]?.property.name ?? `1 ${noun}`;
+  // Maintenance/cleaning count JOBS, and several jobs can share one home — so
+  // label by distinct homes, never by a "shared street" (which falsely implies
+  // every job is on that street).
+  if (p.trade === 'maintenance' || p.trade === 'cleaning') {
+    const noun = p.trade === 'maintenance' ? 'job' : 'clean';
+    const label = `${p.stop_count} ${p.stop_count === 1 ? noun : `${noun}s`}`;
+    const homes = new Set(p.stops.map((s) => s.property_id)).size;
+    if (homes <= 1) {
+      const name = p.stops[0]?.property.name;
+      return name ? `${label} at ${name}` : label;
+    }
+    return `${label} · ${homes} homes`;
+  }
+  // Inspections: one stop per home, so a shared street/town is accurate.
+  if (p.stop_count === 1) return p.stops[0]?.property.name ?? '1 inspection';
   const area = sharedArea(p);
-  if (area) return `${p.stop_count} ${noun} on ${area}`;
+  if (area) return `${p.stop_count} inspections on ${area}`;
   const city = cityShort(p.stops[0]?.property.city ?? null);
-  return city ? `${p.stop_count} ${noun} in ${city}` : `${p.stop_count} ${noun}`;
+  return city ? `${p.stop_count} inspections in ${city}` : `${p.stop_count} inspections`;
 }
