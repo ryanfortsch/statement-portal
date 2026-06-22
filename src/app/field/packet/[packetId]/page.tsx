@@ -182,6 +182,20 @@ export default async function PacketPage({
         </div>
       )}
 
+      {working && packet.entry_code && (
+        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.06)', padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+              Your entry code today
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Works at every stop. It stops working when you submit.</div>
+          </div>
+          <span className="font-mono" style={{ fontSize: 30, letterSpacing: '0.18em', color: 'var(--tide-deep)' }}>
+            {packet.entry_code}
+          </span>
+        </div>
+      )}
+
       {sp.taken && (
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
           This packet was just claimed by another inspector. Here are others near you on the{' '}

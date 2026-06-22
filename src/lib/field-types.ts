@@ -71,6 +71,7 @@ export type PacketRow = {
   paid_by_email: string | null;
   published_at: string | null;
   notes: string | null;
+  entry_code: string | null;
   auto_generated: boolean;
   suggestion_key: string | null;
   created_by_email: string | null;
