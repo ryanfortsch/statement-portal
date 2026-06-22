@@ -6,6 +6,7 @@ import { Section } from '@/components/Section';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
 import { startInspection } from './actions';
+import { DeleteInspectionButton } from './DeleteInspectionButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -187,46 +188,59 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
     : 'var(--ink-4)';
 
   return (
-    <Link
-      href={`/inspections/${r.id}${isComplete ? '/summary' : ''}`}
+    // Row = a tap-to-open Link plus a sibling Delete control. They can't
+    // nest (a <button> inside an <a> is invalid + double-fires), so the
+    // border lives on this flex wrapper and the grid inside the Link drops
+    // its own. Mobile CSS targets `.rt-inspections-recent-row a > div`.
+    <div
       className="rt-inspections-recent-row"
-      style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+      style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--rule)' }}
     >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '120px 1fr auto auto',
-          gap: 20,
-          alignItems: 'baseline',
-          padding: '18px 0',
-          borderBottom: '1px solid var(--rule)',
-        }}
+      <Link
+        href={`/inspections/${r.id}${isComplete ? '/summary' : ''}`}
+        style={{ flex: 1, minWidth: 0, display: 'block', textDecoration: 'none', color: 'inherit' }}
       >
-        <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-          {formatDateShort(r.started_at)}
-        </span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {r.property_name}
-          </div>
-          <div style={{ marginTop: 2, fontSize: 12, color: 'var(--ink-3)' }}>{r.inspector_name}</div>
-        </div>
-        <span
+        <div
           style={{
-            fontSize: 11,
-            letterSpacing: '.08em',
-            textTransform: 'uppercase',
-            color: summaryColor,
-            whiteSpace: 'nowrap',
+            display: 'grid',
+            gridTemplateColumns: '120px 1fr auto auto',
+            gap: 20,
+            alignItems: 'baseline',
+            padding: '18px 0',
           }}
         >
-          {summary}
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
-          {isComplete ? 'Summary →' : 'Resume →'}
-        </span>
+          <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+            {formatDateShort(r.started_at)}
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.property_name}
+            </div>
+            <div style={{ marginTop: 2, fontSize: 12, color: 'var(--ink-3)' }}>{r.inspector_name}</div>
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+              color: summaryColor,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {summary}
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+            {isComplete ? 'Summary →' : 'Resume →'}
+          </span>
+        </div>
+      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
+        <DeleteInspectionButton
+          inspectionId={r.id}
+          label={`${r.property_name} · ${formatDateShort(r.started_at)}`}
+        />
       </div>
-    </Link>
+    </div>
   );
 }
 

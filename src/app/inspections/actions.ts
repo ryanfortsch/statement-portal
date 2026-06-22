@@ -55,6 +55,43 @@ export async function startInspection(formData: FormData) {
 }
 
 /**
+ * Delete an inspection (an accidental start, a test walk, an abandoned
+ * shell). inspection_results cascade-delete with the row; notes, plans,
+ * work slips, and intermittent history all keep their rows with
+ * inspection_id nulled, so real work slips and pinned property notes
+ * survive a deleted walk. Blocked only when a Field packet stop still
+ * points at the inspection — the operator unbundles it from the packet
+ * first (that FK is ON DELETE NO ACTION and would otherwise throw).
+ */
+export async function deleteInspection(
+  inspectionId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!inspectionId) return { ok: false, error: 'Missing inspection id' };
+
+  const { error } = await supabase.from('inspections').delete().eq('id', inspectionId);
+  if (error) {
+    // packet_stops.inspection_id is ON DELETE NO ACTION, so an inspection
+    // bundled into a Field packet throws a FK violation (23503) rather than
+    // deleting. Surface that as a clear instruction, not a raw constraint
+    // error. (The whole DELETE — including the results cascade — rolls back
+    // atomically on the violation, so there's no partial state to clean up.)
+    if (error.code === '23503') {
+      return {
+        ok: false,
+        error: 'This inspection is part of a Field packet. Remove it from the packet first.',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath('/inspections');
+  revalidatePath('/operations');
+  return { ok: true };
+}
+
+/**
  * Save (or re-save) a single item's result. Used by the mobile stepper
  * for per-card optimistic saves. Idempotent (upserts on
  * inspection_id + item_id) so repeated taps or retries are safe.

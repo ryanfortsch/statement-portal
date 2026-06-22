@@ -273,7 +273,7 @@ export function Stepper({
           onAddSlip={() => setShowWorkSlipModal(true)}
         />
 
-        <section className="max-w-[760px] mx-auto px-6 sm:px-10" style={{ paddingTop: 24, paddingBottom: 120, width: '100%', flex: 1 }}>
+        <section className="max-w-[760px] mx-auto px-6 sm:px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%', flex: 1 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>{propertyName} · {inspectorName}</div>
           <h1 className="font-serif" style={{ fontSize: 36, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em' }}>
             All {total} cards. <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Ready to wrap?</em>
@@ -346,26 +346,31 @@ export function Stepper({
           <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} />
 
           {error && <ErrorBlock error={error} />}
-        </section>
 
-        <BottomBar>
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={isCompleting}
-            style={ghostBtn()}
-          >
-            ← Back
-          </button>
-          <button
-            type="button"
-            onClick={complete}
-            disabled={isCompleting || markedCount === 0}
-            style={{ ...primaryBtn(), opacity: markedCount === 0 ? 0.5 : 1 }}
-          >
-            {isCompleting ? 'Completing…' : 'Complete Inspection →'}
-          </button>
-        </BottomBar>
+          {/* Wrap-up actions sit inline at the end of the page — deliberately
+              NOT a fixed bottom bar. On the review/supplies screen a floating
+              bar overlapped the supplies list and made the bottom hard to
+              reach on a phone; here you just scroll to the end and Complete
+              is right there. */}
+          <div style={{ marginTop: 36, display: 'flex', gap: 10, alignItems: 'stretch' }}>
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={isCompleting}
+              style={ghostBtn()}
+            >
+              ← Back
+            </button>
+            <button
+              type="button"
+              onClick={complete}
+              disabled={isCompleting || markedCount === 0}
+              style={{ ...primaryBtn(), opacity: markedCount === 0 ? 0.5 : 1 }}
+            >
+              {isCompleting ? 'Completing…' : 'Complete Inspection →'}
+            </button>
+          </div>
+        </section>
       </div>
     );
   }
