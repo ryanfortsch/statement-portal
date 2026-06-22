@@ -56,14 +56,15 @@ const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
 
 /** What an inspection visit actually is, in three plain passes — replaces the
  *  vague "guest-readiness walk / Helm Core 12" jargon. */
-function InspectionScope() {
+function InspectionScope({ claimed }: { claimed: boolean }) {
   return (
     <div style={{ marginBottom: 28, maxWidth: 560 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>
         What every visit covers
       </div>
       <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 18 }}>
-        Three quick passes through each home, about 20 minutes. Addresses and entry details unlock the moment you claim.
+        Three quick passes through each home, about 20 minutes.
+        {claimed ? '' : ' Addresses and entry details unlock the moment you claim.'}
       </p>
       {INSPECTION_PILLARS.map((p) => (
         <div key={p.n} style={{ display: 'flex', gap: 16, alignItems: 'baseline', padding: '14px 0', borderTop: '1px solid var(--rule)' }}>
@@ -78,28 +79,40 @@ function InspectionScope() {
   );
 }
 
+// Values like "No" / "None" carry no instruction — drop them so the inspector
+// only sees fields that actually tell them something (no more "Alarm: No").
+const ACCESS_NOISE = new Set(['no', 'none', 'n/a', 'na', '-', '--', 'false', '0', 'n']);
+const ACCESS_CODE_LABELS = new Set(['Door code', 'Gate code', 'Garage code', 'Alarm code']);
+
 function AccessLines({ a }: { a: AccessBundle }) {
   const rows: Array<[string, string | null]> = [
-    ['Entry', a.method],
-    ['Smart lock', a.smartLock],
+    ['Getting in', a.method],
+    ['Door code', a.smartLock],
     ['Lockbox / key', a.lockboxLocation],
     ['Gate code', a.gateCode],
     ['Garage code', a.garageCode],
-    ['Alarm', a.alarm],
-    ['Parking', a.parking],
+    ['Alarm code', a.alarm],
+    ['Where to park', a.parking],
   ];
-  const present = rows.filter(([, v]) => v && String(v).trim());
+  const present = rows.filter(
+    ([, v]) => v && String(v).trim() && !ACCESS_NOISE.has(String(v).trim().toLowerCase()),
+  );
   if (present.length === 0) {
-    return <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>No access details on file — text the office on arrival.</div>;
+    return <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>No entry details on file — text the office when you arrive.</div>;
   }
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13 }}>
-      {present.map(([k, v]) => (
-        <div key={k} style={{ display: 'contents' }}>
-          <span style={{ color: 'var(--ink-4)' }}>{k}</span>
-          <CopyCode value={String(v)} mono={k !== 'Parking' && k !== 'Entry'} />
-        </div>
-      ))}
+    <div>
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 }}>
+        How to get in
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13 }}>
+        {present.map(([k, v]) => (
+          <div key={k} style={{ display: 'contents' }}>
+            <span style={{ color: 'var(--ink-4)' }}>{k}</span>
+            <CopyCode value={String(v)} mono={ACCESS_CODE_LABELS.has(k)} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -179,13 +192,13 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMine && isMaint && (
+      {isMaint && !isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
           Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock
           as soon as you claim.
         </p>
       )}
-      {!isMine && !isMaint && <InspectionScope />}
+      {!isMaint && <InspectionScope claimed={isMine} />}
 
       <PacketRouteMap
         stops={packet.stops.map((s) => ({
