@@ -99,6 +99,17 @@ export default async function PacketsBoard({
   const atRiskPackets = packets.filter((p) => p.status === 'claimed' && daysUntilET(p.visit_date) <= 0);
   const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
 
+  // Live per-packet progress (done stops) for claimed/in-progress packets, so
+  // the office can watch a visit move stop-by-stop on the board.
+  const trackIds = packets.filter((p) => p.status === 'claimed' || p.status === 'in_progress').map((p) => p.id);
+  const progress = new Map<string, number>();
+  if (trackIds.length) {
+    const { data: ps } = await fieldDb().from('packet_stops').select('packet_id, status').in('packet_id', trackIds);
+    for (const r of (ps ?? []) as { packet_id: string; status: string }[]) {
+      if (r.status === 'complete' || r.status === 'skipped') progress.set(r.packet_id, (progress.get(r.packet_id) ?? 0) + 1);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
@@ -172,7 +183,12 @@ export default async function PacketsBoard({
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {live.map((p) => (
-                <LiveRow key={p.id} p={p} who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null} />
+                <LiveRow
+                  key={p.id}
+                  p={p}
+                  who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null}
+                  done={progress.get(p.id) ?? 0}
+                />
               ))}
             </div>
           </div>
@@ -229,9 +245,10 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: boolean }) {
+function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: string | null; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
   const atRisk = p.status === 'claimed' && daysUntilET(p.visit_date) <= 0;
+  const tracking = p.status === 'claimed' || p.status === 'in_progress';
   return (
     <div
       style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, opacity: dim ? 0.6 : 1, flexWrap: 'wrap' }}
@@ -240,6 +257,7 @@ function LiveRow({ p, who, dim }: { p: PacketRow; who: string | null; dim?: bool
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
+          {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
         </div>
       </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>

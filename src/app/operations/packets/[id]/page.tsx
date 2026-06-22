@@ -40,6 +40,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
+  // Live progress, so the office can watch a claimed visit move stop-by-stop.
+  const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
+  const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
+  const trackPct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -59,6 +63,22 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
           </div>
         </div>
+
+        {tracking && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+              <span style={{ color: 'var(--ink-3)' }}>
+                {packet.contractor ? `${packet.contractor.full_name} · ` : ''}{doneCount} of {packet.stops.length} stops done
+              </span>
+              <span style={{ color: packet.status === 'in_progress' ? 'var(--tide-deep)' : 'var(--ink-4)' }}>
+                {packet.status === 'in_progress' ? 'on site' : 'claimed · not started'}
+              </span>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${trackPct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
+            </div>
+          </div>
+        )}
 
         {review.length > 0 && (
           <div style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
