@@ -89,11 +89,11 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
     );
   }
 
-  const propertyColWidth = 144;
-  const dayColMin = 40;
+  const propertyColWidth = 152;
+  const dayColMin = 44;
   const gridTemplate = `${propertyColWidth}px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
   const headerHeight = 48;
-  const rowHeight = 36;
+  const rowHeight = 40;
   // Deterministic width: at most day counts the grid fills the container
   // (1fr stretches the day columns); once 144 + N*40 exceeds the container
   // it hits this floor and scrolls with uniform 40px columns. Using an
@@ -270,6 +270,22 @@ function PropertyCalendarRow({
         const startsVisually =
           !!pm && (i === 0 || prev?.pm?.guesty_reservation_id !== pm.guesty_reservation_id);
 
+        // How many consecutive cells this stay occupies in the visible window.
+        // Used to size the absolute-positioned guest-name label so it spans the
+        // full bar instead of getting clipped inside the start cell. A multi-
+        // night stay walks pm-by-pm until the rid changes; a checkout day (am
+        // set, pm null) is the last cell in the span.
+        let spanCount = 1;
+        if (startsVisually && pm) {
+          const rid = pm.guesty_reservation_id;
+          for (let j = i + 1; j < row.cells.length; j++) {
+            const next = row.cells[j];
+            if (next.am?.guesty_reservation_id !== rid) break;
+            spanCount++;
+            if (next.pm?.guesty_reservation_id !== rid) break; // checkout day caps the span
+          }
+        }
+
         // Channel-tinted fill so the bar's color reads at a glance; deepen it
         // under the today column. color-mix keeps the tint soft against paper.
         const tint = (accent: string) =>
@@ -289,8 +305,9 @@ function PropertyCalendarRow({
               background: isToday ? 'rgba(232, 184, 165, 0.12)' : 'transparent',
               minWidth: 0,
               cursor: primary ? 'help' : 'default',
-              // History columns recede behind today-and-forward.
-              opacity: isPast ? 0.5 : 1,
+              // History columns recede behind today-and-forward. 0.55 keeps
+              // the channel-tint legible against paper at AA.
+              opacity: isPast ? 0.55 : 1,
             }}
           >
             {/* AM (left) half — morning occupant. On a checkout day this is
@@ -335,26 +352,50 @@ function PropertyCalendarRow({
                 }}
               />
             )}
-            {startsVisually && pm && (
-              <span
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  paddingLeft: 7,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: 'var(--ink)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  pointerEvents: 'none',
-                }}
-              >
-                {firstName(pm.guest_name)}
-              </span>
-            )}
+            {startsVisually && pm && (() => {
+              const label = displayLabel(pm.guest_name);
+              const isHold = label === 'Hold';
+              // The bar's visible left edge is mid-cell on a real check-in
+              // (right half filled) and the cell's left edge on a window-edge
+              // already-in-progress stay (both halves filled). Anchor the
+              // label to whichever applies so it always sits ON the bar.
+              const labelLeft = cell.isCheckIn ? 'calc(50% + 7px)' : '7px';
+              return (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: labelLeft,
+                    // Width derived from spanCount * cell-width so the label
+                    // can extend across every cell of this stay without being
+                    // clipped to just the start cell. 14px accounts for the
+                    // 7px left inset + 7px right breathing room before the
+                    // checkout cap. CSS `100%` resolves to one cell's track
+                    // width (every track shares the same 1fr template).
+                    width: `calc(${spanCount} * 100% - 14px)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    letterSpacing: '0.01em',
+                    fontStyle: isHold ? 'italic' : 'normal',
+                    color: isHold ? 'var(--ink-4)' : 'var(--ink)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    // Tooltip lives on each underlying cell; the label must
+                    // never steal hover from the day the cursor is actually on.
+                    pointerEvents: 'none',
+                    // Live stay whose leftmost cell is in the past dims to
+                    // 0.55 via the cell wrapper; the label name stays crisp.
+                    opacity: 1,
+                  }}
+                >
+                  {label}
+                </span>
+              );
+            })()}
           </div>
         );
 
@@ -388,4 +429,16 @@ function firstName(fullName: string | null): string {
   const trimmed = fullName.trim();
   if (!trimmed) return 'Guest';
   return trimmed.split(/\s+/)[0];
+}
+
+/**
+ * Display label for the calendar bar. Same as firstName for real guests, but
+ * normalizes Guesty's placeholder names ('Reservation', 'TBD', 'Guest', 'n/a')
+ * to a styled "Hold" so an unnamed block doesn't read as a literal guest's
+ * first name. The caller italicizes + dims when label === 'Hold' so it reads
+ * as status, not a person.
+ */
+function displayLabel(fullName: string | null): string {
+  const fn = firstName(fullName);
+  return /^(reservation|tbd|guest|n\/a)$/i.test(fn) ? 'Hold' : fn;
 }
