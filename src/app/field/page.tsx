@@ -61,7 +61,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
             {packetHeadline(p)}
           </div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
-            {p.stops.map((s) => s.property.name).join(' · ')}
+            {[...new Set(p.stops.map((s) => s.property.name))].join(' · ')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
             {away}
