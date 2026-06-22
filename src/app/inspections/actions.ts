@@ -254,14 +254,25 @@ export async function completeInspection(
   // A contractor finishing a packet stop returns to their packet hub (the
   // internal summary page is auth-gated). Mark the stop complete on the way.
   if (actor.kind === 'contractor') {
+    // Bind completion to the contractor who was AWARDED the packet — the
+    // inspectionId is client-supplied, so don't trust it on its own (IDOR).
     const { data: stopRow } = await fieldDb()
       .from('packet_stops')
-      .update({ status: 'complete' })
-      .eq('inspection_id', inspectionId)
       .select('packet_id')
+      .eq('inspection_id', inspectionId)
       .maybeSingle();
     const packetId = (stopRow as { packet_id: string } | null)?.packet_id;
-    redirect(packetId ? `/field/packet/${packetId}` : '/field');
+    if (!packetId) redirect('/field');
+    const { data: pk } = await fieldDb()
+      .from('inspection_packets')
+      .select('awarded_contractor_id')
+      .eq('id', packetId)
+      .maybeSingle();
+    if ((pk as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id !== actor.contractorId) {
+      redirect('/field');
+    }
+    await fieldDb().from('packet_stops').update({ status: 'complete' }).eq('inspection_id', inspectionId);
+    redirect(`/field/packet/${packetId}`);
   }
 
   redirect(`/inspections/${inspectionId}/summary`);

@@ -79,7 +79,8 @@ export default async function PacketPage({
 
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
-  if (!isMine && packet.status !== 'published') redirect('/field');
+  // A contractor only sees another's packet if it's published AND their trade.
+  if (!isMine && (packet.status !== 'published' || packet.trade !== contractor.trade)) redirect('/field');
   // Reveal door/access codes only while the contractor is actively engaged
   // (claimed or in progress) — never after they submit/approve/cancel, so a
   // departed or cancelled inspector can't keep live codes for an owner's home.

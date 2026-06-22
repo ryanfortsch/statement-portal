@@ -187,7 +187,10 @@ export async function cancelPacket(formData: FormData): Promise<void> {
   await fieldDb()
     .from('inspection_packets')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-    .eq('id', packetId);
+    .eq('id', packetId)
+    // Never cancel an approved/paid packet — it would vanish from the payout
+    // ledger (getContractorPayStats filters status='approved').
+    .in('status', ['draft', 'published', 'claimed', 'in_progress']);
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
@@ -268,6 +271,20 @@ export async function requestChanges(formData: FormData): Promise<void> {
     .select('id, awarded_contractor_id')
     .maybeSingle();
   if (data) {
+    // Reopen any maintenance work slips this packet had marked done, so the
+    // rejected jobs aren't stuck at 'done' (and re-surface if not redone).
+    const { data: rs } = await fieldDb()
+      .from('packet_stops')
+      .select('work_slip_id')
+      .eq('packet_id', packetId)
+      .not('work_slip_id', 'is', null);
+    const slipIds = ((rs ?? []) as { work_slip_id: string }[]).map((s) => s.work_slip_id);
+    if (slipIds.length) {
+      await fieldDb()
+        .from('work_slips')
+        .update({ status: 'open', completed_at: null, resolution_notes: null, updated_at: new Date().toISOString() })
+        .in('id', slipIds);
+    }
     await fieldDb().from('packet_stops').update({ status: 'pending', inspection_id: null }).eq('packet_id', packetId);
     await fieldDb().from('packet_events').insert({
       packet_id: packetId,
