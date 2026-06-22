@@ -23,6 +23,14 @@ type MyWork = {
   scope?: string | null;
 };
 
+type PlannedWalk = {
+  id: string;
+  propertyName: string;
+  plannedFor: string | null;
+  checkinDate: string;
+  notes: string | null;
+};
+
 // How many items each section shows at once. The query pulls a deeper pool,
 // so clearing one item backfills the next from beyond the window.
 const WORK_WINDOW = 4;
@@ -64,9 +72,10 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [{ work: allWork, mode: workMode }, dismissed] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
+    loadPlannedWalks(email),
   ]);
 
   // Drop cleared items, then pick the window (tasks first, slips spread
@@ -83,7 +92,8 @@ export async function ForMeFeed() {
   const glance = fyi.filter((e) => !dismissed.has(`email:${e.id}`)).slice(0, GLANCE_WINDOW);
 
   const hasReplyItems = replyTotal > 0;
-  const nothing = !hasReplyItems && workFiltered.length === 0 && glance.length === 0;
+  const hasWalks = plannedWalks.length > 0;
+  const nothing = !hasReplyItems && workFiltered.length === 0 && glance.length === 0 && !hasWalks;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -108,6 +118,26 @@ export async function ForMeFeed() {
         </div>
       ) : (
         <>
+          {/* PLANNED WALKS — inspection plans assigned to you for today or
+              the next few days. Sits above "On your plate" because a walk
+              has a fixed clock (you have to be on the property at a specific
+              time) and slips/tasks can shift. Replaces the equivalent
+              section that used to live on the orphan /me page. */}
+          {hasWalks && (
+            <div style={{ marginBottom: 36 }}>
+              <SectionHeaderLink
+                href="/operations"
+                title="Planned walks"
+                eyebrow={`${plannedWalks.length} upcoming`}
+              />
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {plannedWalks.map((w) => (
+                  <PlannedWalkRow key={w.id} walk={w} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* ON YOUR PLATE — work assigned to you, or unassigned work as a
               fallback when you have nothing assigned. The whole header row
               is a link to the broader view (/work filtered to "mine" or
@@ -568,6 +598,68 @@ function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
       </Link>
       <FeedClearButton itemType="inbound" itemId={inboundId(t)} />
     </div>
+  );
+}
+
+/**
+ * Inspection plans assigned to this user, from today forward. Pulls a small
+ * window so the feed shows the upcoming few without burying the rest of the
+ * page; the full schedule lives on /operations. The previous /me page surfaced
+ * these too -- this is where they live now.
+ */
+async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
+  if (!email) return [];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from('inspection_plans')
+      .select('id, property_id, planned_for_date, checkin_date, notes, properties!inner(id, name)')
+      .eq('assigned_to_email', email)
+      .gte('planned_for_date', today)
+      .order('planned_for_date', { ascending: true })
+      .limit(6);
+    return ((data ?? []) as Array<{
+      id: string;
+      property_id: string;
+      planned_for_date: string | null;
+      checkin_date: string;
+      notes: string | null;
+      properties: { id: string; name: string } | { id: string; name: string }[] | null;
+    }>).map((p) => {
+      const prop = Array.isArray(p.properties) ? p.properties[0] : p.properties;
+      return {
+        id: p.id,
+        propertyName: prop?.name ?? p.property_id,
+        plannedFor: p.planned_for_date,
+        checkinDate: p.checkin_date,
+        notes: p.notes,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = walk.plannedFor === today;
+  const isPast = !!walk.plannedFor && walk.plannedFor < today;
+  const dotColor = isPast ? 'var(--negative)' : isToday ? 'var(--signal)' : 'var(--tide-deep)';
+  const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ?? 'upcoming';
+  return (
+    <Link
+      href="/operations"
+      style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{walk.propertyName}</div>
+        <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+          Walk {label} · check-in {walk.checkinDate}
+          {walk.notes ? ` · ${walk.notes}` : ''}
+        </div>
+      </div>
+    </Link>
   );
 }
 

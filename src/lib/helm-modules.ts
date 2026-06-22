@@ -255,17 +255,19 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'reference',
   },
   // ── Parked: built but de-prioritized. Greyed + sorted to the bottom,
-  //    non-clickable in the nav. The routes still resolve by direct URL
-  //    (the Today daily brief is texted to Dotti with a direct link, so
-  //    parking it from the menu doesn't break the morning send). Flip
-  //    `status` back to 'active' to un-park. ──────────────────────────
+  //    non-clickable in the nav. The routes still resolve by direct URL.
+  //    Flip `status` back to 'active' to un-park. ──────────────────────────
   {
+    // /today is the full-expansion view of the home ForMeFeed: same data,
+    // deeper. Un-parked because the morning SMS already links here, so the
+    // parked status was a mismatch. /me was folded into the home feed in
+    // the same pass and now redirects to /.
     id: 'today',
     href: '/today',
     number: '00',
     title: 'Today',
-    description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
-    status: 'parked',
+    description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. The full-expansion view of the home feed; texted every morning.',
+    status: 'active',
     primary: false,
     group: 'operations',
   },

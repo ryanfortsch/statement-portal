@@ -67,6 +67,16 @@ const nextConfig: NextConfig = {
         destination: '/guests/:path*',
         permanent: true,
       },
+
+      // /me folded into the home ForMeFeed (2026-06-21). The "Planned
+      // walks" / "Your work slips" / "Your tasks" sections live on the home
+      // page now; the orphan /me page was deleted. Redirect any stale
+      // bookmark to home so nobody hits a 404.
+      {
+        source: '/me',
+        destination: '/',
+        permanent: true,
+      },
     ];
   },
 };
