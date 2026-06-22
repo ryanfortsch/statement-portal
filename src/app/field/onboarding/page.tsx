@@ -128,6 +128,10 @@ export default async function OnboardingPage({
               <input name="w9_tin" type="text" required inputMode="numeric" autoComplete="off" placeholder="123-45-6789" style={inputStyle} />
             </div>
           </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
+            🔒 Your SSN is encrypted the moment you submit and is visible only to the Rising Tide office, used
+            solely to file your year-end 1099. We never sell or share it.
+          </div>
         </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
