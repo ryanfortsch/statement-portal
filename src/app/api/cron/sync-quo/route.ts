@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { authorizeCron } from '@/lib/cron-auth';
 import { POST as syncQuoPost } from '../../sync-quo/route';
 
@@ -17,10 +16,11 @@ export const maxDuration = 300;
  * phone on a cadence so the feed self-heals. Idempotent (dedup on Quo
  * message/call id), so overlapping windows are safe.
  *
- * Thin in-process wrapper around /api/sync-quo (same pattern as
- * /api/cron/sync-guesty). Also records last_synced_at in sync_status so
- * Quo shows up alongside the other tracked feeds. Auth: optional
- * CRON_SECRET bearer; manual trigger may pass x-helm-manual-sync: 1.
+ * Thin in-process wrapper around /api/sync-quo. sync_status is now written
+ * by the inner route itself via lib/sync-status (one writer per source, so a
+ * partial per-phone failure shows up on the daily brief instead of being
+ * buried in the response). Auth: CRON_SECRET bearer for Vercel Cron, or a
+ * signed-in Helm user for the manual "Sync now" button.
  */
 
 async function handle(request: NextRequest) {
@@ -29,20 +29,7 @@ async function handle(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    const result = await syncQuoPost(request);
-    if (result.ok) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      );
-      await supabase
-        .from('sync_status')
-        .upsert(
-          { source: 'quo', last_synced_at: new Date().toISOString() },
-          { onConflict: 'source' },
-        );
-    }
-    return result;
+    return await syncQuoPost(request);
   } catch (err) {
     console.error('[cron/sync-quo]', err);
     return NextResponse.json(
