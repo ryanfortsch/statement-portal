@@ -4,8 +4,10 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { getContractorPayStats, getContractorReliability } from '@/lib/field-packets';
+import { loadW9Summaries } from '@/lib/field-w9';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
+import { RevealW9 } from './RevealW9';
 import {
   inviteContractor,
   setContractorW9,
@@ -58,10 +60,11 @@ export default async function ContractorsPage() {
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) — it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability] = await Promise.all([
+  const [payStats, report, reliability, w9s] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
+    loadW9Summaries(),
   ]);
   const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
   if (report) {
@@ -166,16 +169,36 @@ export default async function ContractorsPage() {
                         {books?.over ? ' · 1099' : ''} ·{' '}
                         <span style={{ color: books?.w9 ? 'var(--positive)' : 'var(--signal)' }}>{books?.w9 ? 'W-9 on file' : 'no W-9'}</span>
                       </div>
-                      <form action={setContractorW9} style={{ marginTop: 4 }}>
-                        <input type="hidden" name="contractor_id" value={c.id} />
-                        <input type="hidden" name="on_file" value={books?.w9 ? 'false' : 'true'} />
-                        <button
-                          type="submit"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline', padding: 0 }}
-                        >
-                          {books?.w9 ? 'clear W-9' : 'mark W-9 on file'}
-                        </button>
-                      </form>
+                      {(() => {
+                        const w9 = w9s.get(c.id);
+                        if (w9) {
+                          return (
+                            <div style={{ color: 'var(--ink-4)', marginTop: 4, lineHeight: 1.5 }}>
+                              <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
+                              {' · '}{w9.legalName}
+                              {w9.businessName ? ` (${w9.businessName})` : ''}
+                              <div>
+                                {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'} ·{' '}
+                                <RevealW9 contractorId={c.id} />
+                              </div>
+                              <div>{w9.address}</div>
+                            </div>
+                          );
+                        }
+                        // No in-app W-9 yet — keep the manual books flag toggle.
+                        return (
+                          <form action={setContractorW9} style={{ marginTop: 4 }}>
+                            <input type="hidden" name="contractor_id" value={c.id} />
+                            <input type="hidden" name="on_file" value={books?.w9 ? 'false' : 'true'} />
+                            <button
+                              type="submit"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline', padding: 0 }}
+                            >
+                              {books?.w9 ? 'clear W-9' : 'mark W-9 on file'}
+                            </button>
+                          </form>
+                        );
+                      })()}
                     </div>
                   );
                 })()}

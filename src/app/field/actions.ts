@@ -9,6 +9,7 @@ import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-a
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket } from '@/lib/field-packets';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
+import { saveW9 } from '@/lib/field-w9';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
@@ -50,11 +51,30 @@ export async function completeOnboarding(formData: FormData) {
 
   const signedName = String(formData.get('signed_name') || '').trim();
   const agree = formData.get('agree') === 'on';
-  const w9 = formData.get('w9_confirm') === 'on';
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const homeAddress = String(formData.get('home_address') || '').trim();
-  if (!agree || !w9 || signedName.length < 3) {
+  if (!agree || signedName.length < 3) {
+    redirect('/field/onboarding?error=incomplete');
+  }
+
+  // W-9 (stored locked + encrypted; see field-w9). Must save cleanly before we
+  // mark the contractor onboarded.
+  const { ip: signIp } = await reqContext();
+  const w9Error = await saveW9(contractor.id, {
+    legalName: String(formData.get('w9_legal_name') || ''),
+    businessName: String(formData.get('w9_business_name') || ''),
+    taxClassification: String(formData.get('w9_tax_classification') || ''),
+    addressLine: String(formData.get('w9_address') || ''),
+    city: String(formData.get('w9_city') || ''),
+    state: String(formData.get('w9_state') || ''),
+    zip: String(formData.get('w9_zip') || ''),
+    tinType: String(formData.get('w9_tin_type') || '') === 'ein' ? 'ein' : 'ssn',
+    tin: String(formData.get('w9_tin') || ''),
+    signedName,
+    signedIp: signIp,
+  });
+  if (w9Error) {
     redirect('/field/onboarding?error=incomplete');
   }
 
