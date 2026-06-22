@@ -424,9 +424,12 @@ async function stopsWithProperties(
   if (stops.length === 0) return [];
   const ids = [...new Set(stops.map((s) => s.property_id))];
   const { data } = await fieldDb().from('properties').select(PROPERTY_COLS).in('id', ids);
-  const accessMap = await getPropertyAccessMap(ids);
+  // Only fetch + merge the sensitive access codes when we're actually going to
+  // reveal them (an awarded contractor's own packet). Otherwise leave them null
+  // so codes never ride along in a marketplace/unclaimed payload at all.
+  const accessMap = revealAccess ? await getPropertyAccessMap(ids) : null;
   const propById = new Map(
-    ((data ?? []) as unknown as FieldProperty[]).map((p) => [p.id, mergeAccess(p, accessMap.get(p.id))]),
+    ((data ?? []) as unknown as FieldProperty[]).map((p) => [p.id, mergeAccess(p, accessMap?.get(p.id))]),
   );
   // Maintenance stops carry the work slip the contractor is being sent to fix.
   const slipIds = stops.map((s) => s.work_slip_id).filter((v): v is string => !!v);
@@ -574,11 +577,18 @@ export async function revalidatePacket(
 ): Promise<{ removed: number; remaining: number; emptied: boolean }> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
-    .select('id, status, visit_date')
+    .select('id, status, visit_date, trade')
     .eq('id', packetId)
     .maybeSingle();
-  const packet = pData as { id: string; status: string; visit_date: string } | null;
+  const packet = pData as { id: string; status: string; visit_date: string; trade: string } | null;
   if (!packet) return { removed: 0, remaining: 0, emptied: true };
+
+  // The occupancy/vacancy staleness test only makes sense for inspections —
+  // maintenance and cleaning are routinely done with a guest in-house, so never
+  // drop their stops because someone is mid-stay on the visit date.
+  if (packet.trade !== 'inspection') {
+    return { removed: 0, remaining: 0, emptied: false };
+  }
 
   // Only revalidate before anyone's pay is locked. Once a packet is claimed,
   // never silently reprice or delete a contractor's agreed work — a guest's
@@ -613,7 +623,11 @@ export async function revalidatePacket(
 /** Cron helper: re-validate every published packet so the marketplace never
  *  shows a packet a guest has since moved into. */
 export async function revalidatePublishedPackets(): Promise<{ checked: number; changed: number }> {
-  const { data } = await fieldDb().from('inspection_packets').select('id').eq('status', 'published');
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('id')
+    .eq('status', 'published')
+    .eq('trade', 'inspection');
   const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
   let changed = 0;
   for (const id of ids) {
@@ -806,6 +820,65 @@ export async function loadInspectionWorkItems(
  * bookings server-side, so the client's selection is never trusted for
  * timing/price. Publishes immediately when publish=true.
  */
+/**
+ * Build the inspection candidate for a SPECIFIC day per property, mirroring the
+ * calendar's own cell logic (open = not occupied overnight + not blocked), with
+ * the basis/booking derived from the surrounding bookings. Unlike
+ * deriveDayCandidates (which only emits days anchored to a check-in inside the
+ * window), this emits a candidate for any open day the operator picked — so
+ * bundling a normal open day ahead of a future stay works, not just check-in
+ * days.
+ */
+async function candidatesForDay(
+  properties: FieldProperty[],
+  day: string,
+): Promise<Map<string, DayCandidate>> {
+  const propIds = new Set(properties.map((p) => p.id));
+  const { data: bData } = await fieldDb()
+    .from('bookings')
+    .select('id, property_id, check_in, check_out, status')
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
+    .lte('check_in', addDays(day, 365))
+    .gte('check_out', addDays(day, -30));
+  const bookings = ((bData ?? []) as BookingRaw[]).filter(
+    (b) => propIds.has(b.property_id) && b.check_in && b.check_out,
+  );
+  const { data: blkData } = await fieldDb()
+    .from('property_calendar_blocks')
+    .select('property_id, date')
+    .eq('date', day);
+  const blocked = new Set(((blkData ?? []) as { property_id: string; date: string }[]).map((b) => b.property_id));
+
+  const byProp = new Map<string, BookingRaw[]>();
+  for (const b of bookings) {
+    const arr = byProp.get(b.property_id) ?? [];
+    arr.push(b);
+    byProp.set(b.property_id, arr);
+  }
+
+  const out = new Map<string, DayCandidate>();
+  for (const p of properties) {
+    if (blocked.has(p.id)) continue;
+    const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
+    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight
+    const next = pb.find((b) => b.check_in > day) ?? null;
+    const priorCheckout = pb.filter((b) => b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
+    let basis: WindowBasis = 'vacant';
+    if (priorCheckout && day === priorCheckout) basis = 'checkout_day';
+    else if (next && day === next.check_in) basis = 'pre_checkin';
+    out.set(p.id, {
+      propertyId: p.id,
+      day,
+      basis,
+      bookingId: next?.id ?? null,
+      priorCheckout,
+      nextCheckin: next?.check_in ?? null,
+    });
+  }
+  return out;
+}
+
 export async function createPacketFromProperties(args: {
   propertyIds: string[];
   visitDate: string;
@@ -820,8 +893,7 @@ export async function createPacketFromProperties(args: {
     .filter((p): p is FieldProperty => !!p && p.latitude != null && p.longitude != null);
   if (sel.length === 0) return null;
 
-  const cands = await deriveDayCandidates(sel, args.visitDate, args.visitDate);
-  const candByProp = new Map(cands.map((c) => [c.propertyId, c]));
+  const candByProp = await candidatesForDay(sel, args.visitDate);
 
   // Guard against double-booking a turnover: drop any selected property whose
   // booking is already in a live packet (a bundle race / double-submit beyond
@@ -1041,7 +1113,7 @@ export async function createMaintenancePacket(args: {
     .single();
   if (error || !packet) return null;
   const packetId = (packet as { id: string }).id;
-  await fieldDb()
+  const { error: stopErr } = await fieldDb()
     .from('packet_stops')
     .insert(
       orderedSlips.map((s, i) => ({
@@ -1056,6 +1128,11 @@ export async function createMaintenancePacket(args: {
         walk_order: i,
       })),
     );
+  // Never leave a stop-less packet to be published + texted to contractors.
+  if (stopErr) {
+    await fieldDb().from('inspection_packets').delete().eq('id', packetId);
+    return null;
+  }
   return packetId;
 }
 

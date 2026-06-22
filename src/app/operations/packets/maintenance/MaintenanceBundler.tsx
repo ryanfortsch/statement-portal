@@ -103,7 +103,7 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
               Day
-              <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} style={inDate} />
+              <input type="date" name="visit_date" required value={date} onChange={(e) => setDate(e.target.value)} style={inDate} />
             </label>
             <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
               Pay $

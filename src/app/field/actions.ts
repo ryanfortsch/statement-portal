@@ -123,6 +123,7 @@ export async function claimPacket(formData: FormData) {
     })
     .eq('id', packetId)
     .eq('status', 'published')
+    .eq('trade', contractor.trade) // a contractor can only claim work of their own trade
     .select('*')
     .maybeSingle();
 
@@ -176,6 +177,9 @@ export async function startStopInspection(formData: FormData) {
     .maybeSingle();
   const stop = sData as PacketStopRow | null;
   if (!stop) redirect(`/field/packet/${packetId}`);
+  // Never run the inspection deck on a maintenance stop (it has a work slip,
+  // not a Helm-Core walk) — guards cross-trade claims + deleted-slip edges.
+  if (stop.work_slip_id) redirect(`/field/packet/${packetId}`);
 
   // Resume if already started.
   if (stop.inspection_id) {
