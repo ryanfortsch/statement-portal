@@ -5,8 +5,14 @@ import { channelAccent } from '@/lib/channel-style';
 import type { CalendarData } from '@/lib/operations';
 
 /**
- * Portfolio occupancy calendar: one row per property, one column per day,
- * reservation blocks colored by channel with a hoverable detail tooltip.
+ * Portfolio occupancy calendar: one row per property, one column per day.
+ * Stays render as channel-tinted bars using the half-cell model every
+ * booking calendar uses — a bar starts at the CENTER of its check-in day
+ * (right half filled) and ends at the CENTER of its check-out day (left
+ * half filled). That makes check-ins and, critically, check-outs legible:
+ * a checkout is a bar ending mid-cell, not an empty square that looks like
+ * a plain vacancy. A same-day turnover shows both halves of one cell filled
+ * (departing guest left, arriving guest right). Hover any bar for details.
  * Server-rendered. Shared by the /operations (Turnovers) page and the home
  * dashboard so both stay in lockstep.
  *
@@ -27,8 +33,8 @@ const CHANNEL_LEGEND: { label: string; channel: string }[] = [
 export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
   return (
     <div>
-      {/* Channel legend — decodes the colored spine on each block. */}
-      <div className="flex items-center flex-wrap" style={{ gap: 14, marginBottom: 12 }}>
+      {/* Channel legend — decodes the bar tint on each stay. */}
+      <div className="flex items-center flex-wrap" style={{ gap: 14, marginBottom: 6 }}>
         {CHANNEL_LEGEND.map((c) => (
           <span
             key={c.channel}
@@ -39,16 +45,21 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
               aria-hidden
               style={{
                 display: 'inline-block',
-                width: 10,
-                height: 3,
-                borderRadius: 2,
-                background: channelAccent(c.channel),
+                width: 14,
+                height: 8,
+                borderRadius: 3,
+                background: `color-mix(in srgb, ${channelAccent(c.channel)} 26%, var(--paper))`,
+                boxShadow: `inset 3px 0 0 ${channelAccent(c.channel)}`,
               }}
             />
             {c.label}
           </span>
         ))}
       </div>
+      {/* One-line read of the bar grammar so checkouts aren't a guessing game. */}
+      <p style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', marginBottom: 12 }}>
+        Each bar runs check-in &rarr; check-out. A bar ending mid-cell is a checkout that day.
+      </p>
       {calendar.days.length - calendar.todayIndex > 7 && (
         <p
           style={{
@@ -244,73 +255,110 @@ function PropertyCalendarRow({
       {row.cells.map((cell, i) => {
         const isToday = i === todayIndex;
         const isPast = i < todayIndex;
-        const occupied = !!cell.reservation;
-        // Connect adjacent cells of the same reservation: only the FIRST cell
-        // of a reservation gets a left rule, so the visual block reads as one.
-        const prevCell = i > 0 ? row.cells[i - 1] : null;
-        const sameAsPrev =
-          occupied &&
-          !!prevCell?.reservation &&
-          prevCell.reservation.guesty_reservation_id === cell.reservation!.guesty_reservation_id;
+        const { am, pm } = cell;
+        const prev = i > 0 ? row.cells[i - 1] : null;
 
-        const bg = occupied
-          ? isToday
-            ? 'var(--paper-3)'
-            : 'var(--paper-2)'
-          : isToday
-            ? 'rgba(232, 184, 165, 0.18)' // signal-soft @ 18% for today vacancy
-            : 'transparent';
+        // A stay runs seamlessly across a midnight when the same guest sleeps
+        // both nights (prev.pm === cell.am). Suppress the day separator there
+        // so a multi-night stay reads as one continuous bar; keep the rule
+        // everywhere else so vacant days and bar ends sit on a clean grid.
+        const continuousLeft =
+          !!am && !!prev?.pm && am.guesty_reservation_id === prev.pm.guesty_reservation_id;
 
-        // First visible cell of a reservation block gets a colored "spine"
-        // in its channel accent — drawn as an inset box-shadow (not a wider
-        // border) so it never perturbs the box model / column widths — plus
-        // the guest's first name. Keyed off visibility rather than
-        // cell.isCheckIn so a stay that began before the window's lookback
-        // edge still gets labeled where its bar enters the grid.
-        const blockStart = occupied && !sameAsPrev;
+        // Label the bar at its visible start: a real check-in, or the window's
+        // left edge for a stay already in progress.
+        const startsVisually =
+          !!pm && (i === 0 || prev?.pm?.guesty_reservation_id !== pm.guesty_reservation_id);
+
+        // Channel-tinted fill so the bar's color reads at a glance; deepen it
+        // under the today column. color-mix keeps the tint soft against paper.
+        const tint = (accent: string) =>
+          `color-mix(in srgb, ${accent} ${isToday ? 38 : 26}%, var(--paper))`;
+        const BAR_INSET = 8; // vertical breathing room → bar floats in the row
+        const RADIUS = 5;
+
+        const primary = pm ?? am; // the reservation the hover tooltip describes
         const cellInner = (
           <div
             style={{
+              position: 'relative',
               boxSizing: 'border-box',
               height: rowHeight,
               borderBottom: rowBorder,
-              borderLeft: sameAsPrev ? 'none' : '1px solid var(--rule-soft)',
-              boxShadow: blockStart
-                ? `inset 3px 0 0 ${channelAccent(cell.reservation!.channel)}`
-                : undefined,
-              background: bg,
-              padding: '0 6px',
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: 11,
-              color: 'var(--ink)',
-              overflow: 'hidden',
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
+              borderLeft: continuousLeft ? 'none' : '1px solid var(--rule-soft)',
+              background: isToday ? 'rgba(232, 184, 165, 0.12)' : 'transparent',
               minWidth: 0,
-              cursor: occupied ? 'help' : 'default',
-              // Match the dimmed header: history cells stay visible (the
-              // point of the lookback is seeing a bar already in motion)
-              // but recede behind today-and-forward.
+              cursor: primary ? 'help' : 'default',
+              // History columns recede behind today-and-forward.
               opacity: isPast ? 0.5 : 1,
             }}
           >
-            {blockStart && cell.reservation ? (
+            {/* AM (left) half — morning occupant. On a checkout day this is
+                the departing guest and the bar ENDS here: rounded + capped at
+                the cell's center, which is the whole point — checkouts become
+                visible instead of looking like a plain vacancy. */}
+            {am && (
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  top: BAR_INSET,
+                  bottom: BAR_INSET,
+                  left: 0,
+                  width: '50%',
+                  background: tint(channelAccent(am.channel)),
+                  borderTopRightRadius: cell.isCheckOut ? RADIUS : 0,
+                  borderBottomRightRadius: cell.isCheckOut ? RADIUS : 0,
+                  boxShadow: cell.isCheckOut
+                    ? `inset -3px 0 0 ${channelAccent(am.channel)}`
+                    : undefined,
+                }}
+              />
+            )}
+            {/* PM (right) half — night occupant. On a check-in day the bar
+                STARTS here: rounded + capped at the cell's center. */}
+            {pm && (
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  top: BAR_INSET,
+                  bottom: BAR_INSET,
+                  right: 0,
+                  width: '50%',
+                  background: tint(channelAccent(pm.channel)),
+                  borderTopLeftRadius: cell.isCheckIn ? RADIUS : 0,
+                  borderBottomLeftRadius: cell.isCheckIn ? RADIUS : 0,
+                  boxShadow: cell.isCheckIn
+                    ? `inset 3px 0 0 ${channelAccent(pm.channel)}`
+                    : undefined,
+                }}
+              />
+            )}
+            {startsVisually && pm && (
               <span
                 style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  paddingLeft: 7,
+                  fontSize: 11,
                   fontWeight: 500,
                   color: 'var(--ink)',
+                  whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  pointerEvents: 'none',
                 }}
               >
-                {firstName(cell.reservation.guest_name)}
+                {firstName(pm.guest_name)}
               </span>
-            ) : null}
+            )}
           </div>
         );
 
-        if (!occupied || !cell.reservation) {
+        if (!primary) {
           return <div key={cell.date}>{cellInner}</div>;
         }
 
@@ -318,13 +366,13 @@ function PropertyCalendarRow({
           <CalendarCellTooltip
             key={cell.date}
             data={{
-              guestName: cell.reservation.guest_name,
-              channel: cell.reservation.channel,
-              checkIn: cell.reservation.check_in,
-              checkOut: cell.reservation.check_out,
-              nights: cell.reservation.nights,
-              hostPayout: cell.reservation.host_payout,
-              confirmationCode: cell.reservation.confirmation_code,
+              guestName: primary.guest_name,
+              channel: primary.channel,
+              checkIn: primary.check_in,
+              checkOut: primary.check_out,
+              nights: primary.nights,
+              hostPayout: primary.host_payout,
+              confirmationCode: primary.confirmation_code,
             }}
           >
             {cellInner}
