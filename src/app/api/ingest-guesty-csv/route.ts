@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
 // Property matching -- keep in sync with statements/render/page.tsx
 const LISTING_MATCH: Record<string, string> = {
@@ -266,12 +267,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Track sync status
-    await sb.from('sync_status').upsert(
-      { source: 'csv-fallback', last_synced_at: new Date().toISOString(), last_result: {
-        parsed, unmatched, reservations: reservationsUpserted, reviews: reviewsUpserted,
-      } },
-    );
+    // Track sync status. csv-fallback is on-demand (no cron pulls it), so
+    // daily-brief's EXPECTED_FEEDS gives it maxAge null: stale here doesn't
+    // false-positive the brief between uploads.
+    await recordSyncSuccess('csv-fallback', {
+      parsed,
+      unmatched,
+      reservations: reservationsUpserted,
+      reviews: reviewsUpserted,
+    });
 
     return NextResponse.json({
       success: true,
@@ -283,6 +287,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('ingest-guesty-csv error:', err);
+    await recordSyncFailure('csv-fallback', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

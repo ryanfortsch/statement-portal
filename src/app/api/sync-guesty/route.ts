@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -579,18 +580,28 @@ export async function POST(request: NextRequest) {
     const token = await getGuestyToken();
     const sb = getSupabase();
 
-    // Listings
+    // Listings. Wrapped in its own try/catch so a refreshListingMap throw
+    // (an expired Guesty token, a scope reduction, a 5xx) no longer cascades
+    // and silently aborts reviews + reservations + calendar with NO sync
+    // failure recorded for ANY guesty-* source. On a listings failure we
+    // record the failure, fall back to the cached listingMap, and continue
+    // with the rest of the sync so the rest of the dashboards stay current.
     let mapped = 0;
     let listingMap: Record<string, string> = {};
     let unmatchedListings: UnmatchedListing[] = [];
     if (refreshMap) {
-      const { rows, unmatched } = await refreshListingMap(token);
-      mapped = rows.length;
-      unmatchedListings = unmatched;
-      rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
-      await sb.from('sync_status').upsert(
-        { source: 'guesty-listings', last_synced_at: new Date().toISOString(), last_result: { mapped, unmatched_count: unmatched.length, unmatched } },
-      );
+      try {
+        const { rows, unmatched } = await refreshListingMap(token);
+        mapped = rows.length;
+        unmatchedListings = unmatched;
+        rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
+        await recordSyncSuccess('guesty-listings', { mapped, unmatched_count: unmatched.length, unmatched });
+      } catch (err) {
+        await recordSyncFailure('guesty-listings', err);
+        // Fall back to the cached map so reviews/reservations/calendar still run.
+        listingMap = await loadListingMap();
+        mapped = Object.keys(listingMap).length;
+      }
     } else {
       listingMap = await loadListingMap();
       mapped = Object.keys(listingMap).length;
@@ -600,11 +611,10 @@ export async function POST(request: NextRequest) {
     let reviewsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
     try {
       reviewsResult = await syncReviews(token, listingMap, sinceReviewsIso);
-      await sb.from('sync_status').upsert(
-        { source: 'guesty-reviews', last_synced_at: new Date().toISOString(), last_result: reviewsResult },
-      );
+      await recordSyncSuccess('guesty-reviews', reviewsResult);
     } catch (err) {
       reviewsResult = { error: err instanceof Error ? err.message : String(err) };
+      await recordSyncFailure('guesty-reviews', err);
     }
 
     // Auto-create work slips for any actionable reviews (below-five or
@@ -622,11 +632,10 @@ export async function POST(request: NextRequest) {
     let reservationsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
     try {
       reservationsResult = await syncReservations(token, listingMap, sinceReservationsIso);
-      await sb.from('sync_status').upsert(
-        { source: 'guesty-reservations', last_synced_at: new Date().toISOString(), last_result: reservationsResult },
-      );
+      await recordSyncSuccess('guesty-reservations', reservationsResult);
     } catch (err) {
       reservationsResult = { error: err instanceof Error ? err.message : String(err) };
+      await recordSyncFailure('guesty-reservations', err);
     }
 
     // Calendar blocks (seasonal closures, manual date blocks). Pull a
@@ -643,11 +652,10 @@ export async function POST(request: NextRequest) {
       const startDate = calStart.toISOString().slice(0, 10);
       const endDate = calEnd.toISOString().slice(0, 10);
       calendarResult = await syncCalendarBlocks(token, listingMap, startDate, endDate);
-      await sb.from('sync_status').upsert(
-        { source: 'guesty-calendar', last_synced_at: new Date().toISOString(), last_result: calendarResult },
-      );
+      await recordSyncSuccess('guesty-calendar', calendarResult);
     } catch (err) {
       calendarResult = { error: err instanceof Error ? err.message : String(err) };
+      await recordSyncFailure('guesty-calendar', err);
     }
 
     return NextResponse.json({

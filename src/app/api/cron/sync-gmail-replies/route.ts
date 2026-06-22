@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { authorizeCron } from '@/lib/cron-auth';
+import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -336,12 +337,13 @@ async function handle(request: NextRequest) {
     } catch (err) {
       console.error('[cron/sync-gmail-replies] triage sync failed', err);
     }
-    await getSupabase()
-      .from('sync_status')
-      .upsert({ source: 'gmail-replies', last_synced_at: new Date().toISOString() }, { onConflict: 'source' });
+    // Per the plan, the triage sub-sync's own try/catch is intentional and
+    // gmail-replies status reflects only the primary syncContactEmails call.
+    await recordSyncSuccess('gmail-replies', { window, ...result });
     return NextResponse.json({ ok: true, window, ...result, triage: triageSummary });
   } catch (err) {
     console.error('[cron/sync-gmail-replies]', err);
+    await recordSyncFailure('gmail-replies', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
