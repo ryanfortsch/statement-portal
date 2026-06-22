@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
+import { revokePacketCodes } from '@/lib/field-locks';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
@@ -191,6 +192,7 @@ export async function cancelPacket(formData: FormData): Promise<void> {
     // Never cancel an approved/paid packet — it would vanish from the payout
     // ledger (getContractorPayStats filters status='approved').
     .in('status', ['draft', 'published', 'claimed', 'in_progress']);
+  await revokePacketCodes(packetId).catch(() => {}); // pull any live door codes
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
@@ -222,6 +224,7 @@ export async function releasePacket(formData: FormData): Promise<void> {
     await fieldDb()
       .from('packet_events')
       .insert({ packet_id: packetId, contractor_id: releasedContractorId, actor_email: email, event_type: 'released' });
+    await revokePacketCodes(packetId).catch(() => {}); // released inspector loses the door codes
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/operations/packets');

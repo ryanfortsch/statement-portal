@@ -8,6 +8,7 @@ import { geocodeAddress } from '@/lib/geocode';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket } from '@/lib/field-packets';
+import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
@@ -146,6 +147,9 @@ export async function claimPacket(formData: FormData) {
     eventType: 'access_revealed',
   });
   await sendClaimConfirmation(contractor, packet).catch(() => {});
+  // Program the inspector's door code onto the stops' Schlage locks for the
+  // claim→submit window (no-op until Seam + locks are connected).
+  await programPacketCodes(packetId).catch(() => {});
 
   revalidatePath('/field');
   revalidatePath(`/field/packet/${packetId}`);
@@ -313,6 +317,8 @@ export async function submitPacket(formData: FormData) {
     eventType: 'submitted',
   });
   await sendPacketSubmittedEmail(contractor, packet).catch(() => {});
+  // Work is in for review — pull the inspector's door codes back off the locks.
+  await revokePacketCodes(packetId).catch(() => {});
 
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);

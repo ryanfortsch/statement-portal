@@ -160,6 +160,47 @@ export async function getDevice(deviceId: string): Promise<SeamDevice | null> {
   return res.device ?? null;
 }
 
+async function seamPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${SEAM_API}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Seam ${path} failed (${res.status}): ${txt}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export type SeamAccessCode = { access_code_id: string; code: string | null; status?: string };
+
+/**
+ * Program a time-bound PIN onto a lock. We always set an end time as a safety
+ * backstop (so a code self-expires even if our explicit revoke is missed), and
+ * also delete it explicitly when the work is done.
+ */
+export async function createAccessCode(args: {
+  deviceId: string;
+  name: string;
+  code: string;
+  startsAt: string;
+  endsAt: string;
+}): Promise<SeamAccessCode | null> {
+  const res = await seamPost<{ access_code: SeamAccessCode }>('/access_codes/create', {
+    device_id: args.deviceId,
+    name: args.name,
+    code: args.code,
+    starts_at: args.startsAt,
+    ends_at: args.endsAt,
+  });
+  return res.access_code ?? null;
+}
+
+export async function deleteAccessCode(accessCodeId: string): Promise<void> {
+  await seamPost('/access_codes/delete', { access_code_id: accessCodeId });
+}
+
 // ── Webhook signature verification (Svix scheme) ────────────────────
 //
 // Seam delivers webhooks via Svix. The signed content is
