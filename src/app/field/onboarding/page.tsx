@@ -130,7 +130,7 @@ export default async function OnboardingPage({
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
             🔒 Your SSN is encrypted the moment you submit and is visible only to the Rising Tide office, used
-            solely to file your year-end 1099. We never sell or share it.
+            solely to file your year-end 1099.
           </div>
         </div>
 
