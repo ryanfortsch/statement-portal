@@ -25,7 +25,13 @@ export async function GET() {
     return NextResponse.json({ count: 0, guests: 0, owners: 0 });
   }
   const [guestRes, ownerRes] = await Promise.all([listApprovals(), listOwnerApprovals()]);
-  const guests = guestRes.ok ? guestRes.data.count : 0;
-  const owners = ownerRes.ok ? ownerRes.data.count : 0;
+  // Count from the approvals ARRAY length, not the response's `count` field.
+  // stay-concierge's `count` has been observed to over-report (e.g. include
+  // recent / dismissed rows, not just truly pending), which made the masthead
+  // badge show wildly more drafts than the messaging pages actually list.
+  // The pages render `data.approvals` directly, so using `.length` here keeps
+  // the badge and the page in lockstep: if the badge says 5, the page shows 5.
+  const guests = guestRes.ok ? guestRes.data.approvals.length : 0;
+  const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
   return NextResponse.json({ count: guests + owners, guests, owners });
 }
