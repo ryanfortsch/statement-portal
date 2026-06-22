@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 /**
  * Cross-property Stripe sync. The "Sync Stripe" button on the dashboard
@@ -117,14 +118,21 @@ export async function POST(request: NextRequest) {
       results.push(result);
     }
 
-    // Log last sync for the dashboard's relative-time badge.
-    await supabase
-      .from('sync_status')
-      .upsert({ source: 'stripe', last_synced_at: new Date().toISOString(), last_result: { month, properties: results.length } });
+    // Log last sync for the dashboard's relative-time badge AND surface any
+    // per-property failure on the daily brief. A single-property bad-key now
+    // lights up sync_status instead of being buried in results[].error.
+    const failed = results.filter((r) => r.error).length;
+    await recordSyncResult('stripe', {
+      processed: results.length - failed,
+      failed,
+      firstError: results.find((r) => r.error)?.error,
+      result: { month, properties: results.length },
+    });
 
     return NextResponse.json({ success: true, month, results });
   } catch (err) {
     console.error('sync-stripe error:', err);
+    await recordSyncFailure('stripe', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }

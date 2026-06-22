@@ -12,6 +12,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { parseIcal, isBookingEvent, guessGuestNameFromIcal, isPlaceholderGuestName } from '@/lib/ical';
 import { CHANNEL_LABELS, type BookingChannel, type BookingSource } from '@/lib/channels-types';
+import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -253,50 +254,73 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
   results: SyncListingResult[];
   dedup: DedupResult | null;
 }> {
-  const sb = getServiceClient();
-  let q = sb
-    .from('channel_listings')
-    .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active');
-  if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
-
-  const { data, error } = await q;
-  if (error) throw new Error(`load channel_listings: ${error.message}`);
-
-  const eligible = (data ?? []).filter(
-    (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url,
-  );
-
-  const results: SyncListingResult[] = [];
-  for (const l of eligible) {
-    const r = await syncListing({
-      listing_id: l.id as string,
-      property_id: l.property_id as string,
-      channel: l.channel as BookingChannel,
-      display_name: l.display_name as string | null,
-      ical_import_url: l.ical_import_url as string,
-    });
-    results.push(r);
-  }
-
-  // A stay can land in `bookings` more than once -- e.g. the same Airbnb
-  // reservation arriving via the iCal feed AND via the guesty_legacy
-  // backfill. Reconcile after every sync so downstream counts, the
-  // calendar, and conflict detection treat each physical stay once.
-  // A dedup failure must not fail the sync itself.
-  let dedup: DedupResult | null = null;
   try {
-    dedup = await dedupeAllBookings();
-  } catch (err) {
-    console.error('[ical-sync] dedupe failed:', err);
-  }
+    const sb = getServiceClient();
+    let q = sb
+      .from('channel_listings')
+      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active');
+    if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
-  return {
-    total: results.length,
-    succeeded: results.filter((r) => r.success).length,
-    failed: results.filter((r) => !r.success).length,
-    results,
-    dedup,
-  };
+    const { data, error } = await q;
+    if (error) throw new Error(`load channel_listings: ${error.message}`);
+
+    const eligible = (data ?? []).filter(
+      (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url,
+    );
+
+    const results: SyncListingResult[] = [];
+    for (const l of eligible) {
+      const r = await syncListing({
+        listing_id: l.id as string,
+        property_id: l.property_id as string,
+        channel: l.channel as BookingChannel,
+        display_name: l.display_name as string | null,
+        ical_import_url: l.ical_import_url as string,
+      });
+      results.push(r);
+    }
+
+    // A stay can land in `bookings` more than once -- e.g. the same Airbnb
+    // reservation arriving via the iCal feed AND via the guesty_legacy
+    // backfill. Reconcile after every sync so downstream counts, the
+    // calendar, and conflict detection treat each physical stay once.
+    // A dedup failure must not fail the sync itself.
+    let dedup: DedupResult | null = null;
+    try {
+      dedup = await dedupeAllBookings();
+    } catch (err) {
+      console.error('[ical-sync] dedupe failed:', err);
+    }
+
+    // Aggregate iCal status into sync_status so the daily brief can flag
+    // "iCal feed N stuck" without scanning the per-listing ical_sync_runs +
+    // channel_listings.last_import_status log. Per-listing details still live
+    // there; sync_status is the watchdog surface.
+    const succeeded = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+    const firstFailed = results.find((r) => !r.success);
+    await recordSyncResult('ical', {
+      processed: succeeded,
+      failed,
+      firstError: firstFailed
+        ? `${firstFailed.display_name ?? firstFailed.listing_id}: ${firstFailed.error ?? 'unknown'}`
+        : undefined,
+      result: { succeeded, failed, total: results.length },
+    });
+
+    return {
+      total: results.length,
+      succeeded,
+      failed,
+      results,
+      dedup,
+    };
+  } catch (err) {
+    // syncAllListings rarely throws hard -- syncListing catches per-listing.
+    // But if loading channel_listings itself fails, surface that.
+    await recordSyncFailure('ical', err);
+    throw err;
+  }
 }
 
 // ── Cross-source dedup ────────────────────────────────────────────────

@@ -25,6 +25,7 @@ import {
   GuestyNotFound,
 } from './guesty-client';
 import { isProxyEmail, type GuestStatus } from './guests-types';
+import { recordSyncFailure, recordSyncSuccess } from './sync-status';
 
 let _sb: SupabaseClient | null = null;
 function sb(): SupabaseClient {
@@ -72,6 +73,12 @@ const DEFAULT_LOOKBACK_DAYS = 730;
 export async function syncGuestyGuestsToList(
   options: { sinceCheckOut?: string; maxGuests?: number } = {},
 ): Promise<GuestSyncResult> {
+  // Wrap the whole body so /api/guests/sync-guesty (manual button) AND
+  // /api/cron/guests-guesty-sync (the safety-net cron) both record a single
+  // 'guesty-guests' failure when an error escapes -- without a try here it
+  // bubbles to two different callers that handle 500s but don't write
+  // sync_status, leaving daily-brief blind. Rethrow so callers still 500.
+  try {
   const t0 = Date.now();
   const errors: string[] = [];
 
@@ -159,20 +166,17 @@ export async function syncGuestyGuestsToList(
     else if (upsertResult === 'updated') updated++;
   }
 
-  // Log to sync_status so /guests can show "last synced X minutes ago".
-  await sb().from('sync_status').upsert({
-    source: 'guesty-guests',
-    last_synced_at: new Date().toISOString(),
-    last_result: {
-      reservations_scanned: reservations.length,
-      unique_guests: uniqueGuestIds.length,
-      fetched_from_guesty: fetched,
-      contacts_with_email: withEmail,
-      inserted,
-      updated,
-      skipped_no_email: skippedNoEmail,
-      errors: errors.slice(0, 20),
-    },
+  // Log to sync_status so /guests can show "last synced X minutes ago" AND
+  // any error escaping this function lights up the daily brief.
+  await recordSyncSuccess('guesty-guests', {
+    reservations_scanned: reservations.length,
+    unique_guests: uniqueGuestIds.length,
+    fetched_from_guesty: fetched,
+    contacts_with_email: withEmail,
+    inserted,
+    updated,
+    skipped_no_email: skippedNoEmail,
+    errors: errors.slice(0, 20),
   });
 
   // Audit event so the /guests timeline shows the import.
@@ -200,6 +204,10 @@ export async function syncGuestyGuestsToList(
     errors,
     duration_ms: Date.now() - t0,
   };
+  } catch (err) {
+    await recordSyncFailure('guesty-guests', err);
+    throw err;
+  }
 }
 
 async function loadPropertyNameMap(): Promise<Record<string, string>> {
