@@ -138,7 +138,18 @@ export default async function ContractorsPage() {
           <div style={{ borderTop: '1px solid var(--rule)' }}>
             {ordered.map((c) => (
               <div key={c.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ flex: 1, minWidth: 200, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {c.photo_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={c.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
+                        {c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+                      </span>
+                    )}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
                   <div className="font-serif" style={{ fontSize: 16 }}>
                     {c.full_name}
                     {c.trade && c.trade !== 'inspection' && (
@@ -175,6 +186,7 @@ export default async function ContractorsPage() {
                       </div>
                     );
                   })()}
+                  </div>
                 </div>
                 <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>
                   {c.status}

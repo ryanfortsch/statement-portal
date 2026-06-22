@@ -66,6 +66,9 @@ const PUBLIC_API_PREFIXES = [
   "/api/owner-outbound-quo",
   "/api/owners-sync",
   "/api/backfill-owner-phones",
+  // Field contractor uploads (profile photo). Self-guards via the contractor
+  // session cookie, not Helm SSO — same auth plane as the /field portal.
+  "/api/field/",
 ];
 
 /**
