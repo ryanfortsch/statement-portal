@@ -111,6 +111,8 @@ export default async function PacketsBoard({
               <Link href="/operations/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs →</Link>
               {' · '}
               <Link href="/operations/contractors" style={{ color: 'var(--tide-deep)' }}>Manage contractors →</Link>
+              {' · '}
+              <Link href="/operations/packets/test" style={{ color: 'var(--tide-deep)' }}>Test console →</Link>
             </div>
           </div>
           <form method="get" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
