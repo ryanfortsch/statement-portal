@@ -6,6 +6,7 @@ import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
 import { revokePacketCodes } from '@/lib/field-locks';
+import { revealTin } from '@/lib/field-w9';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
@@ -14,6 +15,12 @@ async function staffEmail(): Promise<string> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   return session.user.email;
+}
+
+/** Office-only: decrypt a contractor's full TIN for filing their 1099. */
+export async function revealW9(contractorId: string): Promise<string | null> {
+  await staffEmail(); // staff session required
+  return revealTin(contractorId);
 }
 
 /** Run the grouping algorithm over a date window and persist new draft packets. */

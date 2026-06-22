@@ -4,6 +4,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { canClaim } from '@/lib/field-types';
 import { completeOnboarding } from '../actions';
 import { FieldShell } from '../FieldShell';
+import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -51,7 +52,7 @@ export default async function OnboardingPage({
 
       {sp.error && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 13, marginBottom: 20 }}>
-          Please confirm your W-9, accept the agreement, and type your full name.
+          Please complete your W-9, accept the agreement, and type your full name to sign.
         </div>
       )}
 
@@ -72,10 +73,62 @@ export default async function OnboardingPage({
           </span>
         </div>
 
-        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
-          <input type="checkbox" name="w9_confirm" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
-          <span>I will provide a current W-9 for 1099 tax reporting. (The office will collect it before your first payment.)</span>
-        </label>
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Your W-9 (for 1099 tax reporting)</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3, lineHeight: 1.5 }}>
+              Stored securely and seen only by the Rising Tide office. We use it to issue your year-end 1099.
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Legal name (as on your tax return)</label>
+            <input name="w9_legal_name" type="text" required defaultValue={contractor.full_name} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Business name (if different — optional)</label>
+            <input name="w9_business_name" type="text" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Federal tax classification</label>
+            <select name="w9_tax_classification" required defaultValue="" style={inputStyle}>
+              <option value="" disabled>Select one…</option>
+              {TAX_CLASSIFICATIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Street address</label>
+            <input name="w9_address" type="text" required placeholder="123 Main St" style={inputStyle} />
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>City</label>
+              <input name="w9_city" type="text" required style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>State</label>
+              <input name="w9_state" type="text" required maxLength={2} placeholder="MA" style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>ZIP</label>
+              <input name="w9_zip" type="text" required inputMode="numeric" style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Taxpayer ID type</label>
+              <select name="w9_tin_type" required defaultValue="ssn" style={inputStyle}>
+                <option value="ssn">SSN (individual)</option>
+                <option value="ein">EIN (business)</option>
+              </select>
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>SSN or EIN (9 digits)</label>
+              <input name="w9_tin" type="text" required inputMode="numeric" autoComplete="off" placeholder="123-45-6789" style={inputStyle} />
+            </div>
+          </div>
+        </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
           <input type="checkbox" name="agree" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
