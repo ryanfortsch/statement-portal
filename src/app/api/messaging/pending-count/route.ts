@@ -25,15 +25,24 @@ export async function GET() {
     return NextResponse.json({ count: 0, guests: 0, owners: 0 });
   }
   const [guestRes, ownerRes] = await Promise.all([listApprovals(), listOwnerApprovals()]);
-  // Count TRULY-PENDING rows only -- approvals with `resolved_at === null`.
-  // Both the `data.count` field and the raw array length have surfaced as
-  // over-counting (the live owner queue returns 36 in the array when only a
-  // couple are actually waiting, suggesting stay-concierge includes resolved
-  // / dismissed rows in the response). `resolved_at` is the explicit "this
-  // is done" flag on the row itself, so filtering on it gives a stable
-  // "pending" count no matter what stay-concierge decides to include in the
-  // array or in `count` later.
-  const guests = guestRes.ok ? guestRes.data.approvals.filter((a) => !a.resolved_at).length : 0;
-  const owners = ownerRes.ok ? ownerRes.data.approvals.filter((a) => !a.resolved_at).length : 0;
+  // Mirror the messaging PAGES' own filters exactly. Each prior tweak
+  // (data.count, then approvals.length, then resolved_at filter) failed to
+  // match because stay-concierge's array contents drift from what either
+  // page considers "pending." The only definition that stays in sync is:
+  // what the page itself shows.
+  //
+  // Guests (MessagingQueue): everything in approvals minus scheduled rows.
+  //   pending = approvals.filter(a => a.status !== 'scheduled')
+  //
+  // Owners (OwnerMessagingQueue): everything in approvals (no filter).
+  //   pending = approvals
+  //
+  // If the badge says N, open the corresponding tab and you will see N
+  // cards. If those numbers ever diverge again, the fix is to mirror
+  // whatever filter the page added -- not to invent a new definition here.
+  const guests = guestRes.ok
+    ? guestRes.data.approvals.filter((a) => a.status !== 'scheduled').length
+    : 0;
+  const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
   return NextResponse.json({ count: guests + owners, guests, owners });
 }
