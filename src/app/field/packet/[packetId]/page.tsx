@@ -30,11 +30,22 @@ function fmtDate(d: string): string {
   }
 }
 
-function windowLabel(s: PacketStopDetail): string {
-  // Give a real ~4-hour window to operate in, not "all day".
-  if (s.window_basis === 'checkout_day') return 'After the morning checkout · 11am–3pm window';
-  if (s.window_basis === 'pre_checkin') return 'Before the afternoon check-in · finish by 2pm';
-  return 'Anytime in a 4-hour window · 10am–2pm';
+function windowLabel(s: PacketStopDetail, visitDate: string): string {
+  // The window is driven by the cleaning: the inspector goes in AFTER the
+  // cleaner. Cleaning happens the day a guest checks out (~11am checkout,
+  // cleaners wrap roughly 12–3pm). If the home was cleaned on an earlier day
+  // it's been sitting vacant, so anytime works and earlier is better (more
+  // runway to fix anything before the next guest).
+  const checkinToday = !!s.next_checkin && s.next_checkin === visitDate;
+  if (s.window_basis === 'checkout_day') {
+    return checkinToday
+      ? 'Same-day turnover · go in after the cleaner, before the 4pm check-in'
+      : "In after today's cleaning · cleaners usually wrap by ~3pm";
+  }
+  if (s.window_basis === 'pre_checkin' || checkinToday) {
+    return 'Guest checks in at 4pm · inspect in the morning, well before then';
+  }
+  return 'Already cleaned · anytime, mornings are best';
 }
 
 const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
@@ -289,7 +300,7 @@ export default async function PacketPage({
                   {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s)}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s, packet.visit_date)}</div>
               )}
               {isMine && (
                 <a
