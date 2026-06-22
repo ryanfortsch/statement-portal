@@ -4,6 +4,9 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { FieldAvatar } from '@/components/FieldAvatar';
+
+type Who = { name: string; photoUrl: string | null } | null;
 import { InspectionCalendar } from './InspectionCalendar';
 import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPacket } from './actions';
 
@@ -75,11 +78,15 @@ export default async function PacketsBoard({
   const [calendar, packets, { data: cData }] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
-    fieldDb().from('contractors').select('id, full_name'),
+    fieldDb().from('contractors').select('id, full_name, photo_url'),
   ]);
-  const contractorName = new Map(
-    ((cData ?? []) as Pick<ContractorRow, 'id' | 'full_name'>[]).map((c) => [c.id, c.full_name]),
+  const contractorInfo = new Map(
+    ((cData ?? []) as Pick<ContractorRow, 'id' | 'full_name' | 'photo_url'>[]).map((c) => [c.id, c]),
   );
+  const whoOf = (id: string | null): Who => {
+    const c = id ? contractorInfo.get(id) : null;
+    return c ? { name: c.full_name, photoUrl: c.photo_url } : null;
+  };
 
   const live = packets.filter((p) => ['published', 'claimed', 'in_progress', 'submitted'].includes(p.status));
   const closed = packets.filter((p) => ['approved', 'cancelled'].includes(p.status));
@@ -186,7 +193,7 @@ export default async function PacketsBoard({
                 <LiveRow
                   key={p.id}
                   p={p}
-                  who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null}
+                  who={whoOf(p.awarded_contractor_id)}
                   done={progress.get(p.id) ?? 0}
                 />
               ))}
@@ -201,7 +208,7 @@ export default async function PacketsBoard({
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {closed.map((p) => (
-                <LiveRow key={p.id} p={p} who={p.awarded_contractor_id ? contractorName.get(p.awarded_contractor_id) ?? null : null} dim />
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
               ))}
             </div>
           </div>
@@ -245,7 +252,7 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: string | null; dim?: boolean; done?: number }) {
+function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
   const atRisk = p.status === 'claimed' && daysUntilET(p.visit_date) <= 0;
   const tracking = p.status === 'claimed' || p.status === 'in_progress';
@@ -270,10 +277,16 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: string | null; 
             {c.label}
           </span>
         )}
-        <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {dollars(p.posted_price_cents)}
-          {who ? ` · ${who}` : ''}
-          {p.status === 'approved' && p.paid_at ? ' · paid' : ''}
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <span>{dollars(p.posted_price_cents)}</span>
+          {who && (
+            <>
+              <span>·</span>
+              <FieldAvatar name={who.name} url={who.photoUrl} size={18} />
+              <span>{who.name}</span>
+            </>
+          )}
+          {p.status === 'approved' && p.paid_at ? <span>· paid</span> : null}
         </div>
       </div>
       {p.status === 'claimed' && (

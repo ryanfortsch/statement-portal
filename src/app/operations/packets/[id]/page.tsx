@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketReview } from '@/lib/field-packets';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
+import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -53,9 +54,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginTop: 12, borderBottom: '1px solid var(--ink)', paddingBottom: 16, flexWrap: 'wrap' }}>
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{packet.title}</div>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              {fmtDate(packet.visit_date)} · {packet.stop_count} stops
-              {packet.contractor ? ` · ${packet.contractor.full_name}` : ''}
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span>{fmtDate(packet.visit_date)} · {packet.stop_count} stops</span>
+              {packet.contractor && (
+                <>
+                  <span>·</span>
+                  <FieldAvatar name={packet.contractor.full_name} url={packet.contractor.photo_url} size={20} />
+                  <span>{packet.contractor.full_name}</span>
+                </>
+              )}
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
