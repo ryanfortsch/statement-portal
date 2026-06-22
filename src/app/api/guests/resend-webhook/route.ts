@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { GuestEventType, GuestStatus } from '@/lib/guests-types';
 
 export const runtime = 'nodejs';

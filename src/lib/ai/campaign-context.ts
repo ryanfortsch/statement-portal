@@ -5,7 +5,7 @@
  * "Sunset Cottage" or "your subscribers" generically.
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { PROPERTIES, type Property } from '@/lib/properties';
 import { findScaListingByAddress } from '@/lib/sca-listings';
 import { heroUrlForProperty, pageUrlForGuestyListing } from './property-cards';

@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { renderEmail } from '@/lib/email-render';
 import { unsubscribeUrl } from '@/lib/guests-unsubscribe-token';
 import { sendTransactionalViaResend } from '@/lib/resend';

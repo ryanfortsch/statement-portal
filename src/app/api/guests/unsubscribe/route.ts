@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { verifyUnsubscribeToken } from '@/lib/guests-unsubscribe-token';
 import { unsubscribeContactInResend } from '@/lib/resend';
 
