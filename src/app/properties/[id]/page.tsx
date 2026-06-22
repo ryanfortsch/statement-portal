@@ -5,7 +5,7 @@ import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPrope
 import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomizeForm';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { formatUsPhone, telHref } from '@/lib/phone';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { getPropertyAccess } from '@/lib/property-access';

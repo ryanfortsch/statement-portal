@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { WorkSlipRow } from '@/lib/work-types';

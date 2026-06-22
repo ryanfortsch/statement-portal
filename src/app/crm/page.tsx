@@ -1,7 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { CrmListClient } from './CrmListClient';

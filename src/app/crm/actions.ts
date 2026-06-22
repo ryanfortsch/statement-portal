@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { backfillTouchesForPhone } from '@/lib/quo-ingest';
 import type { ContactType, TouchChannel } from '@/lib/crm';
 

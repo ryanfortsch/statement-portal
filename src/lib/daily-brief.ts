@@ -11,7 +11,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   isStayConciergeConfigured,
   listApprovals,

@@ -15,7 +15,7 @@
  * dropdown lean.
  */
 
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';

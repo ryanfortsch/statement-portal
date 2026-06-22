@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, isConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 
 /**
  * Owner touches feed for stay-concierge — both directions, both channels.
