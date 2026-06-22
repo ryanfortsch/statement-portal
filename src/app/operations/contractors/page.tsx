@@ -4,6 +4,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { getContractorPayStats, getContractorReliability } from '@/lib/field-packets';
+import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
@@ -37,6 +38,11 @@ const TIER_TINT: Record<string, string> = {
   top: 'var(--positive)',
 };
 
+// Guest-review reputation tiers (consecutive 5-star streaks).
+const RATING_TIER_LABEL: Record<RatingTier, string> = { unrated: 'Unrated', bronze: 'Bronze', silver: 'Silver', gold: 'Gold' };
+const RATING_TIER_TINT: Record<RatingTier, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
+const NEXT_TIER_NAME: Record<string, string> = { unrated: 'Bronze', bronze: 'Silver', silver: 'Gold' };
+
 export default async function ContractorsPage() {
   if (!isFieldConfigured) {
     return (
@@ -60,16 +66,36 @@ export default async function ContractorsPage() {
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) — it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability, w9s] = await Promise.all([
+  const [payStats, report, reliability, w9s, ratings] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
     loadW9Summaries(),
+    getContractorRatings(),
   ]);
   const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
   if (report) {
     for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
   }
+
+  // Stack-rank by guest-review reputation (tier, then 5-star streak, then
+  // average, then volume); inspectors with reviews float to the top, everyone
+  // else keeps the default newest-first order.
+  const ranked = contractors
+    .filter((c) => (ratings.get(c.id)?.count ?? 0) > 0)
+    .sort((a, b) => {
+      const ra = ratings.get(a.id)!;
+      const rb = ratings.get(b.id)!;
+      return (
+        TIER_RANK[rb.tier] - TIER_RANK[ra.tier] ||
+        rb.fiveStreak - ra.fiveStreak ||
+        (rb.avg ?? 0) - (ra.avg ?? 0) ||
+        rb.count - ra.count
+      );
+    });
+  const rankMap = new Map<string, number>();
+  ranked.forEach((c, i) => rankMap.set(c.id, i + 1));
+  const ordered = [...ranked, ...contractors.filter((c) => !rankMap.has(c.id))];
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -110,7 +136,7 @@ export default async function ContractorsPage() {
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No contractors yet.</p>
         ) : (
           <div style={{ borderTop: '1px solid var(--rule)' }}>
-            {contractors.map((c) => (
+            {ordered.map((c) => (
               <div key={c.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <div className="font-serif" style={{ fontSize: 16 }}>
@@ -122,6 +148,33 @@ export default async function ContractorsPage() {
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
+                  {(() => {
+                    const r = ratings.get(c.id);
+                    const rank = rankMap.get(c.id);
+                    if (!r || r.count === 0) {
+                      return <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>Unrated · no guest reviews yet</div>;
+                    }
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
+                        {rank && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>#{rank}</span>}
+                        <span style={{ fontSize: 13, color: 'var(--ink)' }}>
+                          ★ {r.rated && r.avg != null ? r.avg.toFixed(2) : '—'}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{r.count} {r.count === 1 ? 'review' : 'reviews'}</span>
+                        <span
+                          title={r.toNextTier != null ? `${r.toNextTier} more 5★ in a row → ${NEXT_TIER_NAME[r.tier]}` : 'Top tier'}
+                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: RATING_TIER_TINT[r.tier], border: `1px solid ${RATING_TIER_TINT[r.tier]}`, borderRadius: 999, padding: '1px 7px' }}
+                        >
+                          {RATING_TIER_LABEL[r.tier]}
+                        </span>
+                        {r.tier !== 'gold' && r.toNextTier != null && r.toNextTier > 0 && (
+                          <span style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
+                            {r.fiveStreak} streak · {r.toNextTier} to {NEXT_TIER_NAME[r.tier]}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>
                   {c.status}
