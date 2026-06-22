@@ -144,9 +144,13 @@ export default async function PacketPage({
     packet = (await loadPacketDetail(packetId, { revealAccess: true }))!;
   }
 
-  const allComplete =
-    packet.stops.length > 0 && packet.stops.every((s) => s.status === 'complete' || s.status === 'skipped');
+  const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
+  const allComplete = packet.stops.length > 0 && doneCount === packet.stops.length;
   const claimable = !isMine && packet.status === 'published' && canClaim(contractor);
+  // While actively working a claimed packet, show it as a job to finish, not an
+  // open-ended errand: a progress bar + live per-stop status.
+  const working = isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
+  const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -163,6 +167,20 @@ export default async function PacketPage({
           {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stop_count)))} each
         </span>
       </div>
+
+      {working && (
+        <div style={{ marginBottom: 26 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+            <span style={{ color: 'var(--ink-3)' }}>{doneCount} of {packet.stops.length} done</span>
+            <span style={{ color: allComplete ? 'var(--positive)' : 'var(--ink-4)' }}>
+              {allComplete ? 'Ready to submit' : `${packet.stops.length - doneCount} to go`}
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
+          </div>
+        </div>
+      )}
 
       {sp.taken && (
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
@@ -246,6 +264,21 @@ export default async function PacketPage({
                   <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
                     {s.workSlip.location ? `${s.workSlip.location} · ` : ''}priority: {s.workSlip.priority}
                   </div>
+                </div>
+              ) : isMine ? (
+                <div
+                  style={{
+                    fontSize: 13,
+                    marginTop: 2,
+                    color:
+                      s.status === 'complete'
+                        ? 'var(--positive)'
+                        : s.status === 'in_progress'
+                          ? 'var(--tide-deep)'
+                          : 'var(--ink-4)',
+                  }}
+                >
+                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
                 </div>
               ) : (
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s)}</div>
