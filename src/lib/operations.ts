@@ -166,6 +166,13 @@ export type Turnover = {
    *  null when every lock is healthy or unmonitored. Drives the "bring
    *  batteries" chip so the team member packs spares before they drive. */
   lockBattery: LockBattery | null;
+  /** Operator marked this turnover done by hand (turnover_completions),
+   *  independent of any inspection. Like a completed inspection, it sinks
+   *  the row to the bottom of the pipeline. completedAt/By describe the
+   *  mark; both null when not manually completed. */
+  manuallyCompleted: boolean;
+  completedAt: string | null;
+  completedByEmail: string | null;
   /** Set when this turnover's inspection is bundled into a Field contractor
    *  packet, so the row can show who's covering it. Attached by the
    *  Operations page (not loadOperationsData) to keep the service-role Field
@@ -403,7 +410,12 @@ export async function loadOperationsData(
   // show "N work slips · Print" without an N+1 fan-out.
   const todayIso = new Date().toISOString().slice(0, 10);
   const propertyIdList = properties.map((p) => p.id);
-  const [{ data: cleaningData }, { data: openSlipsData }, { data: batteryData }] = await Promise.all([
+  const [
+    { data: cleaningData },
+    { data: openSlipsData },
+    { data: batteryData },
+    { data: completionData },
+  ] = await Promise.all([
     supabase
       .from('cleaning_completions')
       .select('property_id, checkout_date, completed_at, source, source_phone')
@@ -418,7 +430,26 @@ export async function loadOperationsData(
       .from('lock_battery_status')
       .select('property_id, battery_pct, battery_status')
       .in('property_id', propertyIdList),
+    // Operator-marked turnover completions for the visible window, keyed
+    // by (property_id, check_in) below. Presence = manually done.
+    supabase
+      .from('turnover_completions')
+      .select('property_id, check_in, completed_at, completed_by_email')
+      .gte('check_in', fetchStart),
   ]);
+
+  const completionByKey = new Map<string, { completedAt: string; by: string | null }>();
+  for (const row of (completionData ?? []) as Array<{
+    property_id: string;
+    check_in: string;
+    completed_at: string;
+    completed_by_email: string | null;
+  }>) {
+    completionByKey.set(`${row.property_id}|${row.check_in.slice(0, 10)}`, {
+      completedAt: row.completed_at,
+      by: row.completed_by_email,
+    });
+  }
 
   const openWorkSlipsByProperty = new Map<string, number>();
   for (const row of (openSlipsData ?? []) as Array<{ property_id: string; snoozed_until: string | null }>) {
@@ -516,6 +547,9 @@ export async function loadOperationsData(
       ? cleaningByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
       : null;
 
+    const completion =
+      completionByKey.get(`${r.property_id}|${checkInDate.slice(0, 10)}`) ?? null;
+
     turnovers.push({
       reservationId: r.guesty_reservation_id,
       propertyId: r.property_id,
@@ -535,6 +569,9 @@ export async function loadOperationsData(
       cleaning,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
       lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
+      manuallyCompleted: completion !== null,
+      completedAt: completion?.completedAt ?? null,
+      completedByEmail: completion?.by ?? null,
     });
   }
 
