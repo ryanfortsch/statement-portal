@@ -98,6 +98,23 @@ export type BriefProspect = {
   daysSinceSent: number | null;
 };
 
+/**
+ * One stuck or stale sync feed surfaced on the brief. `status='error'` means
+ * the most recent attempt failed; `status='stale'` means the last attempt was
+ * longer ago than the source's expected cadence and so the feed is
+ * effectively silent. On-demand sources (csv-fallback, stripe) carry
+ * maxAgeMs=null and never become stale -- their failures still register.
+ */
+export type BriefFeedHealth = {
+  source: string;
+  status: 'error' | 'stale';
+  lastAttemptedAt: string | null;
+  lastSyncedAt: string | null;
+  ageMs: number | null;
+  errorCount: number;
+  lastError: string | null;
+};
+
 export type DailyBrief = {
   date: string;
   checkoutsToday: BriefStay[];
@@ -114,6 +131,8 @@ export type DailyBrief = {
   stayConciergeConfigured: boolean;
   lastGmailSyncAt: string | null;
   gmailConfigured: boolean;
+  /** Feeds in error state or past their expected cadence. Watchdog surface. */
+  feedsNeedingAttention: BriefFeedHealth[];
   totals: {
     activeSlips: number;
     activeTasks: number;
@@ -126,6 +145,7 @@ export type DailyBrief = {
     approvals: number;
     inspectionsToday: number;
     activeProspects: number;
+    feedsStuck: number;
   };
 };
 
@@ -915,7 +935,14 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     close_likelihood_pct: number | null;
     created_at: string;
   };
-  type SyncStatusPick = { source: string; last_synced_at: string | null };
+  type SyncStatusPick = {
+    source: string;
+    last_synced_at: string | null;
+    last_attempted_at: string | null;
+    last_status: 'ok' | 'error' | null;
+    last_error: string | null;
+    error_count: number | null;
+  };
 
   // 30-day cutoff for "recently sent" prospects still awaiting response.
   const prospectCutoffIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
@@ -989,7 +1016,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .select('id, prospect_name, property_address, property_city, status, sent_at, close_likelihood_pct, created_at')
       .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
       .order('created_at', { ascending: false }),
-    supabase.from('sync_status').select('source, last_synced_at'),
+    supabase.from('sync_status').select('source, last_synced_at, last_attempted_at, last_status, last_error, error_count'),
     loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),
     loadEmailTriageTotals().catch(() => ({ needsReply: 0, fyi: 0, notifications: 0, unread: 0 })),
   ]);
@@ -1124,11 +1151,56 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     return aKey < bKey ? 1 : -1;
   });
 
-  const syncBySource = new Map<string, string | null>();
+  const syncBySource = new Map<string, SyncStatusPick>();
   for (const r of (syncRows ?? []) as SyncStatusPick[]) {
-    syncBySource.set(r.source, r.last_synced_at);
+    syncBySource.set(r.source, r);
   }
-  const lastGmailSyncAt = syncBySource.get('gmail-replies') ?? null;
+  const lastGmailSyncAt = syncBySource.get('gmail-replies')?.last_synced_at ?? null;
+
+  // The watchdog cadence table. Sources on a cron get an expected age cap;
+  // on-demand sources (the manual upload + the per-property Stripe button)
+  // have maxAgeMs=null so they never become "stale" between manual runs but
+  // their failures still surface. Keep keys in sync with SYNC_SOURCES in
+  // lib/sync-status.ts: a key here without a writer means "always stale";
+  // a writer without a key here means "recorded but never watched".
+  const EXPECTED_FEEDS: Array<{ source: string; maxAgeMs: number | null }> = [
+    { source: 'guesty-listings',     maxAgeMs: 36 * 3_600_000 },
+    { source: 'guesty-reviews',      maxAgeMs: 36 * 3_600_000 },
+    { source: 'guesty-reservations', maxAgeMs: 36 * 3_600_000 },
+    { source: 'guesty-calendar',     maxAgeMs: 36 * 3_600_000 },
+    { source: 'guesty-guests',       maxAgeMs: 36 * 3_600_000 },
+    { source: 'gmail-replies',       maxAgeMs:  6 * 3_600_000 },
+    { source: 'quo',                 maxAgeMs: 36 * 3_600_000 },
+    { source: 'seam',                maxAgeMs: 36 * 3_600_000 },
+    { source: 'ical',                maxAgeMs:  3 * 3_600_000 },
+    { source: 'stripe',              maxAgeMs: null }, // on-demand "Sync Stripe" button
+    { source: 'csv-fallback',        maxAgeMs: null }, // on-demand monthly CSV upload
+  ];
+
+  const nowMs = Date.now();
+  const feedsNeedingAttention: BriefFeedHealth[] = [];
+  for (const f of EXPECTED_FEEDS) {
+    const row = syncBySource.get(f.source);
+    const attemptedIso = row?.last_attempted_at ?? row?.last_synced_at ?? null;
+    const ageMs = attemptedIso ? nowMs - Date.parse(attemptedIso) : null;
+    const isError = row?.last_status === 'error';
+    const isStale = f.maxAgeMs !== null && (ageMs === null || ageMs > f.maxAgeMs);
+    if (isError || isStale) {
+      feedsNeedingAttention.push({
+        source: f.source,
+        status: isError ? 'error' : 'stale',
+        lastAttemptedAt: row?.last_attempted_at ?? null,
+        lastSyncedAt: row?.last_synced_at ?? null,
+        ageMs,
+        errorCount: row?.error_count ?? 0,
+        lastError: row?.last_error ?? null,
+      });
+    }
+  }
+  // Sort by repeat-failure count first (sticky problems), then by age.
+  feedsNeedingAttention.sort(
+    (a, b) => b.errorCount - a.errorCount || (b.ageMs ?? 0) - (a.ageMs ?? 0),
+  );
 
   // Triage tallies come from the cache (loadEmailTriageTotals counts
   // every unread row, including notifications). The page-visible list
@@ -1151,6 +1223,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     stayConciergeConfigured: scConfigured,
     lastGmailSyncAt,
     gmailConfigured: gmailConfigured(),
+    feedsNeedingAttention,
     totals: {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
@@ -1163,6 +1236,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       approvals: pendingApprovals.length,
       inspectionsToday: inspectionsCompletedToday.length,
       activeProspects: activeProspects.length,
+      feedsStuck: feedsNeedingAttention.length,
     },
   };
 }
@@ -1170,6 +1244,9 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
 export function briefHeadline(brief: DailyBrief): string {
   const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
   const bits: string[] = [];
+  // Lead with stuck feeds so the morning SMS surfaces a silent-fail before
+  // the rest of the noise: a stuck Guesty sync, a stale Quo backfill, etc.
+  if (brief.totals.feedsStuck) bits.push(`${brief.totals.feedsStuck} feed${brief.totals.feedsStuck === 1 ? '' : 's'} stuck`);
   if (brief.totals.needsReply) bits.push(`${brief.totals.needsReply} email${brief.totals.needsReply === 1 ? '' : 's'} need${brief.totals.needsReply === 1 ? 's' : ''} a reply`);
   if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
   if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);
