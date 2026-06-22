@@ -186,9 +186,19 @@ export type Turnover = {
 
 export type CalendarCell = {
   date: string;
-  reservation: ReservationRow | null;
+  /** Guest occupying the NIGHT of this date (check_in <= date < check_out) —
+   *  the right ("PM") half of the cell. On a check-in day this is the
+   *  arriving guest; on a vacant night it's null. */
+  pm: ReservationRow | null;
+  /** Guest occupying the MORNING of this date (check_in < date <= check_out) —
+   *  the left ("AM") half. On a checkout day this is the DEPARTING guest,
+   *  whose bar ends mid-cell; that's what makes checkouts legible. Equals
+   *  `pm` on a continuous middle night. */
+  am: ReservationRow | null;
+  /** pm checks in on this date (bar starts at the cell's center). */
   isCheckIn: boolean;
-  isContinuation: boolean;
+  /** am checks out on this date (bar ends at the cell's center). */
+  isCheckOut: boolean;
 };
 
 export type CalendarRow = {
@@ -604,10 +614,10 @@ export async function loadOperationsData(
   // lookback makes mid-stay occupancy legible: a guest who checked in two
   // days ago renders as a bar already in motion before the today column,
   // instead of being indistinguishable from a fresh check-in (this matches
-  // how Guesty's multi-calendar frames the current day). Each cell either
-  // has a reservation occupying that night (check_in <= date < check_out)
-  // or is empty (vacant). The reservation fetch already reaches 30 days
-  // back, so no extra query needed.
+  // how Guesty's multi-calendar frames the current day). Each cell carries
+  // its morning + night occupant (see CalendarCell) so the grid can draw
+  // stays as bars with a visible start and end. The reservation fetch
+  // already reaches 30 days back, so no extra query needed.
   const calendarDayList: string[] = [];
   for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
     calendarDayList.push(addDaysStr(rangeStart, i));
@@ -623,14 +633,23 @@ export async function loadOperationsData(
   const calendarRows: CalendarRow[] = properties.map((property) => {
     const propertyReservations = reservationsByProperty.get(property.id) ?? [];
     const cells: CalendarCell[] = calendarDayList.map((date) => {
-      const occupying = propertyReservations.find(
-        (r) => r.check_in <= date && date < r.check_out
-      ) ?? null;
+      // Two half-day occupants so the grid can draw stays as bars with a
+      // visible start and end (the half-cell model every booking calendar
+      // uses). pm = who sleeps the NIGHT of `date` (check_in <= date <
+      // check_out). am = who's here the MORNING of `date` (check_in < date
+      // <= check_out) — on a checkout day that's the departing guest, even
+      // though they don't occupy the night, which is exactly the signal the
+      // old single-occupant model couldn't show.
+      const pm =
+        propertyReservations.find((r) => r.check_in <= date && date < r.check_out) ?? null;
+      const am =
+        propertyReservations.find((r) => r.check_in < date && date <= r.check_out) ?? null;
       return {
         date,
-        reservation: occupying,
-        isCheckIn: !!occupying && occupying.check_in === date,
-        isContinuation: !!occupying && occupying.check_in !== date,
+        pm,
+        am,
+        isCheckIn: !!pm && pm.check_in === date,
+        isCheckOut: !!am && am.check_out === date,
       };
     });
     return { property, cells };
