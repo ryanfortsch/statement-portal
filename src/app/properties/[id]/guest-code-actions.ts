@@ -6,6 +6,8 @@ import {
   issueTestCode,
   issueGuestCodeForBooking,
   revokeGuestCode,
+  syncSeamDevices,
+  mapLockToProperty,
 } from '@/lib/guest-locks';
 
 /**
@@ -51,4 +53,27 @@ export async function revokeGuestCodeAction(
   const r = await revokeGuestCode(codeId);
   revalidatePath(`/properties/${propertyId}`);
   return r.ok ? { ok: true, message: 'Code revoked.' } : { ok: false, message: r.error ?? 'Revoke failed.' };
+}
+
+/** Pull Seam devices into Helm (in-app replacement for hitting the sync URL). */
+export async function syncSeamDevicesAction(propertyId: string): Promise<CodeActionResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, message: 'Not signed in' };
+
+  const r = await syncSeamDevices();
+  revalidatePath(`/properties/${propertyId}`);
+  return r.ok
+    ? { ok: true, message: `Synced ${r.count} device${r.count === 1 ? '' : 's'} from Seam. Pick the lock below and map it.` }
+    : { ok: false, message: r.error ?? 'Sync failed.' };
+}
+
+/** Map a synced lock to this property (in-app replacement for a SQL UPDATE). */
+export async function mapLockAction(propertyId: string, deviceId: string): Promise<CodeActionResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, message: 'Not signed in' };
+  if (!deviceId) return { ok: false, message: 'Pick a lock first.' };
+
+  const r = await mapLockToProperty(propertyId, deviceId);
+  revalidatePath(`/properties/${propertyId}`);
+  return r.ok ? { ok: true, message: 'Lock mapped to this property.' } : { ok: false, message: r.error ?? 'Map failed.' };
 }

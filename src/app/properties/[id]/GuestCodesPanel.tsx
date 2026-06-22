@@ -5,6 +5,8 @@ import {
   issueTestCodeAction,
   issueGuestCodeAction,
   revokeGuestCodeAction,
+  syncSeamDevicesAction,
+  mapLockAction,
   type CodeActionResult,
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
@@ -25,6 +27,7 @@ export function GuestCodesPanel({
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sel, setSel] = useState('');
 
   const run = (id: string, fn: () => Promise<CodeActionResult>) => {
     setBusy(id);
@@ -35,7 +38,7 @@ export function GuestCodesPanel({
     });
   };
 
-  const { seamConfigured, lock, bookingRows, testCodes } = view;
+  const { seamConfigured, lock, bookingRows, testCodes, unmappedLocks } = view;
 
   return (
     <div style={{ paddingBottom: 6 }}>
@@ -67,10 +70,46 @@ export function GuestCodesPanel({
       )}
 
       {seamConfigured && !lock && (
-        <div style={noteStyle}>
-          No active Schlage lock is mapped to this property yet. Connect this property&apos;s lock in the
-          Seam console, run the device sync, and map it in <code>lock_devices</code>. The panel goes live
-          the moment one lock is mapped — map a single property first to pressure-test.
+        <div style={{ marginBottom: 16 }}>
+          <div style={noteStyle}>
+            No lock mapped to this property yet. Sync your Seam devices, then map this property&apos;s
+            Schlage lock — no URLs or SQL needed.
+          </div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run('sync', () => syncSeamDevicesAction(propertyId))}
+              style={ghostBtn(pending && busy === 'sync')}
+            >
+              {pending && busy === 'sync' ? 'Syncing…' : 'Sync Seam devices'}
+            </button>
+            {unmappedLocks.length > 0 && (
+              <>
+                <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle}>
+                  <option value="">— pick a lock —</option>
+                  {unmappedLocks.map((l) => (
+                    <option key={l.device_id} value={l.device_id}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={pending || !sel}
+                  onClick={() => run('map', () => mapLockAction(propertyId, sel))}
+                  style={ghostBtn(pending && busy === 'map')}
+                >
+                  {pending && busy === 'map' ? 'Mapping…' : 'Map to this property'}
+                </button>
+              </>
+            )}
+          </div>
+          {unmappedLocks.length === 0 && (
+            <p style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
+              After syncing, any unmapped locks appear here to assign.
+            </p>
+          )}
         </div>
       )}
 
@@ -191,6 +230,16 @@ const noteStyle: React.CSSProperties = {
   padding: '10px 14px',
   marginBottom: 16,
   lineHeight: 1.5,
+};
+
+const selectStyle: React.CSSProperties = {
+  border: '1px solid var(--rule)',
+  borderBottom: '1px solid var(--ink)',
+  background: 'transparent',
+  color: 'var(--ink)',
+  fontSize: 13,
+  padding: '8px 10px',
+  outline: 'none',
 };
 
 const rowStyle: React.CSSProperties = {
