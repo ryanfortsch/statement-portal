@@ -85,8 +85,17 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
 
       {sel.length > 0 && (
         <form
-          action={bundleMaintenanceAndSend}
-          onSubmit={() => setSending(true)}
+          action={async (fd: FormData) => {
+            setSending(true);
+            try {
+              await bundleMaintenanceAndSend(fd);
+              setSel([]);
+              setDate('');
+              setPriceStr('');
+            } finally {
+              setSending(false);
+            }
+          }}
           style={{ position: 'sticky', bottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', border: '2px solid var(--signal)', borderRadius: 12, padding: '14px 18px', background: 'var(--paper-2, #fff)', marginTop: 24 }}
         >
           <input type="hidden" name="work_slip_ids" value={sel.join(',')} />
