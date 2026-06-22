@@ -1,19 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 /**
  * Small pill rendered next to the Messaging tab in the masthead nav when
  * there are pending guest-message drafts. Polls /api/messaging/pending-count
- * every 30s so Dotti sees, from any module, when something needs her
- * attention.
+ * so Dotti sees, from any module, when something needs her attention.
  *
  * Renders nothing when count is 0 or the fetch failed (kept silent rather
- * than showing an error chip in the nav — that'd be more noise than
- * signal).
+ * than showing an error chip in the nav — that'd be more noise than signal).
+ *
+ * Reconciles aggressively: this badge lives in the persistent masthead, so
+ * a plain interval can freeze at a stale count — a background tab throttles
+ * the timer, and client-side navigation never remounts the component. So we
+ * also re-fetch on every route change (pathname dep) and whenever the tab
+ * regains focus, which is what keeps it from sitting at a wrong number after
+ * the queue has actually cleared.
  */
 export function MessagingPendingBadge() {
   const [count, setCount] = useState<number | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     let cancelled = false;
@@ -29,11 +36,18 @@ export function MessagingPendingBadge() {
     };
     load();
     const t = setInterval(load, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', load);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', load);
     };
-  }, []);
+  }, [pathname]);
 
   if (!count || count <= 0) return null;
 
