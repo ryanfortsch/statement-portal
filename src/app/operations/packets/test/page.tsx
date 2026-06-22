@@ -65,7 +65,8 @@ export default async function FieldTestPage() {
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.7 }}>
             <li><strong>Seed</strong> the test data above.</li>
             <li>Open a contractor portal link below in a <strong>separate browser / incognito window</strong> (so it doesn&apos;t collide with your staff login).</li>
-            <li>As the <strong>inspector</strong>: claim the test inspection packet, run the inspection, submit.</li>
+            <li><strong>Test onboarding</strong>: open the <em>&ldquo;not onboarded&rdquo;</em> inspector&apos;s link — you&apos;ll see the new-inspector setup (W-9 + agreement + home address). Complete it and that inspector goes active and can claim. (This is exactly what a new Perfection inspector walks through.)</li>
+            <li>As the already-<strong>onboarded inspector</strong>: claim the test inspection packet, run the inspection, submit.</li>
             <li>As the <strong>maintenance</strong> pro: claim the test maintenance packet, mark each job done with a note, submit.</li>
             <li>Back here as staff: on the <Link href="/operations/packets" style={{ color: 'var(--tide-deep)' }}>packets board</Link>, <strong>Approve</strong> each submitted packet, then <strong>Mark paid</strong>.</li>
             <li>Try the operator side yourself too: bundle from the calendar or the <Link href="/operations/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs</Link> page.</li>
@@ -87,7 +88,7 @@ export default async function FieldTestPage() {
                     <span className="font-serif" style={{ fontSize: 16 }}>{c.full_name}</span>
                     <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{c.trade}</span>
                     <span style={{ fontSize: 12, color: c.onboarded ? 'var(--positive)' : 'var(--signal)' }}>
-                      {c.onboarded ? 'onboarded ✓ can claim' : 'not onboarded'}
+                      {c.onboarded ? 'onboarded ✓ can claim' : 'not onboarded — open the link to walk W-9 + agreement'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8, flexWrap: 'wrap' }}>

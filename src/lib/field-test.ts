@@ -25,6 +25,16 @@ const TEST_CONTRACTORS: Array<{ email: string; full_name: string; trade: 'inspec
   { email: 'fieldtest-maintenance@helm.local', full_name: 'Manny Tester (maintenance)', trade: 'maintenance' },
 ];
 
+// A deliberately NOT-onboarded inspector: open its portal link to walk the real
+// invite → W-9 + agreement → active journey a new Perfection inspector goes
+// through. Re-seeding resets it back to 'invited' so you can re-test.
+const ONBOARDING_TEST = {
+  email: 'fieldtest-onboarding@helm.local',
+  full_name: 'New Inspector (onboarding test)',
+  trade: 'inspection' as const,
+};
+const ALL_TEST_EMAILS = [...TEST_CONTRACTORS.map((t) => t.email), ONBOARDING_TEST.email];
+
 const TEST_SLIPS: Array<{ propIndex: number; title: string; action: string; location: string }> = [
   { propIndex: 0, title: '[TEST] Replace kitchen faucet aerator', action: 'Unscrew the aerator, clean or replace, test for leaks.', location: 'Kitchen' },
   { propIndex: 0, title: '[TEST] Re-caulk the master tub', action: 'Strip the old caulk and re-run the tub-to-tile seam.', location: 'Master bath' },
@@ -70,7 +80,7 @@ export async function loadFieldTestState(): Promise<FieldTestState> {
   const { data: cons } = await db
     .from('contractors')
     .select('id, full_name, email, trade, status, portal_token, w9_on_file, agreement_signed_at')
-    .in('email', TEST_CONTRACTORS.map((t) => t.email));
+    .in('email', ALL_TEST_EMAILS);
   const contractors: FieldTestContractor[] = (
     (cons ?? []) as Array<{
       id: string;
@@ -144,6 +154,37 @@ export async function seedFieldTest(): Promise<void> {
         home_lat: HQ.lat,
         home_lng: HQ.lng,
         service_radius_miles: 100,
+        invited_by_email: TEST_MARK,
+      });
+    }
+  }
+
+  // 1b. A not-yet-onboarded inspector for testing the onboarding journey.
+  //     Reset to 'invited' each seed so the W-9 + agreement form is walkable.
+  {
+    const { data: ex } = await db.from('contractors').select('id').eq('email', ONBOARDING_TEST.email).maybeSingle();
+    if (ex) {
+      await db
+        .from('contractors')
+        .update({
+          status: 'invited',
+          w9_on_file: false,
+          agreement_signed_at: null,
+          agreement_signed_name: null,
+          home_lat: null,
+          home_lng: null,
+          trade: ONBOARDING_TEST.trade,
+          updated_at: now,
+        })
+        .eq('id', (ex as { id: string }).id);
+    } else {
+      await db.from('contractors').insert({
+        full_name: ONBOARDING_TEST.full_name,
+        email: ONBOARDING_TEST.email,
+        trade: ONBOARDING_TEST.trade,
+        status: 'invited',
+        portal_token: newPortalToken(),
+        w9_on_file: false,
         invited_by_email: TEST_MARK,
       });
     }
@@ -262,7 +303,7 @@ export async function resetFieldTest(): Promise<{ packets: number; contractors: 
   const db = fieldDb();
 
   // The test + demo contractors.
-  const { data: testCons } = await db.from('contractors').select('id, email').in('email', TEST_CONTRACTORS.map((t) => t.email));
+  const { data: testCons } = await db.from('contractors').select('id, email').in('email', ALL_TEST_EMAILS);
   const { data: demoCons } = await db.from('contractors').select('id, email').eq('full_name', 'Demo Inspector');
   const conRows = [...((testCons ?? []) as { id: string; email: string }[]), ...((demoCons ?? []) as { id: string; email: string }[])];
   const conIds = [...new Set(conRows.map((c) => c.id))];
