@@ -2,8 +2,75 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
+import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
 import { canClaim, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
+
+const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
+const NEXT_TIER: Record<string, { name: string; at: number }> = {
+  unrated: { name: 'Bronze', at: 25 },
+  bronze: { name: 'Silver', at: 50 },
+  silver: { name: 'Gold', at: 100 },
+};
+
+/** The contractor's own reputation, shown on their dashboard as a streak ladder
+ *  toward Bronze (25) / Silver (50) / Gold (100) consecutive 5-star reviews. */
+function StreakLadder({ rating }: { rating?: ContractorRating }) {
+  const streak = rating?.fiveStreak ?? 0;
+  const count = rating?.count ?? 0;
+  const tier = rating?.tier ?? 'unrated';
+  const next = NEXT_TIER[tier]; // undefined at gold
+  const pct = next ? Math.min(100, Math.round((streak / next.at) * 100)) : 100;
+  const milestones = [
+    { n: 25, label: 'Bronze' },
+    { n: 50, label: 'Silver' },
+    { n: 100, label: 'Gold' },
+  ];
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Your rating</div>
+        {count > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            {rating?.rated && rating.avg != null ? `★ ${rating.avg.toFixed(2)} · ` : ''}
+            {count} {count === 1 ? 'review' : 'reviews'}
+          </div>
+        )}
+      </div>
+      {count === 0 ? (
+        <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
+          No guest reviews yet. The guests who stay in the homes you prep rate their stay — string together{' '}
+          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews in a row</strong> to earn Bronze, 50 for
+          Silver, 100 for Gold.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
+              {tier === 'unrated' ? 'Unrated' : tier}
+            </span>
+            <span style={{ fontSize: 14, color: 'var(--ink)' }}>🔥 {streak} in a row</span>
+            {next ? (
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{Math.max(0, next.at - streak)} more 5★ → {next.name}</span>
+            ) : (
+              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>
+            )}
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: TIER_TINT[tier === 'unrated' ? 'bronze' : tier], transition: 'width .3s ease' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+            {milestones.map((m) => (
+              <span key={m.n} style={{ fontSize: 10.5, fontWeight: streak >= m.n ? 700 : 400, color: streak >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
+                {streak >= m.n ? '✓ ' : ''}{m.label} {m.n}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -145,11 +212,13 @@ export default async function FieldHome({
     );
   }
 
-  const [{ available, mine }, payStats] = await Promise.all([
+  const [{ available, mine }, payStats, ratings] = await Promise.all([
     loadContractorMarketplace(contractor),
     getContractorPayStats(),
+    getContractorRatings(),
   ]);
   const pay = payStats.get(contractor.id);
+  const rating = ratings.get(contractor.id);
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -176,6 +245,8 @@ export default async function FieldHome({
           </div>
         )}
       </div>
+
+      <StreakLadder rating={rating} />
 
       {mine.length > 0 && (
         <section style={{ marginBottom: 36 }}>
