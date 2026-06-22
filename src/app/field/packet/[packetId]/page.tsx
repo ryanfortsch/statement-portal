@@ -36,6 +36,48 @@ function windowLabel(s: PacketStopDetail): string {
   return 'Vacant all day';
 }
 
+const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
+  {
+    n: 1,
+    title: 'Perfection',
+    desc: "The home should look flawless: staged, spotless, guest-ready. You're the last set of eyes before anyone checks in.",
+  },
+  {
+    n: 2,
+    title: 'Maintenance',
+    desc: 'Get ahead of problems. Flag anything worn, leaking, or drifting toward a repair so we fix it before a guest ever notices.',
+  },
+  {
+    n: 3,
+    title: 'Supplies & inventory',
+    desc: "Check the essentials are stocked, and note whatever's running low so we can restock fast.",
+  },
+];
+
+/** What an inspection visit actually is, in three plain passes — replaces the
+ *  vague "guest-readiness walk / Helm Core 12" jargon. */
+function InspectionScope() {
+  return (
+    <div style={{ marginBottom: 28, maxWidth: 560 }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>
+        What every visit covers
+      </div>
+      <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 18 }}>
+        Three quick passes through each home, about 20 minutes. Addresses and entry details unlock the moment you claim.
+      </p>
+      {INSPECTION_PILLARS.map((p) => (
+        <div key={p.n} style={{ display: 'flex', gap: 16, alignItems: 'baseline', padding: '14px 0', borderTop: '1px solid var(--rule)' }}>
+          <span className="font-serif" style={{ fontSize: 26, lineHeight: 1, color: 'var(--signal)', minWidth: 26 }}>{p.n}</span>
+          <div>
+            <div className="font-serif" style={{ fontSize: 18 }}>{p.title}</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.55 }}>{p.desc}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AccessLines({ a }: { a: AccessBundle }) {
   const rows: Array<[string, string | null]> = [
     ['Entry', a.method],
@@ -137,13 +179,13 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMine && (
+      {!isMine && isMaint && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
-          {isMaint
-            ? 'Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock as soon as you claim.'
-            : 'Each stop is a quick guest-readiness walk (the Helm Core 12 — about a dozen checks, ~20 minutes per home). Addresses and entry details unlock as soon as you claim.'}
+          Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock
+          as soon as you claim.
         </p>
       )}
+      {!isMine && !isMaint && <InspectionScope />}
 
       <PacketRouteMap
         stops={packet.stops.map((s) => ({
