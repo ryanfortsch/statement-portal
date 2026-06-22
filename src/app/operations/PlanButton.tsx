@@ -79,36 +79,39 @@ export function PlanButton({
     });
   }
 
-  // Trigger button (different style depending on plan presence)
+  // Trigger — a quiet, right-aligned control that lives in the turnover
+  // row's status column alongside the cleaning / slips / field / mark-done
+  // chips, so the plan state sits in the same place on every row. Two
+  // states: a colored "Planned …" line when scheduled, a faint "+ Plan
+  // inspection" prompt when not. Both open the same editor modal below.
   if (!open) {
     if (plannedForDate) {
       const inspectorLabel = assignedToEmail ? displayNameForEmail(assignedToEmail) : null;
       const tooltip = [
         plannedBy ? `Planned by ${plannedBy.split('@')[0]}` : null,
         inspectorLabel ? `Inspector: ${inspectorLabel}` : null,
-      ].filter(Boolean).join(' · ') || 'Edit plan';
+        'Click to edit',
+      ].filter(Boolean).join(' · ');
       return (
         <button
           type="button"
           onClick={() => setOpen(true)}
           title={tooltip}
           style={{
-            background: 'transparent',
-            border: '1px solid var(--tide-deep)',
-            color: 'var(--tide-deep)',
-            padding: '6px 10px',
-            fontSize: 10,
-            letterSpacing: '.16em',
-            textTransform: 'uppercase',
+            background: 'none',
+            border: 'none',
+            padding: 0,
             cursor: 'pointer',
-            fontWeight: 600,
+            fontSize: 11,
+            color: 'var(--tide-deep)',
+            fontWeight: 500,
             whiteSpace: 'nowrap',
+            borderBottom: '1px dashed var(--tide-deep)',
+            lineHeight: 1.6,
           }}
         >
-          Plan: {formatShort(plannedForDate)}
-          {inspectorLabel && (
-            <span style={{ opacity: 0.7, marginLeft: 6 }}>· {inspectorLabel}</span>
-          )}
+          Planned {formatShort(plannedForDate)}
+          {inspectorLabel ? ` · ${inspectorLabel}` : ''}
         </button>
       );
     }
@@ -116,19 +119,20 @@ export function PlanButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        title="Schedule this inspection for a day and assign someone"
         style={{
-          background: 'transparent',
-          border: '1px solid var(--rule)',
-          color: 'var(--ink-3)',
-          padding: '6px 10px',
-          fontSize: 10,
-          letterSpacing: '.16em',
-          textTransform: 'uppercase',
+          background: 'none',
+          border: 'none',
+          padding: 0,
           cursor: 'pointer',
+          fontSize: 11,
+          color: 'var(--ink-3)',
           whiteSpace: 'nowrap',
+          borderBottom: '1px dashed var(--ink-4)',
+          lineHeight: 1.6,
         }}
       >
-        + Plan
+        + Plan inspection
       </button>
     );
   }

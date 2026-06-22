@@ -622,6 +622,24 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           )}
           <span style={{ color: 'var(--signal)' }}>Not inspected</span>
         </div>
+        {/* Plan lives here in the status column — same place on every row,
+            whether or not a Start Inspection CTA is shown — so the plan
+            state reads consistently instead of shifting around the action
+            button. Only meaningful before a walk starts (an in-progress
+            inspection shows Resume and no plan affordance). */}
+        {!t.inspection && (
+          <PlanButton
+            guestyReservationId={t.reservationId}
+            propertyId={t.propertyId}
+            checkInDate={t.checkIn.slice(0, 10)}
+            checkOutDate={t.checkOut.slice(0, 10)}
+            planId={t.plan?.id ?? null}
+            plannedForDate={t.plan?.planned_for_date ?? null}
+            plannedBy={t.plan?.planned_by_email ?? null}
+            assignedToEmail={t.plan?.assigned_to_email ?? null}
+            myEmail={myEmail}
+          />
+        )}
         {t.lockBattery && t.lockBattery.isLow && (
           <span
             title={`Smart lock battery is ${
@@ -678,10 +696,11 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         </form>
       </div>
 
-      {/* Action — in-progress shows Resume; otherwise stack a plan-button
-          + start-inspection CTA so the operator can schedule a walk in
-          advance OR kick one off right now. (Completed turnovers render
-          via TurnoverRowDone, which carries its own Summary link.) */}
+      {/* Action column — the single primary CTA, consistent on every row:
+          Resume for an in-progress walk, Start Inspection otherwise. (Plan
+          moved to the status column above so it sits in the same spot on
+          every row; completed turnovers render via TurnoverRowDone with a
+          Summary link.) */}
       {t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}`}
@@ -696,51 +715,33 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         >
           Resume →
         </Link>
+      ) : t.fieldPacket ? (
+        // A Field contractor covers this turnover — no staff Start CTA, or a
+        // staff walk + a paid contractor walk would both happen. The Field +
+        // Plan chips in the status column carry the state; cancel the packet
+        // to take it back.
+        <span className="rt-turnover-action" />
       ) : (
-        // Plan + Start Inspection side-by-side (was stacked vertically),
-        // so this action column matches the height of a Summary/Resume
-        // row. Keeps the right edge of every row at roughly the same
-        // visual position across rows.
-        <div className="rt-turnover-action" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <PlanButton
-            guestyReservationId={t.reservationId}
-            propertyId={t.propertyId}
-            checkInDate={t.checkIn.slice(0, 10)}
-            checkOutDate={t.checkOut.slice(0, 10)}
-            planId={t.plan?.id ?? null}
-            plannedForDate={t.plan?.planned_for_date ?? null}
-            plannedBy={t.plan?.planned_by_email ?? null}
-            assignedToEmail={t.plan?.assigned_to_email ?? null}
-            myEmail={myEmail}
-          />
-          {/* Hide the staff Start-Inspection CTA when a Field packet already
-              covers this turnover — otherwise a staff walk + a contractor walk
-              both happen (and the contractor gets paid for it). The Field chip
-              in the status column shows who's covering it; cancel the packet to
-              take it back. */}
-          {!t.fieldPacket && (
-            <form action={startInspection} style={{ margin: 0 }}>
-              <input type="hidden" name="property_id" value={t.propertyId} />
-              <button
-                type="submit"
-                style={{
-                  background: 'var(--ink)',
-                  color: 'var(--paper)',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: '0.16em',
-                  textTransform: 'uppercase',
-                  padding: '9px 16px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Start Inspection
-              </button>
-            </form>
-          )}
-        </div>
+        <form action={startInspection} className="rt-turnover-action" style={{ margin: 0 }}>
+          <input type="hidden" name="property_id" value={t.propertyId} />
+          <button
+            type="submit"
+            style={{
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              padding: '9px 16px',
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Start Inspection
+          </button>
+        </form>
       )}
     </div>
   );
