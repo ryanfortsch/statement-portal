@@ -10,26 +10,26 @@ import { NextResponse } from 'next/server';
  *   - A signed-in Helm user triggering a manual sync from the dashboard
  *     (the same-origin fetch carries the session cookie).
  *
- * This replaces the old `x-helm-manual-sync: 1` header escape hatch, which was
+ * This replaced the old `x-helm-manual-sync: 1` header escape hatch (which was
  * a static, non-secret string any unauthenticated caller could send to skip
- * the CRON_SECRET check entirely.
+ * the CRON_SECRET check entirely).
  *
- * When CRON_SECRET is unset we deliberately preserve the prior fail-open
- * behavior so a missing env var can't silently disable every sync. Production
- * should always have CRON_SECRET set; once confirmed, this branch can be made
- * fail-closed.
+ * Fails closed when CRON_SECRET is unset: anonymous callers get 401; the
+ * signed-in fallback below still lets a Helm user trigger a manual sync, so a
+ * missing env doesn't lock the team out of the dashboard buttons. Earlier the
+ * unset branch passed everyone through, which would re-open the surface now
+ * that /api/cron routes through this helper.
  */
 export async function authorizeCron(request: Request): Promise<NextResponse | null> {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
 
-  // Unconfigured: keep working rather than break every cron (see note above).
-  if (!cronSecret) return null;
-
   // Vercel Cron.
-  if (authHeader === `Bearer ${cronSecret}`) return null;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return null;
 
-  // Signed-in Helm user running a manual sync from the dashboard.
+  // Signed-in Helm user running a manual sync from the dashboard. Same check
+  // works whether CRON_SECRET is set or not, so a missing env doesn't lock
+  // out manual triggers -- only anonymous callers are turned away.
   const session = await auth();
   if (session?.user?.email) return null;
 
