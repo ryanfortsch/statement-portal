@@ -1144,10 +1144,13 @@ function WorkSlipModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
+  // Defaults: Rising Tide category + self-assigned. Most slips created
+  // from the board are internal Rising Tide work the creator is taking
+  // on; both are one tap to change before saving.
+  const [category, setCategory] = useState<WorkSlipCategory>('rising_tide');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
-  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(myEmail || null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

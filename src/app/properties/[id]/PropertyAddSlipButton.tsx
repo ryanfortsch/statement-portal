@@ -30,10 +30,12 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
+  // Defaults: Rising Tide category + self-assigned (see WorkSlipModal in
+  // QueueClient — same rationale). Both change in one tap before saving.
+  const [category, setCategory] = useState<WorkSlipCategory>('rising_tide');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
-  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(myEmail || null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -41,10 +43,10 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
     setTitle('');
     setDescription('');
     setLocation('');
-    setCategory('maintenance');
+    setCategory('rising_tide');
     setPriority('normal');
     setScheduledDate('');
-    setAssignedToEmail(null);
+    setAssignedToEmail(myEmail || null);
     setErr(null);
     setSubmitting(false);
   }
