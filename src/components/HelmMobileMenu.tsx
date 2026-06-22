@@ -29,7 +29,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { PRIMARY_MODULES, getGroupedOverflowModules, type HelmModule } from '@/lib/helm-modules';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
 
 type Props = {
@@ -41,12 +41,10 @@ export function HelmMobileMenu({ current }: Props) {
 
   // Same split the desktop nav uses (HelmModuleNav + HelmModuleNavMore):
   // the primary trio, then everything else minus the hidden Financials
-  // sub-tabs. Deriving both from the same data is what makes the two
-  // surfaces congruent instead of two hand-maintained lists.
-  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow: HelmModule[] = HELM_MODULES.filter(
-    (m) => !primaryIds.has(m.id) && !m.hidden,
-  );
+  // sub-tabs, sectioned the same way (Money / Operations / Growth /
+  // Relationships / Reference, plus Soon). Both surfaces read from the same
+  // helper so they stay congruent from a single source of truth.
+  const sections = getGroupedOverflowModules();
 
   // Lock body scroll + listen for Escape while the sheet is open.
   useEffect(() => {
@@ -138,16 +136,21 @@ export function HelmMobileMenu({ current }: Props) {
               />
             ))}
 
-            {/* Everything else, demoted under a label - the desktop
-                "More" dropdown's contents, laid out inline here. */}
-            <div className="rt-mobile-menu-group-label">More</div>
-            {overflow.map((m) => (
-              <ModuleItem
-                key={m.id}
-                module={m}
-                active={m.id === current}
-                onPick={() => setOpen(false)}
-              />
+            {/* Everything else, the desktop "More" dropdown's contents laid
+                out inline -- now sectioned under the same labels so the phone
+                view reads as a structured map instead of one long flat list. */}
+            {sections.map((section) => (
+              <div key={section.group}>
+                <div className="rt-mobile-menu-group-label">{section.label}</div>
+                {section.modules.map((m) => (
+                  <ModuleItem
+                    key={m.id}
+                    module={m}
+                    active={m.id === current}
+                    onPick={() => setOpen(false)}
+                  />
+                ))}
+              </div>
             ))}
           </nav>
         </div>

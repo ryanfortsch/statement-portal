@@ -13,6 +13,22 @@
  * `status: 'soon'`     - not built yet; placeholder, clicks do nothing
  * `status: 'external'` - lives outside Helm (e.g. Lovable); opens in new tab
  */
+/**
+ * The five named sections the overflow nav groups modules into, plus a 'soon'
+ * tail for not-yet-built items. Drives the section headers in
+ * HelmModuleNavMore and HelmMobileMenu. Order here is render order.
+ */
+export type HelmGroup = 'money' | 'operations' | 'growth' | 'relationships' | 'reference' | 'soon';
+
+export const HELM_GROUPS: { id: HelmGroup; label: string }[] = [
+  { id: 'money',         label: 'Money' },
+  { id: 'operations',    label: 'Operations' },
+  { id: 'growth',        label: 'Growth' },
+  { id: 'relationships', label: 'Relationships' },
+  { id: 'reference',     label: 'Reference' },
+  { id: 'soon',          label: 'Soon' },
+];
+
 export type HelmModule = {
   id: string;
   href: string;
@@ -30,6 +46,12 @@ export type HelmModule = {
    * and search still resolve; only the redundant nav entries are removed.
    */
   hidden?: boolean;
+  /**
+   * Which named section the module belongs to in the overflow nav. The
+   * dropdown and mobile menu render a section header whenever this changes
+   * between consecutive items. Hidden modules can omit it.
+   */
+  group?: HelmGroup;
 };
 
 export const HELM_MODULES: HelmModule[] = [
@@ -51,6 +73,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
     status: 'active',
     primary: false,
+    group: 'money',
   },
   // Statements / Revenue / Forecast are tabs inside Financials (see
   // FinancialsTabs). Kept in the registry so their routes + search resolve,
@@ -65,6 +88,7 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
     hidden: true,
+    group: 'money',
   },
   {
     id: 'operations',
@@ -74,6 +98,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
     status: 'active',
     primary: true,
+    group: 'operations',
   },
   {
     id: 'field',
@@ -83,6 +108,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
     status: 'active',
     primary: false,
+    group: 'operations',
   },
   {
     id: 'work',
@@ -92,6 +118,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
     status: 'active',
     primary: true,
+    group: 'operations',
   },
   {
     id: 'properties',
@@ -101,6 +128,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
     primary: false,
+    group: 'relationships',
   },
   {
     id: 'projections',
@@ -110,6 +138,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract, all from the same shared inputs.',
     status: 'active',
     primary: false,
+    group: 'growth',
   },
   {
     id: 'messaging',
@@ -119,6 +148,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Guest message drafts awaiting approval. Approve, reject, or coach the AI right from Helm. Backed by the Stay Concierge service.',
     status: 'active',
     primary: true,
+    group: 'relationships',
   },
   {
     id: 'owner-messaging',
@@ -128,6 +158,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Owner reply drafts from SMS + email. Mirror of the guest messaging surface. Approve, reject, or coach the AI right from Helm.',
     status: 'active',
     primary: false,
+    group: 'relationships',
   },
   {
     id: 'revenue',
@@ -138,6 +169,7 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
     hidden: true,
+    group: 'money',
   },
   {
     id: 'marketing',
@@ -147,6 +179,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
     status: 'active',
     primary: false,
+    group: 'growth',
   },
   {
     id: 'forecast',
@@ -157,6 +190,7 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
     hidden: true,
+    group: 'money',
   },
   // LLC Accounting ("Books") is a tab inside Financials (see FinancialsTabs),
   // like Statements/Revenue/Forecast/Cost Analysis. Hidden from the nav
@@ -171,6 +205,22 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: false,
     hidden: true,
+    group: 'money',
+  },
+  // Cost Analysis is the housekeeping-cost trend view -- a tab inside
+  // Financials (see FinancialsTabs), not a top-level destination. Registered
+  // hidden so search and the Cmd+K palette can resolve it; the only way to
+  // reach it via nav is the Financials tab strip.
+  {
+    id: 'cost-analysis',
+    href: '/cost-analysis',
+    number: '01',
+    title: 'Cost Analysis',
+    description: 'Housekeeping cost trends per property. Per-turnover and per-night, plotted month over month.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'money',
   },
   {
     id: 'guests',
@@ -180,6 +230,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
     status: 'active',
     primary: false,
+    group: 'growth',
   },
   // Reviews is not a module of its own — it's the "Reviews" tab inside
   // the Guests section (/guests?tab=reviews). /reviews redirects there.
@@ -191,6 +242,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Other vacation rental managers in the Cape Ann market. Inventory size, town mix, unit count. Phase 1 starts with Atlantic Vacation Homes.',
     status: 'active',
     primary: false,
+    group: 'growth',
   },
   {
     id: 'playbook',
@@ -200,6 +252,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'How we run the business. Standard operating procedures, the eccentricities, and the institutional knowledge of Rising Tide, written down once and searchable everywhere. Ask Helm reads from here.',
     status: 'active',
     primary: false,
+    group: 'reference',
   },
   // ── Parked: built but de-prioritized. Greyed + sorted to the bottom,
   //    non-clickable in the nav. The routes still resolve by direct URL
@@ -214,6 +267,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. Texted to Dotti every morning.',
     status: 'parked',
     primary: false,
+    group: 'operations',
   },
   {
     id: 'crm',
@@ -223,6 +277,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Owners, vendors, leads. Every touch logged in one place.',
     status: 'parked',
     primary: false,
+    group: 'relationships',
   },
   {
     id: 'channels',
@@ -232,6 +287,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings.',
     status: 'parked',
     primary: false,
+    group: 'operations',
   },
   // ── Not built yet ──────────────────────────────────────────────────
   {
@@ -242,6 +298,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
     status: 'soon',
     primary: false,
+    group: 'soon',
   },
   {
     id: 'admin',
@@ -251,6 +308,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Settings, inspection templates, automation rules, team, roles.',
     status: 'soon',
     primary: false,
+    group: 'soon',
   },
 ];
 
@@ -280,3 +338,34 @@ export const PRIMARY_MODULES = HELM_MODULES
 // It renders the same PRIMARY_MODULES trio plus the same overflow set the
 // desktop "More" dropdown shows (HELM_MODULES minus primary minus hidden),
 // so the two surfaces stay congruent from a single source of truth.
+
+/**
+ * The overflow set the More dropdown and the mobile menu both render, organised
+ * into the five named sections so each surface can paint a header when the
+ * group changes. Within a section, active items come first and parked items
+ * sort to the bottom (parked is "built but de-prioritized" -- still a real
+ * route, just visually demoted). Soon items are their own tail section.
+ *
+ * Hidden modules (Statements / Revenue / Forecast / LLC Accounting / Cost
+ * Analysis -- tabs of Financials) are excluded from the nav lists but their
+ * routes still resolve and Cmd+K search still finds them.
+ */
+export function getGroupedOverflowModules(): { group: HelmGroup; label: string; modules: HelmModule[] }[] {
+  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
+  const overflow = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
+
+  const statusRank: Record<HelmModule['status'], number> = {
+    active: 0,
+    external: 0,
+    parked: 1,
+    soon: 2,
+  };
+
+  return HELM_GROUPS.map((g) => ({
+    group: g.id,
+    label: g.label,
+    modules: overflow
+      .filter((m) => (m.group ?? 'reference') === g.id)
+      .sort((a, b) => statusRank[a.status] - statusRank[b.status]),
+  })).filter((s) => s.modules.length > 0);
+}

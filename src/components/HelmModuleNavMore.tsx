@@ -12,7 +12,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { getGroupedOverflowModules, type HelmModule } from '@/lib/helm-modules';
 
 type Props = {
   current?: string;
@@ -40,13 +40,15 @@ export function HelmModuleNavMore({ current }: Props) {
 
   // Everything that isn't already a tab on the masthead, minus modules
   // hidden because they're tabs of a parent section (e.g. Statements /
-  // Revenue / Forecast live under Financials).
-  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow: HelmModule[] = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
-  if (overflow.length === 0) return null;
+  // Revenue / Forecast live under Financials). Now organised into the five
+  // named sections (Money / Operations / Growth / Relationships / Reference,
+  // plus a Soon tail) so the dropdown reads as a structured map instead of a
+  // flat list of fourteen items.
+  const sections = getGroupedOverflowModules();
+  if (sections.length === 0) return null;
 
-  // Mark "More" as active if the current page is in the overflow set.
-  const activeInMore = !!(current && overflow.some((m) => m.id === current));
+  // Mark "More" as active if the current page is in any overflow section.
+  const activeInMore = !!(current && sections.some((s) => s.modules.some((m) => m.id === current)));
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
@@ -90,11 +92,34 @@ export function HelmModuleNavMore({ current }: Props) {
             padding: '6px 0',
           }}
         >
-          {overflow.map((m) => (
-            <ModuleItem key={m.id} module={m} active={m.id === current} onPick={() => setOpen(false)} />
+          {sections.map((section, sectionIdx) => (
+            <div key={section.group}>
+              <SectionHeader label={section.label} isFirst={sectionIdx === 0} />
+              {section.modules.map((m) => (
+                <ModuleItem key={m.id} module={m} active={m.id === current} onPick={() => setOpen(false)} />
+              ))}
+            </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function SectionHeader({ label, isFirst }: { label: string; isFirst: boolean }) {
+  return (
+    <div
+      style={{
+        padding: isFirst ? '8px 18px 4px' : '12px 18px 4px',
+        fontSize: 9,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
+        color: 'var(--ink-4)',
+        fontFamily: 'inherit',
+      }}
+    >
+      {label}
     </div>
   );
 }
