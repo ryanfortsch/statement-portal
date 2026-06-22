@@ -11,7 +11,7 @@
  * nights, so a 6-night stay where 2 nights fall inside the range contributes
  * (host_payout * 2 / 6) to that range's revenue.
  */
-import { supabase } from './supabase';
+import { supabaseAdmin as supabase } from './supabase-admin';
 import {
   dayAfter,
   daysInMonth,

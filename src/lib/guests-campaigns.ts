@@ -7,7 +7,7 @@
  * we translate those into a contains/no-overlap/IN query.
  */
 
-import { supabase } from './supabase';
+import { supabaseAdmin as supabase } from './supabase-admin';
 import type { GuestCampaign, GuestContact, GuestSegment } from './guests-types';
 
 export async function getCampaign(id: string): Promise<GuestCampaign | null> {

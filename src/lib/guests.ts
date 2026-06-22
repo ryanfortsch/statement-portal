@@ -6,7 +6,7 @@
  * name.
  */
 
-import { supabase, isConfigured } from './supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from './supabase-admin';
 import type {
   GuestContact,
   GuestSegment,
