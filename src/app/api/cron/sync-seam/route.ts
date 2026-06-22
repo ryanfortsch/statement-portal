@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { authorizeCron } from '@/lib/cron-auth';
 import { POST as syncSeamPost } from '../../sync-seam/route';
 
@@ -16,9 +15,11 @@ export const maxDuration = 300;
  * (and auto-opens a maintenance slip) within a day. No-ops gracefully if
  * SEAM_API_KEY is unset.
  *
- * Thin in-process wrapper around /api/sync-seam (same pattern as
- * /api/cron/sync-guesty). Auth: optional CRON_SECRET bearer; manual
- * trigger may pass x-helm-manual-sync: 1.
+ * Thin in-process wrapper around /api/sync-seam. sync_status is now written
+ * by the inner route itself via lib/sync-status (one writer per source, so a
+ * partial per-device failure shows up on the daily brief instead of being
+ * buried in the response). Auth: CRON_SECRET bearer for Vercel Cron, or a
+ * signed-in Helm user for the manual "Sync now" button.
  */
 
 async function handle(request: NextRequest) {
@@ -27,20 +28,7 @@ async function handle(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    const result = await syncSeamPost();
-    if (result.ok) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      );
-      await supabase
-        .from('sync_status')
-        .upsert(
-          { source: 'seam', last_synced_at: new Date().toISOString() },
-          { onConflict: 'source' },
-        );
-    }
-    return result;
+    return await syncSeamPost();
   } catch (err) {
     console.error('[cron/sync-seam]', err);
     return NextResponse.json(

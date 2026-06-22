@@ -6,6 +6,7 @@ import {
   normalizeFromDevice,
   ingestDeviceBattery,
 } from '@/lib/seam';
+import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
 // this lists every Seam device and runs it through the same ingest
@@ -80,9 +81,21 @@ export async function POST() {
       }
     }
 
+    // Record sync_status here (innermost) so the manual /api/sync-seam button
+    // and the cron wrapper at /api/cron/sync-seam both stamp the same source
+    // key from the same code path. Per-device failures surface as a sync
+    // failure on the daily brief instead of being buried in summary.errors.
+    await recordSyncResult('seam', {
+      processed: devices.length,
+      failed: summary.errors.length,
+      firstError: summary.errors[0],
+      result: summary,
+    });
+
     return NextResponse.json({ ok: true, summary });
   } catch (err) {
     console.error('sync-seam failed', err);
+    await recordSyncFailure('seam', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

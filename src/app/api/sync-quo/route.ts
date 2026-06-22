@@ -10,6 +10,7 @@ import {
   type QuoPhoneNumber,
 } from '@/lib/quo';
 import { matchPropertyFromCleanerText } from '@/lib/properties';
+import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -83,9 +84,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Record sync_status here (innermost) so the manual /api/sync-quo button
+    // and the cron wrapper at /api/cron/sync-quo both stamp the same source
+    // key from the same code path. Any per-phone failure surfaces as a sync
+    // failure on the daily brief instead of being buried in summary.errors.
+    await recordSyncResult('quo', {
+      processed: targets.size,
+      failed: summary.errors.length,
+      firstError: summary.errors[0],
+      result: { since, ...summary },
+    });
+
     return NextResponse.json({ ok: true, since, summary });
   } catch (err) {
     console.error('sync-quo failed', err);
+    await recordSyncFailure('quo', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },
