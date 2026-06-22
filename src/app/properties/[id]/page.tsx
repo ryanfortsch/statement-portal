@@ -24,6 +24,7 @@ import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
+import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
@@ -588,6 +589,10 @@ export default async function PropertyDetailPage({
       >
         {/* ════════════ OVERVIEW ════════════ */}
         <TabSection tab="overview">
+          {/* Dictate/type a note; Helm routes it to the right field or
+              note after operator review. Top of the tab — capture comes
+              before scanning open work. */}
+          <QuickCapture propertyId={p.id} propertyName={p.name} />
           <TabActions>
             <Link
               href={`/properties/${p.id}/launch`}
@@ -1052,6 +1057,22 @@ export default async function PropertyDetailPage({
                   >
                     {n.title}
                   </h3>
+                  {n.guest_facing && (
+                    <span
+                      title="Part of the guest-messaging knowledge base"
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--paper)',
+                        background: 'var(--tide-deep)',
+                        padding: '2px 7px',
+                      }}
+                    >
+                      Guest
+                    </span>
+                  )}
                   {n.tag && (
                     <span
                       style={{

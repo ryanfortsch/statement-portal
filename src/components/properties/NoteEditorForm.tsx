@@ -19,7 +19,7 @@ export function NoteEditorForm({
 }: {
   action: (formData: FormData) => Promise<void> | void;
   propertyId: string;
-  initial?: { title?: string | null; body?: string | null; tag?: string | null };
+  initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null };
   submitLabel: string;
 }) {
   return (
@@ -63,6 +63,39 @@ export function NoteEditorForm({
           style={inputStyle}
         />
       </Field>
+
+      <label
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'flex-start',
+          cursor: 'pointer',
+          border: '1px solid var(--rule)',
+          padding: '14px 16px',
+        }}
+      >
+        <input
+          name="guest_facing"
+          type="checkbox"
+          defaultChecked={initial?.guest_facing ?? false}
+          style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--tide-deep)', flexShrink: 0 }}
+        />
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--ink)',
+            }}
+          >
+            Guest-facing knowledge
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+            Add this to the guest-messaging knowledge base — something a guest would be told (a quirk of
+            the home, a local tip). Leave unchecked for internal ops only your team should see.
+          </span>
+        </span>
+      </label>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
         <button type="submit" style={primaryButtonStyle}>
