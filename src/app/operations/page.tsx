@@ -8,6 +8,7 @@ import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { PlanButton } from './PlanButton';
+import { markTurnoverComplete, unmarkTurnoverComplete } from './turnover-actions';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
@@ -117,7 +118,11 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
 
-  const inspectionsLeft = data.totalCount - data.inspectionDoneCount;
+  // "Pending" = still needs attention: not inspected AND not hand-marked
+  // done. A manually-completed turnover counts as handled, so it drops out
+  // of the header count + jump target just like an inspected one.
+  const pendingTurnovers = data.turnovers.filter((t) => !isTurnoverDone(t));
+  const inspectionsLeft = pendingTurnovers.length;
 
   // Where "N inspections pending" should jump to when tapped:
   //   - exactly 1 pending AND it has an inspection row already (the operator
@@ -128,7 +133,6 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   // (the existing button on the row), which a plain <Link> can't do, so
   // the anchor path keeps the click on a real CTA instead of doing it for
   // the operator without confirmation.
-  const pendingTurnovers = data.turnovers.filter((t) => t.inspectionStatus !== 'complete');
   let pendingHref: string | null = null;
   if (pendingTurnovers.length === 1 && pendingTurnovers[0].inspection?.id) {
     pendingHref = `/inspections/${pendingTurnovers[0].inspection.id}`;
@@ -406,17 +410,21 @@ export default async function OperationsPage({ searchParams }: PageProps) {
  * always visible, never collapsed behind an expander. The operator works
  * this list top to bottom, so hiding the tail would hide real work.
  *
- * Two tiers: turnovers that still need a walk (not inspected, or an
- * inspection in progress) render full-size up top in date order; already-
- * inspected turnovers sink to the bottom as compact, dimmed rows (see
- * TurnoverRowDone), date-ordered among themselves. The partition is
- * stable, so it preserves the server-side chronological sort within each
- * tier. Result: the operator's eye lands on outstanding work, with the
- * finished walks tucked away but still reachable.
+ * Two tiers: turnovers that still need attention (not inspected and not
+ * hand-marked done) render full-size up top in date order; finished ones
+ * sink to the bottom as compact, dimmed rows (see TurnoverRowDone),
+ * date-ordered among themselves. The partition is stable, so it preserves
+ * the server-side chronological sort within each tier. Result: the
+ * operator's eye lands on outstanding work, with the finished turnovers
+ * tucked away but still reachable.
  */
+function isTurnoverDone(t: Turnover): boolean {
+  return t.inspectionStatus === 'complete' || t.manuallyCompleted;
+}
+
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
-  const pending = turnovers.filter((t) => t.inspectionStatus !== 'complete');
-  const done = turnovers.filter((t) => t.inspectionStatus === 'complete');
+  const pending = turnovers.filter((t) => !isTurnoverDone(t));
+  const done = turnovers.filter((t) => isTurnoverDone(t));
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       {pending.map((t) => (
@@ -642,6 +650,32 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
             {fieldChipLabel(t.fieldPacket)} →
           </Link>
         )}
+        {/* Mark done: the operator's "I've handled this, clear it" control.
+            Sinks the row to the bottom of the pipeline (turnover_completions)
+            without requiring a formal inspection. */}
+        <form action={markTurnoverComplete} style={{ margin: '2px 0 0' }}>
+          <input type="hidden" name="property_id" value={t.propertyId} />
+          <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
+          <input type="hidden" name="reservation_id" value={t.reservationId} />
+          <input type="hidden" name="guest_name" value={t.guestName ?? ''} />
+          <button
+            type="submit"
+            title="Mark this turnover done and move it to the bottom"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              fontSize: 11,
+              color: 'var(--ink-3)',
+              letterSpacing: '0.02em',
+              borderBottom: '1px dashed var(--ink-4)',
+              lineHeight: 1.6,
+            }}
+          >
+            ✓ Mark done
+          </button>
+        </form>
       </div>
 
       {/* Action — in-progress shows Resume; otherwise stack a plan-button
@@ -713,15 +747,18 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
 }
 
 /**
- * Compact, dimmed row for a turnover whose inspection is already complete.
- * These sink to the bottom of the pipeline (see TurnoverList) and render
- * at roughly half the height + half the weight of an actionable row, so
- * the operator skips straight to the walks that still need doing. The
- * checkout/nights + cleaning lines are dropped (historical once inspected);
- * what survives is property, check-in date, guest, an "Inspected" mark, any
- * still-open work slips, and a link into the summary.
+ * Compact, dimmed row for a finished turnover — either its inspection is
+ * complete OR the operator hand-marked it done. These sink to the bottom
+ * of the pipeline (see TurnoverList) and render at roughly half the height
+ * + half the weight of an actionable row, so the operator skips straight to
+ * the work that still needs doing. The checkout/nights + cleaning lines are
+ * dropped (historical once finished); what survives is property, check-in
+ * date, guest, an "Inspected"/"Completed" mark, any still-open work slips,
+ * and an action: a Summary link for inspected ones, an Undo for the
+ * hand-marked ones (so a mis-tap is one click to reverse).
  */
 function TurnoverRowDone({ t }: { t: Turnover }) {
+  const inspected = t.inspectionStatus === 'complete';
   return (
     <div
       id={`turnover-${t.propertyId}-${t.reservationId}`}
@@ -773,7 +810,16 @@ function TurnoverRowDone({ t }: { t: Turnover }) {
           whiteSpace: 'nowrap',
         }}
       >
-        <span style={{ color: 'var(--positive)' }}>Inspected</span>
+        <span
+          style={{ color: 'var(--positive)' }}
+          title={
+            inspected
+              ? 'Inspection completed'
+              : `Marked done by hand${t.completedByEmail ? ` (${t.completedByEmail})` : ''}`
+          }
+        >
+          {inspected ? 'Inspected' : 'Completed'}
+        </span>
         {t.openWorkSlipsCount > 0 && (
           <Link
             href={`/properties/${t.propertyId}/work-slips/print`}
@@ -793,7 +839,7 @@ function TurnoverRowDone({ t }: { t: Turnover }) {
           </Link>
         )}
       </div>
-      {t.inspection ? (
+      {inspected && t.inspection ? (
         <Link
           href={`/inspections/${t.inspection.id}/summary`}
           className="rt-turnover-action"
@@ -801,6 +847,29 @@ function TurnoverRowDone({ t }: { t: Turnover }) {
         >
           Summary →
         </Link>
+      ) : t.manuallyCompleted ? (
+        // Hand-marked done — offer a one-click reversal back to the active
+        // list. (turnover_completions row deleted by property + check_in.)
+        <form action={unmarkTurnoverComplete} className="rt-turnover-action" style={{ margin: 0 }}>
+          <input type="hidden" name="property_id" value={t.propertyId} />
+          <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
+          <button
+            type="submit"
+            title="Move this turnover back to the active list"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              fontSize: 11,
+              color: 'var(--ink-3)',
+              whiteSpace: 'nowrap',
+              borderBottom: '1px dashed var(--ink-4)',
+            }}
+          >
+            Undo →
+          </button>
+        </form>
       ) : (
         <span className="rt-turnover-action" />
       )}
