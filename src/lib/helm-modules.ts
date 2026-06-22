@@ -150,14 +150,20 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
+  // Owner Messaging is now a TAB inside Messaging (see MessagingTabs), same
+  // pattern as Statements / Revenue / Forecast / Cost Analysis / Books sitting
+  // under Financials. Hidden from the nav lists so it doesn't duplicate the
+  // Messaging entry; route + search still resolve. The Messaging
+  // pending-count badge sums guest + owner pending drafts.
   {
     id: 'owner-messaging',
     href: '/owner-messaging',
     number: '08b',
     title: 'Owner Messaging',
-    description: 'Owner reply drafts from SMS + email. Mirror of the guest messaging surface. Approve, reject, or coach the AI right from Helm.',
+    description: 'Owner reply drafts from SMS + email. The Owners tab of the Messaging section. Approve, reject, or coach the AI right from Helm.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'relationships',
   },
   {
