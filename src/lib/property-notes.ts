@@ -20,6 +20,8 @@ export type PropertyNote = {
   title: string;
   body: string;
   tag: string | null;
+  /** true = part of the guest-messaging knowledge base; false = internal ops. */
+  guest_facing: boolean;
   photo_urls: string[];
   author_email: string | null;
   resolved_at: string | null;

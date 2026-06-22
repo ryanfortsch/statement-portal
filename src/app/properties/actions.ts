@@ -7,8 +7,15 @@ import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
 import { formatUsPhone } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
-import { upsertPropertyAccess } from '@/lib/property-access';
+import { upsertPropertyAccess, getPropertyAccess, ACCESS_COLUMNS, type PropertyAccess } from '@/lib/property-access';
 import type { DocumentCategory } from '@/lib/property-documents';
+import {
+  parsePropertyCapture,
+  captureColumn,
+  CAPTURE_COLUMN_KEYS,
+  type CaptureItem,
+  type CaptureProposal,
+} from '@/lib/ai/property-capture';
 
 /**
  * Service-role Supabase client for writes that must bypass anon RLS
@@ -664,12 +671,14 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
  * NOT to be confused with property_notices (one-i) above, which are
  * guest-facing printed placards.
  */
-function notePayload(formData: FormData): { title: string; body: string; tag: string | null } | null {
+function notePayload(formData: FormData): { title: string; body: string; tag: string | null; guest_facing: boolean } | null {
   const title = String(formData.get('title') ?? '').trim();
   const body = String(formData.get('body') ?? '').trim();
   const tag = strOrNull(formData, 'tag');
+  // Checkbox: present ('on') when ticked, absent otherwise.
+  const guest_facing = formData.get('guest_facing') != null;
   if (!title) return null;
-  return { title, body, tag };
+  return { title, body, tag, guest_facing };
 }
 
 export async function createPropertyNote(propertyId: string, formData: FormData) {
@@ -679,7 +688,10 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   const payload = notePayload(formData);
   if (!payload) throw new Error('Title is required.');
 
-  const { error } = await supabase
+  // Service role: guest_facing is a recent column, so go through the
+  // service-role client to dodge the anon schema-cache / grants edge
+  // case that silently dropped new-column writes on 2026-06-02.
+  const { error } = await getServiceClient()
     .from('property_notes')
     .insert({
       property_id: propertyId,
@@ -699,7 +711,7 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   const payload = notePayload(formData);
   if (!payload) throw new Error('Title is required.');
 
-  const { error } = await supabase
+  const { error } = await getServiceClient()
     .from('property_notes')
     .update(payload)
     .eq('id', noteId)
@@ -871,4 +883,219 @@ export async function deletePropertyDocument(propertyId: string, documentId: str
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
+}
+
+// ─── Quick Capture (dictate/type → AI-routed) ───────────────────────
+
+export type ParseCaptureResult =
+  | { ok: true; proposal: CaptureProposal; currentValues: Record<string, string | null> }
+  | { ok: false; error: string };
+
+/**
+ * Step 1: parse a raw dictated/typed note into a reviewable routing
+ * proposal. Does NOT write anything. Also returns the current value of
+ * each proposed column so the review card can warn when a write would
+ * overwrite existing data.
+ */
+export async function parsePropertyCaptureAction(
+  propertyId: string,
+  rawText: string,
+): Promise<ParseCaptureResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in.' };
+  const text = rawText.trim();
+  if (!text) return { ok: false, error: 'Nothing to process — type or dictate a note first.' };
+  if (text.length > 4000) return { ok: false, error: 'That note is very long — trim it under 4000 characters.' };
+
+  const sb = getServiceClient();
+  const { data: prop, error: propErr } = await sb
+    .from('properties')
+    .select('*')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (propErr) return { ok: false, error: propErr.message };
+  if (!prop) return { ok: false, error: 'Property not found.' };
+
+  let proposal: CaptureProposal;
+  try {
+    proposal = await parsePropertyCapture({
+      rawText: text,
+      propertyName: (prop as { name?: string }).name ?? propertyId,
+    });
+  } catch (err) {
+    console.error('[parsePropertyCaptureAction] parse failed', { propertyId, err });
+    return { ok: false, error: `Couldn't process that note: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const row = prop as Record<string, unknown>;
+  const accessKeys = new Set<string>(ACCESS_COLUMNS);
+  // Sensitive credentials (gate/lock/wifi codes) live on the RLS-locked
+  // property_access table, not on properties, so the overwrite warning has to
+  // read their current values from there. Only fetch when one is in play.
+  const needAccess = proposal.items.some(
+    (it) => it.target === 'column' && !!it.column && accessKeys.has(it.column),
+  );
+  const access = needAccess ? await getPropertyAccess(propertyId) : null;
+
+  const currentValues: Record<string, string | null> = {};
+  for (const item of proposal.items) {
+    if (item.target === 'column' && item.column && CAPTURE_COLUMN_KEYS.has(item.column)) {
+      const cur =
+        accessKeys.has(item.column) && access
+          ? (access as Record<string, unknown>)[item.column]
+          : row[item.column];
+      currentValues[item.column] = cur == null || cur === '' ? null : String(cur);
+    }
+  }
+
+  return { ok: true, proposal, currentValues };
+}
+
+export type ApplyCaptureResult =
+  | { ok: true; columns: number; notes: number; skipped: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Step 2: apply the operator-approved items. Column values are coerced by the
+ * catalog type (phone -> house format, int/float -> number). Sensitive entry
+ * credentials (ACCESS_COLUMNS: gate/lock/wifi codes) live on the RLS-locked
+ * property_access table, NOT the anon-readable properties table, so they are
+ * split out and written via upsertPropertyAccess — mirroring updateProperty.
+ * Notes are inserted as property_notes rows carrying their guest_facing flag.
+ *
+ * The three writes (properties patch, access patch, notes) are independent
+ * legs: a failure in one is reported honestly but never silently swallows the
+ * others. Nothing here is reached until the operator has reviewed the proposal.
+ */
+export async function applyPropertyCaptureAction(
+  propertyId: string,
+  items: CaptureItem[],
+): Promise<ApplyCaptureResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in.' };
+  const authorEmail = session.user.email;
+  if (!Array.isArray(items) || items.length === 0) return { ok: false, error: 'Nothing selected to apply.' };
+
+  const sb = getServiceClient();
+  const accessKeys = new Set<string>(ACCESS_COLUMNS);
+
+  // Build the column patches, coercing each value by its catalog type and
+  // routing each to the right table. A value that can't be coerced (e.g. a
+  // numeric field with no readable number) is tracked in `skipped` so the
+  // done summary can tell the operator it was left unchanged.
+  const patch: Record<string, unknown> = {};
+  const accessPatch: Record<string, string | null> = {};
+  const skipped: string[] = [];
+
+  for (const item of items) {
+    if (item.target !== 'column') continue;
+    const col = item.column && captureColumn(item.column);
+    if (!col) continue; // unknown key — skip defensively
+    const raw = (item.value ?? '').trim();
+    if (!raw) continue;
+
+    let coerced: string | number | null = null;
+    if (col.type === 'phone') {
+      coerced = formatUsPhone(raw);
+    } else if (col.type === 'int') {
+      // Parse the value as a whole, then round — matches intOrNull on the
+      // edit form. Do NOT strip the decimal point first ('2.5' -> 25 bug).
+      const n = Number(raw.replace(/[^\d.-]/g, ''));
+      coerced = Number.isFinite(n) ? Math.round(n) : null;
+    } else if (col.type === 'float') {
+      const n = Number(raw.replace(/[^\d.-]/g, ''));
+      coerced = Number.isFinite(n) ? n : null;
+    } else {
+      coerced = raw;
+    }
+
+    if (coerced === null || coerced === '') {
+      skipped.push(col.label);
+      continue;
+    }
+
+    if (accessKeys.has(col.key)) {
+      accessPatch[col.key] = String(coerced);
+    } else {
+      patch[col.key] = coerced;
+    }
+  }
+
+  const errors: string[] = [];
+  let columnsApplied = 0;
+
+  // Leg 1: ordinary properties columns.
+  if (Object.keys(patch).length > 0) {
+    const { data, error } = await sb
+      .from('properties')
+      .update(patch)
+      .eq('id', propertyId)
+      .select('id');
+    if (error) {
+      console.error('[applyPropertyCaptureAction] column update failed', { propertyId, error });
+      errors.push(`fields (${error.message})`);
+    } else if (!data || data.length === 0) {
+      errors.push('fields (property not found)');
+    } else {
+      columnsApplied += Object.keys(patch).length;
+    }
+  }
+
+  // Leg 2: sensitive credentials -> property_access.
+  if (Object.keys(accessPatch).length > 0) {
+    const { error } = await upsertPropertyAccess(propertyId, accessPatch as Partial<PropertyAccess>);
+    if (error) {
+      console.error('[applyPropertyCaptureAction] access upsert failed', { propertyId, error });
+      errors.push(`access codes (${error})`);
+    } else {
+      columnsApplied += Object.keys(accessPatch).length;
+    }
+  }
+
+  // Leg 3: notes — independent of the column writes above.
+  const noteRows = items
+    .filter((i) => i.target === 'note' && (i.noteTitle || i.noteBody))
+    .map((i) => ({
+      property_id: propertyId,
+      title: (i.noteTitle || (i.noteBody || '').slice(0, 80) || 'Captured note').trim(),
+      body: (i.noteBody || '').trim(),
+      tag: i.noteTag ? i.noteTag.trim().toLowerCase() : null,
+      guest_facing: !!i.guestFacing,
+      author_email: authorEmail,
+    }));
+  let notesApplied = 0;
+  if (noteRows.length > 0) {
+    const { error } = await sb.from('property_notes').insert(noteRows);
+    if (error) {
+      console.error('[applyPropertyCaptureAction] note insert failed', { propertyId, error });
+      errors.push(`notes (${error.message})`);
+    } else {
+      notesApplied = noteRows.length;
+    }
+  }
+
+  revalidatePath('/properties');
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/edit`);
+  // Access codes feed the printed placards / guides, so revalidate those too.
+  if (Object.keys(accessPatch).length > 0) {
+    revalidatePath(`/properties/${propertyId}/info-note`);
+    revalidatePath(`/properties/${propertyId}/home-guide`);
+    revalidatePath(`/properties/${propertyId}/wifi-placard`);
+    revalidatePath(`/properties/${propertyId}/welcome-card`);
+  }
+
+  if (errors.length > 0) {
+    const did: string[] = [];
+    if (columnsApplied > 0) did.push(`${columnsApplied} field${columnsApplied === 1 ? '' : 's'}`);
+    if (notesApplied > 0) did.push(`${notesApplied} note${notesApplied === 1 ? '' : 's'}`);
+    const prefix = did.length ? `Saved ${did.join(' and ')}, but ` : '';
+    return { ok: false, error: `${prefix}some items didn't save: ${errors.join('; ')}.` };
+  }
+
+  if (columnsApplied === 0 && notesApplied === 0) {
+    return { ok: false, error: 'Nothing to apply — every item was empty.' };
+  }
+
+  return { ok: true, columns: columnsApplied, notes: notesApplied, skipped };
 }

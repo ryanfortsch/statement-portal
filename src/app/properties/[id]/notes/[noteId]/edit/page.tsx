@@ -41,6 +41,7 @@ export default async function EditPropertyNotePage({
     title: note.title,
     body: note.body,
     tag: note.tag,
+    guest_facing: note.guest_facing,
   };
 
   return (
