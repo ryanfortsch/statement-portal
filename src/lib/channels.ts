@@ -6,7 +6,7 @@
  * iCal sync also writes via the service-role key from the cron route.
  */
 
-import { supabase, isConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import type {
   Booking,
   ChannelListing,

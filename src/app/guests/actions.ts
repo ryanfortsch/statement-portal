@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import Papa from 'papaparse';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { isProxyEmail, type GuestStatus } from '@/lib/guests-types';
 import { pushContactToResend, unsubscribeContactInResend } from '@/lib/resend';
 import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
