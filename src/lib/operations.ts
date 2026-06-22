@@ -9,7 +9,7 @@
  * wind-down. booking.id is the per-stay key (it stands in for the old
  * guesty_reservation_id throughout this module and the Operations page).
  */
-import { supabase } from './supabase';
+import { supabaseAdmin as supabase } from './supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
 
