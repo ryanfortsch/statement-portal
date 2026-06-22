@@ -13,13 +13,14 @@
  * and returns it so the palette can show "Sources" links the operator
  * can click to verify the answer.
  *
- * Read-only by construction: no tool issues a write. Uses the anon
- * `supabase` client (read RLS is permissive on these tables).
+ * Read-only by construction: no tool issues a write. Uses the service-role
+ * `supabase` client so it can read the RLS-locked tables (contacts,
+ * contact_touches) alongside the permissive ones.
  */
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadOperationsData, type Range } from '@/lib/operations';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 

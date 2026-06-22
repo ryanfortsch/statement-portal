@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, WORK_SLIP_CATEGORY_LABELS } from '@/lib/work-types';
 import type { ContactTouchRow, TouchChannel } from '@/lib/crm';
