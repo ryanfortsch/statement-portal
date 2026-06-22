@@ -306,12 +306,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
      stacks tight on phones. Drop the date to the eyebrow row, hide the
      redundant arrow chip (the whole row is tappable), and let summary +
      property name share the second column. */
-  .rt-inspections-recent-row > div {
+  .rt-inspections-recent-row a > div {
     grid-template-columns: 1fr auto !important;
     gap: 10px !important;
     padding: 14px 0 !important;
   }
-  .rt-inspections-recent-row > div > :nth-child(1) {
+  .rt-inspections-recent-row a > div > :nth-child(1) {
     grid-column: 1 / -1;
     font-size: 11px !important;
     letter-spacing: .14em;
@@ -320,7 +320,7 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     margin-bottom: 4px;
     font-family: var(--font-inter), system-ui, sans-serif !important;
   }
-  .rt-inspections-recent-row > div > :nth-child(4) {
+  .rt-inspections-recent-row a > div > :nth-child(4) {
     display: none;
   }
 
