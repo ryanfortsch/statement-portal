@@ -59,7 +59,7 @@ export default async function PacketsBoard({
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="operations" />
+        <HelmMasthead current="field" />
         <section className="max-w-[1000px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Field packets</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
@@ -101,7 +101,7 @@ export default async function PacketsBoard({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="operations" />
+      <HelmMasthead current="field" />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>
