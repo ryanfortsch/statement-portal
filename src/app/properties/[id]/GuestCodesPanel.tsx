@@ -1,0 +1,231 @@
+'use client';
+
+import { useState, useTransition } from 'react';
+import {
+  issueTestCodeAction,
+  issueGuestCodeAction,
+  revokeGuestCodeAction,
+  type CodeActionResult,
+} from './guest-code-actions';
+import type { GuestCodeView } from '@/lib/guest-locks';
+
+/**
+ * Guest door codes panel (Operations tab). Issues a time-boxed PIN on the
+ * property's Seam lock for a stay (or a 3-hour test code to pressure-test the
+ * lock plumbing), shows the code, and revokes it. Operator-in-the-loop: this
+ * does not message the guest.
+ */
+export function GuestCodesPanel({
+  propertyId,
+  view,
+}: {
+  propertyId: string;
+  view: GuestCodeView;
+}) {
+  const [pending, start] = useTransition();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const run = (id: string, fn: () => Promise<CodeActionResult>) => {
+    setBusy(id);
+    start(async () => {
+      const r = await fn();
+      setMsg({ ok: r.ok, text: r.message });
+      setBusy(null);
+    });
+  };
+
+  const { seamConfigured, lock, bookingRows, testCodes } = view;
+
+  return (
+    <div style={{ paddingBottom: 6 }}>
+      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
+        Programs a time-boxed PIN onto this property&apos;s Seam lock for a stay, and revokes it after.
+        This does not text the guest — you issue and share the code yourself.
+      </p>
+
+      {msg && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            borderLeft: `3px solid ${msg.ok ? 'var(--positive)' : 'var(--negative)'}`,
+            background: 'var(--paper-2)',
+            fontSize: 13,
+            color: msg.ok ? 'var(--ink)' : 'var(--negative)',
+            lineHeight: 1.5,
+          }}
+        >
+          {msg.text}
+        </div>
+      )}
+
+      {!seamConfigured && (
+        <div style={noteStyle}>
+          <code>SEAM_API_KEY</code> isn&apos;t set in this environment yet, so no codes can be issued.
+        </div>
+      )}
+
+      {seamConfigured && !lock && (
+        <div style={noteStyle}>
+          No active Schlage lock is mapped to this property yet. Connect this property&apos;s lock in the
+          Seam console, run the device sync, and map it in <code>lock_devices</code>. The panel goes live
+          the moment one lock is mapped — map a single property first to pressure-test.
+        </div>
+      )}
+
+      {lock && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 16 }}>
+            Lock: <strong style={{ color: 'var(--ink)' }}>{lock.display_name ?? lock.device_id}</strong>
+          </div>
+
+          {/* Test code */}
+          <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16, marginBottom: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span style={labelStyle}>Pressure test</span>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => run('test', () => issueTestCodeAction(propertyId))}
+                style={ghostBtn(pending && busy === 'test')}
+              >
+                {pending && busy === 'test' ? 'Issuing…' : 'Issue test code (3 hrs)'}
+              </button>
+            </div>
+            {testCodes.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                {testCodes.map((c) => (
+                  <div key={c.id} style={rowStyle}>
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
+                      {c.code}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                      {c.ends_at ? `expires ${new Date(c.ends_at).toLocaleString()}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => run(c.id, () => revokeGuestCodeAction(propertyId, c.id))}
+                      style={revokeBtn(pending && busy === c.id)}
+                    >
+                      {pending && busy === c.id ? '…' : 'Revoke'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Upcoming stays */}
+          <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16 }}>
+            <span style={labelStyle}>Upcoming stays</span>
+            {bookingRows.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>No upcoming confirmed bookings.</p>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                {bookingRows.map((b) => (
+                  <div key={b.booking_id} style={rowStyle}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, color: 'var(--ink)' }}>{b.guest_name ?? 'Guest'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                        {fmtDate(b.check_in)} → {fmtDate(b.check_out)}
+                      </div>
+                    </div>
+                    {b.code ? (
+                      <>
+                        <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
+                          {b.code.code}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => run(b.code!.id, () => revokeGuestCodeAction(propertyId, b.code!.id))}
+                          style={revokeBtn(pending && busy === b.code.id)}
+                        >
+                          {pending && busy === b.code.id ? '…' : 'Revoke'}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => run(b.booking_id, () => issueGuestCodeAction(propertyId, b.booking_id))}
+                        style={ghostBtn(pending && busy === b.booking_id)}
+                      >
+                        {pending && busy === b.booking_id ? 'Issuing…' : 'Issue code'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function fmtDate(s: string): string {
+  try {
+    return new Date(`${s}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return s;
+  }
+}
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-3)',
+  fontWeight: 600,
+};
+
+const noteStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--ink-3)',
+  background: 'var(--paper-2)',
+  borderLeft: '3px solid var(--rule)',
+  padding: '10px 14px',
+  marginBottom: 16,
+  lineHeight: 1.5,
+};
+
+const rowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  padding: '12px 0',
+  borderBottom: '1px solid var(--rule)',
+};
+
+function ghostBtn(p: boolean): React.CSSProperties {
+  return {
+    fontSize: 11,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    color: 'var(--ink)',
+    background: 'transparent',
+    border: '1px solid var(--ink)',
+    padding: '8px 14px',
+    fontWeight: 600,
+    cursor: p ? 'wait' : 'pointer',
+    opacity: p ? 0.7 : 1,
+    whiteSpace: 'nowrap',
+  };
+}
+
+function revokeBtn(p: boolean): React.CSSProperties {
+  return {
+    fontSize: 11,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    color: 'var(--ink-4)',
+    background: 'transparent',
+    border: 'none',
+    cursor: p ? 'wait' : 'pointer',
+    whiteSpace: 'nowrap',
+  };
+}
