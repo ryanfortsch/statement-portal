@@ -280,6 +280,15 @@ function matchCleaningsToReservations<R extends { check_out: string; guest_name:
   });
 }
 
+// Per-file upload caps. The Statements ingest takes a Guesty Owner Statement
+// PDF plus two CSVs (Platform + Bank). Real monthly files for a 12-property
+// portfolio are well under a megabyte each; the caps here are a safety net
+// against an oversized or wrong-file upload exhausting the function memory.
+// Bumped one tier higher than expected so a fat scanned PDF still fits.
+const MAX_PDF_BYTES = 8 * 1024 * 1024;   // 8 MB
+const MAX_CSV_BYTES = 4 * 1024 * 1024;   // 4 MB each
+const MAX_TOTAL_BYTES = 12 * 1024 * 1024; // 12 MB whole payload
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -291,6 +300,31 @@ export async function POST(request: NextRequest) {
 
     if (!month || !propertyId) {
       return NextResponse.json({ error: 'month and property_id are required' }, { status: 400 });
+    }
+
+    // Reject oversized uploads before any parse work happens. 413 (Payload
+    // Too Large) per the spec, with a message that names the offending file
+    // and limit so the operator can act on it.
+    const oversized: string[] = [];
+    if (guestyPDFFile && guestyPDFFile.size > MAX_PDF_BYTES) {
+      oversized.push(`PDF ${(guestyPDFFile.size / 1024 / 1024).toFixed(1)}MB > ${MAX_PDF_BYTES / 1024 / 1024}MB`);
+    }
+    if (platformCSVFile && platformCSVFile.size > MAX_CSV_BYTES) {
+      oversized.push(`Platform CSV ${(platformCSVFile.size / 1024 / 1024).toFixed(1)}MB > ${MAX_CSV_BYTES / 1024 / 1024}MB`);
+    }
+    if (bankCSVFile && bankCSVFile.size > MAX_CSV_BYTES) {
+      oversized.push(`Bank CSV ${(bankCSVFile.size / 1024 / 1024).toFixed(1)}MB > ${MAX_CSV_BYTES / 1024 / 1024}MB`);
+    }
+    const totalBytes =
+      (guestyPDFFile?.size ?? 0) + (platformCSVFile?.size ?? 0) + (bankCSVFile?.size ?? 0);
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      oversized.push(`total ${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${MAX_TOTAL_BYTES / 1024 / 1024}MB`);
+    }
+    if (oversized.length > 0) {
+      return NextResponse.json(
+        { error: `Upload too large: ${oversized.join('; ')}. Trim or re-export the files.` },
+        { status: 413 },
+      );
     }
 
     const propRow = await getActivePropertyForStatements(propertyId);
