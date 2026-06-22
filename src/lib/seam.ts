@@ -160,6 +160,46 @@ export async function getDevice(deviceId: string): Promise<SeamDevice | null> {
   return res.device ?? null;
 }
 
+// ── Thermostats (climate automation) ────────────────────────────────
+//
+// Used by the property climate engine (src/lib/climate.ts) to set a
+// stay-scoped setpoint. Seam normalizes Ecobee / Nest / Honeywell / Sensi
+// behind one shape. The set endpoints return an action attempt that Seam
+// applies asynchronously; a 2xx means the command was accepted.
+
+export type SeamThermostat = {
+  device_id: string;
+  device_type?: string;
+  connected_account_id?: string;
+  properties?: {
+    online?: boolean;
+    name?: string;
+    manufacturer?: string;
+    model?: { display_name?: string; manufacturer_display_name?: string };
+  };
+};
+
+export async function listThermostats(): Promise<SeamThermostat[]> {
+  const res = await seamGet<{ thermostats: SeamThermostat[] }>('/thermostats/list');
+  return res.thermostats ?? [];
+}
+
+/** Set the thermostat to cool mode at a Fahrenheit setpoint. */
+export async function setThermostatCool(deviceId: string, fahrenheit: number): Promise<void> {
+  await seamPost('/thermostats/cool', {
+    device_id: deviceId,
+    cooling_set_point_fahrenheit: fahrenheit,
+  });
+}
+
+/** Set the thermostat to heat mode at a Fahrenheit setpoint. */
+export async function setThermostatHeat(deviceId: string, fahrenheit: number): Promise<void> {
+  await seamPost('/thermostats/heat', {
+    device_id: deviceId,
+    heating_set_point_fahrenheit: fahrenheit,
+  });
+}
+
 async function seamPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${SEAM_API}${path}`, {
     method: 'POST',

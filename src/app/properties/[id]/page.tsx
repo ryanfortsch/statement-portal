@@ -23,9 +23,11 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
+import { ClimatePanel } from './ClimatePanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents';
+import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
@@ -353,7 +355,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -380,6 +382,8 @@ export default async function PropertyDetailPage({
       ],
       excludePropertyId: p.id,
     }),
+    getClimateProfile(p.id),
+    listSeamThermostatsSafe(),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -988,6 +992,13 @@ export default async function PropertyDetailPage({
             <ActionLink href={`/properties/${p.id}/edit`} primary>Edit operational data</ActionLink>
             <PropertyBackfillButton propertyId={p.id} />
           </TabActions>
+
+      <CollapsibleSection
+        title="Climate automation"
+        summary={climateProfile?.enabled ? 'on' : 'not set up'}
+      >
+        <ClimatePanel propertyId={p.id} profile={climateProfile} thermostats={seamThermostats} />
+      </CollapsibleSection>
 
       {/* PROPERTY NOTES — internal per-property knowledge base. Each
           row is a discrete note (quirk / workaround / vendor / warning).
