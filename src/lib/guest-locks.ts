@@ -12,7 +12,14 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceClient } from '@/lib/supabase-admin';
-import { seamConfigured, createAccessCode, deleteAccessCode } from '@/lib/seam';
+import {
+  seamConfigured,
+  createAccessCode,
+  deleteAccessCode,
+  listDevices,
+  normalizeFromDevice,
+  ingestDeviceBattery,
+} from '@/lib/seam';
 
 export type PropertyLock = { device_id: string; display_name: string | null };
 
@@ -26,11 +33,14 @@ export type GuestCodeBookingRow = {
 
 export type GuestTestCode = { id: string; code: string | null; ends_at: string | null };
 
+export type UnmappedLock = { device_id: string; label: string };
+
 export type GuestCodeView = {
   seamConfigured: boolean;
   lock: PropertyLock | null;
   bookingRows: GuestCodeBookingRow[];
   testCodes: GuestTestCode[];
+  unmappedLocks: UnmappedLock[];
 };
 
 export type IssueResult = { ok: true; code: string } | { ok: false; error: string };
@@ -74,7 +84,7 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
     const sb = getServiceClient();
     const lock = await getPropertyLock(sb, propertyId);
     const today = todayET();
-    const [{ data: bks }, { data: codes }] = await Promise.all([
+    const [{ data: bks }, { data: codes }, { data: unmapped }] = await Promise.all([
       sb
         .from('bookings')
         .select('id, guest_name, check_in, check_out')
@@ -88,6 +98,11 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
         .select('id, code, booking_id, ends_at')
         .eq('property_id', propertyId)
         .is('removed_at', null),
+      sb
+        .from('lock_devices')
+        .select('device_id, display_name, manufacturer')
+        .is('property_id', null)
+        .eq('active', true),
     ]);
 
     const codeRows = (codes ?? []) as {
@@ -113,10 +128,14 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
       .filter((c) => !c.booking_id)
       .map((c) => ({ id: c.id, code: c.code, ends_at: c.ends_at }));
 
-    return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes };
+    const unmappedLocks: UnmappedLock[] = (
+      (unmapped ?? []) as { device_id: string; display_name: string | null; manufacturer: string | null }[]
+    ).map((l) => ({ device_id: l.device_id, label: l.display_name ?? l.manufacturer ?? l.device_id }));
+
+    return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes, unmappedLocks };
   } catch {
     // Table not migrated yet, etc. — panel shows its empty state.
-    return { seamConfigured: seamConfigured(), lock: null, bookingRows: [], testCodes: [] };
+    return { seamConfigured: seamConfigured(), lock: null, bookingRows: [], testCodes: [], unmappedLocks: [] };
   }
 }
 
@@ -235,6 +254,39 @@ export async function revokeGuestCode(codeId: string): Promise<{ ok: boolean; er
     .from('guest_access_codes')
     .update({ removed_at: new Date().toISOString() })
     .eq('id', codeId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Pull every Seam device into lock_devices (auto-registers, property_id null).
+ * Runs as the signed-in operator from the panel, so it needs no CRON_SECRET —
+ * the same work the /api/cron/sync-seam route does, callable from a button.
+ */
+export async function syncSeamDevices(): Promise<{ ok: boolean; count: number; error?: string }> {
+  if (!seamConfigured()) return { ok: false, count: 0, error: 'SEAM_API_KEY is not set in this environment.' };
+  try {
+    const sb = getServiceClient();
+    const devices = await listDevices();
+    for (const d of devices) {
+      await ingestDeviceBattery(sb, normalizeFromDevice(d));
+    }
+    return { ok: true, count: devices.length };
+  } catch (err) {
+    return { ok: false, count: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Assign a synced lock to a property (the in-app alternative to a SQL UPDATE). */
+export async function mapLockToProperty(
+  propertyId: string,
+  deviceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const sb = getServiceClient();
+  const { error } = await sb
+    .from('lock_devices')
+    .update({ property_id: propertyId, updated_at: new Date().toISOString() })
+    .eq('device_id', deviceId);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
