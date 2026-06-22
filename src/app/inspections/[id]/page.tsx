@@ -18,7 +18,7 @@ import { Stepper } from './Stepper';
 
 export const dynamic = 'force-dynamic';
 
-type PropertyShape = { id: string; name: string; title: string | null; city: string };
+type PropertyShape = { id: string; name: string; title: string | null; city: string; bedrooms: number | null };
 
 type StepperCardShape = {
   cardKey: string; // stable composite of itemId + zoneId for keying React state
@@ -71,7 +71,7 @@ async function getInspection(id: string): Promise<{
     await Promise.all([
       supabase
         .from('properties')
-        .select('id, name, title, city')
+        .select('id, name, title, city, bedrooms')
         .eq('id', insp.property_id)
         .maybeSingle(),
       itemIds.length > 0
@@ -228,6 +228,7 @@ export default async function InspectionInProgressPage({
       inspectionId={id}
       propertyId={property.id}
       propertyName={property.name}
+      propertyBedrooms={property.bedrooms}
       inspectorName={inspection.inspector_name}
       initialNotes={initialNotes}
       initialWorkSlips={initialWorkSlips}

@@ -71,6 +71,7 @@ type Props = {
   inspectionId: string;
   propertyId: string;
   propertyName: string;
+  propertyBedrooms: number | null;
   inspectorName: string;
   cards: StepperCard[];
   initialResults: StepperResult[];
@@ -82,6 +83,7 @@ export function Stepper({
   inspectionId,
   propertyId,
   propertyName,
+  propertyBedrooms,
   inspectorName,
   cards,
   initialResults,
@@ -343,7 +345,7 @@ export function Stepper({
 
           {/* SUPPLIES CHECK — defaults to all OK; flipped toggles become
               one Rising Tide restock work slip per supply on Complete. */}
-          <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} />
+          <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} bedrooms={propertyBedrooms} />
 
           {error && <ErrorBlock error={error} />}
         </section>
@@ -820,11 +822,15 @@ function primaryBtn(): React.CSSProperties {
 function SuppliesCheck({
   low,
   onToggle,
+  bedrooms,
 }: {
   low: Set<string>;
   onToggle: (key: string) => void;
+  bedrooms: number | null;
 }) {
   const lowCount = low.size;
+  // Par targets scale off bedroom count; null falls back to the 2-bed base.
+  const beds = bedrooms ?? 2;
   return (
     <div style={{ marginTop: 40 }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
@@ -842,7 +848,8 @@ function SuppliesCheck({
         </span>
       </div>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)' }}>
-        Mark anything we&rsquo;re low on so we can restock. Each flagged item creates a work slip on this property.
+        Each item shows the minimum for this {beds}-bedroom home. If it&rsquo;s below that, flip it
+        to Low and we&rsquo;ll cut a restock slip on this property.
       </p>
       <div style={{ borderTop: '1px solid var(--ink)' }}>
         {INSPECTION_SUPPLIES.map((s) => {
@@ -858,7 +865,7 @@ function SuppliesCheck({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                padding: '14px 0',
+                padding: '13px 0',
                 borderBottom: '1px solid var(--rule)',
                 display: 'flex',
                 alignItems: 'center',
@@ -867,8 +874,21 @@ function SuppliesCheck({
                 textAlign: 'left',
               }}
             >
-              <span style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
-                {s.label}
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
+                  {s.label}
+                </span>
+                <span
+                  style={{
+                    display: 'block',
+                    marginTop: 2,
+                    fontSize: 12,
+                    color: isLow ? 'var(--signal)' : 'var(--ink-4)',
+                    letterSpacing: '0.01em',
+                  }}
+                >
+                  Target: {s.par(beds)}
+                </span>
               </span>
               <SupplyToggle isLow={isLow} />
             </button>
