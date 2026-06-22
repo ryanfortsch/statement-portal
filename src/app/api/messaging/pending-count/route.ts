@@ -25,13 +25,15 @@ export async function GET() {
     return NextResponse.json({ count: 0, guests: 0, owners: 0 });
   }
   const [guestRes, ownerRes] = await Promise.all([listApprovals(), listOwnerApprovals()]);
-  // Count from the approvals ARRAY length, not the response's `count` field.
-  // stay-concierge's `count` has been observed to over-report (e.g. include
-  // recent / dismissed rows, not just truly pending), which made the masthead
-  // badge show wildly more drafts than the messaging pages actually list.
-  // The pages render `data.approvals` directly, so using `.length` here keeps
-  // the badge and the page in lockstep: if the badge says 5, the page shows 5.
-  const guests = guestRes.ok ? guestRes.data.approvals.length : 0;
-  const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
+  // Count TRULY-PENDING rows only -- approvals with `resolved_at === null`.
+  // Both the `data.count` field and the raw array length have surfaced as
+  // over-counting (the live owner queue returns 36 in the array when only a
+  // couple are actually waiting, suggesting stay-concierge includes resolved
+  // / dismissed rows in the response). `resolved_at` is the explicit "this
+  // is done" flag on the row itself, so filtering on it gives a stable
+  // "pending" count no matter what stay-concierge decides to include in the
+  // array or in `count` later.
+  const guests = guestRes.ok ? guestRes.data.approvals.filter((a) => !a.resolved_at).length : 0;
+  const owners = ownerRes.ok ? ownerRes.data.approvals.filter((a) => !a.resolved_at).length : 0;
   return NextResponse.json({ count: guests + owners, guests, owners });
 }
