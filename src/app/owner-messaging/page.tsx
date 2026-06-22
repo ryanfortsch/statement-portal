@@ -2,6 +2,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
+import { MessagingTabs } from '@/components/MessagingTabs';
 import {
   isStayConciergeConfigured,
   listOwnerApprovals,
@@ -64,10 +65,11 @@ export default async function OwnerMessagingPage() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="owner-messaging" />
+      <HelmMasthead current="messaging" />
+      <MessagingTabs current="owners" />
 
       <HelmHero
-        eyebrow="Owner Messaging"
+        eyebrow="Module 08 · Messaging"
         title="Owner replies,"
         emphasis="one tap to ship."
         paddingTop={36}

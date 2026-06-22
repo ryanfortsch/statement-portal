@@ -2,6 +2,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
+import { MessagingTabs } from '@/components/MessagingTabs';
 import {
   isStayConciergeConfigured,
   listApprovals,
@@ -79,6 +80,7 @@ export default async function MessagingPage() {
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
       <HelmMasthead current="messaging" />
+      <MessagingTabs current="guests" />
 
       <HelmHero
         eyebrow="Module 08 · Messaging"
