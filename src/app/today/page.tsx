@@ -544,6 +544,60 @@ export default async function TodayPage() {
           </p>
         )}
 
+        {/* Feeds-needing-attention surface. Only renders when something is
+            stuck or stale, so a healthy day stays calm. */}
+        {brief.feedsNeedingAttention.length > 0 && (
+          <div
+            className="mt-12 pt-4 text-[12px]"
+            style={{
+              borderTop: '1px solid var(--rule-soft)',
+              color: 'var(--ink-3)',
+            }}
+          >
+            <div
+              className="eyebrow"
+              style={{ marginBottom: 8, color: 'var(--signal)' }}
+            >
+              Feeds needing attention
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {brief.feedsNeedingAttention.map((f) => (
+                <li key={f.source} style={{ padding: '4px 0' }}>
+                  <span
+                    className="font-mono"
+                    style={{ color: 'var(--ink)', fontWeight: 500 }}
+                  >
+                    {f.source}
+                  </span>
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    {' '}
+                    ·{' '}
+                    {f.status === 'error'
+                      ? `errored${f.errorCount > 1 ? ` (${f.errorCount}×)` : ''}`
+                      : 'stale'}
+                    {f.lastAttemptedAt
+                      ? ` · last tried ${relativeTime(f.lastAttemptedAt)}`
+                      : ' · never run'}
+                  </span>
+                  {f.lastError && (
+                    <div
+                      className="font-mono"
+                      style={{
+                        marginTop: 2,
+                        fontSize: 11,
+                        color: 'var(--ink-4)',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {f.lastError}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div
           className="mt-12 pt-4 text-[11px] flex justify-between items-baseline"
           style={{ borderTop: '1px solid var(--rule-soft)', color: 'var(--ink-4)' }}
