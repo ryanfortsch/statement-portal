@@ -257,8 +257,19 @@ export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
 
       {selectedRows.length > 0 && selDay && (
         <form
-          action={bundleAndSend}
-          onSubmit={() => setSending(true)}
+          action={async (fd: FormData) => {
+            setSending(true);
+            try {
+              await bundleAndSend(fd);
+              // Clear the picked day/properties so the board shows the fresh
+              // packet under "Out to contractors" instead of staying stuck.
+              setSelProps([]);
+              setSelDay(null);
+              setPriceStr('');
+            } finally {
+              setSending(false);
+            }
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
