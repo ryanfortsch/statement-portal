@@ -31,9 +31,10 @@ function fmtDate(d: string): string {
 }
 
 function windowLabel(s: PacketStopDetail): string {
-  if (s.window_basis === 'checkout_day') return 'Inspect after the morning checkout';
-  if (s.window_basis === 'pre_checkin') return `Inspect before the ${s.next_checkin ?? 'afternoon'} check-in`;
-  return 'Vacant all day';
+  // Give a real ~4-hour window to operate in, not "all day".
+  if (s.window_basis === 'checkout_day') return 'After the morning checkout · 11am–3pm window';
+  if (s.window_basis === 'pre_checkin') return 'Before the afternoon check-in · finish by 2pm';
+  return 'Anytime in a 4-hour window · 10am–2pm';
 }
 
 const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
@@ -56,16 +57,9 @@ const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
 
 /** What an inspection visit actually is, in three plain passes — replaces the
  *  vague "guest-readiness walk / Helm Core 12" jargon. */
-function InspectionScope({ claimed }: { claimed: boolean }) {
+function InspectionScope() {
   return (
     <div style={{ marginBottom: 28, maxWidth: 560 }}>
-      <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>
-        What every visit covers
-      </div>
-      <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 18 }}>
-        Three quick passes through each home, about 20 minutes.
-        {claimed ? '' : ' Addresses and entry details unlock the moment you claim.'}
-      </p>
       {INSPECTION_PILLARS.map((p) => (
         <div key={p.n} style={{ display: 'flex', gap: 16, alignItems: 'baseline', padding: '14px 0', borderTop: '1px solid var(--rule)' }}>
           <span className="font-serif" style={{ fontSize: 26, lineHeight: 1, color: 'var(--signal)', minWidth: 26 }}>{p.n}</span>
@@ -230,7 +224,7 @@ export default async function PacketPage({
           as soon as you claim.
         </p>
       )}
-      {!isMaint && <InspectionScope claimed={isMine} />}
+      {!isMaint && <InspectionScope />}
 
       <PacketRouteMap
         stops={packet.stops.map((s) => ({
