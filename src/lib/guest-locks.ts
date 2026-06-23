@@ -16,6 +16,7 @@ import {
   seamConfigured,
   createAccessCode,
   deleteAccessCode,
+  listAccessCodes,
   listDevices,
   normalizeFromDevice,
   ingestDeviceBattery,
@@ -35,12 +36,22 @@ export type GuestTestCode = { id: string; code: string | null; ends_at: string |
 
 export type UnmappedLock = { device_id: string; label: string };
 
+/** A code currently programmed on the lock, straight from Seam. */
+export type LockCode = {
+  access_code_id: string;
+  name: string | null;
+  code: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+};
+
 export type GuestCodeView = {
   seamConfigured: boolean;
   lock: PropertyLock | null;
   bookingRows: GuestCodeBookingRow[];
   testCodes: GuestTestCode[];
   unmappedLocks: UnmappedLock[];
+  lockCodes: LockCode[];
 };
 
 export type IssueResult = { ok: true; code: string } | { ok: false; error: string };
@@ -114,15 +125,43 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
     const byBooking = new Map<string, { id: string; code: string | null }>();
     for (const c of codeRows) if (c.booking_id) byBooking.set(c.booking_id, { id: c.id, code: c.code });
 
-    const bookingRows: GuestCodeBookingRow[] = (
-      (bks ?? []) as { id: string; guest_name: string | null; check_in: string; check_out: string }[]
-    ).map((b) => ({
-      booking_id: b.id,
-      guest_name: b.guest_name,
-      check_in: b.check_in,
-      check_out: b.check_out,
-      code: byBooking.get(b.id) ?? null,
-    }));
+    // Collapse duplicate bookings for the same stay window. The iCal ingest can
+    // emit one row per feed for a single stay — one with the guest name, one
+    // with only the confirmation code. Same (check_in, check_out) on one
+    // property = one stay, so we'd never want to issue two codes for it.
+    const isRealName = (n: string | null) => !!n && !/^reservation\b/i.test(n);
+    const byStay = new Map<string, GuestCodeBookingRow>();
+    for (const b of (bks ?? []) as {
+      id: string;
+      guest_name: string | null;
+      check_in: string;
+      check_out: string;
+    }[]) {
+      const row: GuestCodeBookingRow = {
+        booking_id: b.id,
+        guest_name: b.guest_name,
+        check_in: b.check_in,
+        check_out: b.check_out,
+        code: byBooking.get(b.id) ?? null,
+      };
+      const key = `${b.check_in}|${b.check_out}`;
+      const prev = byStay.get(key);
+      if (!prev) {
+        byStay.set(key, row);
+        continue;
+      }
+      // Keep a real guest name and any already-issued code; prefer the
+      // booking_id that owns the code so re-issue stays idempotent.
+      const codeOwner = prev.code ? prev : row.code ? row : prev;
+      byStay.set(key, {
+        booking_id: codeOwner.booking_id,
+        guest_name: isRealName(prev.guest_name) ? prev.guest_name : row.guest_name,
+        check_in: prev.check_in,
+        check_out: prev.check_out,
+        code: prev.code ?? row.code,
+      });
+    }
+    const bookingRows: GuestCodeBookingRow[] = [...byStay.values()];
 
     const testCodes: GuestTestCode[] = codeRows
       .filter((c) => !c.booking_id)
@@ -132,10 +171,35 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
       (unmapped ?? []) as { device_id: string; display_name: string | null; manufacturer: string | null }[]
     ).map((l) => ({ device_id: l.device_id, label: l.display_name ?? l.manufacturer ?? l.device_id }));
 
-    return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes, unmappedLocks };
+    // What's physically on the lock right now (Helm-issued or not), read from
+    // Seam. Best-effort — a Seam hiccup must not break the property page.
+    let lockCodes: LockCode[] = [];
+    if (lock && seamConfigured()) {
+      try {
+        const seamCodes = await listAccessCodes(lock.device_id);
+        lockCodes = seamCodes.map((c) => ({
+          access_code_id: c.access_code_id,
+          name: c.name ?? null,
+          code: c.code ?? null,
+          starts_at: c.starts_at ?? null,
+          ends_at: c.ends_at ?? null,
+        }));
+      } catch {
+        lockCodes = [];
+      }
+    }
+
+    return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes, unmappedLocks, lockCodes };
   } catch {
     // Table not migrated yet, etc. — panel shows its empty state.
-    return { seamConfigured: seamConfigured(), lock: null, bookingRows: [], testCodes: [], unmappedLocks: [] };
+    return {
+      seamConfigured: seamConfigured(),
+      lock: null,
+      bookingRows: [],
+      testCodes: [],
+      unmappedLocks: [],
+      lockCodes: [],
+    };
   }
 }
 

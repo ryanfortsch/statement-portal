@@ -38,7 +38,7 @@ export function GuestCodesPanel({
     });
   };
 
-  const { seamConfigured, lock, bookingRows, testCodes, unmappedLocks } = view;
+  const { seamConfigured, lock, bookingRows, testCodes, unmappedLocks, lockCodes } = view;
 
   return (
     <div style={{ paddingBottom: 6 }}>
@@ -195,6 +195,32 @@ export function GuestCodesPanel({
                         {pending && busy === b.booking_id ? 'Issuing…' : 'Issue code'}
                       </button>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Currently on the lock — everything Seam reports, Helm-issued or not */}
+          <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16, marginTop: 22 }}>
+            <span style={labelStyle}>Currently on the lock</span>
+            {lockCodes.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>
+                No codes on this lock (or Seam didn&apos;t return any).
+              </p>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                {lockCodes.map((c) => (
+                  <div key={c.access_code_id} style={rowStyle}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name ?? 'Code'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                        {c.ends_at ? `until ${fmtDate(c.ends_at.slice(0, 10))}` : 'no end set'}
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
+                      {c.code ?? '••••'}
+                    </span>
                   </div>
                 ))}
               </div>
