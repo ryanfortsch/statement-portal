@@ -24,6 +24,9 @@ type Props = {
   // the node reads "Inspecting" with a live counter instead of "Needs inspection".
   inspecting: boolean;
   inspectionStartedAt: string | null;
+  // The in-progress inspection is known from a lock master-code unlock (no app
+  // inspection yet): show the lock glyph on the inspected node.
+  inspectionViaLock: boolean;
   checkIn: string;
   previousCheckout: string | null;
   propertyId: string;
@@ -183,6 +186,7 @@ export function TurnoverRail(p: Props) {
       // completed or future node just reads "Inspected".
       label: inspected ? 'Inspected' : active === 'inspected' ? (p.inspecting ? 'Inspecting' : 'Needs inspection') : 'Inspected',
       cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
+      glyph: p.inspecting && p.inspectionViaLock ? 'lock' : null,
     },
     { key: 'ready', label: 'Guest-ready', cls: ready ? 'good' : 'future' },
   ];

@@ -12,6 +12,7 @@ import {
   type NormalizedDevice,
 } from '@/lib/seam';
 import { recordCleanerEntry, recordLockFinishEstimate } from '@/lib/cleaning-sessions';
+import { recordInspectorEntry } from '@/lib/inspection-sessions';
 
 // Service role bypasses RLS so the cross-table writes (lock_events,
 // lock_devices, lock_battery_status, work_slips) all work. Same pattern
@@ -121,8 +122,14 @@ async function dispatch(ev: SeamWebhookEvent): Promise<void> {
       method: ev.method ?? null,
       accessCodeId: ev.access_code_id ?? null,
     };
-    if (ev.event_type === 'lock.unlocked') await recordCleanerEntry(supabase, input);
-    else await recordLockFinishEstimate(supabase, input);
+    if (ev.event_type === 'lock.unlocked') {
+      // An unlock is either an inspector (master code), a cleaner (2222 / any
+      // keypad fallback), or a guest (rejected by both). The two recorders are
+      // mutually exclusive by code: recordInspectorEntry fires only on the
+      // exact inspector code, and recordCleanerEntry now rejects that code.
+      await recordInspectorEntry(supabase, input);
+      await recordCleanerEntry(supabase, input);
+    } else await recordLockFinishEstimate(supabase, input);
     return;
   }
 
