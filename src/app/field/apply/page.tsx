@@ -53,7 +53,7 @@ export default async function ApplyPage({
         <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 10 }}>On every visit you cover three things:</div>
         {([
           ['Perfection', "the home should look flawless and guest-ready. You're the last set of eyes before check-in."],
-          ['Maintenance', 'flag anything worn, leaking, or heading toward a repair, with a quick photo.'],
+          ['Maintenance', 'flag anything worn or heading toward a repair, with a quick photo.'],
           ['Supplies & inventory', 'confirm the essentials are stocked and note anything running low.'],
         ] as const).map(([t, d]) => (
           <div key={t} style={{ display: 'flex', gap: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, marginBottom: 6 }}>
