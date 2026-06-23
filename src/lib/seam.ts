@@ -240,8 +240,46 @@ export async function createAccessCode(args: {
   return res.access_code ?? null;
 }
 
-export async function deleteAccessCode(accessCodeId: string): Promise<void> {
-  await seamPost('/access_codes/delete', { access_code_id: accessCodeId });
+/** A Seam action attempt: lock operations (code create / delete) run async, so
+ *  the POST returns an attempt that resolves to success or error in the
+ *  background once the physical lock confirms. Poll it for the real outcome. */
+export type SeamActionAttempt = {
+  action_attempt_id: string;
+  status: 'pending' | 'success' | 'error';
+  error?: { type?: string; message?: string } | null;
+};
+
+export async function getActionAttempt(actionAttemptId: string): Promise<SeamActionAttempt> {
+  const res = await seamPost<{ action_attempt: SeamActionAttempt }>('/action_attempts/get', {
+    action_attempt_id: actionAttemptId,
+  });
+  return res.action_attempt;
+}
+
+/** Poll an action attempt to a terminal state (success / error), or return the
+ *  last pending attempt once the timeout is hit. Seam code deletes on Schlage
+ *  typically resolve in a few seconds; we wait up to ~10s so the caller can
+ *  report the TRUE outcome instead of a premature "done". */
+export async function pollActionAttempt(
+  actionAttemptId: string,
+  opts?: { timeoutMs?: number; intervalMs?: number },
+): Promise<SeamActionAttempt> {
+  const timeoutMs = opts?.timeoutMs ?? 10_000;
+  const intervalMs = opts?.intervalMs ?? 1_200;
+  const start = Date.now();
+  let attempt = await getActionAttempt(actionAttemptId);
+  while (attempt.status === 'pending' && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    attempt = await getActionAttempt(actionAttemptId);
+  }
+  return attempt;
+}
+
+export async function deleteAccessCode(accessCodeId: string): Promise<SeamActionAttempt | null> {
+  const res = await seamPost<{ action_attempt?: SeamActionAttempt }>('/access_codes/delete', {
+    access_code_id: accessCodeId,
+  });
+  return res.action_attempt ?? null;
 }
 
 export type SeamAccessCodeFull = {
@@ -270,9 +308,14 @@ export async function listUnmanagedAccessCodes(deviceId: string): Promise<SeamAc
   return res.access_codes ?? [];
 }
 
-/** Delete an unmanaged code (set outside Seam). Removes the PIN from the lock. */
-export async function deleteUnmanagedAccessCode(accessCodeId: string): Promise<void> {
-  await seamPost('/access_codes/unmanaged/delete', { access_code_id: accessCodeId });
+/** Delete an unmanaged code (set outside Seam). Removes the PIN from the lock.
+ *  Async: returns an action attempt the caller should poll for the real
+ *  outcome (the removal happens on the lock in the background). */
+export async function deleteUnmanagedAccessCode(accessCodeId: string): Promise<SeamActionAttempt | null> {
+  const res = await seamPost<{ action_attempt?: SeamActionAttempt }>('/access_codes/unmanaged/delete', {
+    access_code_id: accessCodeId,
+  });
+  return res.action_attempt ?? null;
 }
 
 // ── Webhook signature verification (Svix scheme) ────────────────────

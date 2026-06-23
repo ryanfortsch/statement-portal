@@ -17,6 +17,7 @@ import {
   createAccessCode,
   deleteAccessCode,
   deleteUnmanagedAccessCode,
+  pollActionAttempt,
   listAccessCodes,
   listUnmanagedAccessCodes,
   listDevices,
@@ -347,10 +348,26 @@ export async function removeLockCode(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!seamConfigured()) return { ok: false, error: 'SEAM_API_KEY is not set in this environment.' };
   try {
-    if (source === 'external') {
-      await deleteUnmanagedAccessCode(accessCodeId);
-    } else {
-      await deleteAccessCode(accessCodeId);
+    // Seam removes the PIN from the physical lock asynchronously: the delete
+    // call returns an action attempt that resolves to success or error in the
+    // background. Poll it so we report the TRUE outcome instead of a premature
+    // "removed" (which left the code sitting on the lock after a pending/failed
+    // attempt).
+    const attempt =
+      source === 'external'
+        ? await deleteUnmanagedAccessCode(accessCodeId)
+        : await deleteAccessCode(accessCodeId);
+    if (attempt?.action_attempt_id) {
+      const final = await pollActionAttempt(attempt.action_attempt_id);
+      if (final.status === 'error') {
+        return { ok: false, error: final.error?.message || 'The lock rejected the removal.' };
+      }
+      if (final.status === 'pending') {
+        return {
+          ok: false,
+          error: 'The lock is still removing this code. Give it a few seconds, then refresh to confirm.',
+        };
+      }
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
