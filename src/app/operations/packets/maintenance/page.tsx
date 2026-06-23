@@ -7,7 +7,12 @@ import { MaintenanceBundler } from './MaintenanceBundler';
 
 export const dynamic = 'force-dynamic';
 
-export default async function MaintenancePage() {
+export default async function MaintenancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sent?: string }>;
+}) {
+  const sp = await searchParams;
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -31,6 +36,11 @@ export default async function MaintenancePage() {
           Open, unassigned maintenance work slips. Pick the ones a contractor can knock out on one trip, set a
           day and a price, then send it to your maintenance contractors to claim.
         </p>
+        {sp.sent === '0' && (
+          <div style={{ marginBottom: 18, border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
+            Couldn&apos;t bundle that — pick a day and at least one open job, then try again.
+          </div>
+        )}
         {slips.length === 0 ? (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No open maintenance jobs right now.</p>
         ) : (

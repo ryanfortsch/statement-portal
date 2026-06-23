@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
@@ -117,7 +118,7 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
-  if (!visitDate || ids.length === 0) return;
+  if (!visitDate || ids.length === 0) redirect('/operations/packets?sent=0');
   const packetId = await createPacketFromProperties({
     propertyIds: ids,
     visitDate,
@@ -128,8 +129,13 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
   if (packetId) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
     notifyContractorsOfPacket(packetId).catch(() => {});
+    revalidatePath('/operations/packets');
+    redirect('/operations/packets?sent=1');
   }
+  // Nothing got bundled — every picked day is now covered/occupied. Tell the
+  // operator instead of silently doing nothing.
   revalidatePath('/operations/packets');
+  redirect('/operations/packets?sent=0');
 }
 
 /** Bundle selected open maintenance work slips into a published maintenance
@@ -142,7 +148,7 @@ export async function bundleMaintenanceAndSend(formData: FormData): Promise<void
     .map((s) => s.trim())
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
-  if (!visitDate || slipIds.length === 0) return;
+  if (!visitDate || slipIds.length === 0) redirect('/operations/packets/maintenance?sent=0');
   const packetId = await createMaintenancePacket({
     workSlipIds: slipIds,
     visitDate,
@@ -150,12 +156,14 @@ export async function bundleMaintenanceAndSend(formData: FormData): Promise<void
     createdByEmail: email,
     publish: true,
   });
+  revalidatePath('/operations/packets');
+  revalidatePath('/operations/packets/maintenance');
   if (packetId) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
     notifyContractorsOfPacket(packetId).catch(() => {});
+    redirect('/operations/packets?sent=1');
   }
-  revalidatePath('/operations/packets');
-  revalidatePath('/operations/packets/maintenance');
+  redirect('/operations/packets/maintenance?sent=0');
 }
 
 export async function setPacketPrice(formData: FormData): Promise<void> {
