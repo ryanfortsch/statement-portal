@@ -1280,6 +1280,10 @@ export type StopReview = {
   na: number;
   photos: number;
   issues: string[];
+  kind: 'inspection' | 'maintenance';
+  title?: string | null; // maintenance: the job
+  note?: string | null; // maintenance: the resolution
+  photoUrls?: string[]; // maintenance: the actual photos
 };
 
 /** Per-stop inspection findings for the office's approve review — pass/issue/
@@ -1287,10 +1291,12 @@ export type StopReview = {
 export async function loadPacketReview(packetId: string): Promise<StopReview[]> {
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('property_id, inspection_id, walk_order')
+    .select('property_id, inspection_id, work_slip_id, walk_order')
     .eq('packet_id', packetId)
     .order('walk_order', { ascending: true });
-  const stops = ((sData ?? []) as { property_id: string; inspection_id: string | null }[]).filter((s) => s.inspection_id);
+  const stops = ((sData ?? []) as { property_id: string; inspection_id: string | null; work_slip_id: string | null }[]).filter(
+    (s) => s.inspection_id || s.work_slip_id,
+  );
   if (stops.length === 0) return [];
   const { data: pData } = await fieldDb()
     .from('properties')
@@ -1298,8 +1304,37 @@ export async function loadPacketReview(packetId: string): Promise<StopReview[]> 
     .in('id', stops.map((s) => s.property_id));
   const nameById = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
 
+  // Maintenance stops: surface the work-slip resolution + photos for review.
+  const slipIds = stops.map((s) => s.work_slip_id).filter((v): v is string => !!v);
+  const slipById = new Map<string, { title: string; resolution_notes: string | null; photo_urls: string[] | null }>();
+  if (slipIds.length) {
+    const { data: wData } = await fieldDb()
+      .from('work_slips')
+      .select('id, title, resolution_notes, photo_urls')
+      .in('id', slipIds);
+    for (const w of (wData ?? []) as Array<{ id: string; title: string; resolution_notes: string | null; photo_urls: string[] | null }>) {
+      slipById.set(w.id, w);
+    }
+  }
+
   const out: StopReview[] = [];
   for (const s of stops) {
+    if (s.work_slip_id) {
+      const w = slipById.get(s.work_slip_id);
+      out.push({
+        propertyName: nameById.get(s.property_id) ?? s.property_id,
+        pass: 0,
+        issue: 0,
+        na: 0,
+        photos: w?.photo_urls?.length ?? 0,
+        issues: [],
+        kind: 'maintenance',
+        title: w?.title ?? 'Maintenance job',
+        note: w?.resolution_notes ?? null,
+        photoUrls: w?.photo_urls ?? [],
+      });
+      continue;
+    }
     const { data: rData } = await fieldDb()
       .from('inspection_results')
       .select('status, photo_urls, item_id')
@@ -1319,6 +1354,7 @@ export async function loadPacketReview(packetId: string): Promise<StopReview[]> 
       na: rs.filter((r) => r.status === 'na').length,
       photos: rs.reduce((a, r) => a + (r.photo_urls?.length ?? 0), 0),
       issues,
+      kind: 'inspection',
     });
   }
   return out;

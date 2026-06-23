@@ -94,18 +94,41 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </div>
             {review.map((r, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--rule)' : 'none', flexWrap: 'wrap' }}>
-                <div style={{ minWidth: 160 }}>
+                <div style={{ minWidth: 160, flex: 1 }}>
                   <div className="font-serif" style={{ fontSize: 15 }}>{r.propertyName}</div>
-                  {r.issues.length > 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 2 }}>{r.issues.join(', ')}</div>
+                  {r.kind === 'maintenance' ? (
+                    <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                      <span style={{ color: 'var(--ink)' }}>{r.title}</span>
+                      {r.note ? <> — {r.note}</> : <span style={{ color: 'var(--signal)' }}> — no note</span>}
+                    </div>
+                  ) : (
+                    r.issues.length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 2 }}>{r.issues.join(', ')}</div>
+                    )
+                  )}
+                  {r.kind === 'maintenance' && r.photoUrls && r.photoUrls.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {r.photoUrls.map((u, j) => (
+                        <a key={j} href={u} target="_blank" rel="noopener noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" style={{ width: 56, height: 56, objectFit: 'cover', border: '1px solid var(--rule)', borderRadius: 6 }} />
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
-                  <span style={{ color: 'var(--positive)' }}>{r.pass} pass</span>
-                  {r.issue > 0 && <span style={{ color: 'var(--signal)' }}> · {r.issue} issue</span>}
-                  {r.na > 0 && <span> · {r.na} n/a</span>}
-                  {' · '}
-                  {r.photos} {r.photos === 1 ? 'photo' : 'photos'}
+                  {r.kind === 'maintenance' ? (
+                    <span>{r.photos} {r.photos === 1 ? 'photo' : 'photos'}</span>
+                  ) : (
+                    <>
+                      <span style={{ color: 'var(--positive)' }}>{r.pass} pass</span>
+                      {r.issue > 0 && <span style={{ color: 'var(--signal)' }}> · {r.issue} issue</span>}
+                      {r.na > 0 && <span> · {r.na} n/a</span>}
+                      {' · '}
+                      {r.photos} {r.photos === 1 ? 'photo' : 'photos'}
+                    </>
+                  )}
                 </div>
               </div>
             ))}
