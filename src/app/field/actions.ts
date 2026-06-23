@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import { geocodeAddress } from '@/lib/geocode';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
-import { revalidatePacket } from '@/lib/field-packets';
+import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
@@ -136,6 +136,15 @@ export async function claimPacket(formData: FormData) {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
   if (!canClaim(contractor)) redirect('/field/onboarding');
+
+  // Throttle a contractor whose reliability has genuinely cratered — but only
+  // once there's enough history to be fair (a rough patch for a proven worker,
+  // not a new inspector). Real no-show/rework pattern → can't claim new work
+  // until the office sorts it out.
+  const rel = (await getContractorReliability()).get(contractor.id);
+  if (rel && rel.completed >= 10 && rel.score != null && rel.score < 35) {
+    redirect(`/field/packet/${packetId}?blocked=1`);
+  }
 
   // Re-validate windows at the moment of claim: if a guest moved into one of
   // the stops since publish, drop it and bounce the contractor back to the

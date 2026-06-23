@@ -14,14 +14,16 @@ const NEXT_TIER: Record<string, { name: string; at: number }> = {
   silver: { name: 'Gold', at: 100 },
 };
 
-/** The contractor's own reputation, shown on their dashboard as a streak ladder
- *  toward Bronze (25) / Silver (50) / Gold (100) consecutive 5-star reviews. */
+/** The contractor's own reputation: a ladder toward Bronze (25) / Silver (50) /
+ *  Gold (100) cumulative 5-star reviews, with the current "in a row" run as a
+ *  flourish. */
 function StreakLadder({ rating }: { rating?: ContractorRating }) {
   const streak = rating?.fiveStreak ?? 0;
+  const total = rating?.fiveStarTotal ?? 0;
   const count = rating?.count ?? 0;
   const tier = rating?.tier ?? 'unrated';
   const next = NEXT_TIER[tier]; // undefined at gold
-  const pct = next ? Math.min(100, Math.round((streak / next.at) * 100)) : 100;
+  const pct = next ? Math.min(100, Math.round((total / next.at) * 100)) : 100;
   const milestones = [
     { n: 25, label: 'Bronze' },
     { n: 50, label: 'Silver' },
@@ -40,9 +42,9 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
       </div>
       {count === 0 ? (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-          No guest reviews yet. The guests who stay in the homes you prep rate their stay — string together{' '}
-          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews in a row</strong> to earn Bronze, 50 for
-          Silver, 100 for Gold.
+          No guest reviews yet. The guests who stay in the homes you prep rate their stay — earn{' '}
+          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews</strong> for Bronze, 50 for Silver, 100
+          for Gold.
         </p>
       ) : (
         <>
@@ -50,9 +52,10 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
             <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
               {tier === 'unrated' ? 'Unrated' : tier}
             </span>
-            <span style={{ fontSize: 14, color: 'var(--ink)' }}>🔥 {streak} in a row</span>
+            <span style={{ fontSize: 14, color: 'var(--ink)' }}>{total} five-star</span>
+            {streak >= 3 && <span style={{ fontSize: 13, color: 'var(--signal)' }}>🔥 {streak} in a row</span>}
             {next ? (
-              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{Math.max(0, next.at - streak)} more 5★ → {next.name}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rating?.toNextTier ?? Math.max(0, next.at - total)} more → {next.name}</span>
             ) : (
               <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>
             )}
@@ -62,8 +65,8 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
             {milestones.map((m) => (
-              <span key={m.n} style={{ fontSize: 10.5, fontWeight: streak >= m.n ? 700 : 400, color: streak >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
-                {streak >= m.n ? '✓ ' : ''}{m.label} {m.n}
+              <span key={m.n} style={{ fontSize: 10.5, fontWeight: total >= m.n ? 700 : 400, color: total >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
+                {total >= m.n ? '✓ ' : ''}{m.label} {m.n}
               </span>
             ))}
           </div>

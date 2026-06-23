@@ -128,7 +128,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string; blocked?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -206,6 +206,11 @@ export default async function PacketPage({
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
           This packet was just claimed by another inspector. Here are others near you on the{' '}
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
+        </div>
+      )}
+      {sp.blocked && (
+        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+          Claiming is paused on your account while we sort out a few recent jobs. Please reach out to the Rising Tide office.
         </div>
       )}
       {sp.incomplete && (

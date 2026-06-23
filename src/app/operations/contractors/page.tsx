@@ -183,7 +183,7 @@ export default async function ContractorsPage() {
                         </span>
                         {r.tier !== 'gold' && r.toNextTier != null && r.toNextTier > 0 && (
                           <span style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
-                            {r.fiveStreak} streak · {r.toNextTier} to {NEXT_TIER_NAME[r.tier]}
+                            {r.fiveStarTotal} five-star · {r.toNextTier} to {NEXT_TIER_NAME[r.tier]}
                           </span>
                         )}
                       </div>
