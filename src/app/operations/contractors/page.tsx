@@ -6,9 +6,11 @@ import { fieldBaseUrl } from '@/lib/field-notify';
 import { getContractorPayStats, getContractorReliability } from '@/lib/field-packets';
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
+import { loadPaymentSummaries } from '@/lib/field-pay';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { RevealW9 } from './RevealW9';
+import { RevealPay } from './RevealPay';
 import {
   inviteContractor,
   setContractorW9,
@@ -66,12 +68,13 @@ export default async function ContractorsPage() {
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) — it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability, w9s, ratings] = await Promise.all([
+  const [payStats, report, reliability, w9s, ratings, payMethods] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
     loadW9Summaries(),
     getContractorRatings(),
+    loadPaymentSummaries(),
   ]);
   const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
   if (report) {
@@ -262,6 +265,18 @@ export default async function ContractorsPage() {
                               {books?.w9 ? 'clear W-9' : 'mark W-9 on file'}
                             </button>
                           </form>
+                        );
+                      })()}
+                      {(() => {
+                        const pm = payMethods.get(c.id);
+                        if (!pm) return null;
+                        return (
+                          <div style={{ color: 'var(--ink-4)', marginTop: 4 }}>
+                            Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
+                            {pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? (
+                              <> · <RevealPay contractorId={c.id} /></>
+                            ) : null}
+                          </div>
                         );
                       })()}
                     </div>
