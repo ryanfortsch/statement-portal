@@ -160,7 +160,10 @@ export function TurnoverRail(p: Props) {
     { key: 'cleaning', label: 'Cleaning', cls: cleaningCls },
     {
       key: 'cleaned',
-      label: 'Cleaned',
+      // On a lockless home this node is the awaiting target, so flip its label
+      // to match the "needs clean" readout (the same way 'Cleaner in' flips to
+      // 'Awaiting cleaner'). 'active' here only happens on a lockless home.
+      label: cleanedCls === 'active' ? 'Needs clean' : 'Cleaned',
       cls: cleanedCls,
       time: justConfirmed ? new Date(now).toISOString() : p.cleanedAt,
       glyph: cleaned && p.cleanedSource === 'quo' ? 'phone' : null,
