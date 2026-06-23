@@ -7,6 +7,7 @@ import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
 import { revokePacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
+import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
@@ -30,6 +31,12 @@ export async function revealW9(contractorId: string): Promise<string | null> {
       () => {},
     );
   return tin;
+}
+
+/** Office-only: decrypt a contractor's full payout details (e.g. ACH account). */
+export async function revealPay(contractorId: string): Promise<string | null> {
+  await staffEmail();
+  return revealPayment(contractorId);
 }
 
 /** Run the grouping algorithm over a date window and persist new draft packets. */

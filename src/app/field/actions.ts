@@ -10,6 +10,7 @@ import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types'
 import { revalidatePacket } from '@/lib/field-packets';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
+import { savePayment } from '@/lib/field-pay';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
@@ -75,6 +76,16 @@ export async function completeOnboarding(formData: FormData) {
     signedIp: signIp,
   });
   if (w9Error) {
+    redirect('/field/onboarding?error=incomplete');
+  }
+
+  // How to pay them (record-keeping; Helm doesn't move money).
+  const payErr = await savePayment(
+    contractor.id,
+    String(formData.get('payment_method') || ''),
+    String(formData.get('payment_details') || ''),
+  );
+  if (payErr) {
     redirect('/field/onboarding?error=incomplete');
   }
 

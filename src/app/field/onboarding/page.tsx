@@ -5,6 +5,7 @@ import { canClaim } from '@/lib/field-types';
 import { completeOnboarding } from '../actions';
 import { FieldShell } from '../FieldShell';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
+import { PAYMENT_METHODS } from '@/lib/field-pay';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -131,6 +132,30 @@ export default async function OnboardingPage({
           <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
             🔒 Your SSN is encrypted the moment you submit and is visible only to the Rising Tide office, used
             solely to file your year-end 1099.
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>How you want to be paid</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3, lineHeight: 1.5 }}>
+              Rising Tide pays you directly once your work is approved. Stored privately for the office.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Method</label>
+              <select name="payment_method" required defaultValue="" style={inputStyle}>
+                <option value="" disabled>Select…</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>Details (handle, email, or account)</label>
+              <input name="payment_details" type="text" autoComplete="off" placeholder="@handle, email, or account #" style={inputStyle} />
+            </div>
           </div>
         </div>
 
