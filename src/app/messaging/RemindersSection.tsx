@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { ReservationPick, RecurringMessage } from '@/lib/stay-concierge';
 import {
-  fetchReminderData,
+  fetchRecurringReminders,
+  fetchReservationPicks,
   createReminderAction,
   endReminderAction,
   polishProactiveAction,
@@ -37,25 +38,38 @@ function cadenceLabel(r: RecurringMessage): string {
 export function RemindersSection() {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [resLoaded, setResLoaded] = useState(false);
   const [reservations, setReservations] = useState<ReservationPick[]>([]);
   const [recurring, setRecurring] = useState<RecurringMessage[]>([]);
   const [, startTransition] = useTransition();
 
-  const load = () => {
+  // Fast: the scheduled list (local DB). Gates the section's content so it
+  // renders right away instead of waiting on the slow Guesty reservation call.
+  const loadRecurring = () => {
     startTransition(async () => {
-      const res = await fetchReminderData();
-      if (res.ok) {
-        setReservations(res.reservations);
-        setRecurring(res.recurring);
-      }
+      const res = await fetchRecurringReminders();
+      if (res.ok) setRecurring(res.recurring);
       setLoaded(true);
+    });
+  };
+
+  // Slow: the guest/reservation picker (Guesty). Loads in parallel and only
+  // feeds the create-form dropdown, so it never blocks the panel from showing.
+  const loadReservations = () => {
+    startTransition(async () => {
+      const res = await fetchReservationPicks();
+      if (res.ok) setReservations(res.reservations);
+      setResLoaded(true);
     });
   };
 
   const handleToggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && !loaded) load();
+    if (next && !loaded) {
+      loadRecurring();
+      loadReservations();
+    }
   };
 
   return (
@@ -105,8 +119,12 @@ export function RemindersSection() {
         </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
-          <ActiveList recurring={recurring} onChanged={load} />
-          <CreateForm reservations={reservations} onCreated={load} />
+          <ActiveList recurring={recurring} onChanged={loadRecurring} />
+          <CreateForm
+            reservations={reservations}
+            reservationsLoaded={resLoaded}
+            onCreated={loadRecurring}
+          />
         </div>
       )}
     </Section>
@@ -210,9 +228,11 @@ function ActiveList({
 
 function CreateForm({
   reservations,
+  reservationsLoaded,
   onCreated,
 }: {
   reservations: ReservationPick[];
+  reservationsLoaded: boolean;
   onCreated: () => void;
 }) {
   const router = useRouter();
@@ -364,8 +384,13 @@ function CreateForm({
           <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 4 }}>
             Guest / reservation
           </span>
-          <select value={resId} onChange={(e) => setResId(e.target.value)} style={inputStyle}>
-            <option value="">Select…</option>
+          <select
+            value={resId}
+            onChange={(e) => setResId(e.target.value)}
+            disabled={!reservationsLoaded}
+            style={inputStyle}
+          >
+            <option value="">{reservationsLoaded ? 'Select…' : 'Loading guests…'}</option>
             {reservations.map((r) => (
               <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
                 {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · {r.check_in}→{r.check_out}

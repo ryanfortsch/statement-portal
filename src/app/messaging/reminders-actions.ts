@@ -20,22 +20,27 @@ async function requireSession(): Promise<{ ok: true } | { ok: false; error: stri
   return { ok: true };
 }
 
-export async function fetchReminderData(): Promise<{
-  ok: true;
-  reservations: ReservationPick[];
-  recurring: RecurringMessage[];
-} | { ok: false; error: string }> {
+// Split from a single combined fetch. The recurring list is a fast local-DB
+// read; the reservation picker hits Guesty and takes a few seconds. Loading
+// them separately lets the section render its scheduled list immediately and
+// fill the guest dropdown a moment later, instead of the whole panel sitting
+// on "Loading..." until the slow Guesty call returns.
+export async function fetchRecurringReminders(): Promise<
+  { ok: true; recurring: RecurringMessage[] } | { ok: false; error: string }
+> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const [res, rec] = await Promise.all([
-    listReservationsForPicker(),
-    listRecurring(),
-  ]);
-  return {
-    ok: true,
-    reservations: res.ok ? res.data.reservations : [],
-    recurring: rec.ok ? rec.data.recurring : [],
-  };
+  const rec = await listRecurring();
+  return { ok: true, recurring: rec.ok ? rec.data.recurring : [] };
+}
+
+export async function fetchReservationPicks(): Promise<
+  { ok: true; reservations: ReservationPick[] } | { ok: false; error: string }
+> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await listReservationsForPicker();
+  return { ok: true, reservations: res.ok ? res.data.reservations : [] };
 }
 
 export async function createReminderAction(
