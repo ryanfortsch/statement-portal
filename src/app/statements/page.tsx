@@ -154,6 +154,29 @@ function monthShort(m: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+/**
+ * Open a print-only popup with a title + a monospace text block, then
+ * trigger the browser's print dialog. Used by the Remittance Instructions
+ * and Transfer List modals so the accountant can hand a paper copy to
+ * whoever's making the transfers. HTML-escapes the body so any literal
+ * `<` / `>` in the text (arrows in payout descriptions, etc.) prints as
+ * the characters, not as broken HTML.
+ */
+function printPlainText(title: string, body: string): void {
+  const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] || c));
+  const w = window.open('', '_blank', 'width=820,height=920');
+  if (!w) return; // popup blocked
+  w.document.open();
+  w.document.write(`<!doctype html><html><head><title>${esc(title)}</title><style>
+    @page { margin: 0.5in; }
+    body { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; line-height: 1.55; color: #1e2e34; margin: 24px; }
+    h1 { font-family: ui-serif, Georgia, serif; font-size: 18px; font-weight: 500; margin: 0 0 18px; letter-spacing: -0.01em; }
+    pre { white-space: pre; font-family: inherit; margin: 0; }
+    .meta { font-size: 10px; color: #6b7d83; text-transform: uppercase; letter-spacing: .14em; margin-bottom: 4px; }
+  </style></head><body><div class="meta">Rising Tide &middot; Helm</div><h1>${esc(title)}</h1><pre>${esc(body)}</pre><script>window.onload=function(){setTimeout(function(){window.print();},80);};window.onafterprint=function(){window.close();};</script></body></html>`);
+  w.document.close();
+}
+
 // Default suggestion: first Monday of the month AFTER the statement month.
 // Rendered as "Monday 5/4" -- operator can still override via the date picker.
 function defaultFundsSentDate(statementMonth: string): string {
@@ -3004,6 +3027,17 @@ function DashboardContent() {
                   >
                     Copy to Clipboard
                   </button>
+                  <button
+                    onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Owner Transfer List`, text)}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: 'pointer',
+                    }}
+                  >
+                    Print
+                  </button>
                 </div>
               </>
             );
@@ -3189,6 +3223,17 @@ function DashboardContent() {
                     }}
                   >
                     Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Accountant Transfers`, text)}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: 'pointer',
+                    }}
+                  >
+                    Print
                   </button>
                   <button
                     onClick={() => { setRemittanceRows(null); loadRemittance(); }}
