@@ -4,12 +4,9 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
-import { channelAccent, channelLabel } from '@/lib/channel-style';
-import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
-import { PlanButton } from './PlanButton';
-import { TurnoverRail } from './TurnoverRail';
-import { markTurnoverComplete, unmarkTurnoverComplete } from './turnover-actions';
+import { CompactTurnoverRow } from './CompactTurnoverRow';
+import { lifecycleOf } from './turnover-format';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
@@ -124,6 +121,17 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   // of the header count + jump target just like an inspected one.
   const pendingTurnovers = data.turnovers.filter((t) => !isTurnoverDone(t));
   const inspectionsLeft = pendingTurnovers.length;
+
+  // Live stage tally across the visible window, rendered as a thin strip of
+  // counts under the summary so the operator reads the shape of the day at a
+  // glance (who's mid-clean, who's waiting on a cleaner, who's clean-but-
+  // unwalked) without scanning every row. Computed server-side off render
+  // time (the clock read lives in the helper to keep the component body pure);
+  // AutoRefresh keeps it current. Same lifecycleOf the rows use, so the strip
+  // and the rails never disagree.
+  const { cleaningNow, awaitingCleaner, needsInspection } = computeStageCounts(pendingTurnovers);
+  const doneCount = data.totalCount - inspectionsLeft;
+  const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection > 0;
 
   // Where "N inspections pending" should jump to when tapped:
   //   - exactly 1 pending AND it has an inspection row already (the operator
@@ -292,6 +300,28 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             })}
           </nav>
         </div>
+
+        {/* Live stage strip — the shape of the day in one line. Only renders
+            when something is actually in motion; "all prepped" already covers
+            the quiet case above. */}
+        {hasLiveStages && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '6px 20px',
+              padding: '11px 0 0',
+              fontSize: 12,
+            }}
+          >
+            {cleaningNow > 0 && <StageCount dot="#b08a2e" label="cleaning now" n={cleaningNow} />}
+            {awaitingCleaner > 0 && <StageCount dot="var(--signal)" label="awaiting cleaner" n={awaitingCleaner} />}
+            {needsInspection > 0 && <StageCount dot="var(--tide-deep)" label="clean · needs inspection" n={needsInspection} />}
+            {doneCount > 0 && <StageCount dot="var(--positive)" label="done" n={doneCount} />}
+          </div>
+        )}
+
         <div
           className="flex items-center justify-between"
           style={{
@@ -408,16 +438,16 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
 /**
  * The full turnover pipeline renders flat — every check-in in range is
- * always visible, never collapsed behind an expander. The operator works
- * this list top to bottom, so hiding the tail would hide real work.
+ * always visible as one dense line, never collapsed behind an expander. The
+ * operator works this list top to bottom, so hiding the tail would hide real
+ * work.
  *
- * Two tiers: turnovers that still need attention (not inspected and not
- * hand-marked done) render full-size up top in date order; finished ones
- * sink to the bottom as compact, dimmed rows (see TurnoverRowDone),
- * date-ordered among themselves. The partition is stable, so it preserves
- * the server-side chronological sort within each tier. Result: the
- * operator's eye lands on outstanding work, with the finished turnovers
- * tucked away but still reachable.
+ * Two tiers, one row component: turnovers that still need attention (not
+ * inspected and not hand-marked done) render up top, in-flight first; finished
+ * ones sink to the bottom, dimmed (CompactTurnoverRow fades them by opacity).
+ * The partition is stable, so it preserves the server-side chronological sort
+ * within each tier. Result: the operator's eye lands on outstanding work, with
+ * the finished turnovers tucked away but still reachable and expandable.
  */
 function isTurnoverDone(t: Turnover): boolean {
   return t.inspectionStatus === 'complete' || t.manuallyCompleted;
@@ -438,7 +468,34 @@ function flightRank(t: Turnover): number {
   return 2;
 }
 
+// Tally the active stage of each pending turnover for the header strip. The
+// clock read (Date.now) lives here, not in the component body, so the page
+// component stays pure under react-hooks/purity (same reason flightRank and
+// formatRelative wrap their date reads).
+function computeStageCounts(pending: Turnover[]): {
+  cleaningNow: number;
+  awaitingCleaner: number;
+  needsInspection: number;
+} {
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+  let cleaningNow = 0;
+  let awaitingCleaner = 0;
+  let needsInspection = 0;
+  for (const t of pending) {
+    const lc = lifecycleOf(t, now, today);
+    if (lc.active === 'cleaning') cleaningNow += 1;
+    else if (lc.active === 'in') awaitingCleaner += 1;
+    else if (lc.active === 'inspected') needsInspection += 1;
+  }
+  return { cleaningNow, awaitingCleaner, needsInspection };
+}
+
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+  // In-flight first among pending (a cleaner physically in the house floats
+  // up), then the server's chronological order; done turnovers sink to the
+  // bottom, dimmed. Every line is the same dense CompactTurnoverRow — tap any
+  // one to expand its full lifecycle rail + secondary affordances in place.
   const pending = turnovers
     .filter((t) => !isTurnoverDone(t))
     .sort((a, b) => flightRank(a) - flightRank(b));
@@ -446,506 +503,23 @@ function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: 
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       {pending.map((t) => (
-        <TurnoverRow key={`${t.propertyId}-${t.reservationId}`} turnover={t} myEmail={myEmail} />
+        <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
       ))}
       {done.map((t) => (
-        <TurnoverRowDone key={`${t.propertyId}-${t.reservationId}`} t={t} />
+        <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
       ))}
     </div>
   );
 }
 
-// Renders one actionable turnover (not yet inspected, or an inspection in
-// progress). Completed turnovers never reach here — TurnoverList routes
-// them to the compact TurnoverRowDone below.
-function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: string }) {
-  const checkIn = formatDateLong(t.checkIn);
-  const checkOut = formatDateShort(t.checkOut);
-
-  // Cleaning chip: show "Cleaned" once we have a Quo signal for the
-  // (property, previousCheckout) pair. If previousCheckout is past and
-  // we have no signal, surface "Awaiting cleaner" so the operator
-  // notices a stale prep window. Suppressed entirely when
-  // previousCheckout is null or in the future (cleaning isn't due yet).
-  const today = new Date().toISOString().slice(0, 10);
-  const cleaningExpected = t.previousCheckout !== null && t.previousCheckout <= today;
-  // The cleaning lifecycle (entered / finished + provenance) is rendered by the
-  // TurnoverRail below the row; cs feeds it.
-  const cs = t.cleaningSession;
-
-  // Gap context: for non-same-day turnovers with a known previousCheckout,
-  // surface how long the property has been sitting since the last guest.
-  // Answers "is this a tight turn or has it been clean for a week?" at a
-  // glance. Same-day cases use the existing "Tight turnaround" banner.
-  const gapDays =
-    !t.isSameDayTurnover && t.previousCheckout
-      ? Math.max(
-          0,
-          Math.floor(
-            (Date.parse(`${t.checkIn.slice(0, 10)}T00:00:00`) -
-              Date.parse(`${t.previousCheckout}T00:00:00`)) /
-              86_400_000,
-          ),
-        )
-      : null;
-
+// One entry in the live stage strip: a colored dot, a tabular count, a label.
+function StageCount({ dot, label, n }: { dot: string; label: string; n: number }) {
   return (
-    <div
-      id={`turnover-${t.propertyId}-${t.reservationId}`}
-      className="rt-turnover-row"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '160px 1fr auto auto',
-        gap: 20,
-        alignItems: 'baseline',
-        padding: '14px 0',
-        borderBottom: '1px solid var(--rule)',
-        // When the "N inspections pending" eyebrow scrolls to this row via
-        // a #turnover-... anchor, leave breathing room so the row doesn't
-        // land flush against the masthead.
-        scrollMarginTop: 96,
-      }}
-    >
-      {/* Date column. Top: check-in (the date the row is about). Middle:
-          check-out + nights. Bottom: when the previous guest left (only
-          when there's a non-zero gap). Stays in the fixed 160px column so
-          it never wraps under right-side button pressure. */}
-      <div className="rt-turnover-date">
-        <div className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
-          {checkIn}
-        </div>
-        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.04em' }}>
-          → {checkOut}
-          {t.nights ? ` · ${t.nights} nt${t.nights === 1 ? '' : 's'}` : ''}
-        </div>
-        {!t.isSameDayTurnover && gapDays != null && gapDays >= 1 && t.previousCheckout && (
-          <div
-            style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.04em' }}
-            title={`Last guest checked out ${t.previousCheckout} · ${gapDays}-day gap`}
-          >
-            clear since {formatDateShort(t.previousCheckout)}
-          </div>
-        )}
-      </div>
-
-      {/* Property + guest column. Reserve a real minimum width so the
-          property name + guest line never wrap onto five lines when the
-          right side stacks Plan + Start Inspection buttons. Excess
-          pressure pushes the chip cluster to wrap (it already flex-wraps)
-          rather than the typography. */}
-      <div className="rt-turnover-property" style={{ minWidth: 220 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span
-            className="font-serif"
-            style={{
-              fontSize: 18,
-              fontWeight: 400,
-              color: 'var(--ink)',
-              letterSpacing: '-0.01em',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {t.propertyName}
-          </span>
-          {t.isSameDayTurnover && (
-            <span
-              style={{
-                fontSize: 9,
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                color: 'var(--paper)',
-                background: 'var(--signal)',
-                padding: '2px 7px',
-                borderRadius: 2,
-              }}
-            >
-              Same-Day
-            </span>
-          )}
-        </div>
-        {/* Guest + channel. Gap context lives in the fixed-width date
-            column on the left so it never wraps under narrow conditions. */}
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 13,
-            color: 'var(--ink-3)',
-            lineHeight: 1.4,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-          title={`${t.guestName || 'Unnamed guest'}${t.channel ? ` · ${t.channel}` : ''}`}
-        >
-          {t.guestName || 'Unnamed guest'}
-          {t.channel && (
-            <>
-              <span style={{ color: 'var(--ink-4)' }}> · </span>
-              <span
-                aria-hidden
-                style={{
-                  display: 'inline-block',
-                  width: 7,
-                  height: 7,
-                  borderRadius: 4,
-                  background: channelAccent(t.channel),
-                  marginRight: 5,
-                  verticalAlign: 'baseline',
-                }}
-              />
-              <span style={{ color: 'var(--ink-3)' }}>{channelLabel(t.channel)}</span>
-            </>
-          )}
-        </div>
-        {/* Same-day turnover already carries the SAME-DAY pill up top —
-            the subtext "Tight turnaround · previous guest checks out
-            today" was redundant and pushed the row wide enough to clip
-            the Start Inspection button off-screen on narrower viewports.
-            Dropped intentionally; pill is the signal. */}
-      </div>
-
-      {/* Status: cleaning + inspection collapse to a single dim line of
-          sentence-case text with color-coded labels per step. Work-slip
-          count rides as a quiet link on a second line when present. The
-          previous version stacked 3 uppercase letter-spaced 600-weight
-          pills per row, which read as a wall of shouting status. */}
-      <div
-        className="rt-turnover-chips"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          justifyContent: 'flex-start',
-          gap: 4,
-          whiteSpace: 'nowrap',
-          fontSize: 12,
-          color: 'var(--ink-4)',
-        }}
-      >
-        {/* Plan lives here in the status column — same place on every row,
-            whether or not a Start Inspection CTA is shown — so the plan
-            state reads consistently instead of shifting around the action
-            button. Only meaningful before a walk starts (an in-progress
-            inspection shows Resume and no plan affordance). */}
-        {!t.inspection && (
-          <PlanButton
-            guestyReservationId={t.reservationId}
-            propertyId={t.propertyId}
-            checkInDate={t.checkIn.slice(0, 10)}
-            checkOutDate={t.checkOut.slice(0, 10)}
-            planId={t.plan?.id ?? null}
-            plannedForDate={t.plan?.planned_for_date ?? null}
-            plannedBy={t.plan?.planned_by_email ?? null}
-            assignedToEmail={t.plan?.assigned_to_email ?? null}
-            myEmail={myEmail}
-          />
-        )}
-        {t.lockBattery && t.lockBattery.isLow && (
-          <span
-            title={`Smart lock battery is ${
-              t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : t.lockBattery.status
-            }. Pack replacement batteries for this turnover.`}
-            style={{ color: 'var(--signal)', fontWeight: 600 }}
-          >
-            Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
-          </span>
-        )}
-        {t.openWorkSlipsCount > 0 && (
-          <Link
-            href={`/properties/${t.propertyId}/work-slips/print`}
-            title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
-            style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none' }}
-          >
-            {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
-          </Link>
-        )}
-        {t.fieldPacket && (
-          <Link
-            href={`/operations/packets/${t.fieldPacket.packetId}`}
-            title="This inspection is bundled into a Field contractor packet"
-            style={{ fontSize: 11, color: fieldChipColor(t.fieldPacket.status), textDecoration: 'none', fontWeight: 600 }}
-          >
-            {fieldChipLabel(t.fieldPacket)} →
-          </Link>
-        )}
-        {/* Mark done: the operator's "I've handled this, clear it" control.
-            Sinks the row to the bottom of the pipeline (turnover_completions)
-            without requiring a formal inspection. */}
-        <form action={markTurnoverComplete} style={{ margin: '2px 0 0' }}>
-          <input type="hidden" name="property_id" value={t.propertyId} />
-          <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
-          <input type="hidden" name="reservation_id" value={t.reservationId} />
-          <input type="hidden" name="guest_name" value={t.guestName ?? ''} />
-          <button
-            type="submit"
-            title="Mark this turnover done and move it to the bottom"
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-              fontSize: 11,
-              color: 'var(--ink-3)',
-              letterSpacing: '0.02em',
-              borderBottom: '1px dashed var(--ink-4)',
-              lineHeight: 1.6,
-            }}
-          >
-            ✓ Mark done
-          </button>
-        </form>
-      </div>
-
-      {/* Action column — the single primary CTA, consistent on every row:
-          Resume for an in-progress walk, Start Inspection otherwise. (Plan
-          moved to the status column above so it sits in the same spot on
-          every row; completed turnovers render via TurnoverRowDone with a
-          Summary link.) */}
-      {t.inspection ? (
-        <Link
-          href={`/inspections/${t.inspection.id}`}
-          className="rt-turnover-action"
-          style={{
-            fontSize: 12,
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            whiteSpace: 'nowrap',
-            fontWeight: 500,
-          }}
-        >
-          Resume →
-        </Link>
-      ) : t.fieldPacket ? (
-        // A Field contractor covers this turnover — no staff Start CTA, or a
-        // staff walk + a paid contractor walk would both happen. The Field +
-        // Plan chips in the status column carry the state; cancel the packet
-        // to take it back.
-        <span className="rt-turnover-action" />
-      ) : (
-        <form action={startInspection} className="rt-turnover-action" style={{ margin: 0 }}>
-          <input type="hidden" name="property_id" value={t.propertyId} />
-          <button
-            type="submit"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.16em',
-              textTransform: 'uppercase',
-              padding: '9px 16px',
-              border: 'none',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Start Inspection
-          </button>
-        </form>
-      )}
-
-      {/* Living lifecycle rail — full-width row below the line. Replaces the
-          old cleaning + "Not inspected" chips with a tracked, ticking state. */}
-      <div style={{ gridColumn: '1 / -1' }}>
-        <TurnoverRail
-          expected={cleaningExpected}
-          enteredAt={cs?.enteredAt ?? null}
-          cleanedAt={cs?.finishedAt ?? t.cleaning?.completedAt ?? null}
-          cleanedEstimated={cs?.finishSource === 'estimate'}
-          cleanedSource={cs?.finishSource ?? null}
-          enteredViaLock={cs?.entrySource === 'seam_lock'}
-          inspected={t.inspectionStatus === 'complete'}
-          checkIn={t.checkIn}
-          previousCheckout={t.previousCheckout}
-          propertyId={t.propertyId}
-          sameDay={t.isSameDayTurnover}
-        />
-      </div>
-    </div>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flex: '0 0 auto' }} />
+      <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: 'var(--ink)' }}>{n}</span>
+      <span style={{ color: 'var(--ink-3)' }}>{label}</span>
+    </span>
   );
 }
 
-/**
- * Compact, dimmed row for a finished turnover — either its inspection is
- * complete OR the operator hand-marked it done. These sink to the bottom
- * of the pipeline (see TurnoverList) and render at roughly half the height
- * + half the weight of an actionable row, so the operator skips straight to
- * the work that still needs doing. The checkout/nights + cleaning lines are
- * dropped (historical once finished); what survives is property, check-in
- * date, guest, an "Inspected"/"Completed" mark, any still-open work slips,
- * and an action: a Summary link for inspected ones, an Undo for the
- * hand-marked ones (so a mis-tap is one click to reverse).
- */
-function TurnoverRowDone({ t }: { t: Turnover }) {
-  const inspected = t.inspectionStatus === 'complete';
-  return (
-    <div
-      id={`turnover-${t.propertyId}-${t.reservationId}`}
-      className="rt-turnover-row rt-turnover-row--done"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '160px 1fr auto auto',
-        gap: 20,
-        alignItems: 'baseline',
-        padding: '7px 0',
-        opacity: 0.45,
-        borderBottom: '1px solid var(--rule)',
-        scrollMarginTop: 96,
-      }}
-    >
-      <div
-        className="rt-turnover-date"
-        style={{ fontSize: 12, color: 'var(--ink-4)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}
-      >
-        {formatDateShort(t.checkIn)}
-      </div>
-      <div
-        className="rt-turnover-property"
-        style={{ minWidth: 220, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}
-      >
-        <span
-          className="font-serif"
-          style={{ fontSize: 14, fontWeight: 400, color: 'var(--ink-3)', letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}
-        >
-          {t.propertyName}
-        </span>
-        <span
-          style={{ fontSize: 12, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          title={`${t.guestName || 'Unnamed guest'}${t.channel ? ` · ${t.channel}` : ''}`}
-        >
-          {t.guestName || 'Unnamed guest'}
-          {t.channel ? ` · ${channelLabel(t.channel)}` : ''}
-        </span>
-      </div>
-      <div
-        className="rt-turnover-chips"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: 2,
-          fontSize: 11,
-          color: 'var(--ink-4)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        <span
-          style={{ color: 'var(--positive)' }}
-          title={
-            inspected
-              ? 'Inspection completed'
-              : `Marked done by hand${t.completedByEmail ? ` (${t.completedByEmail})` : ''}`
-          }
-        >
-          {inspected ? 'Inspected' : 'Completed'}
-        </span>
-        {t.openWorkSlipsCount > 0 && (
-          <Link
-            href={`/properties/${t.propertyId}/work-slips/print`}
-            title={`View + print the ${t.openWorkSlipsCount} open work ${t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} on this property`}
-            style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none' }}
-          >
-            {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
-          </Link>
-        )}
-        {t.fieldPacket && (
-          <Link
-            href={`/operations/packets/${t.fieldPacket.packetId}`}
-            title="This inspection is bundled into a Field contractor packet"
-            style={{ fontSize: 11, color: fieldChipColor(t.fieldPacket.status), textDecoration: 'none', fontWeight: 600 }}
-          >
-            {fieldChipLabel(t.fieldPacket)} →
-          </Link>
-        )}
-      </div>
-      {inspected && t.inspection ? (
-        <Link
-          href={`/inspections/${t.inspection.id}/summary`}
-          className="rt-turnover-action"
-          style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', whiteSpace: 'nowrap' }}
-        >
-          Summary →
-        </Link>
-      ) : t.manuallyCompleted ? (
-        // Hand-marked done — offer a one-click reversal back to the active
-        // list. (turnover_completions row deleted by property + check_in.)
-        <form action={unmarkTurnoverComplete} className="rt-turnover-action" style={{ margin: 0 }}>
-          <input type="hidden" name="property_id" value={t.propertyId} />
-          <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
-          <button
-            type="submit"
-            title="Move this turnover back to the active list"
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-              fontSize: 11,
-              color: 'var(--ink-3)',
-              whiteSpace: 'nowrap',
-              borderBottom: '1px dashed var(--ink-4)',
-            }}
-          >
-            Undo →
-          </button>
-        </form>
-      ) : (
-        <span className="rt-turnover-action" />
-      )}
-    </div>
-  );
-}
-
-function fieldChipLabel(fp: NonNullable<Turnover['fieldPacket']>): string {
-  switch (fp.status) {
-    case 'draft':
-      return 'Field · drafted';
-    case 'published':
-      return 'Field · open for claim';
-    case 'claimed':
-    case 'in_progress':
-      return `Field · ${fp.contractorName ?? 'claimed'}`;
-    case 'submitted':
-      return 'Field · submitted';
-    case 'approved':
-      return 'Field · done';
-    default:
-      return 'Field';
-  }
-}
-
-function fieldChipColor(status: string): string {
-  switch (status) {
-    case 'published':
-      return 'var(--signal)';
-    case 'claimed':
-    case 'in_progress':
-    case 'submitted':
-      return 'var(--tide-deep)';
-    case 'approved':
-      return 'var(--positive)';
-    default:
-      return 'var(--ink-4)';
-  }
-}
-
-function formatDateLong(value: string): string {
-  if (!value) return '—';
-  try {
-    const d = new Date(`${value.slice(0, 10)}T00:00:00`);
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  } catch {
-    return value;
-  }
-}
-
-function formatDateShort(value: string): string {
-  if (!value) return '—';
-  try {
-    const d = new Date(`${value.slice(0, 10)}T00:00:00`);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return value;
-  }
-}

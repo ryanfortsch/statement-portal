@@ -1,0 +1,276 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { channelAccent } from '@/lib/channel-style';
+import type { Turnover } from '@/lib/operations';
+import { TurnoverRail } from './TurnoverRail';
+import { PlanButton } from './PlanButton';
+import { startInspection } from '../inspections/actions';
+import { markTurnoverComplete, unmarkTurnoverComplete } from './turnover-actions';
+import {
+  fieldChipLabel,
+  fieldChipColor,
+  formatDateShort,
+  lifecycleOf,
+  type StageCls,
+} from './turnover-format';
+
+/**
+ * One dense, ~38px turnover line: date · property+guest · a 6-pip micro-rail ·
+ * a live readout · the primary action. Click anywhere on the line to expand
+ * it in place into the full labeled TurnoverRail + the secondary affordances
+ * (plan, slips, field, battery, mark-done). Reuses the rail's exact state
+ * vocabulary at small size; only genuinely-active rows pulse/tick. Responsive:
+ * the line wraps cleanly on phones (the old grid-with-180px-indent rail was
+ * the mobile breakage).
+ */
+export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [open, setOpen] = useState(false);
+  const haloRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const el = haloRef.current;
+    if (!el) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const a = el.animate([{ opacity: 0.5 }, { opacity: 0.06 }, { opacity: 0.5 }], {
+      duration: 2000,
+      iterations: Infinity,
+      easing: 'ease-in-out',
+    });
+    return () => a.cancel();
+  });
+
+  const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
+  const todayStr = new Date(now).toISOString().slice(0, 10);
+  const lc = lifecycleOf(t, now, todayStr);
+  const hot = lc.overdue ? 'var(--negative)' : 'var(--signal)';
+
+  // Readout: cleaning-in-progress counts up off real entry; otherwise count
+  // down to check-in; done rows show a calm mark.
+  let readout = '';
+  let roColor = 'var(--ink-4)';
+  if (isDone) {
+    readout = '✓ done';
+    roColor = 'var(--positive)';
+  } else if (lc.active === 'cleaning' && lc.enteredAt) {
+    readout = `cleaning ${elapsed(lc.enteredAt, now)}`;
+    roColor = '#b08a2e';
+  } else {
+    const cd = countdown(t.checkIn, now);
+    readout = cd.text;
+    roColor = lc.overdue || cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
+  }
+
+  const batteryLow = t.lockBattery?.isLow;
+
+  return (
+    <div
+      id={`turnover-${t.propertyId}-${t.reservationId}`}
+      className="rt-tn-row"
+      style={{ opacity: isDone ? 0.5 : 1, scrollMarginTop: 96 }}
+      onClick={() => setOpen((o) => !o)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setOpen((o) => !o);
+        }
+      }}
+    >
+      <div className="rt-tn-main">
+        <div className="rt-tn-date">
+          <span className="font-serif" style={{ fontSize: 13.5, color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>
+            {formatDateShort(t.checkIn)}
+          </span>
+          {!isDone && (
+            <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10, color: 'var(--ink-4)' }}>
+              {' '}
+              → {formatDateShort(t.checkOut)}
+              {t.nights ? ` · ${t.nights}n` : ''}
+            </span>
+          )}
+        </div>
+        <div className="rt-tn-prop" title={`${t.propertyName} · ${t.guestName ?? 'guest'}`}>
+          {t.isSameDayTurnover && !isDone && <span className="rt-tn-sd" aria-hidden />}
+          <span className="font-serif" style={{ fontSize: 13.5, color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>
+            {t.propertyName}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}> · {t.guestName || 'Guest'}</span>
+          {t.channel && (
+            <span
+              aria-hidden
+              style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: channelAccent(t.channel), marginLeft: 5, verticalAlign: 1 }}
+            />
+          )}
+          {batteryLow && !isDone && (
+            <span title="Low smart-lock battery — pack spares" style={{ color: 'var(--negative)', fontSize: 11, marginLeft: 7 }}>
+              ⚠ battery
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="rt-tn-state">
+        <MicroRail pips={lc.pips} hot={hot} haloRef={haloRef} />
+        <span className="rt-tn-readout" style={{ color: roColor }}>
+          {readout}
+        </span>
+      </div>
+
+      <div className="rt-tn-act" onClick={(e) => e.stopPropagation()}>
+        <PrimaryAction t={t} isDone={isDone} />
+      </div>
+
+      {open && (
+        <div className="rt-tn-exp" onClick={(e) => e.stopPropagation()}>
+          <TurnoverRail
+            expected={lc.checkedOut}
+            enteredAt={t.cleaningSession?.enteredAt ?? null}
+            cleanedAt={t.cleaningSession?.finishedAt ?? t.cleaning?.completedAt ?? null}
+            cleanedEstimated={lc.cleanedEstimated}
+            cleanedSource={t.cleaningSession?.finishSource ?? null}
+            enteredViaLock={t.cleaningSession?.entrySource === 'seam_lock'}
+            inspected={t.inspectionStatus === 'complete'}
+            checkIn={t.checkIn}
+            previousCheckout={t.previousCheckout}
+            propertyId={t.propertyId}
+            sameDay={t.isSameDayTurnover}
+          />
+          {!isDone && (
+            <div className="rt-tn-affordances">
+              {!t.inspection && (
+                <PlanButton
+                  guestyReservationId={t.reservationId}
+                  propertyId={t.propertyId}
+                  checkInDate={t.checkIn.slice(0, 10)}
+                  checkOutDate={t.checkOut.slice(0, 10)}
+                  planId={t.plan?.id ?? null}
+                  plannedForDate={t.plan?.planned_for_date ?? null}
+                  plannedBy={t.plan?.planned_by_email ?? null}
+                  assignedToEmail={t.plan?.assigned_to_email ?? null}
+                  myEmail={myEmail}
+                />
+              )}
+              {t.lockBattery?.isLow && (
+                <span style={{ color: 'var(--signal)', fontSize: 11, fontWeight: 600 }}>
+                  Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
+                </span>
+              )}
+              {t.openWorkSlipsCount > 0 && (
+                <Link href={`/properties/${t.propertyId}/work-slips/print`} style={chipLink}>
+                  {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
+                </Link>
+              )}
+              {t.fieldPacket && (
+                <Link href={`/operations/packets/${t.fieldPacket.packetId}`} style={{ ...chipLink, color: fieldChipColor(t.fieldPacket.status), fontWeight: 600 }}>
+                  {fieldChipLabel(t.fieldPacket)} →
+                </Link>
+              )}
+              <form action={markTurnoverComplete} style={{ margin: 0 }}>
+                <input type="hidden" name="property_id" value={t.propertyId} />
+                <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
+                <input type="hidden" name="reservation_id" value={t.reservationId} />
+                <input type="hidden" name="guest_name" value={t.guestName ?? ''} />
+                <button type="submit" style={{ ...chipLink, background: 'none', border: 'none', borderBottom: '1px dashed var(--ink-4)', cursor: 'pointer', padding: 0 }}>
+                  ✓ Mark done
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MicroRail({ pips, hot, haloRef }: { pips: StageCls[]; hot: string; haloRef: React.RefObject<HTMLSpanElement | null> }) {
+  return (
+    <div className="rt-tn-rail" aria-hidden>
+      <div className="rt-tn-rline" />
+      {pips.map((s, i) => {
+        const active = s === 'active';
+        const sz = s === 'future' ? 6 : active ? 11 : s === 'passed' ? 7 : 9;
+        const fill = s === 'good' ? '#3a6b4a' : s === 'passed' ? '#c2b189' : 'var(--paper)';
+        const border =
+          active ? `2.5px solid ${hot}` : s === 'est' ? '2px dashed #3a6b4a' : s === 'future' ? '1.5px solid #ddd2bd' : `2px solid ${fill}`;
+        return (
+          <span key={i} style={{ position: 'relative', zIndex: 1, width: sz, height: sz, borderRadius: '50%', background: fill, border, boxSizing: 'border-box' }}>
+            {active && (
+              <span
+                ref={haloRef}
+                style={{ position: 'absolute', inset: -5, borderRadius: '50%', border: `1.5px solid ${hot}`, opacity: 0.5 }}
+              />
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
+  if (isDone) {
+    if (t.inspectionStatus === 'complete' && t.inspection) {
+      return (
+        <Link href={`/inspections/${t.inspection.id}/summary`} style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          Summary →
+        </Link>
+      );
+    }
+    if (t.manuallyCompleted) {
+      return (
+        <form action={unmarkTurnoverComplete} style={{ margin: 0 }}>
+          <input type="hidden" name="property_id" value={t.propertyId} />
+          <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
+          <button type="submit" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, color: 'var(--ink-3)', borderBottom: '1px dashed var(--ink-4)', whiteSpace: 'nowrap' }}>
+            Undo →
+          </button>
+        </form>
+      );
+    }
+    return null;
+  }
+  if (t.inspection) {
+    return (
+      <Link href={`/inspections/${t.inspection.id}`} style={{ fontSize: 12, color: 'var(--ink)', textDecoration: 'none', whiteSpace: 'nowrap', fontWeight: 500 }}>
+        Resume →
+      </Link>
+    );
+  }
+  if (t.fieldPacket) return null;
+  return (
+    <form action={startInspection} style={{ margin: 0 }}>
+      <input type="hidden" name="property_id" value={t.propertyId} />
+      <button type="submit" className="rt-tn-start">
+        Start
+      </button>
+    </form>
+  );
+}
+
+const chipLink: React.CSSProperties = { fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', whiteSpace: 'nowrap' };
+
+function elapsed(sinceIso: string, now: number): string {
+  const s = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function countdown(checkIn: string, now: number): { text: string; urgency: 'far' | 'soon' | 'now' } {
+  const target = Date.parse(`${checkIn.slice(0, 10)}T16:00:00`);
+  const ms = target - now;
+  if (ms <= 0) return { text: 'in now', urgency: 'now' };
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  if (h >= 36) return { text: `in ${Math.round(h / 24)}d`, urgency: 'far' };
+  const m = totalMin % 60;
+  return { text: `in ${h}h ${m}m`, urgency: h < 6 ? 'now' : h < 12 ? 'soon' : 'far' };
+}
