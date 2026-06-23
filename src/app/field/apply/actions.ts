@@ -10,8 +10,8 @@ export async function submitApplication(formData: FormData): Promise<void> {
   const full_name = String(formData.get('full_name') || '').trim().slice(0, 120);
   const email = String(formData.get('email') || '').trim().toLowerCase().slice(0, 200);
   const phone = String(formData.get('phone') || '').trim().slice(0, 40);
-  // Name, email, and a phone are the floor — we coordinate jobs over SMS.
-  if (full_name.length < 2 || !email.includes('@') || phone.length < 7) redirect('/field/apply?error=1');
+  const area = String(formData.get('area') || '').trim().slice(0, 120);
+  if (full_name.length < 2 || !email.includes('@') || phone.length < 7 || area.length < 2) redirect('/field/apply?error=1');
 
   const trd = String(formData.get('trade') || 'inspection');
   const trade = trd === 'maintenance' || trd === 'cleaning' ? trd : 'inspection';
@@ -30,7 +30,7 @@ export async function submitApplication(formData: FormData): Promise<void> {
     full_name,
     email,
     phone: phone || null,
-    area: String(formData.get('area') || '').trim().slice(0, 120) || null,
+    area,
     about: String(formData.get('about') || '').trim().slice(0, 2000) || null,
     availability: String(formData.get('availability') || '').trim().slice(0, 300) || null,
     heard_about: String(formData.get('heard_about') || '').trim().slice(0, 200) || null,
