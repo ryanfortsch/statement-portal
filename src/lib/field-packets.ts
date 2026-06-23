@@ -1665,6 +1665,8 @@ export type ContractorApplication = {
   about: string | null;
   availability: string | null;
   has_transport: boolean | null;
+  heard_about: string | null;
+  video_url: string | null;
   source: string | null;
   status: string;
   contractor_id: string | null;

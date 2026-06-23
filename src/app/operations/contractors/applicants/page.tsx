@@ -100,10 +100,26 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
           {fmtWhen(a.created_at)}{a.source ? ` · via ${a.source}` : ''}
         </div>
       </div>
-      {(a.availability || a.about || a.has_transport != null) && (
+      {(a.availability || a.about || a.has_transport != null || a.heard_about || a.video_url) && (
         <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.55 }}>
+          {a.has_transport != null && (
+            <div>
+              <span style={{ color: 'var(--ink-4)' }}>Vehicle:</span>{' '}
+              <span style={a.has_transport ? undefined : { color: 'var(--signal)', fontWeight: 600 }}>
+                {a.has_transport ? 'yes' : 'no'}
+              </span>
+            </div>
+          )}
           {a.availability && <div><span style={{ color: 'var(--ink-4)' }}>Available:</span> {a.availability}</div>}
-          {a.has_transport != null && <div><span style={{ color: 'var(--ink-4)' }}>Transport:</span> {a.has_transport ? 'yes' : 'no'}</div>}
+          {a.heard_about && <div><span style={{ color: 'var(--ink-4)' }}>Heard via:</span> {a.heard_about}</div>}
+          {a.video_url && (
+            <div>
+              <span style={{ color: 'var(--ink-4)' }}>Video:</span>{' '}
+              <a href={a.video_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                Watch ↗
+              </a>
+            </div>
+          )}
           {a.about && <div style={{ marginTop: 4 }}>{a.about}</div>}
         </div>
       )}
