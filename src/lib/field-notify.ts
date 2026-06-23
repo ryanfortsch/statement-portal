@@ -128,16 +128,17 @@ export async function sendClaimConfirmation(
 
 export async function sendContractorOnboardedEmail(contractor: ContractorRow): Promise<boolean> {
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New inspector ready: ${contractor.full_name}</h1>
-    <p>${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) finished setup and can claim work. Collect their W-9 into QuickBooks, then hit <strong>mark W-9 on file</strong> on the roster so 1099 tracking stays current.</p>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New inspector signed up: ${contractor.full_name}</h1>
+    <p>${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) finished setup. Two things before they can claim work:</p>
+    <p>1. <strong>Run their background check</strong>, then mark it <strong>cleared</strong> on the roster (we send people into owners' homes, so claiming is gated on it).<br/>2. Collect their W-9 into QuickBooks and hit <strong>mark W-9 on file</strong> so 1099 tracking stays current.</p>
     ${btn(`${fieldBaseUrl()}/operations/contractors`, 'Open roster')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
-    subject: `Field: ${contractor.full_name} onboarded`,
+    subject: `Field: ${contractor.full_name} signed up — needs background check`,
     fromName: FROM_NAME,
     html,
-    text: `${contractor.full_name} onboarded and can claim work. Collect their W-9 and mark it on file on the roster.`,
+    text: `${contractor.full_name} finished setup. Run their background check and mark it cleared on the roster (claiming is gated on it), and collect their W-9.`,
   });
 }
 
@@ -199,6 +200,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     .eq('status', 'active')
     .eq('trade', packet.trade)
     .eq('w9_on_file', true)
+    .eq('background_check_status', 'cleared')
     .not('agreement_signed_at', 'is', null)
     .not('phone', 'is', null);
   const contractors = (data ?? []) as Array<

@@ -592,6 +592,26 @@ export async function resendInvite(formData: FormData): Promise<void> {
  *  QuickBooks per the established boundary — this just drives the on-file flag
  *  the 1099 rollup reads, keyed by the contractor's vendor_key (stamped here
  *  so future name-matching stays stable). */
+/** Set a contractor's background-check status. Claiming is gated on 'cleared'
+ *  (canClaim), so this is what lets a vetted inspector start taking work. */
+export async function setContractorBackgroundCheck(formData: FormData): Promise<void> {
+  const staff = await staffEmail();
+  const contractorId = String(formData.get('contractor_id') || '');
+  const statusIn = String(formData.get('bg_status') || '');
+  const allowed = ['not_started', 'pending', 'cleared', 'failed'];
+  if (!contractorId || !allowed.includes(statusIn)) return;
+  await fieldDb()
+    .from('contractors')
+    .update({
+      background_check_status: statusIn,
+      background_check_at: statusIn === 'cleared' || statusIn === 'failed' ? new Date().toISOString() : null,
+      background_check_by_email: staff,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contractorId);
+  revalidatePath('/operations/contractors');
+}
+
 export async function setContractorW9(formData: FormData): Promise<void> {
   await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');

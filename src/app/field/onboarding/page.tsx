@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { canClaim } from '@/lib/field-types';
+import { onboardingComplete } from '@/lib/field-types';
 import { completeOnboarding } from '../actions';
 import { FieldShell } from '../FieldShell';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
@@ -40,7 +40,9 @@ export default async function OnboardingPage({
   const sp = await searchParams;
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
-  if (canClaim(contractor)) redirect('/field');
+  // Once the self-serve setup is done, send them home — the background check is
+  // ours to clear, not theirs to redo.
+  if (onboardingComplete(contractor)) redirect('/field');
 
   return (
     <FieldShell contractorName={contractor.full_name}>
