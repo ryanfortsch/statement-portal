@@ -13,6 +13,7 @@ import {
   fieldChipColor,
   formatDateShort,
   lifecycleOf,
+  STAGE_HUES,
   type StageCls,
 } from './turnover-format';
 
@@ -49,7 +50,6 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
   const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
   const todayStr = new Date(now).toISOString().slice(0, 10);
   const lc = lifecycleOf(t, now, todayStr);
-  const hot = lc.overdue ? 'var(--negative)' : 'var(--signal)';
 
   // Readout: cleaning-in-progress counts up off real entry; otherwise count
   // down to check-in; done rows show a calm mark.
@@ -125,7 +125,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
       </div>
 
       <div className="rt-tn-state">
-        <MicroRail pips={lc.pips} hot={hot} haloRef={haloRef} />
+        <MicroRail pips={lc.pips} overdue={lc.overdue} haloRef={haloRef} />
         <span className="rt-tn-readout" style={{ color: roColor }}>
           {readout}
         </span>
@@ -198,28 +198,33 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
   );
 }
 
-function MicroRail({ pips, hot, haloRef }: { pips: StageCls[]; hot: string; haloRef: React.RefObject<HTMLSpanElement | null> }) {
+function MicroRail({ pips, overdue, haloRef }: { pips: StageCls[]; overdue: boolean; haloRef: React.RefObject<HTMLSpanElement | null> }) {
   return (
     <div className="rt-tn-rail" aria-hidden>
       <div className="rt-tn-rline" />
       {pips.map((s, i) => {
+        // Each pip carries its stage's identity hue (blue / orange / yellow /
+        // green); state shows by treatment: done = solid fill, active = ring +
+        // pulsing halo (red if overdue), future = neutral hollow ring.
+        const H = STAGE_HUES[i];
         const active = s === 'active';
+        const hotPip = overdue ? 'var(--negative)' : H;
         // 'na' = a stage this (lockless) home can't observe. A small solid
-        // muted dot, distinct from the hollow 'future' ring and the green
+        // muted dot, distinct from the hollow 'future' ring and the colored
         // 'good', so a cleaned lockless row reads as a coherent done line with
-        // two quiet passthrough middles, not a regressed/skipped gap.
+        // two quiet passthrough middles, not a regressed / skipped gap.
         const na = s === 'na';
         const sz = na ? 5 : s === 'future' ? 6 : active ? 11 : s === 'passed' ? 7 : 9;
-        const fill = na ? '#c9bda1' : s === 'good' ? '#3a6b4a' : s === 'passed' ? '#c2b189' : 'var(--paper)';
+        const fill = na ? '#c9bda1' : s === 'good' || s === 'passed' ? H : 'var(--paper)';
         const border = na
           ? 'none'
-          : active ? `2.5px solid ${hot}` : s === 'est' ? '2px dashed #3a6b4a' : s === 'future' ? '1.5px solid #ddd2bd' : `2px solid ${fill}`;
+          : active ? `2.5px solid ${hotPip}` : s === 'est' ? `2px dashed ${H}` : s === 'future' ? '1.5px solid #ddd2bd' : `2px solid ${H}`;
         return (
           <span key={i} style={{ position: 'relative', zIndex: 1, width: sz, height: sz, borderRadius: '50%', background: fill, border, boxSizing: 'border-box' }}>
             {active && (
               <span
                 ref={haloRef}
-                style={{ position: 'absolute', inset: -5, borderRadius: '50%', border: `1.5px solid ${hot}`, opacity: 0.5 }}
+                style={{ position: 'absolute', inset: -5, borderRadius: '50%', border: `1.5px solid ${hotPip}`, opacity: 0.5 }}
               />
             )}
           </span>
