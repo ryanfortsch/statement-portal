@@ -57,7 +57,7 @@ function plusDays(n: number): string {
 export default async function PacketsBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; sent?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -145,6 +145,17 @@ export default async function PacketsBoard({
             <button type="submit" style={btnGhost}>Apply</button>
           </form>
         </div>
+
+        {sp.sent === '1' && (
+          <div style={{ marginTop: 18, border: '1px solid var(--positive)', background: 'rgba(63,153,34,0.08)', color: 'var(--positive)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
+            Packet sent — it&apos;s out to contractors below.
+          </div>
+        )}
+        {sp.sent === '0' && (
+          <div style={{ marginTop: 18, border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
+            Couldn&apos;t bundle that — those days are already covered or a guest has since moved in. Refresh and pick open days again.
+          </div>
+        )}
 
         {hasBrief && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
