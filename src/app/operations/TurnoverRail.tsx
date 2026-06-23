@@ -107,27 +107,29 @@ export function TurnoverRail(p: Props) {
   const inspected = p.inspected;
   const ready = cleaned && inspected;
 
-  let active: 'in' | 'cleaning' | 'inspected' | null = null;
-  if (checkedOut) {
-    if (!cleanerIn) active = 'in';
-    else if (!cleaned) active = 'cleaning';
-    else if (!inspected) active = 'inspected';
-  }
+  const cd = countdown(p.checkIn, now);
+  // "Due" = the clean is genuinely imminent: a same-day turn, or check-in
+  // within ~36h. A turnover that's days out stays calm — no pulsing "awaiting
+  // cleaner" and no ticking counter, since the cleaner isn't due yet. A REAL
+  // lock entry still lights up regardless (that's a fact, not a guess).
+  const due = checkedOut && (p.sameDay || cd.urgency !== 'far');
 
-  const counterSince =
-    active === 'in'
-      ? p.previousCheckout
-        ? `${p.previousCheckout}T11:00:00`
-        : null
-      : active === 'cleaning'
-        ? p.enteredAt
-        : null;
+  let active: 'in' | 'cleaning' | 'inspected' | null = null;
+  if (!checkedOut) active = null;
+  else if (!cleanerIn) active = due ? 'in' : null;
+  else if (!cleaned) active = 'cleaning';
+  else if (!inspected) active = due ? 'inspected' : null;
+
+  // Live counter ONLY while the cleaner is actually in (real entry time).
+  // Never on an awaiting node — a "time since checkout" duration there reads
+  // as if the cleaner has already been inside that long.
+  const counterSince = active === 'cleaning' ? p.enteredAt : null;
 
   const nodes: Array<{ key: string; label: string; cls: NodeCls; time?: string | null; glyph?: 'lock' | 'phone' | null }> = [
     { key: 'out', label: 'Checked out', cls: checkedOut ? 'passed' : 'future' },
     {
       key: 'in',
-      label: 'Cleaner in',
+      label: cleanerIn ? 'Cleaner in' : active === 'in' ? 'Awaiting cleaner' : 'Cleaner in',
       cls: cleanerIn ? 'good' : active === 'in' ? 'active' : 'future',
       time: p.enteredAt,
       glyph: cleanerIn && p.enteredViaLock ? 'lock' : null,
@@ -140,11 +142,10 @@ export function TurnoverRail(p: Props) {
       time: justConfirmed ? new Date(now).toISOString() : p.cleanedAt,
       glyph: cleaned && p.cleanedSource === 'quo' ? 'phone' : null,
     },
-    { key: 'inspected', label: 'Inspected', cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future' },
+    { key: 'inspected', label: active === 'inspected' ? 'Inspecting' : 'Inspected', cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future' },
     { key: 'ready', label: 'Guest-ready', cls: ready ? 'good' : 'future' },
   ];
 
-  const cd = countdown(p.checkIn, now);
   const overdue = active !== null && Date.parse(`${p.checkIn.slice(0, 10)}T16:00:00`) < now;
   const hot = overdue ? 'var(--negative)' : 'var(--signal)';
   const cdColor = overdue || cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
@@ -175,8 +176,7 @@ export function TurnoverRail(p: Props) {
         <div style={{ position: 'absolute', top: 9, left: '5%', right: '5%', height: 2, background: baseColor, zIndex: 0 }} />
         {nodes.map((n) => {
           const isActive = n.cls === 'active';
-          const solid =
-            isActive ? hot : n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : null;
+          const solid = n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : null;
           const labelColor =
             isActive ? hot : n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : 'var(--ink-4)';
           const size = n.cls === 'future' ? 10 : isActive ? 16 : 14;
@@ -209,9 +209,10 @@ export function TurnoverRail(p: Props) {
                     height: size,
                     borderRadius: '50%',
                     boxSizing: 'border-box',
-                    background: n.cls === 'est' ? 'var(--paper)' : solid ?? 'var(--paper)',
-                    border:
-                      n.cls === 'est'
+                    background: isActive || n.cls === 'est' || n.cls === 'future' ? 'var(--paper)' : solid ?? 'var(--paper)',
+                    border: isActive
+                      ? `2.5px solid ${hot}`
+                      : n.cls === 'est'
                         ? '2px dashed var(--positive)'
                         : n.cls === 'future'
                           ? '1.5px solid var(--rule)'
