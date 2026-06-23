@@ -165,7 +165,7 @@ export function ApplyVideo() {
       )}
 
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.5 }}>
-        Totally optional, but a clip on why you&apos;d be a fit goes a long way. Keep it under 30 seconds, straight from your phone.
+        A clip on why you&apos;d be a fit goes a long way. Keep it under 30 seconds, straight from your phone.
       </div>
 
       {err && (
