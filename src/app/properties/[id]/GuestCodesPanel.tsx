@@ -215,7 +215,8 @@ export function GuestCodesPanel({
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name ?? 'Code'}</div>
                       <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                        {c.ends_at ? `until ${fmtDate(c.ends_at.slice(0, 10))}` : 'no end set'}
+                        {c.source === 'external' ? 'set outside Helm' : 'issued by Helm'}
+                        {c.ends_at ? ` · until ${fmtDate(c.ends_at.slice(0, 10))}` : ''}
                       </div>
                     </div>
                     <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
