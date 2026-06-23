@@ -20,6 +20,10 @@ type Props = {
   cleanedSource: string | null;
   enteredViaLock: boolean;
   inspected: boolean;
+  // An inspection is genuinely underway (not just the next pending stage), so
+  // the node reads "Inspecting" with a live counter instead of "Needs inspection".
+  inspecting: boolean;
+  inspectionStartedAt: string | null;
   checkIn: string;
   previousCheckout: string | null;
   propertyId: string;
@@ -123,21 +127,24 @@ export function TurnoverRail(p: Props) {
   // Monitored homes track the cleaner physically (in -> cleaning); a lockless
   // home can't observe entry, so it waits on the clean itself ('clean'),
   // advanced only by a Quo text or a manual confirm.
+  // An in-progress inspection lights the inspected node regardless of due-ness:
+  // if someone is walking the home now, show it even days out.
   let active: 'in' | 'cleaning' | 'clean' | 'inspected' | null = null;
   if (!checkedOut) active = null;
   else if (monitored) {
     if (!cleanerIn) active = due ? 'in' : null;
     else if (!cleaned) active = 'cleaning';
-    else if (!inspected) active = due ? 'inspected' : null;
+    else if (!inspected) active = p.inspecting || due ? 'inspected' : null;
   } else {
     if (!cleaned) active = due ? 'clean' : null;
-    else if (!inspected) active = due ? 'inspected' : null;
+    else if (!inspected) active = p.inspecting || due ? 'inspected' : null;
   }
 
-  // Live counter ONLY while the cleaner is actually in (real entry time).
-  // Never on an awaiting node: a "time since checkout" duration there reads
-  // as if the cleaner has already been inside that long.
-  const counterSince = active === 'cleaning' ? p.enteredAt : null;
+  // Live counter on the genuinely-active stage: the cleaner physically in
+  // (entry time), or an inspection actually underway (its start). Never on a
+  // mere awaiting node, where an elapsed duration would imply work in progress.
+  const counterSince =
+    active === 'cleaning' ? p.enteredAt : active === 'inspected' && p.inspecting ? p.inspectionStartedAt : null;
 
   // The two lock-only middle nodes degrade to muted 'na' on a lockless home
   // (never pulse, never claim a cleaner is in); the wait lands on Cleaned.
@@ -169,7 +176,14 @@ export function TurnoverRail(p: Props) {
       time: justConfirmed ? new Date(now).toISOString() : p.cleanedAt,
       glyph: cleaned && p.cleanedSource === 'quo' ? 'phone' : null,
     },
-    { key: 'inspected', label: active === 'inspected' ? 'Inspecting' : 'Inspected', cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future' },
+    {
+      key: 'inspected',
+      // "Inspecting" only when one is genuinely underway; otherwise the active
+      // state is the awaiting "Needs inspection" (mirrors Needs clean). A
+      // completed or future node just reads "Inspected".
+      label: inspected ? 'Inspected' : active === 'inspected' ? (p.inspecting ? 'Inspecting' : 'Needs inspection') : 'Inspected',
+      cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
+    },
     { key: 'ready', label: 'Guest-ready', cls: ready ? 'good' : 'future' },
   ];
 

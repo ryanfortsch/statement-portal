@@ -68,6 +68,16 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
     // ahead of the countdown fallback below.
     readout = 'needs clean';
     roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
+  } else if (lc.inspecting) {
+    // An inspection is genuinely underway (app start, or a master-code unlock):
+    // count up off its real start, not a bare countdown.
+    readout = lc.inspectionStartedAt ? `inspecting ${elapsed(lc.inspectionStartedAt, now)}` : 'inspecting';
+    roColor = '#b8901a';
+  } else if (lc.active === 'inspected') {
+    // Cleaned and due, but no inspection has started: the actionable state is
+    // "needs inspection", not a bare countdown to check-in.
+    readout = 'needs inspection';
+    roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else {
     const cd = countdown(t.checkIn, now);
     readout = cd.text;
@@ -145,6 +155,8 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
             cleanedSource={t.cleaningSession?.finishSource ?? null}
             enteredViaLock={t.cleaningSession?.entrySource === 'seam_lock'}
             inspected={t.inspectionStatus === 'complete'}
+            inspecting={lc.inspecting}
+            inspectionStartedAt={t.inspectionStartedAt}
             checkIn={t.checkIn}
             previousCheckout={t.previousCheckout}
             propertyId={t.propertyId}
