@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { FieldShell } from '../FieldShell';
 import { submitApplication } from './actions';
+import { ApplyVideo } from './ApplyVideo';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -44,11 +45,9 @@ export default async function ApplyPage({
     <FieldShell showSignOut={false}>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 8 }}>Inspect with Rising Tide</h1>
       <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 14 }}>
-        Rising Tide manages a carefully-kept portfolio of short-term rentals across Cape Ann (Gloucester,
-        Rockport, and nearby). We&apos;re looking for a sharp, reliable local to be our eyes on the ground
-        between guests. Flexible, paid-per-visit contract work, run from your phone: claim inspection jobs
-        near you, walk the home, and confirm it&apos;s ready for the next guest. Visits run about 20 to 90
-        minutes and are usually batched 2 to 5 homes per trip.
+        Rising Tide manages short-term rentals across Cape Ann. We&apos;re looking for a sharp, reliable
+        local to be our eyes on the ground between guests — flexible, paid-per-visit work you run from
+        your phone. Visits run 20 to 90 minutes, usually 2 to 5 homes per trip.
       </p>
       <div style={{ maxWidth: 520, marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 8 }}>On every visit you cover three things:</div>
@@ -117,13 +116,7 @@ export default async function ApplyPage({
           Tell us a little about yourself
           <textarea name="about" rows={4} placeholder="Any property, hospitality, cleaning, or home-maintenance experience? Why this work?" style={{ ...input, resize: 'vertical' }} />
         </label>
-        <label style={lbl}>
-          Short intro video <span style={{ color: 'var(--ink-4)' }}>(optional)</span>
-          <input name="video_url" type="url" placeholder="Link to a 30–60s video — Loom, YouTube, Google Drive" style={input} />
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.5 }}>
-            Totally optional, but a quick clip on why you&apos;d be a fit goes a long way. Paste any shareable link.
-          </span>
-        </label>
+        <ApplyVideo />
         <button
           type="submit"
           style={{ background: 'var(--signal)', color: 'var(--paper)', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '14px 30px' }}
