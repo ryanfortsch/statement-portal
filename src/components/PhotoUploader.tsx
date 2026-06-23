@@ -12,6 +12,9 @@ type Props = {
   folder?: string;
   /** Disable while a parent action is in flight. */
   disabled?: boolean;
+  /** Upload endpoint. Defaults to the staff/SSO route; contractors pass the
+   *  contractor-auth route '/api/field/upload'. */
+  endpoint?: string;
 };
 
 /**
@@ -25,7 +28,7 @@ type Props = {
  * the URL list (e.g. via inspection_notes.photo_urls or
  * work_slips.photo_urls).
  */
-export function PhotoUploader({ value, onChange, folder, disabled }: Props) {
+export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload' }: Props) {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,7 +43,7 @@ export function PhotoUploader({ value, onChange, folder, disabled }: Props) {
       fd.append('file', file);
       if (folder) fd.append('folder', folder);
 
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const res = await fetch(endpoint, { method: 'POST', body: fd });
       const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
       if (!res.ok || !body.url) {
         setErr(body.error || `Upload failed (HTTP ${res.status})`);

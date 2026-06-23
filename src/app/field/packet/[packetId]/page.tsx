@@ -4,7 +4,8 @@ import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail } from '@/lib/field-packets';
 import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
-import { claimPacket, startStopInspection, submitPacket, completeMaintenanceStop } from '../../actions';
+import { claimPacket, startStopInspection, submitPacket } from '../../actions';
+import { MaintenanceComplete } from './MaintenanceComplete';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
@@ -318,23 +319,7 @@ export default async function PacketPage({
                 </div>
               )}
               {isMine && s.workSlip && s.status !== 'complete' && (
-                <form action={completeMaintenanceStop} style={{ margin: '12px 0 0' }}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <input type="hidden" name="stop_id" value={s.id} />
-                  <textarea
-                    name="resolution"
-                    required
-                    rows={2}
-                    placeholder="What did you do? (e.g. replaced the disposal, tested, cleaned up)"
-                    style={{ width: '100%', font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
-                  />
-                  <button
-                    type="submit"
-                    style={{ marginTop: 8, background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '9px 16px' }}
-                  >
-                    Mark job done
-                  </button>
-                </form>
+                <MaintenanceComplete packetId={packet.id} stopId={s.id} />
               )}
             </div>
             {isMine && !s.workSlip && (

@@ -300,12 +300,22 @@ export async function completeMaintenanceStop(formData: FormData) {
   if (!stop || !stop.work_slip_id) redirect(`/field/packet/${packetId}`);
   if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
 
+  const photos = (() => {
+    try {
+      const v = JSON.parse(String(formData.get('photo_urls') || '[]'));
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  })();
+
   await fieldDb()
     .from('work_slips')
     .update({
       status: 'done',
       completed_at: new Date().toISOString(),
       resolution_notes: note,
+      photo_urls: photos,
       updated_at: new Date().toISOString(),
     })
     .eq('id', stop.work_slip_id);
