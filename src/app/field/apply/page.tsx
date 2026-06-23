@@ -20,7 +20,7 @@ const input: React.CSSProperties = {
   padding: '10px 12px',
   marginTop: 5,
 };
-const lbl: React.CSSProperties = { fontSize: 13, color: 'var(--ink-3)', display: 'block', marginBottom: 16 };
+const lbl: React.CSSProperties = { fontSize: 13, color: 'var(--ink-3)', display: 'block', marginBottom: 20 };
 
 export default async function ApplyPage({
   searchParams,
@@ -43,32 +43,33 @@ export default async function ApplyPage({
 
   return (
     <FieldShell showSignOut={false}>
-      <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 8 }}>Inspect with Rising Tide</h1>
-      <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 14 }}>
+      <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>Inspect with Rising Tide</h1>
+      <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 20 }}>
         Rising Tide manages short-term rentals across Cape Ann. We&apos;re looking for a sharp, reliable
-        local to be our eyes on the ground between guests — flexible, paid-per-visit work you run from
+        local to be our eyes on the ground between guests. Flexible, paid-per-visit work you run from
         your phone. Visits run 20 to 90 minutes, usually 2 to 5 homes per trip.
       </p>
-      <div style={{ maxWidth: 520, marginBottom: 14 }}>
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 8 }}>On every visit you cover three things:</div>
+      <div style={{ maxWidth: 520, marginBottom: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 10 }}>On every visit you cover three things:</div>
         {([
-          ['Perfection', "the home should look flawless and guest-ready — you're the last set of eyes before check-in."],
+          ['Perfection', "the home should look flawless and guest-ready. You're the last set of eyes before check-in."],
           ['Maintenance', 'flag anything worn, leaking, or heading toward a repair, with a quick photo.'],
           ['Supplies & inventory', 'confirm the essentials are stocked and note anything running low.'],
         ] as const).map(([t, d]) => (
-          <div key={t} style={{ display: 'flex', gap: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, marginBottom: 5 }}>
+          <div key={t} style={{ display: 'flex', gap: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, marginBottom: 6 }}>
             <span style={{ color: 'var(--signal)' }}>•</span>
             <span><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{t}:</strong> {d}</span>
           </div>
         ))}
       </div>
+      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: '28px 0 24px', maxWidth: 520 }} />
       {sp.error && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 14, marginBottom: 18, borderRadius: 6 }}>
           Please add your name, a valid email, and a phone number.
         </div>
       )}
 
-      <form action={submitApplication} style={{ maxWidth: 520 }}>
+      <form action={submitApplication} style={{ maxWidth: 520, paddingBottom: 40 }}>
         <input type="hidden" name="source" value={sp.src ?? ''} />
         <label style={lbl}>
           Full name *
