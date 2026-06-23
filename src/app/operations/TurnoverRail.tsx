@@ -23,9 +23,12 @@ type Props = {
   previousCheckout: string | null;
   propertyId: string;
   sameDay: boolean;
+  // False for a lockless home: the "Cleaner in" / "Cleaning" nodes go muted
+  // ('na') and never pulse, and the wait lands on "Cleaned" instead.
+  lockMonitored: boolean;
 };
 
-type NodeCls = 'passed' | 'good' | 'active' | 'future' | 'est';
+type NodeCls = 'passed' | 'good' | 'active' | 'future' | 'est' | 'na';
 
 const MONO = 'var(--font-mono, monospace)';
 
@@ -101,44 +104,64 @@ export function TurnoverRail(p: Props) {
     return () => anim.cancel();
   });
 
+  const monitored = p.lockMonitored;
   const checkedOut = p.expected;
-  const cleanerIn = !!p.enteredAt;
+  // "Cleaner in" is a lock-only fact; never claim it on a lockless home.
+  const cleanerIn = monitored && !!p.enteredAt;
   const cleaned = !!p.cleanedAt || justConfirmed;
   const inspected = p.inspected;
   const ready = cleaned && inspected;
 
   const cd = countdown(p.checkIn, now);
   // "Due" = the clean is genuinely imminent: a same-day turn, or check-in
-  // within ~36h. A turnover that's days out stays calm — no pulsing "awaiting
+  // within ~36h. A turnover that's days out stays calm: no pulsing "awaiting
   // cleaner" and no ticking counter, since the cleaner isn't due yet. A REAL
   // lock entry still lights up regardless (that's a fact, not a guess).
   const due = checkedOut && (p.sameDay || cd.urgency !== 'far');
 
-  let active: 'in' | 'cleaning' | 'inspected' | null = null;
+  // Monitored homes track the cleaner physically (in -> cleaning); a lockless
+  // home can't observe entry, so it waits on the clean itself ('clean'),
+  // advanced only by a Quo text or a manual confirm.
+  let active: 'in' | 'cleaning' | 'clean' | 'inspected' | null = null;
   if (!checkedOut) active = null;
-  else if (!cleanerIn) active = due ? 'in' : null;
-  else if (!cleaned) active = 'cleaning';
-  else if (!inspected) active = due ? 'inspected' : null;
+  else if (monitored) {
+    if (!cleanerIn) active = due ? 'in' : null;
+    else if (!cleaned) active = 'cleaning';
+    else if (!inspected) active = due ? 'inspected' : null;
+  } else {
+    if (!cleaned) active = due ? 'clean' : null;
+    else if (!inspected) active = due ? 'inspected' : null;
+  }
 
   // Live counter ONLY while the cleaner is actually in (real entry time).
-  // Never on an awaiting node — a "time since checkout" duration there reads
+  // Never on an awaiting node: a "time since checkout" duration there reads
   // as if the cleaner has already been inside that long.
   const counterSince = active === 'cleaning' ? p.enteredAt : null;
+
+  // The two lock-only middle nodes degrade to muted 'na' on a lockless home
+  // (never pulse, never claim a cleaner is in); the wait lands on Cleaned.
+  const inCls: NodeCls = monitored ? (cleanerIn ? 'good' : active === 'in' ? 'active' : 'future') : 'na';
+  const cleaningCls: NodeCls = monitored ? (cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future') : 'na';
+  const cleanedCls: NodeCls = cleaned
+    ? (p.cleanedEstimated && !justConfirmed ? 'est' : 'good')
+    : active === 'clean'
+      ? 'active'
+      : 'future';
 
   const nodes: Array<{ key: string; label: string; cls: NodeCls; time?: string | null; glyph?: 'lock' | 'phone' | null }> = [
     { key: 'out', label: 'Checked out', cls: checkedOut ? 'passed' : 'future' },
     {
       key: 'in',
-      label: cleanerIn ? 'Cleaner in' : active === 'in' ? 'Awaiting cleaner' : 'Cleaner in',
-      cls: cleanerIn ? 'good' : active === 'in' ? 'active' : 'future',
-      time: p.enteredAt,
+      label: cleanerIn ? 'Cleaner in' : monitored && active === 'in' ? 'Awaiting cleaner' : 'Cleaner in',
+      cls: inCls,
+      time: monitored ? p.enteredAt : null,
       glyph: cleanerIn && p.enteredViaLock ? 'lock' : null,
     },
-    { key: 'cleaning', label: 'Cleaning', cls: cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future' },
+    { key: 'cleaning', label: 'Cleaning', cls: cleaningCls },
     {
       key: 'cleaned',
       label: 'Cleaned',
-      cls: cleaned ? (p.cleanedEstimated && !justConfirmed ? 'est' : 'good') : 'future',
+      cls: cleanedCls,
       time: justConfirmed ? new Date(now).toISOString() : p.cleanedAt,
       glyph: cleaned && p.cleanedSource === 'quo' ? 'phone' : null,
     },
@@ -155,7 +178,7 @@ export function TurnoverRail(p: Props) {
   const showEstConfirm = cleaned && p.cleanedEstimated && !justConfirmed;
 
   return (
-    <div style={{ marginTop: 12, paddingLeft: 176, paddingRight: 8 }}>
+    <div className="rt-tn-railwrap" style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
         <span
           style={{
@@ -176,10 +199,14 @@ export function TurnoverRail(p: Props) {
         <div style={{ position: 'absolute', top: 9, left: '5%', right: '5%', height: 2, background: baseColor, zIndex: 0 }} />
         {nodes.map((n) => {
           const isActive = n.cls === 'active';
+          // 'na' = a stage this lockless home can't observe: a small solid
+          // muted dot, the whole node dimmed, never pulsing: a quiet
+          // passthrough, not a pending ('future') or skipped stage.
+          const na = n.cls === 'na';
           const solid = n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : null;
           const labelColor =
             isActive ? hot : n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : 'var(--ink-4)';
-          const size = n.cls === 'future' ? 10 : isActive ? 16 : 14;
+          const size = na ? 8 : n.cls === 'future' ? 10 : isActive ? 16 : 14;
           return (
             <div
               key={n.key}
@@ -192,6 +219,7 @@ export function TurnoverRail(p: Props) {
                 alignItems: 'center',
                 gap: 5,
                 minWidth: 0,
+                opacity: na ? 0.5 : 1,
               }}
             >
               <div style={{ position: 'relative', width: 22, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -209,14 +237,18 @@ export function TurnoverRail(p: Props) {
                     height: size,
                     borderRadius: '50%',
                     boxSizing: 'border-box',
-                    background: isActive || n.cls === 'est' || n.cls === 'future' ? 'var(--paper)' : solid ?? 'var(--paper)',
-                    border: isActive
-                      ? `2.5px solid ${hot}`
-                      : n.cls === 'est'
-                        ? '2px dashed var(--positive)'
-                        : n.cls === 'future'
-                          ? '1.5px solid var(--rule)'
-                          : `2px solid ${solid ?? 'var(--rule)'}`,
+                    background: na
+                      ? '#c9bda1'
+                      : isActive || n.cls === 'est' || n.cls === 'future' ? 'var(--paper)' : solid ?? 'var(--paper)',
+                    border: na
+                      ? 'none'
+                      : isActive
+                        ? `2.5px solid ${hot}`
+                        : n.cls === 'est'
+                          ? '2px dashed var(--positive)'
+                          : n.cls === 'future'
+                            ? '1.5px solid var(--rule)'
+                            : `2px solid ${solid ?? 'var(--rule)'}`,
                   }}
                 />
               </div>
@@ -280,6 +312,14 @@ export function TurnoverRail(p: Props) {
           );
         })}
       </div>
+
+      {/* Why two nodes are muted: this home has no smart lock, so Helm can't
+          see the cleaner arrive. Factual + calm, not a warning. */}
+      {!monitored && (
+        <div style={{ marginTop: 10, fontSize: 10.5, lineHeight: 1.45, color: 'var(--ink-4)' }}>
+          No smart lock here. Cleaning shows when the cleaner texts or you confirm.
+        </div>
+      )}
     </div>
   );
 }

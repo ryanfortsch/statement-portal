@@ -458,13 +458,15 @@ function isTurnoverDone(t: Turnover): boolean {
 // Stable within each tier, so chronological order is preserved. The live,
 // pulsing rows become the first thing the operator sees.
 function flightRank(t: Turnover): number {
-  const today = new Date().toISOString().slice(0, 10);
-  const expected = t.previousCheckout !== null && t.previousCheckout <= today;
-  if (!expected) return 2;
-  const cleaned = !!(t.cleaningSession?.finishedAt ?? t.cleaning);
-  const entered = !!t.cleaningSession?.enteredAt;
-  if (entered && !cleaned) return 0; // cleaner in right now
-  if (!entered) return 1; // checkout passed, awaiting cleaner
+  // Rank by the SAME lifecycle the rail shows so the sort and the visuals
+  // agree, and so lockless rows (no entry signal) don't permanently
+  // masquerade as "awaiting cleaner" at the top of the list (the old version
+  // keyed on enteredAt, which is null forever on a lockless home). A cleaner
+  // physically in floats to the very top, then anything due-and-awaiting (a
+  // monitored "awaiting cleaner" OR a lockless "needs clean"), then the rest.
+  const lc = lifecycleOf(t, Date.now(), new Date().toISOString().slice(0, 10));
+  if (lc.active === 'cleaning') return 0;
+  if (lc.active === 'in' || lc.active === 'clean') return 1;
   return 2;
 }
 
@@ -485,7 +487,9 @@ function computeStageCounts(pending: Turnover[]): {
   for (const t of pending) {
     const lc = lifecycleOf(t, now, today);
     if (lc.active === 'cleaning') cleaningNow += 1;
-    else if (lc.active === 'in') awaitingCleaner += 1;
+    // 'in' = monitored home awaiting a cleaner; 'clean' = lockless home that
+    // needs cleaning. Both are "awaiting a clean" for the header tally.
+    else if (lc.active === 'in' || lc.active === 'clean') awaitingCleaner += 1;
     else if (lc.active === 'inspected') needsInspection += 1;
   }
   return { cleaningNow, awaitingCleaner, needsInspection };

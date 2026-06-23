@@ -280,6 +280,13 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   padding-top: 10px;
   border-top: 1px solid var(--rule-soft, #e7dfce);
 }
+/* The expanded full TurnoverRail. Flush inside the dense expansion (the old
+   176px indent aligned it under the legacy date column, which no longer
+   exists here and overflowed phones). */
+.rt-tn-railwrap {
+  padding-left: 8px;
+  padding-right: 8px;
+}
 
 /* ─── Responsive (mobile first pass) ────────────────────────────────── */
 
@@ -452,6 +459,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   }
   .rt-tn-affordances {
     gap: 10px 16px !important;
+  }
+  /* Expanded rail goes fully flush on phones so all six nodes + labels fit
+     a ~360px viewport with no horizontal overflow. */
+  .rt-tn-railwrap {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
 
   /* Stepper: + Add note / + Photo / + Work slip currently wraps to two

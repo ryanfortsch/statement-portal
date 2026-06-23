@@ -171,6 +171,16 @@ export type Turnover = {
    *  null when every lock is healthy or unmonitored. Drives the "bring
    *  batteries" chip so the team member packs spares before they drive. */
   lockBattery: LockBattery | null;
+  /** True when this property has at least one mapped, ACTIVE smart lock in
+   *  lock_devices, i.e. the lock-driven cleaning signals (entered_at, set
+   *  by a 2222 keypad unlock) can actually fire here. False for lockless
+   *  homes (e.g. 79 Main; today everything except 3 Locust + 20 Enon), where
+   *  the rail degrades: no "Cleaner in" / "Cleaning" stages and no false
+   *  "Awaiting cleaner" pulse, since cleaning can only ever show via the Quo
+   *  text or a manual confirm. Same predicate as guest-locks.ts getPropertyLock
+   *  (property_id mapped AND active) so "monitored" means the entry-write path
+   *  in cleaning-sessions.ts can genuinely fire. */
+  lockMonitored: boolean;
   /** Operator marked this turnover done by hand (turnover_completions),
    *  independent of any inspection. Like a completed inspection, it sinks
    *  the row to the bottom of the pipeline. completedAt/By describe the
@@ -431,6 +441,7 @@ export async function loadOperationsData(
     { data: batteryData },
     { data: completionData },
     { data: cleaningSessionData },
+    { data: lockDeviceData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -458,7 +469,26 @@ export async function loadOperationsData(
         'property_id, checkout_date, entered_at, finished_at, entry_source, finish_source, finish_estimated',
       )
       .gte('checkout_date', fetchStart),
+    // Which of the visible properties have a mapped, ACTIVE smart lock. Same
+    // predicate as guest-locks.ts getPropertyLock / cleaning-sessions.ts
+    // lockProperty (active=true), so lockMonitored=true iff the lock entry
+    // signal can actually fire. A mapped-but-active=false lock reads as
+    // lockless. Near-zero added cost: parallels the battery read above.
+    supabase
+      .from('lock_devices')
+      .select('property_id')
+      .in('property_id', propertyIdList)
+      .eq('active', true),
   ]);
+
+  // Set of properties with a live smart lock. Anything not in here is a
+  // lockless home: its turnover rail degrades to checkout -> cleaned (Quo /
+  // manual) -> inspected -> ready, with no lock-only "Cleaner in"/"Cleaning"
+  // stages and no false "Awaiting cleaner" pulse.
+  const monitoredPropertyIds = new Set<string>();
+  for (const row of (lockDeviceData ?? []) as Array<{ property_id: string | null }>) {
+    if (row.property_id) monitoredPropertyIds.add(row.property_id);
+  }
 
   const completionByKey = new Map<string, { completedAt: string; by: string | null }>();
   for (const row of (completionData ?? []) as Array<{
@@ -615,6 +645,7 @@ export async function loadOperationsData(
       cleaningSession,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
       lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
+      lockMonitored: monitoredPropertyIds.has(r.property_id),
       manuallyCompleted: completion !== null,
       completedAt: completion?.completedAt ?? null,
       completedByEmail: completion?.by ?? null,

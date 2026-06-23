@@ -57,8 +57,10 @@ export function formatDateShort(value: string): string {
 }
 
 /** The lifecycle stage classification for a turnover, shared by the compact
- *  micro-rail and the live readout. Pure given `nowMs`. */
-export type StageCls = 'passed' | 'good' | 'active' | 'future' | 'est';
+ *  micro-rail and the live readout. Pure given `nowMs`.
+ *  'na' = a stage this property can't observe (the two lock-only middle pips
+ *  on a lockless home): a quiet passthrough, not a pending or skipped stage. */
+export type StageCls = 'passed' | 'good' | 'active' | 'future' | 'est' | 'na';
 
 export type Lifecycle = {
   checkedOut: boolean;
@@ -66,7 +68,9 @@ export type Lifecycle = {
   cleaned: boolean;
   inspected: boolean;
   ready: boolean;
-  active: 'in' | 'cleaning' | 'inspected' | null;
+  // 'in'/'cleaning' are lock-only (monitored homes). 'clean' is the lockless
+  // equivalent: due-and-not-yet-cleaned, advanced by Quo text or manual confirm.
+  active: 'in' | 'cleaning' | 'clean' | 'inspected' | null;
   overdue: boolean;
   pips: StageCls[]; // 6: out, in, cleaning, cleaned, inspected, ready
   enteredAt: string | null;
@@ -75,8 +79,12 @@ export type Lifecycle = {
 
 export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifecycle {
   const cs = t.cleaningSession;
+  const monitored = t.lockMonitored;
   const checkedOut = t.previousCheckout !== null && t.previousCheckout <= todayStr;
-  const cleanerIn = !!cs?.enteredAt;
+  // "Cleaner in" is a lock-only fact (entered_at is written only by a 2222
+  // keypad unlock). On a lockless home it can never be true, so we never claim
+  // it: that's what prevents the false, permanent "Awaiting cleaner" pulse.
+  const cleanerIn = monitored && !!cs?.enteredAt;
   const cleaned = !!(cs?.finishedAt ?? t.cleaning);
   const inspected = t.inspectionStatus === 'complete' || t.manuallyCompleted;
   const ready = cleaned && inspected;
@@ -87,22 +95,43 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
   const hUntil = (target - nowMs) / 3_600_000;
   const due = checkedOut && (t.isSameDayTurnover || hUntil < 36);
 
+  // The stage we're actively waiting on. Monitored homes track the cleaner
+  // physically (in -> cleaning); lockless homes can't observe entry, so they
+  // wait on the clean itself ('clean'), advanced only by a Quo text or a
+  // manual confirm.
   let active: Lifecycle['active'] = null;
   if (!checkedOut) active = null;
-  else if (!cleanerIn) active = due ? 'in' : null;
-  else if (!cleaned) active = 'cleaning';
-  else if (!inspected) active = due ? 'inspected' : null;
+  else if (monitored) {
+    if (!cleanerIn) active = due ? 'in' : null;
+    else if (!cleaned) active = 'cleaning';
+    else if (!inspected) active = due ? 'inspected' : null;
+  } else {
+    if (!cleaned) active = due ? 'clean' : null;
+    else if (!inspected) active = due ? 'inspected' : null;
+  }
 
   const overdue = active !== null && target < nowMs;
 
-  const pips: StageCls[] = [
-    checkedOut ? 'passed' : 'future',
-    cleanerIn ? 'good' : active === 'in' ? 'active' : 'future',
-    cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future',
-    cleaned ? (cleanedEstimated ? 'est' : 'good') : 'future',
-    inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
-    ready ? 'good' : 'future',
-  ];
+  // Always six pip slots so the columns line up down the ledger. On a lockless
+  // home the two lock-only middle slots become 'na' (a quiet passthrough, not
+  // a pending stage), and the active wait lands on the Cleaned pip.
+  const pips: StageCls[] = monitored
+    ? [
+        checkedOut ? 'passed' : 'future',
+        cleanerIn ? 'good' : active === 'in' ? 'active' : 'future',
+        cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future',
+        cleaned ? (cleanedEstimated ? 'est' : 'good') : 'future',
+        inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
+        ready ? 'good' : 'future',
+      ]
+    : [
+        checkedOut ? 'passed' : 'future',
+        'na',
+        'na',
+        cleaned ? 'good' : active === 'clean' ? 'active' : 'future',
+        inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
+        ready ? 'good' : 'future',
+      ];
 
   return {
     checkedOut,

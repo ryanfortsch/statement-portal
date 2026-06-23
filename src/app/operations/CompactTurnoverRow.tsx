@@ -61,6 +61,13 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
   } else if (lc.active === 'cleaning' && lc.enteredAt) {
     readout = `cleaning ${elapsed(lc.enteredAt, now)}`;
     roColor = '#b08a2e';
+  } else if (lc.active === 'clean') {
+    // Lockless home, due, not yet cleaned: no lock signal is coming, so the
+    // honest readout is "needs clean" (red once past the check-in target),
+    // never a false "awaiting cleaner" or a fake elapsed counter. Must sit
+    // ahead of the countdown fallback below.
+    readout = 'needs clean';
+    roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else {
     const cd = countdown(t.checkIn, now);
     readout = cd.text;
@@ -142,6 +149,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
             previousCheckout={t.previousCheckout}
             propertyId={t.propertyId}
             sameDay={t.isSameDayTurnover}
+            lockMonitored={t.lockMonitored}
           />
           {!isDone && (
             <div className="rt-tn-affordances">
@@ -196,10 +204,16 @@ function MicroRail({ pips, hot, haloRef }: { pips: StageCls[]; hot: string; halo
       <div className="rt-tn-rline" />
       {pips.map((s, i) => {
         const active = s === 'active';
-        const sz = s === 'future' ? 6 : active ? 11 : s === 'passed' ? 7 : 9;
-        const fill = s === 'good' ? '#3a6b4a' : s === 'passed' ? '#c2b189' : 'var(--paper)';
-        const border =
-          active ? `2.5px solid ${hot}` : s === 'est' ? '2px dashed #3a6b4a' : s === 'future' ? '1.5px solid #ddd2bd' : `2px solid ${fill}`;
+        // 'na' = a stage this (lockless) home can't observe. A small solid
+        // muted dot, distinct from the hollow 'future' ring and the green
+        // 'good', so a cleaned lockless row reads as a coherent done line with
+        // two quiet passthrough middles, not a regressed/skipped gap.
+        const na = s === 'na';
+        const sz = na ? 5 : s === 'future' ? 6 : active ? 11 : s === 'passed' ? 7 : 9;
+        const fill = na ? '#c9bda1' : s === 'good' ? '#3a6b4a' : s === 'passed' ? '#c2b189' : 'var(--paper)';
+        const border = na
+          ? 'none'
+          : active ? `2.5px solid ${hot}` : s === 'est' ? '2px dashed #3a6b4a' : s === 'future' ? '1.5px solid #ddd2bd' : `2px solid ${fill}`;
         return (
           <span key={i} style={{ position: 'relative', zIndex: 1, width: sz, height: sz, borderRadius: '50%', background: fill, border, boxSizing: 'border-box' }}>
             {active && (
