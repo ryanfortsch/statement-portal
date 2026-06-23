@@ -8,6 +8,7 @@ import {
   revokeGuestCode,
   syncSeamDevices,
   mapLockToProperty,
+  removeLockCode,
 } from '@/lib/guest-locks';
 
 /**
@@ -76,4 +77,18 @@ export async function mapLockAction(propertyId: string, deviceId: string): Promi
   const r = await mapLockToProperty(propertyId, deviceId);
   revalidatePath(`/properties/${propertyId}`);
   return r.ok ? { ok: true, message: 'Lock mapped to this property.' } : { ok: false, message: r.error ?? 'Map failed.' };
+}
+
+/** Remove a code (managed or unmanaged) from the lock. */
+export async function removeLockCodeAction(
+  propertyId: string,
+  accessCodeId: string,
+  source: 'helm' | 'external',
+): Promise<CodeActionResult> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, message: 'Not signed in' };
+
+  const r = await removeLockCode(accessCodeId, source);
+  revalidatePath(`/properties/${propertyId}`);
+  return r.ok ? { ok: true, message: 'Code removed from the lock.' } : { ok: false, message: r.error ?? 'Remove failed.' };
 }
