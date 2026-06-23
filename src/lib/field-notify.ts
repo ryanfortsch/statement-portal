@@ -285,6 +285,72 @@ export async function sendChangesRequestedEmail(
   });
 }
 
+/** Visit-day reminder: text contractors whose claimed packet is today. */
+export async function remindClaimedVisitsToday(): Promise<number> {
+  const from = await resolveQuoFrom();
+  if (!from) return 0;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, title, awarded_contractor_id')
+    .in('status', ['claimed', 'in_progress'])
+    .eq('visit_date', today)
+    .not('awarded_contractor_id', 'is', null);
+  let sent = 0;
+  for (const p of (data ?? []) as { id: string; title: string; awarded_contractor_id: string }[]) {
+    const { data: c } = await fieldDb().from('contractors').select('phone, portal_token').eq('id', p.awarded_contractor_id).maybeSingle();
+    const cc = c as { phone: string | null; portal_token: string } | null;
+    if (!cc?.phone) continue;
+    const to = cc.phone.startsWith('+') ? cc.phone : `+1${normalizePhone(cc.phone)}`;
+    try {
+      await sendMessage({ from, to, content: `Rising Tide Field: your visit is today — ${p.title}. ${fieldBaseUrl()}/field/packet/${p.id}` });
+      sent++;
+    } catch {
+      // swallow per-contractor send errors
+    }
+  }
+  return sent;
+}
+
+/** Morning digest to the office: what needs a human today. No-op (no email) if
+ *  nothing is actionable, so it never becomes noise. */
+export async function sendOfficeFieldDigest(): Promise<boolean> {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const soon = new Date(`${today}T00:00:00Z`);
+  soon.setUTCDate(soon.getUTCDate() + 2);
+  const soonStr = soon.toISOString().split('T')[0];
+
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('status, visit_date')
+    .in('status', ['published', 'claimed', 'in_progress', 'submitted']);
+  const rows = (data ?? []) as { status: string; visit_date: string }[];
+  const outToday = rows.filter((p) => (p.status === 'claimed' || p.status === 'in_progress') && p.visit_date === today).length;
+  const atRisk = rows.filter((p) => p.status === 'claimed' && p.visit_date <= today).length;
+  const unclaimedSoon = rows.filter((p) => p.status === 'published' && p.visit_date >= today && p.visit_date <= soonStr).length;
+  const submitted = rows.filter((p) => p.status === 'submitted').length;
+  if (outToday + atRisk + unclaimedSoon + submitted === 0) return false;
+
+  const line = (n: number, label: string) => (n > 0 ? `<li><strong>${n}</strong> ${label}</li>` : '');
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">Field — today</h1>
+    <ul style="padding-left:18px;margin:0 0 8px;">
+      ${line(atRisk, 'claimed but not started (at risk)')}
+      ${line(outToday, 'out today')}
+      ${line(unclaimedSoon, 'unclaimed within 48h')}
+      ${line(submitted, 'awaiting your approval')}
+    </ul>
+    ${btn(`${fieldBaseUrl()}/operations/packets`, 'Open the board')}
+  `);
+  return sendTransactionalViaResend({
+    to: OFFICE_CC,
+    subject: `Field today: ${atRisk ? `${atRisk} at risk · ` : ''}${submitted ? `${submitted} to approve · ` : ''}${unclaimedSoon} unclaimed soon`,
+    fromName: FROM_NAME,
+    html,
+    text: `Field today — at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, awaiting approval: ${submitted}.`,
+  });
+}
+
 export async function sendPacketSubmittedEmail(
   contractor: ContractorRow,
   packet: PacketRow,
