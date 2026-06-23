@@ -154,10 +154,16 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </form>
           )}
           {packet.status === 'approved' && !packet.paid_at && (
-            <form action={markPacketPaid}>
+            <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="hidden" name="packet_id" value={packet.id} />
+              <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
               <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
             </form>
+          )}
+          {packet.status === 'approved' && packet.paid_at && packet.paid_method && (
+            <span style={{ fontSize: 12, color: 'var(--ink-4)', alignSelf: 'center' }}>
+              via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}
+            </span>
           )}
           {packet.status === 'approved' && packet.paid_at && (
             <span style={{ fontSize: 12, color: 'var(--positive)', alignSelf: 'center' }}>

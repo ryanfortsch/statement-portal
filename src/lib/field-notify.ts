@@ -87,10 +87,17 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
   });
 }
 
-export async function sendPaidEmail(contractor: ContractorRow, amountCents: number): Promise<boolean> {
+export async function sendPaidEmail(
+  contractor: ContractorRow,
+  amountCents: number,
+  opts: { method?: string | null; reference?: string | null } = {},
+): Promise<boolean> {
+  const via = opts.method ? ` via <strong>${opts.method}</strong>` : '';
+  const ref = opts.reference ? `<p style="font-size:13px;color:#7a8a90;">Reference: ${opts.reference}</p>` : '';
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">You've been paid</h1>
-    <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you for completed inspections. Thanks for the great work — more packets are always posting.</p>
+    <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you${via} for completed work. Thanks for the great work — more packets are always posting.</p>
+    ${ref}
     ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
   `);
   return sendTransactionalViaResend({
@@ -98,7 +105,7 @@ export async function sendPaidEmail(contractor: ContractorRow, amountCents: numb
     subject: `Payment recorded — ${dollars(amountCents)}`,
     fromName: FROM_NAME,
     html,
-    text: `Rising Tide recorded ${dollars(amountCents)} paid to you for completed inspections.`,
+    text: `Rising Tide recorded ${dollars(amountCents)} paid to you${opts.method ? ` via ${opts.method}` : ''}${opts.reference ? ` (ref ${opts.reference})` : ''}.`,
   });
 }
 

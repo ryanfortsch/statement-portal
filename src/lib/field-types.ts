@@ -37,6 +37,8 @@ export type ContractorRow = {
   home_lng: number | null;
   service_radius_miles: number;
   photo_url: string | null;
+  payment_method: string | null;
+  payment_hint: string | null;
   vendor_key: string | null;
   invited_by_email: string | null;
   last_seen_at: string | null;
@@ -70,6 +72,8 @@ export type PacketRow = {
   approved_by_email: string | null;
   paid_at: string | null;
   paid_by_email: string | null;
+  paid_method: string | null;
+  paid_reference: string | null;
   published_at: string | null;
   notes: string | null;
   entry_code: string | null;
