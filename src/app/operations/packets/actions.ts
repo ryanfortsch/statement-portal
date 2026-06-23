@@ -9,7 +9,7 @@ import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromP
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { canClaim, type PacketRow } from '@/lib/field-types';
 import type { ContractorRow } from '@/lib/field-types';
@@ -58,8 +58,13 @@ export async function assignPacket(formData: FormData): Promise<void> {
   const contractor = (c as ContractorRow | null) ?? null;
   if (!contractor || !canClaim(contractor) || contractor.trade !== packet.trade) return;
 
-  // Reassigning away from someone — pull their live codes first.
-  if (packet.awarded_contractor_id) await revokePacketCodes(packetId).catch(() => {});
+  // Reassigning away from someone — pull their live codes + let them know.
+  if (packet.awarded_contractor_id) {
+    await revokePacketCodes(packetId).catch(() => {});
+    const { data: prev } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', packet.awarded_contractor_id).maybeSingle();
+    const { data: pk } = await fieldDb().from('inspection_packets').select('title').eq('id', packetId).maybeSingle();
+    if (prev && pk) await sendReassignedEmail(prev as ContractorRow, pk as { title: string }).catch(() => {});
+  }
 
   await fieldDb()
     .from('inspection_packets')
@@ -328,6 +333,11 @@ export async function releasePacket(formData: FormData): Promise<void> {
       .from('packet_events')
       .insert({ packet_id: packetId, contractor_id: releasedContractorId, actor_email: email, event_type: 'released' });
     await revokePacketCodes(packetId).catch(() => {}); // released inspector loses the door codes
+    if (releasedContractorId) {
+      const { data: rc } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', releasedContractorId).maybeSingle();
+      const { data: pk } = await fieldDb().from('inspection_packets').select('title').eq('id', packetId).maybeSingle();
+      if (rc && pk) await sendReassignedEmail(rc as ContractorRow, pk as { title: string }).catch(() => {});
+    }
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/operations/packets');
@@ -347,7 +357,7 @@ export async function approvePacket(formData: FormData): Promise<void> {
     })
     .eq('id', packetId)
     .eq('status', 'submitted')
-    .select('id')
+    .select('id, title, awarded_contractor_id')
     .maybeSingle();
   if (approved) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'approved' });
@@ -356,6 +366,12 @@ export async function approvePacket(formData: FormData): Promise<void> {
     const { data: stops } = await fieldDb().from('packet_stops').select('inspection_id').eq('packet_id', packetId);
     for (const s of (stops ?? []) as { inspection_id: string | null }[]) {
       if (s.inspection_id) await sendInspectionReportEmail(s.inspection_id).catch(() => {});
+    }
+    // Receipt the contractor: approved, payment queued.
+    const ap = approved as { title: string; awarded_contractor_id: string | null };
+    if (ap.awarded_contractor_id) {
+      const { data: c } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', ap.awarded_contractor_id).maybeSingle();
+      if (c) await sendApprovedEmail(c as ContractorRow, { title: ap.title }).catch(() => {});
     }
   }
   revalidatePath(`/operations/packets/${packetId}`);
