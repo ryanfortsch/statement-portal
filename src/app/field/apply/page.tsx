@@ -84,8 +84,8 @@ export default async function ApplyPage({
           <input name="phone" type="tel" required placeholder="(978) 555-0123" style={input} />
         </label>
         <label style={lbl}>
-          Where are you based?
-          <input name="area" placeholder="Gloucester, Rockport, Beverly…" style={input} />
+          Where are you based? *
+          <input name="area" required placeholder="Gloucester, Rockport, Beverly…" style={input} />
         </label>
         <fieldset style={{ border: 'none', padding: 0, margin: '0 0 16px' }}>
           <legend style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 8, padding: 0 }}>
