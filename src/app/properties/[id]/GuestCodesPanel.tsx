@@ -156,8 +156,35 @@ export function GuestCodesPanel({
             )}
           </div>
 
-          {/* Upcoming stays */}
+          {/* Currently on the lock — everything Seam reports, Helm-issued or not */}
           <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16 }}>
+            <span style={labelStyle}>Currently on the lock</span>
+            {lockCodes.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>
+                No codes on this lock (or Seam didn&apos;t return any).
+              </p>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                {lockCodes.map((c) => (
+                  <div key={c.access_code_id} style={rowStyle}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name ?? 'Code'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                        {c.source === 'external' ? 'set outside Helm' : 'issued by Helm'}
+                        {c.ends_at ? ` · until ${fmtDate(c.ends_at.slice(0, 10))}` : ''}
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
+                      {c.code ?? '••••'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Upcoming stays */}
+          <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16, marginTop: 22 }}>
             <span style={labelStyle}>Upcoming stays</span>
             {bookingRows.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>No upcoming confirmed bookings.</p>
@@ -195,33 +222,6 @@ export function GuestCodesPanel({
                         {pending && busy === b.booking_id ? 'Issuing…' : 'Issue code'}
                       </button>
                     )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Currently on the lock — everything Seam reports, Helm-issued or not */}
-          <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16, marginTop: 22 }}>
-            <span style={labelStyle}>Currently on the lock</span>
-            {lockCodes.length === 0 ? (
-              <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>
-                No codes on this lock (or Seam didn&apos;t return any).
-              </p>
-            ) : (
-              <div style={{ marginTop: 8 }}>
-                {lockCodes.map((c) => (
-                  <div key={c.access_code_id} style={rowStyle}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name ?? 'Code'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                        {c.source === 'external' ? 'set outside Helm' : 'issued by Helm'}
-                        {c.ends_at ? ` · until ${fmtDate(c.ends_at.slice(0, 10))}` : ''}
-                      </div>
-                    </div>
-                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
-                      {c.code ?? '••••'}
-                    </span>
                   </div>
                 ))}
               </div>
