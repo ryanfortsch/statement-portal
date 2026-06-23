@@ -35,11 +35,19 @@ function btn(href: string, label: string): string {
   return `<a href="${href}" style="display:inline-block;background:#1e2e34;color:#faf7f1;text-decoration:none;font-size:13px;font-weight:600;letter-spacing:.06em;padding:12px 22px;margin:8px 0;">${label}</a>`;
 }
 
+/** Trade-appropriate noun for emails/SMS (so a cleaner isn't told to "inspect"). */
+function tradeWord(trade: string | null | undefined): string {
+  if (trade === 'maintenance') return 'maintenance';
+  if (trade === 'cleaning') return 'cleaning';
+  return 'inspection';
+}
+
 export async function sendInviteEmail(contractor: ContractorRow): Promise<boolean> {
   const link = `${fieldBaseUrl()}/field/${contractor.portal_token}`;
+  const word = tradeWord(contractor.trade);
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You're invited to inspect with Rising Tide</h1>
-    <p>Hi ${contractor.full_name.split(' ')[0]}, you've been invited to pick up inspection work near Gloucester. Open your portal to set up your account, then browse and claim paid inspection packets.</p>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You're invited to ${word} work with Rising Tide</h1>
+    <p>Hi ${contractor.full_name.split(' ')[0]}, you've been invited to pick up ${word} work near Gloucester. Open your portal to set up your account, then browse and claim paid packets.</p>
     ${btn(link, 'Open my portal')}
     <p style="font-size:12px;color:#7a8a90;">This link is personal to you. Please don't forward it.</p>
   `);
@@ -48,7 +56,45 @@ export async function sendInviteEmail(contractor: ContractorRow): Promise<boolea
     subject: 'Your Rising Tide Field portal',
     fromName: FROM_NAME,
     html,
-    text: `Open your Rising Tide Field portal to claim inspection work: ${link}`,
+    text: `Open your Rising Tide Field portal to claim ${word} work: ${link}`,
+  });
+}
+
+/** Contractor receipt when their submitted packet passes office review. */
+export async function sendApprovedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
+  packet: Pick<PacketRow, 'title'>,
+): Promise<boolean> {
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Approved — payment queued</h1>
+    <p>Nice work — <strong>${packet.title}</strong> passed review. Your payment is queued; you'll get a receipt the moment it's sent.</p>
+    ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Approved: ${packet.title}`,
+    fromName: FROM_NAME,
+    html,
+    text: `${packet.title} was approved — your payment is queued.`,
+  });
+}
+
+/** Contractor notice when a packet they held is released/reassigned away. */
+export async function sendReassignedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
+  packet: Pick<PacketRow, 'title'>,
+): Promise<boolean> {
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">A packet came off your plate</h1>
+    <p><strong>${packet.title}</strong> was released back to the team, so you're no longer on it. No worries — more work is always posting.</p>
+    ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Released: ${packet.title}`,
+    fromName: FROM_NAME,
+    html,
+    text: `${packet.title} was released back to the team; you're no longer on it.`,
   });
 }
 
