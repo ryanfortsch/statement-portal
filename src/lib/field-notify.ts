@@ -4,7 +4,7 @@
  * is submitted. SMS via Quo is a Phase 2 add.
  */
 import 'server-only';
-import { sendTransactionalViaResend } from '@/lib/resend';
+import { sendTransactionalViaResend as baseTransactional } from '@/lib/resend';
 import { sendMessage, listPhoneNumbers, normalizePhone } from '@/lib/quo';
 import { haversineMiles } from '@/lib/proximity';
 import { loadPacketDetail, getContractorReliability } from '@/lib/field-packets';
@@ -14,6 +14,14 @@ import type { ContractorRow, PacketRow } from '@/lib/field-types';
 
 const FROM_NAME = 'Rising Tide Field';
 const OFFICE_CC = 'allie@risingtidestr.com';
+
+// All Field email goes out from a dedicated Field sender (if FIELD_FROM_EMAIL is
+// set, else the default Resend sender) with replies routed to the office —
+// otherwise contractor replies land in whatever inbox the default sender uses.
+// Wraps the base sender so no call site has to repeat it.
+function sendTransactionalViaResend(args: Parameters<typeof baseTransactional>[0]): Promise<boolean> {
+  return baseTransactional({ fromEmail: process.env.FIELD_FROM_EMAIL || undefined, replyTo: OFFICE_CC, ...args });
+}
 
 export function fieldBaseUrl(): string {
   return (
