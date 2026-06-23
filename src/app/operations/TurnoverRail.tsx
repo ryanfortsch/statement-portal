@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { confirmCleaningDoneAction } from './cleaning-actions';
+import { STAGE_HUES } from './turnover-format';
 
 /**
  * The living lifecycle rail for one turnover: Checked out → Cleaner in →
@@ -173,12 +174,17 @@ export function TurnoverRail(p: Props) {
   ];
 
   const overdue = active !== null && Date.parse(`${p.checkIn.slice(0, 10)}T16:00:00`) < now;
-  const hot = overdue ? 'var(--negative)' : 'var(--signal)';
   const cdColor = overdue || cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
   const cdTint = overdue || cd.urgency === 'now' ? 'rgba(200,90,58,.12)' : cd.urgency === 'soon' ? 'rgba(200,90,58,.09)' : 'transparent';
   const railHot = active !== null && (cd.urgency !== 'far' || p.sameDay);
   const baseColor = overdue ? 'rgba(200,90,58,.5)' : railHot ? 'rgba(200,90,58,.26)' : 'var(--rule)';
   const showEstConfirm = cleaned && p.cleanedEstimated && !justConfirmed;
+  // Operator override: mark the clean done by hand. Always available once the
+  // home is checked out and not yet cleaned (the only path to "Cleaned" on a
+  // lockless home, and a fallback for a monitored home whose cleaner did not
+  // text). Writes the same manual finish to cleaning_sessions as the estimate
+  // confirm.
+  const canMarkClean = checkedOut && !cleaned && !justConfirmed;
 
   return (
     <div className="rt-tn-railwrap" style={{ marginTop: 12 }}>
@@ -200,15 +206,19 @@ export function TurnoverRail(p: Props) {
 
       <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ position: 'absolute', top: 9, left: '5%', right: '5%', height: 2, background: baseColor, zIndex: 0 }} />
-        {nodes.map((n) => {
+        {nodes.map((n, i) => {
           const isActive = n.cls === 'active';
+          // Each node carries its stage's identity hue (blue / orange / yellow
+          // / green); state shows by treatment: done = solid fill, active =
+          // ring + pulsing halo (red if overdue), future = neutral hollow ring.
+          const H = STAGE_HUES[i];
+          const hotNode = overdue ? 'var(--negative)' : H;
           // 'na' = a stage this lockless home can't observe: a small solid
-          // muted dot, the whole node dimmed, never pulsing: a quiet
+          // muted dot, the whole node dimmed, never pulsing, a quiet
           // passthrough, not a pending ('future') or skipped stage.
           const na = n.cls === 'na';
-          const solid = n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : null;
           const labelColor =
-            isActive ? hot : n.cls === 'good' ? 'var(--positive)' : n.cls === 'passed' ? 'var(--ink-3)' : 'var(--ink-4)';
+            isActive ? (overdue ? 'var(--negative)' : 'var(--ink)') : n.cls === 'good' || n.cls === 'passed' ? 'var(--ink-3)' : 'var(--ink-4)';
           const size = na ? 8 : n.cls === 'future' ? 10 : isActive ? 16 : 14;
           return (
             <div
@@ -230,7 +240,7 @@ export function TurnoverRail(p: Props) {
                   <span
                     ref={haloRef}
                     aria-hidden
-                    style={{ position: 'absolute', width: 22, height: 22, borderRadius: '50%', background: hot, opacity: 0.5 }}
+                    style={{ position: 'absolute', width: 22, height: 22, borderRadius: '50%', background: hotNode, opacity: 0.5 }}
                   />
                 )}
                 <span
@@ -242,16 +252,16 @@ export function TurnoverRail(p: Props) {
                     boxSizing: 'border-box',
                     background: na
                       ? '#c9bda1'
-                      : isActive || n.cls === 'est' || n.cls === 'future' ? 'var(--paper)' : solid ?? 'var(--paper)',
+                      : isActive || n.cls === 'est' || n.cls === 'future' ? 'var(--paper)' : H,
                     border: na
                       ? 'none'
                       : isActive
-                        ? `2.5px solid ${hot}`
+                        ? `2.5px solid ${hotNode}`
                         : n.cls === 'est'
-                          ? '2px dashed var(--positive)'
+                          ? `2px dashed ${H}`
                           : n.cls === 'future'
                             ? '1.5px solid var(--rule)'
-                            : `2px solid ${solid ?? 'var(--rule)'}`,
+                            : `2px solid ${H}`,
                   }}
                 />
               </div>
@@ -280,14 +290,14 @@ export function TurnoverRail(p: Props) {
                 style={{
                   fontFamily: MONO,
                   fontSize: 10,
-                  color: isActive ? hot : 'var(--ink-4)',
+                  color: isActive ? hotNode : 'var(--ink-4)',
                   fontWeight: isActive ? 500 : 400,
                   minHeight: 12,
                 }}
               >
                 {isActive && counterSince ? fmtElapsed(counterSince, now) : n.time ? fmtTime(n.time) : ''}
               </span>
-              {n.key === 'cleaned' && showEstConfirm && (
+              {n.key === 'cleaned' && (showEstConfirm || canMarkClean) && (
                 <button
                   type="button"
                   disabled={pending}
@@ -308,7 +318,7 @@ export function TurnoverRail(p: Props) {
                     textUnderlineOffset: 2,
                   }}
                 >
-                  {pending ? '…' : 'confirm?'}
+                  {pending ? '…' : showEstConfirm ? 'confirm?' : 'mark clean'}
                 </button>
               )}
             </div>

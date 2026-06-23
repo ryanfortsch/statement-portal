@@ -56,6 +56,21 @@ export function formatDateShort(value: string): string {
   }
 }
 
+/** Per-stage identity color for the rail pips / nodes, indexed by pip slot
+ *  (0 checked out, 1 cleaner in, 2 cleaning, 3 cleaned, 4 inspected, 5 guest
+ *  ready). Checkout reads blue, the cleaning trio tan / orange, inspection
+ *  yellow, guest-ready green. State (done / active / future) is shown by fill
+ *  vs ring vs muted; the hue is the stage's identity, so you can tell which
+ *  stage a dot is by its color even on the tiny micro-rail. */
+export const STAGE_HUES = [
+  'var(--tide)',     // checked out: blue
+  '#c0772f',         // cleaner in: tan / orange
+  '#c0772f',         // cleaning: tan / orange
+  '#c0772f',         // cleaned: tan / orange
+  '#d6a51e',         // inspected: yellow
+  'var(--positive)', // guest-ready: green
+] as const;
+
 /** The lifecycle stage classification for a turnover, shared by the compact
  *  micro-rail and the live readout. Pure given `nowMs`.
  *  'na' = a stage this property can't observe (the two lock-only middle pips
