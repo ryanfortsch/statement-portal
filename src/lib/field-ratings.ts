@@ -24,16 +24,21 @@ const NEXT_TIER_AT: Record<Exclude<RatingTier, 'gold'>, number> = { unrated: 25,
 export type ContractorRating = {
   count: number;
   avg: number | null;
-  fiveStreak: number; // consecutive 5-star from the most recent review back
+  fiveStarTotal: number; // cumulative 5-star reviews — drives the tier (reachable)
+  fiveStreak: number; // consecutive 5-star from the most recent review back (flourish only)
   tier: RatingTier;
   rated: boolean; // has enough reviews to show a score
   toNextTier: number | null; // 5-star reviews still needed for the next tier (null at gold)
 };
 
-function tierFor(streak: number): RatingTier {
-  if (streak >= 100) return 'gold';
-  if (streak >= 50) return 'silver';
-  if (streak >= 25) return 'bronze';
+// Tiers are CUMULATIVE 5-star reviews, not a consecutive streak: a single 4-star
+// (often about WiFi/noise, not the inspector) shouldn't zero months of work, and
+// VRBO/direct stays that never generate a rating shouldn't stall someone forever.
+// The "in a row" streak is kept as a flourish, not the gate.
+function tierFor(fiveStarTotal: number): RatingTier {
+  if (fiveStarTotal >= 100) return 'gold';
+  if (fiveStarTotal >= 50) return 'silver';
+  if (fiveStarTotal >= 25) return 'bronze';
   return 'unrated';
 }
 
@@ -104,14 +109,15 @@ export async function getContractorRatings(): Promise<Map<string, ContractorRati
     const sorted = list.slice().sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)); // oldest → newest
     const count = sorted.length;
     const avg = count ? sorted.reduce((s, r) => s + r.rating, 0) / count : null;
+    const fiveStarTotal = sorted.filter((r) => r.rating >= 5).length;
     let streak = 0;
     for (let i = sorted.length - 1; i >= 0; i--) {
       if (sorted[i].rating >= 5) streak++;
       else break;
     }
-    const tier = tierFor(streak);
-    const toNextTier = tier === 'gold' ? null : Math.max(0, NEXT_TIER_AT[tier] - streak);
-    out.set(cid, { count, avg, fiveStreak: streak, tier, rated: count >= MIN_RATED, toNextTier });
+    const tier = tierFor(fiveStarTotal);
+    const toNextTier = tier === 'gold' ? null : Math.max(0, NEXT_TIER_AT[tier] - fiveStarTotal);
+    out.set(cid, { count, avg, fiveStarTotal, fiveStreak: streak, tier, rated: count >= MIN_RATED, toNextTier });
   }
   return out;
 }
