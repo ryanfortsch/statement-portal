@@ -6,7 +6,8 @@ import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketReview } from '@/lib/field-packets';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
+import { canClaim, type ContractorRow } from '@/lib/field-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,20 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
+
+  // Eligible contractors for direct assign/reassign (active, onboarded, same
+  // trade), excluding whoever already holds it.
+  let assignable: Array<Pick<ContractorRow, 'id' | 'full_name'>> = [];
+  if (packet.status === 'published' || packet.status === 'claimed') {
+    const { data: cData } = await fieldDb()
+      .from('contractors')
+      .select('id, full_name, trade, status, w9_on_file, agreement_signed_at')
+      .eq('trade', packet.trade)
+      .eq('status', 'active');
+    assignable = ((cData ?? []) as ContractorRow[])
+      .filter((c) => canClaim(c) && c.id !== packet.awarded_contractor_id)
+      .map((c) => ({ id: c.id, full_name: c.full_name }));
+  }
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
@@ -150,6 +165,25 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <button type="submit" style={btnDark}>Publish to contractors</button>
               </form>
             </>
+          )}
+          {(editable || packet.status === 'published') && (
+            <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <input type="date" name="visit_date" defaultValue={packet.visit_date} style={priceInput} />
+              <button type="submit" style={btnGhost}>Move date</button>
+            </form>
+          )}
+          {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
+            <form action={assignPacket} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <select name="contractor_id" required defaultValue="" style={priceInput}>
+                <option value="" disabled>{packet.status === 'claimed' ? 'Reassign to…' : 'Assign to…'}</option>
+                {assignable.map((c) => (
+                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                ))}
+              </select>
+              <button type="submit" style={btnGhost}>{packet.status === 'claimed' ? 'Reassign' : 'Assign'}</button>
+            </form>
           )}
           {packet.status === 'published' && (
             <form action={unpublishPacket}>
