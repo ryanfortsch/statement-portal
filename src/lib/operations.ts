@@ -157,6 +157,15 @@ export type Turnover = {
   previousCheckout: string | null;
   inspection: InspectionRow | null;
   inspectionStatus: InspectionStatus;
+  /** An inspection is actively underway for this turnover: started in the app
+   *  (an inspections row with started_at, not yet complete) and, once the lock
+   *  signal ships, a master / inspection code unlock. Drives the rail's real
+   *  "Inspecting" state vs the awaiting "Needs inspection" so the rail never
+   *  claims an inspection is happening when none has started. */
+  inspectionInProgress: boolean;
+  /** When the in-progress inspection started, for the live "inspecting Xm"
+   *  counter. Null when not inspecting. */
+  inspectionStartedAt: string | null;
   plan: InspectionPlanMini | null;
   cleaning: CleaningCompletion | null;
   /** Lock + text-derived cleaning lifecycle (entered / finished + provenance)
@@ -614,6 +623,13 @@ export async function loadOperationsData(
       ? 'complete'
       : 'not_started';
 
+    // In progress = a matched inspection that has been started (it is in the
+    // match pool, so it already has results) but not yet completed. This is
+    // the app "Start Inspection" signal: the rail shows "Inspecting" for real,
+    // not just because the stage is the next pending one.
+    const inspectionInProgress = matchingInspection != null && !matchingInspection.completed_at;
+    const inspectionStartedAt = inspectionInProgress ? matchingInspection!.started_at : null;
+
     const cleaning = previousCheckout
       ? cleaningByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
       : null;
@@ -640,6 +656,8 @@ export async function loadOperationsData(
       previousCheckout,
       inspection: matchingInspection,
       inspectionStatus,
+      inspectionInProgress,
+      inspectionStartedAt,
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
       cleaningSession,

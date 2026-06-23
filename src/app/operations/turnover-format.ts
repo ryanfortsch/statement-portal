@@ -82,6 +82,11 @@ export type Lifecycle = {
   cleanerIn: boolean;
   cleaned: boolean;
   inspected: boolean;
+  // An inspection is genuinely underway (started in the app, or via a master /
+  // inspection code unlock once that ships), not yet complete. Distinct from
+  // the awaiting "Needs inspection" state, so the inspected pip only reads
+  // "Inspecting" when something is actually happening.
+  inspecting: boolean;
   ready: boolean;
   // 'in'/'cleaning' are lock-only (monitored homes). 'clean' is the lockless
   // equivalent: due-and-not-yet-cleaned, advanced by Quo text or manual confirm.
@@ -89,6 +94,7 @@ export type Lifecycle = {
   overdue: boolean;
   pips: StageCls[]; // 6: out, in, cleaning, cleaned, inspected, ready
   enteredAt: string | null;
+  inspectionStartedAt: string | null;
   cleanedEstimated: boolean;
 };
 
@@ -102,6 +108,8 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
   const cleanerIn = monitored && !!cs?.enteredAt;
   const cleaned = !!(cs?.finishedAt ?? t.cleaning);
   const inspected = t.inspectionStatus === 'complete' || t.manuallyCompleted;
+  // An inspection is actually happening (vs the stage merely being next up).
+  const inspecting = t.inspectionInProgress && !inspected;
   const ready = cleaned && inspected;
   const cleanedEstimated = !!cs && cs.finishSource === 'estimate' && !cleanedConfirmed(cs.finishSource);
 
@@ -114,15 +122,17 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
   // physically (in -> cleaning); lockless homes can't observe entry, so they
   // wait on the clean itself ('clean'), advanced only by a Quo text or a
   // manual confirm.
+  // An in-progress inspection lights the inspected pip regardless of due-ness:
+  // if someone is walking the home now, show it even days out.
   let active: Lifecycle['active'] = null;
   if (!checkedOut) active = null;
   else if (monitored) {
     if (!cleanerIn) active = due ? 'in' : null;
     else if (!cleaned) active = 'cleaning';
-    else if (!inspected) active = due ? 'inspected' : null;
+    else if (!inspected) active = inspecting || due ? 'inspected' : null;
   } else {
     if (!cleaned) active = due ? 'clean' : null;
-    else if (!inspected) active = due ? 'inspected' : null;
+    else if (!inspected) active = inspecting || due ? 'inspected' : null;
   }
 
   const overdue = active !== null && target < nowMs;
@@ -153,11 +163,13 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
     cleanerIn,
     cleaned,
     inspected,
+    inspecting,
     ready,
     active,
     overdue,
     pips,
     enteredAt: cs?.enteredAt ?? null,
+    inspectionStartedAt: t.inspectionStartedAt,
     cleanedEstimated,
   };
 }

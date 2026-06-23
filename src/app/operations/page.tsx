@@ -129,9 +129,9 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   // time (the clock read lives in the helper to keep the component body pure);
   // AutoRefresh keeps it current. Same lifecycleOf the rows use, so the strip
   // and the rails never disagree.
-  const { cleaningNow, awaitingCleaner, needsInspection } = computeStageCounts(pendingTurnovers);
+  const { cleaningNow, awaitingCleaner, needsInspection, inspectingNow } = computeStageCounts(pendingTurnovers);
   const doneCount = data.totalCount - inspectionsLeft;
-  const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection > 0;
+  const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection + inspectingNow > 0;
 
   // Where "N inspections pending" should jump to when tapped:
   //   - exactly 1 pending AND it has an inspection row already (the operator
@@ -317,6 +317,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
           >
             {cleaningNow > 0 && <StageCount dot="#b08a2e" label="cleaning now" n={cleaningNow} />}
             {awaitingCleaner > 0 && <StageCount dot="var(--signal)" label="awaiting cleaner" n={awaitingCleaner} />}
+            {inspectingNow > 0 && <StageCount dot="#d6a51e" label="inspecting now" n={inspectingNow} />}
             {needsInspection > 0 && <StageCount dot="var(--tide-deep)" label="clean · needs inspection" n={needsInspection} />}
             {doneCount > 0 && <StageCount dot="var(--positive)" label="done" n={doneCount} />}
           </div>
@@ -478,21 +479,28 @@ function computeStageCounts(pending: Turnover[]): {
   cleaningNow: number;
   awaitingCleaner: number;
   needsInspection: number;
+  inspectingNow: number;
 } {
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   let cleaningNow = 0;
   let awaitingCleaner = 0;
   let needsInspection = 0;
+  let inspectingNow = 0;
   for (const t of pending) {
     const lc = lifecycleOf(t, now, today);
     if (lc.active === 'cleaning') cleaningNow += 1;
     // 'in' = monitored home awaiting a cleaner; 'clean' = lockless home that
     // needs cleaning. Both are "awaiting a clean" for the header tally.
     else if (lc.active === 'in' || lc.active === 'clean') awaitingCleaner += 1;
-    else if (lc.active === 'inspected') needsInspection += 1;
+    // The inspected stage splits: an inspection genuinely underway vs cleaned
+    // and waiting for one to start.
+    else if (lc.active === 'inspected') {
+      if (lc.inspecting) inspectingNow += 1;
+      else needsInspection += 1;
+    }
   }
-  return { cleaningNow, awaitingCleaner, needsInspection };
+  return { cleaningNow, awaitingCleaner, needsInspection, inspectingNow };
 }
 
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
