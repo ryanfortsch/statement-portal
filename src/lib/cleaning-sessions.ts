@@ -54,7 +54,7 @@ type Outcome = { ok: boolean; reason?: string; propertyId?: string; checkoutDate
 /** The checkout being turned over for an event/text at `asOfIso`: the most
  *  recent confirmed checkout on/before that date. Matches how operations.ts
  *  derives previousCheckout (bookings.check_out), so the join lines up. */
-async function mostRecentCheckoutForProperty(
+export async function mostRecentCheckoutForProperty(
   sb: SupabaseClient,
   propertyId: string,
   asOfIso: string,
@@ -74,24 +74,28 @@ async function mostRecentCheckoutForProperty(
   return (data?.check_out as string | undefined) ?? null;
 }
 
-async function lockProperty(
+export async function lockProperty(
   sb: SupabaseClient,
   deviceId: string,
-): Promise<{ propertyId: string; cleanerCodeId: string | null } | null> {
+): Promise<{ propertyId: string; cleanerCodeId: string | null; inspectorCodeId: string | null } | null> {
   const { data } = await sb
     .from('lock_devices')
-    .select('property_id, active, cleaner_access_code_id')
+    .select('property_id, active, cleaner_access_code_id, inspector_access_code_id')
     .eq('device_id', deviceId)
     .maybeSingle();
   const propertyId = (data?.property_id as string | null) ?? null;
   const active = (data?.active as boolean | undefined) ?? true;
   if (!propertyId || !active) return null;
-  return { propertyId, cleanerCodeId: (data?.cleaner_access_code_id as string | null) ?? null };
+  return {
+    propertyId,
+    cleanerCodeId: (data?.cleaner_access_code_id as string | null) ?? null,
+    inspectorCodeId: (data?.inspector_access_code_id as string | null) ?? null,
+  };
 }
 
 /** A non-keypad unlock (physical key, mobile key, card, auto) is not a code
  *  entry and can't be attributed to the cleaner. */
-function isKeypadEntry(method?: string | null): boolean {
+export function isKeypadEntry(method?: string | null): boolean {
   const m = (method ?? '').toLowerCase();
   return !/manual|mobile|card|thumbturn|auto|tap|fob/.test(m);
 }
@@ -108,6 +112,12 @@ export async function recordCleanerEntry(sb: SupabaseClient, ev: LockEventInput)
   if (!lock) return { ok: false, reason: 'unmapped or inactive lock' };
 
   if (!isKeypadEntry(ev.method)) return { ok: false, reason: `non-keypad method (${ev.method})` };
+  // The master / inspection code routes to the inspection lifecycle, not
+  // cleaning. Reject it here even when the cleaner code is unresolved, so an
+  // inspector entry never gets logged as a cleaner arrival.
+  if (lock.inspectorCodeId && ev.accessCodeId && ev.accessCodeId === lock.inspectorCodeId) {
+    return { ok: false, reason: 'inspector code, not cleaner' };
+  }
   if (lock.cleanerCodeId && ev.accessCodeId && ev.accessCodeId !== lock.cleanerCodeId) {
     return { ok: false, reason: 'keypad code is not the cleaner code (guest/other)' };
   }

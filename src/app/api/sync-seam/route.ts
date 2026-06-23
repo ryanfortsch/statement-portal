@@ -7,6 +7,7 @@ import {
   ingestDeviceBattery,
 } from '@/lib/seam';
 import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
+import { resolveInspectorCodeId } from '@/lib/inspection-sessions';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
@@ -75,9 +76,14 @@ export async function POST() {
           low: res.low,
           slip_created: !!res.slipId,
         });
-        // Resolve the cleaner code's access_code_id for mapped locks so the
-        // webhook can attribute a 2222 keypad unlock to the cleaner.
-        if (res.propertyId) await resolveCleanerCodeId(supabase, res.deviceId);
+        // Resolve the cleaner + inspector code access_code_ids for mapped
+        // locks so the webhook can tell a 2222 cleaner unlock from a master /
+        // inspection code unlock. The inspector resolve is a no-op until
+        // SEAM_INSPECTION_CODE is set, so it stays dark by default.
+        if (res.propertyId) {
+          await resolveCleanerCodeId(supabase, res.deviceId);
+          await resolveInspectorCodeId(supabase, res.deviceId);
+        }
       } catch (err) {
         summary.errors.push(
           `${device.device_id}: ${err instanceof Error ? err.message : String(err)}`,

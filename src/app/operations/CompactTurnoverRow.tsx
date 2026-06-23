@@ -157,6 +157,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
             inspected={t.inspectionStatus === 'complete'}
             inspecting={lc.inspecting}
             inspectionStartedAt={t.inspectionStartedAt}
+            inspectionViaLock={t.inspectionViaLock}
             checkIn={t.checkIn}
             previousCheckout={t.previousCheckout}
             propertyId={t.propertyId}

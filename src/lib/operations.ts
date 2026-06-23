@@ -87,6 +87,15 @@ function addDaysStr(base: string, days: number): string {
   return d.toISOString().split('T')[0];
 }
 
+/** The earlier of two ISO timestamps, ignoring nulls (null if both null).
+ *  Compares by parsed instant, not lexically, since the two sources can use
+ *  different ISO forms (PostgREST '+00:00' vs Seam 'Z'). */
+function earliestNonNull(a: string | null, b: string | null): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Date.parse(a) <= Date.parse(b) ? a : b;
+}
+
 export type InspectionStatus = 'not_started' | 'complete';
 
 export type ReservationRow = {
@@ -166,6 +175,10 @@ export type Turnover = {
   /** When the in-progress inspection started, for the live "inspecting Xm"
    *  counter. Null when not inspecting. */
   inspectionStartedAt: string | null;
+  /** The in-progress inspection is known only from a lock master-code unlock
+   *  (no app inspection started yet). Drives the lock glyph on the rail's
+   *  inspected node. */
+  inspectionViaLock: boolean;
   plan: InspectionPlanMini | null;
   cleaning: CleaningCompletion | null;
   /** Lock + text-derived cleaning lifecycle (entered / finished + provenance)
@@ -451,6 +464,7 @@ export async function loadOperationsData(
     { data: completionData },
     { data: cleaningSessionData },
     { data: lockDeviceData },
+    { data: inspectionSessionData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -488,6 +502,15 @@ export async function loadOperationsData(
       .select('property_id')
       .in('property_id', propertyIdList)
       .eq('active', true),
+    // The lock-driven "inspection underway" signal (a master / inspection code
+    // unlock), keyed by (property_id, checkout_date) like cleaning_sessions.
+    // ORs with the app "Start Inspection" signal below. Resilient: if the
+    // table isn't applied yet the query resolves with an error + null data and
+    // this degrades to "no lock inspection signal", never breaking the page.
+    supabase
+      .from('inspection_sessions')
+      .select('property_id, checkout_date, started_at, started_source')
+      .gte('checkout_date', fetchStart),
   ]);
 
   // Set of properties with a live smart lock. Anything not in here is a
@@ -582,6 +605,17 @@ export async function loadOperationsData(
     });
   }
 
+  // Lock-driven inspection starts (master / inspection code unlock), keyed by
+  // (property_id, checkout_date) and joined on previousCheckout below.
+  const inspectionStartByKey = new Map<string, string>();
+  for (const row of (inspectionSessionData ?? []) as Array<{
+    property_id: string;
+    checkout_date: string;
+    started_at: string | null;
+  }>) {
+    if (row.started_at) inspectionStartByKey.set(`${row.property_id}|${row.checkout_date}`, row.started_at);
+  }
+
   // Filter to the actual display window (today through rangeEnd) and enrich.
   const turnovers: Turnover[] = [];
   for (const r of reservations) {
@@ -623,12 +657,22 @@ export async function loadOperationsData(
       ? 'complete'
       : 'not_started';
 
-    // In progress = a matched inspection that has been started (it is in the
-    // match pool, so it already has results) but not yet completed. This is
-    // the app "Start Inspection" signal: the rail shows "Inspecting" for real,
-    // not just because the stage is the next pending one.
-    const inspectionInProgress = matchingInspection != null && !matchingInspection.completed_at;
-    const inspectionStartedAt = inspectionInProgress ? matchingInspection!.started_at : null;
+    // Inspection in progress, from EITHER signal, while not yet complete:
+    //  - app: a matched inspections row started + not completed (Start Inspection).
+    //  - lock: a master / inspection code unlock (inspection_sessions.started_at)
+    //          for this turnover's previousCheckout.
+    const appInspectionStartedAt =
+      matchingInspection != null && !matchingInspection.completed_at ? matchingInspection.started_at : null;
+    const lockInspectionStartedAt =
+      inspectionStatus !== 'complete' && previousCheckout
+        ? inspectionStartByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
+        : null;
+    const inspectionInProgress = appInspectionStartedAt != null || lockInspectionStartedAt != null;
+    // Earliest of the two starts drives the live "inspecting Xm" counter.
+    const inspectionStartedAt = earliestNonNull(appInspectionStartedAt, lockInspectionStartedAt);
+    // Lock is the source when there's a lock start and no app inspection yet,
+    // which drives the lock glyph on the rail's inspected node.
+    const inspectionViaLock = lockInspectionStartedAt != null && appInspectionStartedAt == null;
 
     const cleaning = previousCheckout
       ? cleaningByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
@@ -658,6 +702,7 @@ export async function loadOperationsData(
       inspectionStatus,
       inspectionInProgress,
       inspectionStartedAt,
+      inspectionViaLock,
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
       cleaningSession,
