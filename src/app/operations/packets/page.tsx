@@ -176,6 +176,12 @@ export default async function PacketsBoard({
 
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
+          {calendar.missingCoords > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 8 }}>
+              {calendar.missingCoords} {calendar.missingCoords === 1 ? 'property is' : 'properties are'} hidden here — no map
+              coordinates on file, so they can&apos;t be bundled. Add lat/long on the property to include them.
+            </div>
+          )}
         </div>
 
         {drafts.length > 0 && (
@@ -218,10 +224,13 @@ export default async function PacketsBoard({
               Closed · {closed.length}
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
-              {closed.map((p) => (
+              {closed.slice(0, 25).map((p) => (
                 <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
               ))}
             </div>
+            {closed.length > 25 && (
+              <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>Showing the 25 most recent of {closed.length}.</div>
+            )}
           </div>
         )}
       </section>
@@ -273,6 +282,11 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
     >
       <Link href={`/operations/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
+        {p.trade !== 'inspection' && (
+          <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
+            {p.trade}
+          </span>
+        )}
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
           {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}

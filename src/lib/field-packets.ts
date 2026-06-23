@@ -1385,7 +1385,7 @@ export type CalRow = {
    *  still needs covered), for urgency sorting + at-risk flags. */
   nextDeadline: string | null;
 };
-export type InspectionCalendarData = { days: string[]; rows: CalRow[] };
+export type InspectionCalendarData = { days: string[]; rows: CalRow[]; missingCoords: number };
 
 /**
  * The calendar-of-open-windows board: each property that needs inspecting in
@@ -1480,7 +1480,7 @@ export async function loadInspectionCalendar(
       (a.nextDeadline ?? '9999-99-99').localeCompare(b.nextDeadline ?? '9999-99-99') ||
       a.propertyName.localeCompare(b.propertyName),
   );
-  return { days, rows };
+  return { days, rows, missingCoords: properties.length - withCoords.length };
 }
 
 // ── Field payout ledger ───────────────────────────────────────────────
