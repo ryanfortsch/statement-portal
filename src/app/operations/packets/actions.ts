@@ -5,11 +5,12 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
-import { revokePacketCodes } from '@/lib/field-locks';
+import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
+import { canClaim, type PacketRow } from '@/lib/field-types';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -31,6 +32,63 @@ export async function revealW9(contractorId: string): Promise<string | null> {
       () => {},
     );
   return tin;
+}
+
+/** Directly assign (or reassign) a packet to a specific contractor — bypasses
+ *  the first-come claim race. Only published/claimed packets (not work already
+ *  in progress). Pulls the prior contractor's codes on a reassign, programs the
+ *  new one's, and confirms with the new contractor. */
+export async function assignPacket(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const contractorId = String(formData.get('contractor_id') || '');
+  if (!packetId || !contractorId) return;
+
+  const { data: pkt } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, trade, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pkt as { id: string; status: string; trade: string; awarded_contractor_id: string | null } | null;
+  if (!packet || !['published', 'claimed'].includes(packet.status)) return;
+  if (packet.awarded_contractor_id === contractorId) return; // no-op
+
+  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
+  const contractor = (c as ContractorRow | null) ?? null;
+  if (!contractor || !canClaim(contractor) || contractor.trade !== packet.trade) return;
+
+  // Reassigning away from someone — pull their live codes first.
+  if (packet.awarded_contractor_id) await revokePacketCodes(packetId).catch(() => {});
+
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ status: 'claimed', awarded_contractor_id: contractorId, claimed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', packetId);
+  await fieldDb()
+    .from('packet_events')
+    .insert({ packet_id: packetId, contractor_id: contractorId, actor_email: email, event_type: 'assigned' });
+  await programPacketCodes(packetId).catch(() => {});
+
+  const { data: full } = await fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle();
+  if (full) await sendClaimConfirmation(contractor, full as PacketRow).catch(() => {});
+
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Move a draft/published packet to a different visit date. */
+export async function setPacketVisitDate(formData: FormData): Promise<void> {
+  await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const visitDate = String(formData.get('visit_date') || '');
+  if (!packetId || !visitDate) return;
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ visit_date: visitDate, window_start: visitDate, window_end: visitDate, claim_deadline: visitDate, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .in('status', ['draft', 'published']);
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
 }
 
 /** Office-only: decrypt a contractor's full payout details (e.g. ACH account). */
