@@ -423,8 +423,25 @@ function isTurnoverDone(t: Turnover): boolean {
   return t.inspectionStatus === 'complete' || t.manuallyCompleted;
 }
 
+// In-flight first: a cleaner physically in the house (entered, not finished)
+// floats to the top, then checkout-passed-awaiting-cleaner, then the rest.
+// Stable within each tier, so chronological order is preserved. The live,
+// pulsing rows become the first thing the operator sees.
+function flightRank(t: Turnover): number {
+  const today = new Date().toISOString().slice(0, 10);
+  const expected = t.previousCheckout !== null && t.previousCheckout <= today;
+  if (!expected) return 2;
+  const cleaned = !!(t.cleaningSession?.finishedAt ?? t.cleaning);
+  const entered = !!t.cleaningSession?.enteredAt;
+  if (entered && !cleaned) return 0; // cleaner in right now
+  if (!entered) return 1; // checkout passed, awaiting cleaner
+  return 2;
+}
+
 function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
-  const pending = turnovers.filter((t) => !isTurnoverDone(t));
+  const pending = turnovers
+    .filter((t) => !isTurnoverDone(t))
+    .sort((a, b) => flightRank(a) - flightRank(b));
   const done = turnovers.filter((t) => isTurnoverDone(t));
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -742,6 +759,7 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           checkIn={t.checkIn}
           previousCheckout={t.previousCheckout}
           propertyId={t.propertyId}
+          sameDay={t.isSameDayTurnover}
         />
       </div>
     </div>
