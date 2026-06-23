@@ -490,6 +490,18 @@ export async function inviteContractor(formData: FormData): Promise<void> {
   const trade = tradeIn === 'maintenance' || tradeIn === 'cleaning' ? tradeIn : 'inspection';
   if (!fullName || !contractorEmail) return;
 
+  // Already invited? Re-send their link instead of throwing on the unique email.
+  const { data: existing } = await fieldDb()
+    .from('contractors')
+    .select('*')
+    .eq('email', contractorEmail)
+    .maybeSingle();
+  if (existing) {
+    await sendInviteEmail(existing as ContractorRow).catch(() => {});
+    revalidatePath('/operations/contractors');
+    return;
+  }
+
   const { data } = await fieldDb()
     .from('contractors')
     .insert({
