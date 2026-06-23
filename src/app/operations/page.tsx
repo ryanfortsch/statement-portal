@@ -8,6 +8,7 @@ import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { startInspection } from '../inspections/actions';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { PlanButton } from './PlanButton';
+import { TurnoverRail } from './TurnoverRail';
 import { markTurnoverComplete, unmarkTurnoverComplete } from './turnover-actions';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
@@ -451,44 +452,9 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
   // previousCheckout is null or in the future (cleaning isn't due yet).
   const today = new Date().toISOString().slice(0, 10);
   const cleaningExpected = t.previousCheckout !== null && t.previousCheckout <= today;
-  // Lifecycle from the lock + text: entered (cleaner in) vs finished (cleaned).
-  // A lock keypad entry by the cleaner code is high-confidence; a finish from
-  // the lock alone is only an estimate (shown as "Cleaned?").
+  // The cleaning lifecycle (entered / finished + provenance) is rendered by the
+  // TurnoverRail below the row; cs feeds it.
   const cs = t.cleaningSession;
-  const cleaningEnteredAt = cs?.enteredAt ?? null;
-  const cleaningFinishedAt = cs?.finishedAt ?? t.cleaning?.completedAt ?? null;
-  const cleaningDone = cleaningFinishedAt !== null;
-  const cleaningInProgress = !cleaningDone && cleaningEnteredAt !== null;
-  const cleaningEstimated = cleaningDone && cs?.finishSource === 'estimate';
-  const cleaningDoneRel = cleaningFinishedAt ? formatRelativeShort(cleaningFinishedAt) : null;
-  const cleaningEnteredRel = cleaningEnteredAt ? formatRelativeShort(cleaningEnteredAt) : null;
-  const cleaningLabel = cleaningDone
-    ? cleaningEstimated
-      ? `Cleaned? ${cleaningDoneRel}`
-      : `Cleaned ${cleaningDoneRel}`
-    : cleaningInProgress
-      ? `Cleaning · in ${cleaningEnteredRel}`
-      : 'Awaiting cleaner';
-  const cleaningColor = cleaningDone
-    ? cleaningEstimated
-      ? 'var(--signal)'
-      : 'var(--positive)'
-    : cleaningInProgress
-      ? 'var(--tide-deep)'
-      : 'var(--signal)';
-  const cleaningTitle = cleaningDone
-    ? cleaningEstimated
-      ? 'Estimated from the lock (auto-lock after entry) — confirm'
-      : cs?.finishSource === 'quo'
-        ? 'Confirmed by cleaner text'
-        : cs?.finishSource === 'manual'
-          ? 'Confirmed by you'
-          : t.cleaning
-            ? `Cleaner finished via Quo${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
-            : 'Cleaned'
-    : cleaningInProgress
-      ? `Cleaner entered via keypad ${cleaningEnteredRel} ago — cleaning in progress`
-      : 'No cleaner signal yet (lock keypad entry or Quo text)';
 
   // Gap context: for non-same-day turnovers with a known previousCheckout,
   // surface how long the property has been sitting since the last guest.
@@ -640,17 +606,6 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           color: 'var(--ink-4)',
         }}
       >
-        <div>
-          {cleaningExpected && (
-            <>
-              <span style={{ color: cleaningColor }} title={cleaningTitle}>
-                {cleaningLabel}
-              </span>
-              <span style={{ color: 'var(--ink-4)' }}>{' · '}</span>
-            </>
-          )}
-          <span style={{ color: 'var(--signal)' }}>Not inspected</span>
-        </div>
         {/* Plan lives here in the status column — same place on every row,
             whether or not a Start Inspection CTA is shown — so the plan
             state reads consistently instead of shifting around the action
@@ -772,6 +727,23 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
           </button>
         </form>
       )}
+
+      {/* Living lifecycle rail — full-width row below the line. Replaces the
+          old cleaning + "Not inspected" chips with a tracked, ticking state. */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <TurnoverRail
+          expected={cleaningExpected}
+          enteredAt={cs?.enteredAt ?? null}
+          cleanedAt={cs?.finishedAt ?? t.cleaning?.completedAt ?? null}
+          cleanedEstimated={cs?.finishSource === 'estimate'}
+          cleanedSource={cs?.finishSource ?? null}
+          enteredViaLock={cs?.entrySource === 'seam_lock'}
+          inspected={t.inspectionStatus === 'complete'}
+          checkIn={t.checkIn}
+          previousCheckout={t.previousCheckout}
+          propertyId={t.propertyId}
+        />
+      </div>
     </div>
   );
 }
@@ -938,15 +910,6 @@ function fieldChipColor(status: string): string {
     default:
       return 'var(--ink-4)';
   }
-}
-
-function formatRelativeShort(iso: string | null): string {
-  if (!iso) return '';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return 'now';
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
-  return `${Math.round(ms / 86_400_000)}d`;
 }
 
 function formatDateLong(value: string): string {
