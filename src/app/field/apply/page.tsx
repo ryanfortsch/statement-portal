@@ -45,9 +45,9 @@ export default async function ApplyPage({
     <FieldShell showSignOut={false}>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>Inspect with Rising Tide</h1>
       <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 20 }}>
-        Rising Tide manages short-term rentals across Cape Ann. We&apos;re looking for a sharp, reliable
-        local to be our eyes on the ground between guests. Flexible, paid-per-visit work you run from
-        your phone. Visits run 20 to 90 minutes, usually 2 to 5 homes per trip.
+        Rising Tide manages short-term rentals across Cape Ann. We&apos;re a hands-on team, and we need
+        a sharp, reliable local to help us cover more ground between guests. Flexible, paid-per-visit
+        work you run from your phone. Visits run 20 to 90 minutes, usually 2 to 5 homes per trip.
       </p>
       <div style={{ maxWidth: 520, marginBottom: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 10 }}>On every visit you cover three things:</div>
