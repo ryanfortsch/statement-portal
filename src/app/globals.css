@@ -181,6 +181,106 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   opacity: 1;
 }
 
+/* ─── Operations: dense turnover ledger (CompactTurnoverRow) ─────────────
+   One ~38px line per turnover so a dozen-plus fit in one field of view.
+   Desktop: date | property+guest (grows) | micro-rail + readout | action,
+   all on one baseline. Click a line to expand the full rail in place.
+   Mobile: the row wraps to two lines (identity, then state + action) and
+   the expansion stacks — no 180px rail indent to overflow the viewport. */
+.rt-tn-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+  min-height: 36px;
+  transition: background 0.12s ease;
+}
+.rt-tn-row:hover { background: rgba(30, 46, 52, 0.025); }
+.rt-tn-main {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex: 1 1 360px;
+  min-width: 0;
+}
+.rt-tn-date { flex: 0 0 auto; white-space: nowrap; }
+.rt-tn-prop {
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rt-tn-sd {
+  display: inline-block;
+  width: 4px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--signal);
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+.rt-tn-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.rt-tn-rail {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  padding: 0 2px;
+}
+.rt-tn-rline {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  height: 1.5px;
+  background: var(--rule-soft, #e7dfce);
+  z-index: 0;
+}
+.rt-tn-readout {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rt-tn-act { flex: 0 0 auto; min-width: 72px; text-align: right; }
+.rt-tn-start {
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rt-tn-exp {
+  flex: 1 1 100%;
+  padding: 6px 0 10px;
+  cursor: default;
+}
+.rt-tn-affordances {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-soft, #e7dfce);
+}
+
 /* ─── Responsive (mobile first pass) ────────────────────────────────── */
 
 /* Phones (≤640px): stack everything, let rules breathe, reduce container padding */
@@ -324,75 +424,34 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     display: none;
   }
 
-  /* /operations turnover row: the 180px / 1fr / auto / auto grid was a
-     desktop layout that wouldn't survive a phone width. Stack into a
-     proper card on mobile: date as eyebrow, property name as headline,
-     chips wrap horizontally below, action button pinned to the bottom
-     right of the card. */
-  .rt-turnover-row {
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
-    padding: 18px 0 !important;
+  /* /operations dense turnover ledger: the desktop one-liner wraps to two
+     rows on a phone. Line 1 = identity (date + property + guest). Line 2 =
+     the micro-rail + readout on the left, the primary action pinned right.
+     The date sheds its "→ checkout" trailer so the property name owns the
+     headline. The expansion (full rail + affordances) stacks underneath at
+     full width, no horizontal overflow. */
+  .rt-tn-row {
+    gap: 6px 12px !important;
+    padding: 11px 2px !important;
   }
-  .rt-turnover-row .rt-turnover-date {
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-    flex-wrap: wrap;
+  .rt-tn-main {
+    flex: 1 1 100% !important;
   }
-  .rt-turnover-row .rt-turnover-date > :nth-child(1) {
-    font-size: 11px !important;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--ink-4) !important;
-    font-family: var(--font-inter), system-ui, sans-serif !important;
-    font-weight: 500;
-    line-height: 1.2 !important;
-  }
-  .rt-turnover-row .rt-turnover-date > :nth-child(2) {
-    font-size: 11px !important;
-    letter-spacing: .04em;
-    margin-top: 0 !important;
-  }
-  .rt-turnover-row .rt-turnover-property > div:first-child > span:first-child {
-    font-size: 22px !important;
-  }
-  .rt-turnover-row .rt-turnover-chips {
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    align-items: flex-start !important;
-    justify-content: flex-start !important;
-    gap: 8px 14px !important;
-    white-space: normal !important;
-    padding-top: 4px;
-  }
-  .rt-turnover-row .rt-turnover-action {
-    align-self: flex-end;
-    padding-top: 4px;
-  }
-  /* Prev. checkout line is muted scaffolding on phones - the work-slip
-     count + cleaning chip already tell the operator what state the prep
-     window is in. Keep it visible only for same-day turnarounds, where
-     "previous guest checks out today" is the headline. */
-  .rt-turnover-row .rt-turnover-prev {
+  .rt-tn-date > span:nth-child(2) {
     display: none !important;
   }
-  .rt-turnover-row .rt-turnover-prev.rt-turnover-prev-sameday {
-    display: block !important;
+  .rt-tn-state {
+    flex: 1 1 auto !important;
   }
-  /* Tighten card vertical padding so the pipeline reads at fewer scroll
-     units. The chips wrap is the noisiest row so reduce the gap there
-     a touch. */
-  .rt-turnover-row {
-    padding: 14px 0 !important;
-    gap: 6px !important;
+  .rt-tn-readout {
+    flex: 1 1 auto;
+    min-width: 0;
   }
-  /* Completed turnovers stay compact on phones too — the base rule above
-     would otherwise restore full card padding. Opacity comes from the
-     inline style. */
-  .rt-turnover-row--done {
-    padding: 9px 0 !important;
-    gap: 4px !important;
+  .rt-tn-act {
+    flex: 0 0 auto !important;
+  }
+  .rt-tn-affordances {
+    gap: 10px 16px !important;
   }
 
   /* Stepper: + Add note / + Photo / + Work slip currently wraps to two
