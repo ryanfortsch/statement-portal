@@ -309,11 +309,13 @@ export async function completeMaintenanceStop(formData: FormData) {
     }
   })();
 
+  // Contractor self-report records the resolution but does NOT close the slip —
+  // it stays in_progress until the office approves the packet (then it goes
+  // done). Prevents a self-reported "done" from being the terminal truth.
   await fieldDb()
     .from('work_slips')
     .update({
-      status: 'done',
-      completed_at: new Date().toISOString(),
+      status: 'in_progress',
       resolution_notes: note,
       photo_urls: photos,
       updated_at: new Date().toISOString(),

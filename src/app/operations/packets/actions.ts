@@ -367,6 +367,16 @@ export async function approvePacket(formData: FormData): Promise<void> {
     for (const s of (stops ?? []) as { inspection_id: string | null }[]) {
       if (s.inspection_id) await sendInspectionReportEmail(s.inspection_id).catch(() => {});
     }
+    // Close the maintenance work slips this packet covered — terminal "done"
+    // is office-approved, not self-reported.
+    const { data: mstops } = await fieldDb().from('packet_stops').select('work_slip_id').eq('packet_id', packetId).not('work_slip_id', 'is', null);
+    const slipIds = ((mstops ?? []) as { work_slip_id: string }[]).map((s) => s.work_slip_id);
+    if (slipIds.length) {
+      await fieldDb()
+        .from('work_slips')
+        .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .in('id', slipIds);
+    }
     // Receipt the contractor: approved, payment queued.
     const ap = approved as { title: string; awarded_contractor_id: string | null };
     if (ap.awarded_contractor_id) {
