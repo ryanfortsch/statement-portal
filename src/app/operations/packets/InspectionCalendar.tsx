@@ -75,7 +75,7 @@ function fmtChipDay(d: string): string {
   }
 }
 
-export function InspectionCalendar({ days, rows }: InspectionCalendarData) {
+export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 'days' | 'rows'>) {
   const [selDay, setSelDay] = useState<string | null>(null);
   const [selProps, setSelProps] = useState<string[]>([]);
   const [priceStr, setPriceStr] = useState('');
