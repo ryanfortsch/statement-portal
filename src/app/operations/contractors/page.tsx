@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
-import { getContractorPayStats, getContractorReliability } from '@/lib/field-packets';
+import { getContractorPayStats, getContractorReliability, loadApplications } from '@/lib/field-packets';
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -68,14 +68,16 @@ export default async function ContractorsPage() {
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) — it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability, w9s, ratings, payMethods] = await Promise.all([
+  const [payStats, report, reliability, w9s, ratings, payMethods, applications] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
     loadW9Summaries(),
     getContractorRatings(),
     loadPaymentSummaries(),
+    loadApplications().catch(() => []),
   ]);
+  const newApplicants = applications.filter((a) => a.status === 'new' || a.status === 'reviewing').length;
   const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
   if (report) {
     for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
@@ -105,7 +107,12 @@ export default async function ContractorsPage() {
       <HelmMasthead current="field" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Field packets</Link>
-        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Contractors</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
+          <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Contractors</div>
+          <Link href="/operations/contractors/applicants" style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
+            Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
+          </Link>
+        </div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 24 }}>
           Invite an inspector and we email them a personal portal link. They set up their account (W-9 +
           agreement) before they can claim paid work.

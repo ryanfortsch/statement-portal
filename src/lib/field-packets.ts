@@ -1653,3 +1653,28 @@ export async function getContractorReliability(): Promise<Map<string, Reliabilit
   }
   return out;
 }
+
+// ── Recruiting funnel: applications ───────────────────────────────────
+export type ContractorApplication = {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  area: string | null;
+  trade: string;
+  about: string | null;
+  availability: string | null;
+  has_transport: boolean | null;
+  source: string | null;
+  status: string;
+  contractor_id: string | null;
+  created_at: string;
+};
+
+export async function loadApplications(): Promise<ContractorApplication[]> {
+  const { data } = await fieldDb()
+    .from('contractor_applications')
+    .select('*')
+    .order('created_at', { ascending: false });
+  return (data ?? []) as ContractorApplication[];
+}
