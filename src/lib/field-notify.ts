@@ -209,6 +209,29 @@ export async function renotifyDuePackets(): Promise<number> {
   return n;
 }
 
+/** Tell the contractor the office bounced their packet back for fixes — the one
+ *  state transition that REQUIRES contractor action, so it can't be silent. */
+export async function sendChangesRequestedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name'>,
+  packet: Pick<PacketRow, 'id' | 'title'>,
+  note: string,
+): Promise<boolean> {
+  const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Changes requested on ${packet.title}</h1>
+    <p>The office needs a few fixes before this packet is approved${note ? `:</p><p style="border-left:3px solid #c85a3a;padding-left:12px;color:#1e2e34;">${note}` : ''}</p>
+    <p>Re-do the flagged stops and submit again.</p>
+    ${btn(link, 'Open packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Changes requested: ${packet.title}`,
+    fromName: FROM_NAME,
+    html,
+    text: `Changes requested on ${packet.title}${note ? `: ${note}` : ''}. Re-do the stops and submit again: ${link}`,
+  });
+}
+
 export async function sendPacketSubmittedEmail(
   contractor: ContractorRow,
   packet: PacketRow,

@@ -7,7 +7,7 @@ import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
 import { revokePacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -19,8 +19,17 @@ async function staffEmail(): Promise<string> {
 
 /** Office-only: decrypt a contractor's full TIN for filing their 1099. */
 export async function revealW9(contractorId: string): Promise<string | null> {
-  await staffEmail(); // staff session required
-  return revealTin(contractorId);
+  const email = await staffEmail(); // staff session required
+  const tin = await revealTin(contractorId);
+  // Audit every SSN/EIN reveal: who looked at whose TIN, when.
+  await fieldDb()
+    .from('packet_events')
+    .insert({ contractor_id: contractorId, actor_email: email, event_type: 'w9_revealed' })
+    .then(
+      () => {},
+      () => {},
+    );
+  return tin;
 }
 
 /** Run the grouping algorithm over a date window and persist new draft packets. */
@@ -278,7 +287,7 @@ export async function requestChanges(formData: FormData): Promise<void> {
     .update({ status: 'in_progress', notes: note || null, submitted_at: null, updated_at: new Date().toISOString() })
     .eq('id', packetId)
     .eq('status', 'submitted')
-    .select('id, awarded_contractor_id')
+    .select('id, title, awarded_contractor_id')
     .maybeSingle();
   if (data) {
     // Reopen any maintenance work slips this packet had marked done, so the
@@ -296,13 +305,29 @@ export async function requestChanges(formData: FormData): Promise<void> {
         .in('id', slipIds);
     }
     await fieldDb().from('packet_stops').update({ status: 'pending', inspection_id: null }).eq('packet_id', packetId);
+    const row = data as { id: string; title: string; awarded_contractor_id: string | null };
     await fieldDb().from('packet_events').insert({
       packet_id: packetId,
-      contractor_id: (data as { awarded_contractor_id: string | null }).awarded_contractor_id ?? null,
+      contractor_id: row.awarded_contractor_id ?? null,
       actor_email: email,
       event_type: 'changes_requested',
       payload: note ? { note } : null,
     });
+    // Tell the contractor — this is the one transition that needs them to act.
+    if (row.awarded_contractor_id) {
+      const { data: c } = await fieldDb()
+        .from('contractors')
+        .select('email, full_name')
+        .eq('id', row.awarded_contractor_id)
+        .maybeSingle();
+      if (c) {
+        await sendChangesRequestedEmail(
+          c as { email: string; full_name: string },
+          { id: row.id, title: row.title },
+          note,
+        ).catch(() => {});
+      }
+    }
   }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
@@ -312,6 +337,10 @@ export async function removeStop(formData: FormData): Promise<void> {
   await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
   const stopId = String(formData.get('stop_id') || '');
+  // Only reshape drafts — never strand a claimed/live packet (or empty it to a
+  // zombie 0-stop packet someone already claimed).
+  const { data: pre } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
+  if ((pre as { status: string } | null)?.status !== 'draft') return;
   const { data: stop } = await fieldDb()
     .from('packet_stops')
     .select('base_price_cents')
@@ -371,15 +400,40 @@ export async function inviteContractor(formData: FormData): Promise<void> {
  *  Archived is cut off entirely — the token + session stop resolving — so we
  *  also drop their sessions. */
 export async function setContractorStatus(formData: FormData): Promise<void> {
-  await staffEmail();
+  const email = await staffEmail();
   const id = String(formData.get('contractor_id') || '');
   const status = String(formData.get('status') || '');
   if (!['active', 'paused', 'archived'].includes(status)) return;
   await fieldDb().from('contractors').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
   if (status === 'archived') {
+    // Hard offboard: kill sessions, AND pull any live door codes + release the
+    // unfinished work this contractor was holding — so a removed inspector
+    // can't keep entering homes or sit on coverage.
     await fieldDb().from('contractor_sessions').delete().eq('contractor_id', id);
+    const { data: live } = await fieldDb()
+      .from('inspection_packets')
+      .select('id')
+      .eq('awarded_contractor_id', id)
+      .in('status', ['claimed', 'in_progress']);
+    for (const p of (live ?? []) as { id: string }[]) {
+      await revokePacketCodes(p.id).catch(() => {});
+      const { data: rel } = await fieldDb()
+        .from('inspection_packets')
+        .update({ status: 'published', awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+        .eq('id', p.id)
+        .in('status', ['claimed', 'in_progress'])
+        .select('id')
+        .maybeSingle();
+      if (rel) {
+        await fieldDb()
+          .from('packet_events')
+          .insert({ packet_id: p.id, contractor_id: id, actor_email: email, event_type: 'released' });
+        notifyContractorsOfPacket(p.id).catch(() => {});
+      }
+    }
   }
   revalidatePath('/operations/contractors');
+  revalidatePath('/operations/packets');
 }
 
 /** Rotate an inspector's portal token (kills the old link + all live sessions)
