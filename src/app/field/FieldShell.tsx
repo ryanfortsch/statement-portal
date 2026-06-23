@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { signOutField } from './actions';
 
 /**
@@ -50,7 +51,13 @@ export function FieldShell({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {contractorName && (
-            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{contractorName}</span>
+            <Link
+              href="/field/profile"
+              title="Your profile"
+              style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}
+            >
+              {contractorName}
+            </Link>
           )}
           {showSignOut && contractorName && (
             <form action={signOutField} style={{ margin: 0 }}>
