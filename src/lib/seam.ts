@@ -270,6 +270,11 @@ export async function listUnmanagedAccessCodes(deviceId: string): Promise<SeamAc
   return res.access_codes ?? [];
 }
 
+/** Delete an unmanaged code (set outside Seam). Removes the PIN from the lock. */
+export async function deleteUnmanagedAccessCode(accessCodeId: string): Promise<void> {
+  await seamPost('/access_codes/unmanaged/delete', { access_code_id: accessCodeId });
+}
+
 // ── Webhook signature verification (Svix scheme) ────────────────────
 //
 // Seam delivers webhooks via Svix. The signed content is

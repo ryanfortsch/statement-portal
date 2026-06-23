@@ -7,6 +7,7 @@ import {
   revokeGuestCodeAction,
   syncSeamDevicesAction,
   mapLockAction,
+  removeLockCodeAction,
   type CodeActionResult,
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
@@ -28,6 +29,7 @@ export function GuestCodesPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sel, setSel] = useState('');
+  const [confirm, setConfirm] = useState<string | null>(null);
 
   const run = (id: string, fn: () => Promise<CodeActionResult>) => {
     setBusy(id);
@@ -177,6 +179,26 @@ export function GuestCodesPanel({
                     <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, letterSpacing: '.12em', color: 'var(--ink)' }}>
                       {c.code ?? '••••'}
                     </span>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        if (confirm !== c.access_code_id) {
+                          setConfirm(c.access_code_id);
+                          setTimeout(() => setConfirm((v) => (v === c.access_code_id ? null : v)), 3000);
+                          return;
+                        }
+                        setConfirm(null);
+                        run(c.access_code_id, () => removeLockCodeAction(propertyId, c.access_code_id, c.source));
+                      }}
+                      style={revokeBtn(pending && busy === c.access_code_id)}
+                    >
+                      {pending && busy === c.access_code_id
+                        ? '…'
+                        : confirm === c.access_code_id
+                          ? 'Confirm remove?'
+                          : 'Remove'}
+                    </button>
                   </div>
                 ))}
               </div>

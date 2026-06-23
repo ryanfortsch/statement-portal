@@ -16,6 +16,7 @@ import {
   seamConfigured,
   createAccessCode,
   deleteAccessCode,
+  deleteUnmanagedAccessCode,
   listAccessCodes,
   listUnmanagedAccessCodes,
   listDevices,
@@ -331,6 +332,40 @@ export async function revokeGuestCode(codeId: string): Promise<{ ok: boolean; er
     .update({ removed_at: new Date().toISOString() })
     .eq('id', codeId);
   if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Remove ANY code currently on the lock (managed or unmanaged) via Seam, and
+ * keep the guest-code ledger consistent if it was a Helm-issued one. The panel
+ * gates this behind a two-click confirm — wiping a shared PIN (cleaner, owner)
+ * locks real people out.
+ */
+export async function removeLockCode(
+  accessCodeId: string,
+  source: 'helm' | 'external',
+): Promise<{ ok: boolean; error?: string }> {
+  if (!seamConfigured()) return { ok: false, error: 'SEAM_API_KEY is not set in this environment.' };
+  try {
+    if (source === 'external') {
+      await deleteUnmanagedAccessCode(accessCodeId);
+    } else {
+      await deleteAccessCode(accessCodeId);
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  // If this PIN was issued by Helm, close out its ledger row too.
+  try {
+    const sb = getServiceClient();
+    await sb
+      .from('guest_access_codes')
+      .update({ removed_at: new Date().toISOString() })
+      .eq('seam_access_code_id', accessCodeId)
+      .is('removed_at', null);
+  } catch {
+    // best-effort
+  }
   return { ok: true };
 }
 
