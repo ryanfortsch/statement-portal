@@ -17,9 +17,11 @@ import {
   createAccessCode,
   deleteAccessCode,
   listAccessCodes,
+  listUnmanagedAccessCodes,
   listDevices,
   normalizeFromDevice,
   ingestDeviceBattery,
+  type SeamAccessCodeFull,
 } from '@/lib/seam';
 
 export type PropertyLock = { device_id: string; display_name: string | null };
@@ -36,13 +38,15 @@ export type GuestTestCode = { id: string; code: string | null; ends_at: string |
 
 export type UnmappedLock = { device_id: string; label: string };
 
-/** A code currently programmed on the lock, straight from Seam. */
+/** A code currently programmed on the lock, straight from Seam. `source`
+ *  distinguishes Helm/Seam-managed codes from ones set outside Seam. */
 export type LockCode = {
   access_code_id: string;
   name: string | null;
   code: string | null;
   starts_at: string | null;
   ends_at: string | null;
+  source: 'helm' | 'external';
 };
 
 export type GuestCodeView = {
@@ -175,18 +179,26 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
     // Seam. Best-effort — a Seam hiccup must not break the property page.
     let lockCodes: LockCode[] = [];
     if (lock && seamConfigured()) {
-      try {
-        const seamCodes = await listAccessCodes(lock.device_id);
-        lockCodes = seamCodes.map((c) => ({
-          access_code_id: c.access_code_id,
-          name: c.name ?? null,
-          code: c.code ?? null,
-          starts_at: c.starts_at ?? null,
-          ends_at: c.ends_at ?? null,
-        }));
-      } catch {
-        lockCodes = [];
-      }
+      const toRow = (c: SeamAccessCodeFull, source: 'helm' | 'external'): LockCode => ({
+        access_code_id: c.access_code_id,
+        name: c.name ?? null,
+        code: c.code ?? null,
+        starts_at: c.starts_at ?? null,
+        ends_at: c.ends_at ?? null,
+        source,
+      });
+      // Managed (created through Seam/Helm) + unmanaged (set in the Schlage app
+      // or already on the lock). Each call best-effort so one failing doesn't
+      // hide the other or break the page.
+      const [managed, unmanaged] = await Promise.all([
+        listAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
+        listUnmanagedAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
+      ]);
+      const seen = new Set<string>();
+      lockCodes = [
+        ...managed.map((c) => toRow(c, 'helm')),
+        ...unmanaged.map((c) => toRow(c, 'external')),
+      ].filter((c) => (seen.has(c.access_code_id) ? false : (seen.add(c.access_code_id), true)));
     }
 
     return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes, unmappedLocks, lockCodes };

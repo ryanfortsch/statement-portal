@@ -250,11 +250,20 @@ export type SeamAccessCodeFull = {
   ends_at?: string | null;
 };
 
-/** Every access code currently programmed on a lock (Helm-issued or not). */
+/** Seam-managed access codes (created through Seam) on a lock. */
 export async function listAccessCodes(deviceId: string): Promise<SeamAccessCodeFull[]> {
   const res = await seamGet<{ access_codes: SeamAccessCodeFull[] }>(
     `/access_codes/list?device_id=${encodeURIComponent(deviceId)}`,
   );
+  return res.access_codes ?? [];
+}
+
+/** Unmanaged codes — PINs set outside Seam (e.g. in the Schlage app) that the
+ *  managed /access_codes/list does not return. */
+export async function listUnmanagedAccessCodes(deviceId: string): Promise<SeamAccessCodeFull[]> {
+  const res = await seamPost<{ access_codes: SeamAccessCodeFull[] }>('/access_codes/unmanaged/list', {
+    device_id: deviceId,
+  });
   return res.access_codes ?? [];
 }
 
