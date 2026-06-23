@@ -123,17 +123,25 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   if (!contractorId) return;
+  const reference = String(formData.get('reference') || '').trim() || null;
+  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
+  const contractor = (c as ContractorRow | null) ?? null;
   const { data: marked } = await fieldDb()
     .from('inspection_packets')
-    .update({ paid_at: new Date().toISOString(), paid_by_email: email, updated_at: new Date().toISOString() })
+    .update({
+      paid_at: new Date().toISOString(),
+      paid_by_email: email,
+      paid_method: contractor?.payment_method ?? null,
+      paid_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
     .eq('awarded_contractor_id', contractorId)
     .eq('status', 'approved')
     .is('paid_at', null)
     .select('posted_price_cents');
   const total = ((marked ?? []) as { posted_price_cents: number }[]).reduce((a, r) => a + r.posted_price_cents, 0);
-  if (total > 0) {
-    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
-    if (c) await sendPaidEmail(c as ContractorRow, total).catch(() => {});
+  if (total > 0 && contractor) {
+    await sendPaidEmail(contractor, total, { method: contractor.payment_method, reference }).catch(() => {});
   }
   revalidatePath('/operations/contractors');
   revalidatePath('/operations/packets');
@@ -144,9 +152,10 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
 export async function markPacketPaid(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
+  const reference = String(formData.get('reference') || '').trim() || null;
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .update({ paid_at: new Date().toISOString(), paid_by_email: email, updated_at: new Date().toISOString() })
+    .update({ paid_at: new Date().toISOString(), paid_by_email: email, paid_reference: reference, updated_at: new Date().toISOString() })
     .eq('id', packetId)
     .eq('status', 'approved')
     .is('paid_at', null)
@@ -155,7 +164,12 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
   const paid = data as { posted_price_cents: number; awarded_contractor_id: string | null } | null;
   if (paid?.awarded_contractor_id) {
     const { data: c } = await fieldDb().from('contractors').select('*').eq('id', paid.awarded_contractor_id).maybeSingle();
-    if (c) await sendPaidEmail(c as ContractorRow, paid.posted_price_cents).catch(() => {});
+    if (c) {
+      const contractor = c as ContractorRow;
+      // Stamp the remittance method from what's on file, then receipt the contractor.
+      await fieldDb().from('inspection_packets').update({ paid_method: contractor.payment_method ?? null }).eq('id', packetId);
+      await sendPaidEmail(contractor, paid.posted_price_cents, { method: contractor.payment_method, reference }).catch(() => {});
+    }
   }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');

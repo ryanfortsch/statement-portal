@@ -225,8 +225,9 @@ export default async function ContractorsPage() {
                         {(!ps || (ps.owedCents === 0 && ps.paidCents === 0)) && <span style={{ color: 'var(--ink-4)' }}>no approved work</span>}
                       </div>
                       {ps && ps.owedCents > 0 && (
-                        <form action={markContractorPaid} style={{ marginTop: 3 }}>
+                        <form action={markContractorPaid} style={{ marginTop: 3, display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
                           <input type="hidden" name="contractor_id" value={c.id} />
+                          <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 10, width: 64, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '2px 4px', color: 'var(--ink)' }} />
                           <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--positive)', fontSize: 11, textDecoration: 'underline', padding: 0 }}>
                             mark {dollars(ps.owedCents)} paid
                           </button>
@@ -237,6 +238,18 @@ export default async function ContractorsPage() {
                         {books?.over ? ' · 1099' : ''} ·{' '}
                         <span style={{ color: books?.w9 ? 'var(--positive)' : 'var(--signal)' }}>{books?.w9 ? 'W-9 on file' : 'no W-9'}</span>
                       </div>
+                      {(() => {
+                        // Reconciliation: Field-recorded payouts vs the bank/books YTD.
+                        if (!ps || ps.paidCents === 0 || !books) return null;
+                        const booksCents = Math.round(books.ytd * 100);
+                        const gap = ps.paidCents - booksCents;
+                        if (Math.abs(gap) <= 5000) return null; // within $50, call it matched
+                        return (
+                          <div style={{ color: 'var(--signal)', marginTop: 2 }}>
+                            Field {dollars(ps.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
+                          </div>
+                        );
+                      })()}
                       {(() => {
                         const w9 = w9s.get(c.id);
                         if (w9) {
