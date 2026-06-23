@@ -975,6 +975,48 @@ export async function createPacketFromProperties(args: {
   return packetId;
 }
 
+// ── Supply run (inspection prep) ──────────────────────────────────────
+/** Where Rising Tide stages supplies + the per-property odds-and-ends bins. */
+export const SUPPLY_CLOSET = '85 Eastern Ave';
+
+export type SupplyRunStop = { propertyName: string; binLabel: string; lowItems: string[] };
+
+/** Per-property supply-run prep for a packet: grab the property's labeled bin
+ *  from the closet, plus any items a prior inspection already flagged low
+ *  (open Rising Tide restock slips, category 'inventory'). */
+export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRunStop[]> {
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('property_id, walk_order')
+    .eq('packet_id', packetId)
+    .order('walk_order', { ascending: true });
+  const orderedIds = ((sData ?? []) as { property_id: string }[]).map((s) => s.property_id);
+  const propIds = [...new Set(orderedIds)];
+  if (propIds.length === 0) return [];
+
+  const { data: pData } = await fieldDb().from('properties').select('id, name').in('id', propIds);
+  const nameById = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+
+  const { data: wData } = await fieldDb()
+    .from('work_slips')
+    .select('property_id, title')
+    .in('property_id', propIds)
+    .eq('category', 'inventory')
+    .in('status', ['open', 'in_progress', 'scheduled']);
+  const lowByProp = new Map<string, string[]>();
+  for (const w of (wData ?? []) as { property_id: string; title: string }[]) {
+    const arr = lowByProp.get(w.property_id) ?? [];
+    // Slip titles read "Restock <item>" — strip the prefix for a tidy list.
+    arr.push(w.title.replace(/^restock\s+/i, '').trim());
+    lowByProp.set(w.property_id, arr);
+  }
+
+  return propIds.map((id) => {
+    const name = nameById.get(id) ?? id;
+    return { propertyName: name, binLabel: name, lowItems: lowByProp.get(id) ?? [] };
+  });
+}
+
 // ── Maintenance trade: work slips → claimable packets ─────────────────
 export type MaintenanceSlip = {
   id: string;

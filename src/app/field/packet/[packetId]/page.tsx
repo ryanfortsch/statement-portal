@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadPacketDetail } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRunStop } from '@/lib/field-packets';
 import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -85,6 +85,35 @@ function InspectionScope() {
   );
 }
 
+/** Before-you-go prep: most inspections start with a stop at the supply closet
+ *  to grab each home's labeled bin (routine supplies + its odds-and-ends) plus
+ *  anything a prior visit already flagged as running low. */
+function SupplyRun({ stops }: { stops: SupplyRunStop[] }) {
+  if (stops.length === 0) return null;
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+        Before you go · supply run
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, lineHeight: 1.55 }}>
+        Swing by the supply closet at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> and grab each home&apos;s labeled bin — routine supplies plus its odds-and-ends — before you head out.
+      </div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {stops.map((s) => (
+          <div key={s.propertyName} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500 }}>{s.binLabel} bin</span>
+            {s.lowItems.length > 0 ? (
+              <span style={{ fontSize: 12.5, color: 'var(--signal)' }}>Bring extra: {s.lowItems.join(', ')}</span>
+            ) : (
+              <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>Routine restock only</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Values like "No" / "None" carry no instruction — drop them so the inspector
 // only sees fields that actually tell them something (no more "Alarm: No").
 const ACCESS_NOISE = new Set(['no', 'none', 'n/a', 'na', '-', '--', 'false', '0', 'n']);
@@ -157,6 +186,8 @@ export default async function PacketPage({
   // open-ended errand: a progress bar + live per-stop status.
   const working = isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
+  // Inspection packets start with a supply-closet run; maintenance jobs don't.
+  const supplyRun = working && !isMaint ? await loadPacketSupplyRun(packetId) : [];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -201,6 +232,8 @@ export default async function PacketPage({
           </span>
         </div>
       )}
+
+      {working && !isMaint && <SupplyRun stops={supplyRun} />}
 
       {sp.taken && (
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
