@@ -62,11 +62,6 @@ export default async function ApplyPage({
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, marginBottom: 24 }}>
-        Typically $65 to $100 per inspection, depending on size and travel. This is a 1099 contract role;
-        we collect a W-9 and run a background check.
-      </p>
-
       {sp.error && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 14, marginBottom: 18, borderRadius: 6 }}>
           Please add your name, a valid email, and a phone number.
