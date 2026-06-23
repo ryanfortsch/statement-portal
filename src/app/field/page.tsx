@@ -174,6 +174,22 @@ export default async function FieldHome({
     );
   }
 
+  // Paused: onboarded, but benched by the office. Say so plainly instead of
+  // dropping them into the "finish setup" flow (they already did).
+  if (contractor.status === 'paused') {
+    return (
+      <FieldShell contractorName={contractor.full_name}>
+        <h1 className="font-serif" style={{ fontSize: 28, fontWeight: 300, marginBottom: 10 }}>
+          Your account is paused
+        </h1>
+        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 460 }}>
+          You can&apos;t claim new work right now. Reach out to the Rising Tide office and they&apos;ll get you back
+          on the schedule.
+        </p>
+      </FieldShell>
+    );
+  }
+
   const onboarded = canClaim(contractor);
 
   if (!onboarded) {
