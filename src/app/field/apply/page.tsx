@@ -5,7 +5,7 @@ import { ApplyVideo } from './ApplyVideo';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
-  title: 'Inspect with Rising Tide',
+  title: 'Vacation Rental Specialist — Rising Tide',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
@@ -43,7 +43,7 @@ export default async function ApplyPage({
 
   return (
     <FieldShell showSignOut={false}>
-      <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>Inspect with Rising Tide</h1>
+      <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>Vacation Rental Specialist</h1>
       <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 20 }}>
         Rising Tide manages short-term rentals across Cape Ann. We&apos;re a hands-on team, and we need
         a sharp, reliable local to help us cover more ground between guests. Flexible, paid-per-visit
