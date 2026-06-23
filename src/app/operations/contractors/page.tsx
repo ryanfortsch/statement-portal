@@ -14,11 +14,25 @@ import { RevealPay } from './RevealPay';
 import {
   inviteContractor,
   setContractorW9,
+  setContractorBackgroundCheck,
   markContractorPaid,
   setContractorStatus,
   rotateContractorToken,
   resendInvite,
 } from '../packets/actions';
+
+const BG_LABEL: Record<string, string> = {
+  not_started: 'not started',
+  pending: 'pending',
+  cleared: 'cleared ✓',
+  failed: 'failed',
+};
+const BG_TINT: Record<string, string> = {
+  not_started: 'var(--ink-4)',
+  pending: '#7a5512',
+  cleared: 'var(--positive)',
+  failed: '#c0392b',
+};
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -304,6 +318,23 @@ export default async function ContractorsPage() {
                 })()}
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--font-mono-dash), monospace', wordBreak: 'break-all', maxWidth: 240 }}>
                   {base}/field/{c.portal_token}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', width: '100%', marginTop: 2 }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                    Background:{' '}
+                    <span style={{ color: BG_TINT[c.background_check_status] ?? 'var(--ink-4)', fontWeight: 600 }}>
+                      {BG_LABEL[c.background_check_status] ?? c.background_check_status}
+                    </span>
+                  </span>
+                  {(['pending', 'cleared', 'failed'] as const)
+                    .filter((s) => s !== c.background_check_status)
+                    .map((s) => (
+                      <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }}>
+                        <input type="hidden" name="contractor_id" value={c.id} />
+                        <input type="hidden" name="bg_status" value={s} />
+                        <button type="submit" style={ctlBtn} title={`Mark background check ${s}`}>mark {s}</button>
+                      </form>
+                    ))}
                 </div>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', width: '100%', marginTop: 2 }}>
                   {c.status === 'active' && (

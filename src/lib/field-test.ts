@@ -139,7 +139,7 @@ export async function seedFieldTest(): Promise<void> {
     if (existing) {
       await db
         .from('contractors')
-        .update({ status: 'active', w9_on_file: true, agreement_signed_at: now, trade: t.trade, updated_at: now })
+        .update({ status: 'active', w9_on_file: true, background_check_status: 'cleared', agreement_signed_at: now, trade: t.trade, updated_at: now })
         .eq('id', (existing as { id: string }).id);
     } else {
       await db.from('contractors').insert({
@@ -149,6 +149,7 @@ export async function seedFieldTest(): Promise<void> {
         status: 'active',
         portal_token: newPortalToken(),
         w9_on_file: true,
+        background_check_status: 'cleared',
         agreement_signed_at: now,
         agreement_signed_name: 'Test Signature',
         home_lat: HQ.lat,

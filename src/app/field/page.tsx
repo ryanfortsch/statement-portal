@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
-import { canClaim, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
+import { canClaim, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 
@@ -193,28 +193,41 @@ export default async function FieldHome({
     );
   }
 
-  const onboarded = canClaim(contractor);
+  const setupDone = onboardingComplete(contractor);
+  const claimable = canClaim(contractor);
+  // Awaiting our background check: they finished setup but can't claim yet.
+  const awaitingCheck = setupDone && !claimable;
 
-  if (!onboarded) {
-    // Read-only marketplace before onboarding — let invitees see the pay/work
-    // first, then "claim → finish 2-min setup".
+  if (!claimable) {
+    // Read-only marketplace: invitees (and people awaiting their check) can see
+    // the work/pay; only the banner + CTA differ.
     const { available } = await loadContractorMarketplace(contractor);
     return (
       <FieldShell contractorName={contractor.full_name}>
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', borderRadius: 10, padding: '16px 20px', marginBottom: 28 }}>
           <h1 className="font-serif" style={{ fontSize: 24, fontWeight: 300, marginBottom: 8 }}>
-            Finish setup to claim work
+            {awaitingCheck ? "You're almost in" : 'Finish setup to claim work'}
           </h1>
-          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 14, maxWidth: 480 }}>
-            Have a look at what&apos;s open below. To claim a packet we just need your W-9 and a quick
-            agreement — about two minutes.
-          </p>
-          <Link
-            href="/field/onboarding"
-            style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}
-          >
-            Finish setup
-          </Link>
+          {awaitingCheck ? (
+            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, margin: 0 }}>
+              Setup&apos;s done. We&apos;re running a quick background check (we send people into owners&apos; homes,
+              so this is standard). You&apos;ll be able to claim as soon as it clears — have a look at what&apos;s open
+              below in the meantime.
+            </p>
+          ) : (
+            <>
+              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 14, maxWidth: 480 }}>
+                Have a look at what&apos;s open below. To claim a packet we need your W-9, a quick agreement, and a
+                background check (we send people into owners&apos; homes).
+              </p>
+              <Link
+                href="/field/onboarding"
+                style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}
+              >
+                Finish setup
+              </Link>
+            </>
+          )}
         </div>
         {available.length > 0 ? (
           <>

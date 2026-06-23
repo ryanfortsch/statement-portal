@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRunStop } from '@/lib/field-packets';
-import { canClaim, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
+import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { MaintenanceComplete } from './MaintenanceComplete';
 import { FieldShell } from '../../FieldShell';
@@ -423,9 +423,15 @@ export default async function PacketPage({
           </form>
         )}
         {!isMine && packet.status === 'published' && !canClaim(contractor) && (
-          <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
-            Finish your account setup to claim this packet →
-          </Link>
+          onboardingComplete(contractor) ? (
+            <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
+              Your background check is in review. You&apos;ll be able to claim as soon as it clears.
+            </p>
+          ) : (
+            <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
+              Finish your account setup to claim this packet →
+            </Link>
+          )
         )}
         {isMine && packet.status !== 'submitted' && packet.status !== 'approved' && (
           <form action={submitPacket}>

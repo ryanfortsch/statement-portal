@@ -29,6 +29,7 @@ export type ContractorRow = {
   portal_token: string;
   token_expires_at: string | null;
   w9_on_file: boolean;
+  background_check_status: 'not_started' | 'pending' | 'cleared' | 'failed';
   agreement_signed_at: string | null;
   agreement_signed_name: string | null;
   agreement_ip: string | null;
@@ -46,9 +47,18 @@ export type ContractorRow = {
   updated_at: string;
 };
 
-/** True once the contractor has cleared onboarding and may claim paid work. */
-export function canClaim(c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file'>): boolean {
+/** True once the contractor has finished the self-serve setup (active + signed
+ *  agreement + W-9). They can browse, but can't claim until cleared. */
+export function onboardingComplete(c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file'>): boolean {
   return c.status === 'active' && !!c.agreement_signed_at && c.w9_on_file;
+}
+
+/** True once the contractor may claim paid work: onboarding done AND a cleared
+ *  background check (they enter owners' homes). */
+export function canClaim(
+  c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>,
+): boolean {
+  return onboardingComplete(c) && c.background_check_status === 'cleared';
 }
 
 export type PacketRow = {
