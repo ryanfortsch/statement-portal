@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { MessagingTabCount } from './MessagingTabCount';
 
 /**
  * Sub-navigation tab strip for the Messaging section. Guests and Owners are
@@ -45,6 +46,7 @@ export function MessagingTabs({
               }}
             >
               {t.label}
+              <MessagingTabCount category={t.id} />
             </Link>
           );
         })}
