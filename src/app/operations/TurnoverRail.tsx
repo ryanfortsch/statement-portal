@@ -22,12 +22,13 @@ type Props = {
   checkIn: string;
   previousCheckout: string | null;
   propertyId: string;
+  sameDay: boolean;
 };
 
 type NodeCls = 'passed' | 'good' | 'active' | 'future' | 'est';
 
-function fmtElapsed(sinceIso: string): string {
-  const s = Math.max(0, Math.floor((Date.now() - Date.parse(sinceIso)) / 1000));
+function fmtElapsed(sinceIso: string, now: number): string {
+  const s = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -42,9 +43,9 @@ function fmtTime(iso: string): string {
   return m === 0 ? `${h}${ap}` : `${h}:${String(m).padStart(2, '0')}${ap}`;
 }
 
-function countdown(checkIn: string): { text: string; urgency: 'far' | 'soon' | 'now' } {
+function countdown(checkIn: string, now: number): { text: string; urgency: 'far' | 'soon' | 'now' } {
   const target = Date.parse(`${checkIn.slice(0, 10)}T16:00:00`);
-  const ms = target - Date.now();
+  const ms = target - now;
   if (ms <= 0) return { text: 'checking in', urgency: 'now' };
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
@@ -54,15 +55,16 @@ function countdown(checkIn: string): { text: string; urgency: 'far' | 'soon' | '
 }
 
 export function TurnoverRail(p: Props) {
-  const [, force] = useState(0);
+  // "now" lives in state and updates on the interval, so render stays pure
+  // (no Date.now() in the render body) while the counter + countdown breathe
+  // between server refreshes. Lazy init keeps SSR + first paint correct.
+  const [now, setNow] = useState(() => Date.now());
   const activeRef = useRef<HTMLDivElement | null>(null);
   const [pending, start] = useTransition();
   const [justConfirmed, setJustConfirmed] = useState(false);
 
-  // Re-render every second so the live counter + countdown breathe between
-  // server refreshes.
   useEffect(() => {
-    const id = setInterval(() => force((x) => x + 1), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -123,8 +125,15 @@ export function TurnoverRail(p: Props) {
     { key: 'ready', label: 'Guest-ready', cls: ready ? 'good' : 'future' },
   ];
 
-  const cd = countdown(p.checkIn);
-  const cdColor = cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
+  const cd = countdown(p.checkIn, now);
+  const overdue = active !== null && Date.parse(`${p.checkIn.slice(0, 10)}T16:00:00`) < now;
+  const activeColor = overdue ? 'var(--negative)' : 'var(--signal)';
+  const cdColor =
+    overdue || cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
+  // Baseline runs hot when the turn is tight (soon / same-day) and red when
+  // check-in has passed with a stage unmet.
+  const railHot = active !== null && (cd.urgency !== 'far' || p.sameDay);
+  const baseColor = overdue ? 'rgba(200,90,58,.5)' : railHot ? 'rgba(200,90,58,.28)' : 'var(--rule)';
   const showEstConfirm = cleaned && p.cleanedEstimated && !justConfirmed;
 
   return (
@@ -142,7 +151,7 @@ export function TurnoverRail(p: Props) {
             left: '4%',
             right: '4%',
             height: 2,
-            background: active === 'in' && cd.urgency !== 'far' ? 'rgba(200,90,58,.35)' : 'var(--rule)',
+            background: baseColor,
             zIndex: 0,
           }}
         />
@@ -161,20 +170,26 @@ export function TurnoverRail(p: Props) {
               minWidth: 0,
             }}
           >
-            <span style={dotStyle(n.cls)} />
+            <span
+              style={
+                n.cls === 'active' && overdue
+                  ? { ...dotStyle('active'), background: 'var(--negative)', borderColor: 'var(--negative)' }
+                  : dotStyle(n.cls)
+              }
+            />
             <span
               style={{
                 fontSize: 10,
                 lineHeight: 1.2,
                 textAlign: 'center',
-                color: n.cls === 'active' ? 'var(--signal)' : n.cls === 'good' ? 'var(--positive)' : 'var(--ink-4)',
+                color: n.cls === 'active' ? activeColor : n.cls === 'good' ? 'var(--positive)' : 'var(--ink-4)',
               }}
             >
               {n.glyph === 'lock' ? '⌁ ' : n.glyph === 'phone' ? '✆ ' : ''}
               {n.label}
             </span>
-            <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10, color: 'var(--ink-4)', minHeight: 12 }}>
-              {n.cls === 'active' && counterSince ? (active === 'cleaning' ? fmtElapsed(counterSince) : `${fmtElapsed(counterSince)}`) : n.time ? fmtTime(n.time) : ''}
+            <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10, color: n.cls === 'active' ? activeColor : 'var(--ink-4)', minHeight: 12 }}>
+              {n.cls === 'active' && counterSince ? fmtElapsed(counterSince, now) : n.time ? fmtTime(n.time) : ''}
             </span>
             {n.key === 'cleaned' && showEstConfirm && (
               <button
