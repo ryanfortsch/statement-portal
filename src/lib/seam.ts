@@ -241,6 +241,23 @@ export async function deleteAccessCode(accessCodeId: string): Promise<void> {
   await seamPost('/access_codes/delete', { access_code_id: accessCodeId });
 }
 
+export type SeamAccessCodeFull = {
+  access_code_id: string;
+  code: string | null;
+  name?: string | null;
+  status?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+};
+
+/** Every access code currently programmed on a lock (Helm-issued or not). */
+export async function listAccessCodes(deviceId: string): Promise<SeamAccessCodeFull[]> {
+  const res = await seamGet<{ access_codes: SeamAccessCodeFull[] }>(
+    `/access_codes/list?device_id=${encodeURIComponent(deviceId)}`,
+  );
+  return res.access_codes ?? [];
+}
+
 // ── Webhook signature verification (Svix scheme) ────────────────────
 //
 // Seam delivers webhooks via Svix. The signed content is
