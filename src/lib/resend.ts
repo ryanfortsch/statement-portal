@@ -165,6 +165,7 @@ export async function sendTransactionalViaResend(args: {
   html: string;
   text?: string;
   cc?: string | string[];
+  replyTo?: string | string[];
   attachments?: Array<{ filename: string; content: string }>;
 }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
@@ -181,6 +182,7 @@ export async function sendTransactionalViaResend(args: {
     text: args.text,
   };
   if (args.cc) body.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
+  if (args.replyTo) body.reply_to = Array.isArray(args.replyTo) ? args.replyTo : [args.replyTo];
   if (args.attachments && args.attachments.length > 0) body.attachments = args.attachments;
 
   const res = await fetch(`${RESEND_API}/emails`, {
