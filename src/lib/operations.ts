@@ -10,6 +10,7 @@
  * guesty_reservation_id throughout this module and the Operations page).
  */
 import { supabaseAdmin as supabase } from './supabase-admin';
+import type { CleaningSession } from './cleaning-sessions';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
 
@@ -158,6 +159,10 @@ export type Turnover = {
   inspectionStatus: InspectionStatus;
   plan: InspectionPlanMini | null;
   cleaning: CleaningCompletion | null;
+  /** Lock + text-derived cleaning lifecycle (entered / finished + provenance)
+   *  for this turnover's previousCheckout. Drives the live "cleaner in /
+   *  cleaning / cleaned" state; null until a signal lands. */
+  cleaningSession: CleaningSession | null;
   /** Count of active, non-snoozed work slips on this property. Used to
    *  surface a "N work slips · Print" affordance on the turnover row so
    *  the operator can grab the checklist on their way out the door. */
@@ -425,6 +430,7 @@ export async function loadOperationsData(
     { data: openSlipsData },
     { data: batteryData },
     { data: completionData },
+    { data: cleaningSessionData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -446,6 +452,12 @@ export async function loadOperationsData(
       .from('turnover_completions')
       .select('property_id, check_in, completed_at, completed_by_email')
       .gte('check_in', fetchStart),
+    supabase
+      .from('cleaning_sessions')
+      .select(
+        'property_id, checkout_date, entered_at, finished_at, entry_source, finish_source, finish_estimated',
+      )
+      .gte('checkout_date', fetchStart),
   ]);
 
   const completionByKey = new Map<string, { completedAt: string; by: string | null }>();
@@ -512,6 +524,25 @@ export async function loadOperationsData(
     }
   }
 
+  const cleaningSessionByKey = new Map<string, CleaningSession>();
+  for (const row of (cleaningSessionData ?? []) as Array<{
+    property_id: string;
+    checkout_date: string;
+    entered_at: string | null;
+    finished_at: string | null;
+    entry_source: string | null;
+    finish_source: string | null;
+    finish_estimated: boolean;
+  }>) {
+    cleaningSessionByKey.set(`${row.property_id}|${row.checkout_date}`, {
+      enteredAt: row.entered_at,
+      finishedAt: row.finished_at,
+      entrySource: row.entry_source,
+      finishSource: row.finish_source,
+      finishEstimated: !!row.finish_estimated,
+    });
+  }
+
   // Filter to the actual display window (today through rangeEnd) and enrich.
   const turnovers: Turnover[] = [];
   for (const r of reservations) {
@@ -557,6 +588,10 @@ export async function loadOperationsData(
       ? cleaningByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
       : null;
 
+    const cleaningSession = previousCheckout
+      ? cleaningSessionByKey.get(`${r.property_id}|${previousCheckout}`) ?? null
+      : null;
+
     const completion =
       completionByKey.get(`${r.property_id}|${checkInDate.slice(0, 10)}`) ?? null;
 
@@ -577,6 +612,7 @@ export async function loadOperationsData(
       inspectionStatus,
       plan: plansByReservation.get(r.guesty_reservation_id) ?? null,
       cleaning,
+      cleaningSession,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
       lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
       manuallyCompleted: completion !== null,

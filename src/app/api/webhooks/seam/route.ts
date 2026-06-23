@@ -11,6 +11,7 @@ import {
   type SeamWebhookEvent,
   type NormalizedDevice,
 } from '@/lib/seam';
+import { recordCleanerEntry, recordLockFinishEstimate } from '@/lib/cleaning-sessions';
 
 // Service role bypasses RLS so the cross-table writes (lock_events,
 // lock_devices, lock_battery_status, work_slips) all work. Same pattern
@@ -29,6 +30,8 @@ const WEBHOOK_SECRET = process.env.SEAM_WEBHOOK_SECRET || '';
 // even if the low-battery event was missed.
 const BATTERY_EVENTS = new Set(['device.low_battery', 'device.battery_status_changed']);
 const REFRESH_EVENTS = new Set(['device.connected', 'device.converted_to_managed']);
+// Lock activity → cleaning lifecycle (src/lib/cleaning-sessions).
+const LOCK_EVENTS = new Set(['lock.unlocked', 'lock.locked']);
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -108,6 +111,21 @@ export async function POST(request: NextRequest) {
 
 async function dispatch(ev: SeamWebhookEvent): Promise<void> {
   if (!ev.device_id) return;
+
+  // Lock activity → cleaning lifecycle. lock.unlocked with the cleaner code is
+  // a high-confidence "cleaner in"; lock.locked only seeds an estimated finish.
+  if (LOCK_EVENTS.has(ev.event_type)) {
+    const input = {
+      deviceId: ev.device_id,
+      occurredAt: ev.occurred_at ?? ev.created_at ?? new Date().toISOString(),
+      method: ev.method ?? null,
+      accessCodeId: ev.access_code_id ?? null,
+    };
+    if (ev.event_type === 'lock.unlocked') await recordCleanerEntry(supabase, input);
+    else await recordLockFinishEstimate(supabase, input);
+    return;
+  }
+
   if (!BATTERY_EVENTS.has(ev.event_type) && !REFRESH_EVENTS.has(ev.event_type)) return;
 
   const nd = await snapshotDevice(ev);

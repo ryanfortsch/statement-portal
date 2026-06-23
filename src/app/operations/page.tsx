@@ -451,8 +451,44 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
   // previousCheckout is null or in the future (cleaning isn't due yet).
   const today = new Date().toISOString().slice(0, 10);
   const cleaningExpected = t.previousCheckout !== null && t.previousCheckout <= today;
-  const cleaningDone = t.cleaning !== null;
-  const cleaningRelative = t.cleaning ? formatRelativeShort(t.cleaning.completedAt) : null;
+  // Lifecycle from the lock + text: entered (cleaner in) vs finished (cleaned).
+  // A lock keypad entry by the cleaner code is high-confidence; a finish from
+  // the lock alone is only an estimate (shown as "Cleaned?").
+  const cs = t.cleaningSession;
+  const cleaningEnteredAt = cs?.enteredAt ?? null;
+  const cleaningFinishedAt = cs?.finishedAt ?? t.cleaning?.completedAt ?? null;
+  const cleaningDone = cleaningFinishedAt !== null;
+  const cleaningInProgress = !cleaningDone && cleaningEnteredAt !== null;
+  const cleaningEstimated = cleaningDone && cs?.finishSource === 'estimate';
+  const cleaningDoneRel = cleaningFinishedAt ? formatRelativeShort(cleaningFinishedAt) : null;
+  const cleaningEnteredRel = cleaningEnteredAt ? formatRelativeShort(cleaningEnteredAt) : null;
+  const cleaningLabel = cleaningDone
+    ? cleaningEstimated
+      ? `Cleaned? ${cleaningDoneRel}`
+      : `Cleaned ${cleaningDoneRel}`
+    : cleaningInProgress
+      ? `Cleaning · in ${cleaningEnteredRel}`
+      : 'Awaiting cleaner';
+  const cleaningColor = cleaningDone
+    ? cleaningEstimated
+      ? 'var(--signal)'
+      : 'var(--positive)'
+    : cleaningInProgress
+      ? 'var(--tide-deep)'
+      : 'var(--signal)';
+  const cleaningTitle = cleaningDone
+    ? cleaningEstimated
+      ? 'Estimated from the lock (auto-lock after entry) — confirm'
+      : cs?.finishSource === 'quo'
+        ? 'Confirmed by cleaner text'
+        : cs?.finishSource === 'manual'
+          ? 'Confirmed by you'
+          : t.cleaning
+            ? `Cleaner finished via Quo${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
+            : 'Cleaned'
+    : cleaningInProgress
+      ? `Cleaner entered via keypad ${cleaningEnteredRel} ago — cleaning in progress`
+      : 'No cleaner signal yet (lock keypad entry or Quo text)';
 
   // Gap context: for non-same-day turnovers with a known previousCheckout,
   // surface how long the property has been sitting since the last guest.
@@ -607,15 +643,8 @@ function TurnoverRow({ turnover: t, myEmail }: { turnover: Turnover; myEmail: st
         <div>
           {cleaningExpected && (
             <>
-              <span
-                style={{ color: cleaningDone ? 'var(--positive)' : 'var(--signal)' }}
-                title={
-                  t.cleaning
-                    ? `Quo: cleaner finished ${cleaningRelative} ago${t.cleaning.sourcePhone ? ` (${t.cleaning.sourcePhone})` : ''}`
-                    : 'No cleaner-completion text received via Quo for this turnover'
-                }
-              >
-                {cleaningDone ? `Cleaned ${cleaningRelative}` : 'Awaiting cleaner'}
+              <span style={{ color: cleaningColor }} title={cleaningTitle}>
+                {cleaningLabel}
               </span>
               <span style={{ color: 'var(--ink-4)' }}>{' · '}</span>
             </>

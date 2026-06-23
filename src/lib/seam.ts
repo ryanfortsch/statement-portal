@@ -52,10 +52,13 @@ export type SeamWebhookEvent = {
   event_type: string;
   workspace_id?: string;
   created_at?: string;
+  occurred_at?: string; // when the physical event happened (lock events); prefer over created_at
   device_id?: string;
   connected_account_id?: string;
   battery_level?: number; // 0..1, present on battery events
   battery_status?: SeamBatteryStatus;
+  method?: string | null; // lock.unlocked/locked: keycode | manual | mobile_key | ...
+  access_code_id?: string | null; // lock.unlocked: which code was used (keypad)
 };
 
 /** Provider-shape-agnostic device snapshot the ingest pipeline consumes. */

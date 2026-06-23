@@ -6,6 +6,7 @@ import {
   normalizeFromDevice,
   ingestDeviceBattery,
 } from '@/lib/seam';
+import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
@@ -74,6 +75,9 @@ export async function POST() {
           low: res.low,
           slip_created: !!res.slipId,
         });
+        // Resolve the cleaner code's access_code_id for mapped locks so the
+        // webhook can attribute a 2222 keypad unlock to the cleaner.
+        if (res.propertyId) await resolveCleanerCodeId(supabase, res.deviceId);
       } catch (err) {
         summary.errors.push(
           `${device.device_id}: ${err instanceof Error ? err.message : String(err)}`,
