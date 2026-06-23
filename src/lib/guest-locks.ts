@@ -49,11 +49,12 @@ export type LockCode = {
   starts_at: string | null;
   ends_at: string | null;
   source: 'helm' | 'external';
+  lock_name: string | null;
 };
 
 export type GuestCodeView = {
   seamConfigured: boolean;
-  lock: PropertyLock | null;
+  locks: PropertyLock[];
   bookingRows: GuestCodeBookingRow[];
   testCodes: GuestTestCode[];
   unmappedLocks: UnmappedLock[];
@@ -84,22 +85,23 @@ function todayET(): string {
   }).format(new Date());
 }
 
-async function getPropertyLock(sb: SupabaseClient, propertyId: string): Promise<PropertyLock | null> {
+async function getPropertyLocks(sb: SupabaseClient, propertyId: string): Promise<PropertyLock[]> {
   const { data } = await sb
     .from('lock_devices')
     .select('device_id, display_name')
     .eq('property_id', propertyId)
-    .eq('active', true)
-    .limit(1);
-  const row = ((data ?? [])[0] as { device_id: string; display_name: string | null } | undefined) ?? null;
-  return row ? { device_id: row.device_id, display_name: row.display_name } : null;
+    .eq('active', true);
+  return ((data ?? []) as { device_id: string; display_name: string | null }[]).map((r) => ({
+    device_id: r.device_id,
+    display_name: r.display_name,
+  }));
 }
 
 /** Everything the Guest door codes panel needs, in one call. */
 export async function getGuestCodeView(propertyId: string): Promise<GuestCodeView> {
   try {
     const sb = getServiceClient();
-    const lock = await getPropertyLock(sb, propertyId);
+    const locks = await getPropertyLocks(sb, propertyId);
     const today = todayET();
     const [{ data: bks }, { data: codes }, { data: unmapped }] = await Promise.all([
       sb
@@ -156,8 +158,6 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
         byStay.set(key, row);
         continue;
       }
-      // Keep a real guest name and any already-issued code; prefer the
-      // booking_id that owns the code so re-issue stays idempotent.
       const codeOwner = prev.code ? prev : row.code ? row : prev;
       byStay.set(key, {
         booking_id: codeOwner.booking_id,
@@ -177,38 +177,42 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
       (unmapped ?? []) as { device_id: string; display_name: string | null; manufacturer: string | null }[]
     ).map((l) => ({ device_id: l.device_id, label: l.display_name ?? l.manufacturer ?? l.device_id }));
 
-    // What's physically on the lock right now (Helm-issued or not), read from
-    // Seam. Best-effort — a Seam hiccup must not break the property page.
+    // What's physically on every mapped lock right now (Helm-issued or not).
+    // Best-effort per lock — a Seam hiccup on one lock must not hide the others.
     let lockCodes: LockCode[] = [];
-    if (lock && seamConfigured()) {
-      const toRow = (c: SeamAccessCodeFull, source: 'helm' | 'external'): LockCode => ({
+    if (locks.length > 0 && seamConfigured()) {
+      const toRow = (c: SeamAccessCodeFull, source: 'helm' | 'external', lockName: string | null): LockCode => ({
         access_code_id: c.access_code_id,
         name: c.name ?? null,
         code: c.code ?? null,
         starts_at: c.starts_at ?? null,
         ends_at: c.ends_at ?? null,
         source,
+        lock_name: lockName,
       });
-      // Managed (created through Seam/Helm) + unmanaged (set in the Schlage app
-      // or already on the lock). Each call best-effort so one failing doesn't
-      // hide the other or break the page.
-      const [managed, unmanaged] = await Promise.all([
-        listAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
-        listUnmanagedAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
-      ]);
+      const perLock = await Promise.all(
+        locks.map(async (lock) => {
+          const [managed, unmanaged] = await Promise.all([
+            listAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
+            listUnmanagedAccessCodes(lock.device_id).catch(() => [] as SeamAccessCodeFull[]),
+          ]);
+          return [
+            ...managed.map((c) => toRow(c, 'helm', lock.display_name)),
+            ...unmanaged.map((c) => toRow(c, 'external', lock.display_name)),
+          ];
+        }),
+      );
       const seen = new Set<string>();
-      lockCodes = [
-        ...managed.map((c) => toRow(c, 'helm')),
-        ...unmanaged.map((c) => toRow(c, 'external')),
-      ].filter((c) => (seen.has(c.access_code_id) ? false : (seen.add(c.access_code_id), true)));
+      lockCodes = perLock
+        .flat()
+        .filter((c) => (seen.has(c.access_code_id) ? false : (seen.add(c.access_code_id), true)));
     }
 
-    return { seamConfigured: seamConfigured(), lock, bookingRows, testCodes, unmappedLocks, lockCodes };
+    return { seamConfigured: seamConfigured(), locks, bookingRows, testCodes, unmappedLocks, lockCodes };
   } catch {
-    // Table not migrated yet, etc. — panel shows its empty state.
     return {
       seamConfigured: seamConfigured(),
-      lock: null,
+      locks: [],
       bookingRows: [],
       testCodes: [],
       unmappedLocks: [],
@@ -221,31 +225,34 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
 export async function issueTestCode(propertyId: string, byEmail: string): Promise<IssueResult> {
   if (!seamConfigured()) return { ok: false, error: 'SEAM_API_KEY is not set in this environment.' };
   const sb = getServiceClient();
-  const lock = await getPropertyLock(sb, propertyId);
-  if (!lock) return { ok: false, error: 'No active Schlage lock is mapped to this property in Seam yet.' };
+  const locks = await getPropertyLocks(sb, propertyId);
+  if (locks.length === 0) return { ok: false, error: 'No active lock is mapped to this property in Seam yet.' };
 
   const pin = randomPin();
   const startsAt = new Date().toISOString();
   const endsAt = new Date(Date.now() + 3 * 3_600_000).toISOString();
+  const codeName = `Helm test · ${byEmail.split('@')[0]}`;
   try {
-    const ac = await createAccessCode({
-      deviceId: lock.device_id,
-      name: `Helm test · ${byEmail.split('@')[0]}`,
-      code: pin,
-      startsAt,
-      endsAt,
-    });
-    await sb.from('guest_access_codes').insert({
-      property_id: propertyId,
-      device_id: lock.device_id,
-      booking_id: null,
-      guest_name: 'Test code',
-      code: pin,
-      seam_access_code_id: ac?.access_code_id ?? null,
-      starts_at: startsAt,
-      ends_at: endsAt,
-      created_by_email: byEmail,
-    });
+    for (const lock of locks) {
+      const ac = await createAccessCode({
+        deviceId: lock.device_id,
+        name: codeName,
+        code: pin,
+        startsAt,
+        endsAt,
+      });
+      await sb.from('guest_access_codes').insert({
+        property_id: propertyId,
+        device_id: lock.device_id,
+        booking_id: null,
+        guest_name: 'Test code',
+        code: pin,
+        seam_access_code_id: ac?.access_code_id ?? null,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        created_by_email: byEmail,
+      });
+    }
     return { ok: true, code: pin };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -260,14 +267,14 @@ export async function issueGuestCodeForBooking(
 ): Promise<IssueResult> {
   if (!seamConfigured()) return { ok: false, error: 'SEAM_API_KEY is not set in this environment.' };
   const sb = getServiceClient();
-  const lock = await getPropertyLock(sb, propertyId);
-  if (!lock) return { ok: false, error: 'No active Schlage lock is mapped to this property in Seam yet.' };
+  const locks = await getPropertyLocks(sb, propertyId);
+  if (locks.length === 0) return { ok: false, error: 'No active lock is mapped to this property in Seam yet.' };
 
+  // Check if any lock already has a code for this booking (idempotent).
   const { data: existing } = await sb
     .from('guest_access_codes')
     .select('code')
     .eq('booking_id', bookingId)
-    .eq('device_id', lock.device_id)
     .is('removed_at', null)
     .limit(1);
   const prior = ((existing ?? [])[0] as { code: string | null } | undefined) ?? null;
@@ -284,25 +291,39 @@ export async function issueGuestCodeForBooking(
   const pin = randomPin();
   const startsAt = new Date(`${booking.check_in}T${CHECKIN_HOUR}${ET_OFFSET}`).toISOString();
   const endsAt = new Date(`${booking.check_out}T${CHECKOUT_HOUR}${ET_OFFSET}`).toISOString();
+  const codeName = `Guest · ${booking.guest_name ?? 'stay'}`;
   try {
-    const ac = await createAccessCode({
-      deviceId: lock.device_id,
-      name: `Guest · ${booking.guest_name ?? 'stay'}`,
-      code: pin,
-      startsAt,
-      endsAt,
-    });
-    await sb.from('guest_access_codes').insert({
-      property_id: propertyId,
-      device_id: lock.device_id,
-      booking_id: bookingId,
-      guest_name: booking.guest_name,
-      code: pin,
-      seam_access_code_id: ac?.access_code_id ?? null,
-      starts_at: startsAt,
-      ends_at: endsAt,
-      created_by_email: byEmail,
-    });
+    for (const lock of locks) {
+      // Per-device idempotency: skip if this lock already has a live code for
+      // this booking (e.g. a second lock was mapped after the first code was issued).
+      const { data: devExisting } = await sb
+        .from('guest_access_codes')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('device_id', lock.device_id)
+        .is('removed_at', null)
+        .limit(1);
+      if ((devExisting ?? []).length > 0) continue;
+
+      const ac = await createAccessCode({
+        deviceId: lock.device_id,
+        name: codeName,
+        code: pin,
+        startsAt,
+        endsAt,
+      });
+      await sb.from('guest_access_codes').insert({
+        property_id: propertyId,
+        device_id: lock.device_id,
+        booking_id: bookingId,
+        guest_name: booking.guest_name,
+        code: pin,
+        seam_access_code_id: ac?.access_code_id ?? null,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        created_by_email: byEmail,
+      });
+    }
     return { ok: true, code: pin };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
