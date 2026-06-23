@@ -361,6 +361,34 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
   });
 }
 
+export async function sendNewApplicantEmail(app: {
+  full_name: string; email: string; phone: string | null; area: string | null;
+  has_transport: boolean | null; source: string | null;
+}): Promise<boolean> {
+  const details = [
+    `<strong>${app.full_name}</strong>`,
+    app.email,
+    app.phone || '',
+    app.area ? `Based in ${app.area}` : '',
+    app.has_transport != null ? `Vehicle: ${app.has_transport ? 'yes' : 'no'}` : '',
+    app.source ? `Source: ${app.source}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New Field applicant</h1>
+    <p style="font-size:14px;">${details}</p>
+    ${btn(`${fieldBaseUrl()}/operations/contractors/applicants`, 'Review in Helm')}
+  `);
+  return sendTransactionalViaResend({
+    to: OFFICE_CC,
+    subject: `New Field applicant: ${app.full_name}`,
+    fromName: FROM_NAME,
+    cc: 'ryan@risingtidestr.com',
+    html,
+    text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${fieldBaseUrl()}/operations/contractors/applicants`,
+  });
+}
+
 export async function sendPacketSubmittedEmail(
   contractor: ContractorRow,
   packet: PacketRow,

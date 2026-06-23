@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { fieldDb } from '@/lib/field-db';
+import { sendNewApplicantEmail } from '@/lib/field-notify';
 
 /** Public application submit (no auth — this is the top of the recruiting
  *  funnel). Writes via the service-role client; the table has no anon policy,
@@ -26,6 +27,8 @@ export async function submitApplication(formData: FormData): Promise<void> {
   const rawVideo = String(formData.get('video_url') || '').trim().slice(0, 500);
   const video_url = /^https?:\/\//i.test(rawVideo) ? rawVideo : null;
 
+  const source = String(formData.get('source') || '').trim().slice(0, 40) || null;
+
   await fieldDb().from('contractor_applications').insert({
     full_name,
     email,
@@ -37,9 +40,11 @@ export async function submitApplication(formData: FormData): Promise<void> {
     video_url,
     has_transport,
     trade,
-    source: String(formData.get('source') || '').trim().slice(0, 40) || null,
+    source,
     status: 'new',
   });
+
+  sendNewApplicantEmail({ full_name, email, phone, area, has_transport, source }).catch(() => {});
 
   redirect('/field/apply?submitted=1');
 }
