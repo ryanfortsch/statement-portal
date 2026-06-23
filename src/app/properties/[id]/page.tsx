@@ -1005,7 +1005,7 @@ export default async function PropertyDetailPage({
 
       <CollapsibleSection
         title="Guest door codes"
-        summary={guestCodeView.lock ? 'lock mapped' : 'no lock mapped'}
+        summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
       >
         <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
       </CollapsibleSection>

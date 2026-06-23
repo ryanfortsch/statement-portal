@@ -12,12 +12,6 @@ import {
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
 
-/**
- * Guest door codes panel (Operations tab). Issues a time-boxed PIN on the
- * property's Seam lock for a stay (or a 3-hour test code to pressure-test the
- * lock plumbing), shows the code, and revokes it. Operator-in-the-loop: this
- * does not message the guest.
- */
 export function GuestCodesPanel({
   propertyId,
   view,
@@ -40,12 +34,13 @@ export function GuestCodesPanel({
     });
   };
 
-  const { seamConfigured, lock, bookingRows, testCodes, unmappedLocks, lockCodes } = view;
+  const { seamConfigured, locks, bookingRows, testCodes, unmappedLocks, lockCodes } = view;
+  const hasLocks = locks.length > 0;
 
   return (
     <div style={{ paddingBottom: 6 }}>
       <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
-        Programs a time-boxed PIN onto this property&apos;s Seam lock for a stay, and revokes it after.
+        Programs a time-boxed PIN onto this property&apos;s Seam lock{locks.length > 1 ? 's' : ''} for a stay, and revokes it after.
         This does not text the guest — you issue and share the code yourself.
       </p>
 
@@ -71,12 +66,17 @@ export function GuestCodesPanel({
         </div>
       )}
 
-      {seamConfigured && !lock && (
+      {seamConfigured && !hasLocks && (
+        <div style={noteStyle}>
+          No lock mapped to this property yet. Sync your Seam devices, then map this property&apos;s
+          lock — no URLs or SQL needed.
+        </div>
+      )}
+
+      {/* Sync + map controls — always visible when Seam is configured, so you
+          can add additional locks even when one is already mapped. */}
+      {seamConfigured && (
         <div style={{ marginBottom: 16 }}>
-          <div style={noteStyle}>
-            No lock mapped to this property yet. Sync your Seam devices, then map this property&apos;s
-            Schlage lock — no URLs or SQL needed.
-          </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -89,7 +89,7 @@ export function GuestCodesPanel({
             {unmappedLocks.length > 0 && (
               <>
                 <select value={sel} onChange={(e) => setSel(e.target.value)} style={selectStyle}>
-                  <option value="">— pick a lock —</option>
+                  <option value="">{hasLocks ? '— add another lock —' : '— pick a lock —'}</option>
                   {unmappedLocks.map((l) => (
                     <option key={l.device_id} value={l.device_id}>
                       {l.label}
@@ -107,7 +107,7 @@ export function GuestCodesPanel({
               </>
             )}
           </div>
-          {unmappedLocks.length === 0 && (
+          {!hasLocks && unmappedLocks.length === 0 && (
             <p style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
               After syncing, any unmapped locks appear here to assign.
             </p>
@@ -115,10 +115,16 @@ export function GuestCodesPanel({
         </div>
       )}
 
-      {lock && (
+      {hasLocks && (
         <>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 16 }}>
-            Lock: <strong style={{ color: 'var(--ink)' }}>{lock.display_name ?? lock.device_id}</strong>
+            {locks.length === 1 ? 'Lock' : 'Locks'}:{' '}
+            {locks.map((l, i) => (
+              <span key={l.device_id}>
+                {i > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+                <strong style={{ color: 'var(--ink)' }}>{l.display_name ?? l.device_id}</strong>
+              </span>
+            ))}
           </div>
 
           {/* Test code */}
@@ -131,7 +137,7 @@ export function GuestCodesPanel({
                 onClick={() => run('test', () => issueTestCodeAction(propertyId))}
                 style={ghostBtn(pending && busy === 'test')}
               >
-                {pending && busy === 'test' ? 'Issuing…' : 'Issue test code (3 hrs)'}
+                {pending && busy === 'test' ? 'Issuing…' : `Issue test code (3 hrs)${locks.length > 1 ? ` · ${locks.length} locks` : ''}`}
               </button>
             </div>
             {testCodes.length > 0 && (
@@ -158,12 +164,12 @@ export function GuestCodesPanel({
             )}
           </div>
 
-          {/* Currently on the lock — everything Seam reports, Helm-issued or not */}
+          {/* Currently on the lock(s) */}
           <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 16 }}>
-            <span style={labelStyle}>Currently on the lock</span>
+            <span style={labelStyle}>Currently on the lock{locks.length > 1 ? 's' : ''}</span>
             {lockCodes.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10 }}>
-                No codes on this lock (or Seam didn&apos;t return any).
+                No codes on {locks.length === 1 ? 'this lock' : 'these locks'} (or Seam didn&apos;t return any).
               </p>
             ) : (
               <div style={{ marginTop: 8 }}>
@@ -173,6 +179,7 @@ export function GuestCodesPanel({
                       <div style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name ?? 'Code'}</div>
                       <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
                         {c.source === 'external' ? 'set outside Helm' : 'issued by Helm'}
+                        {c.lock_name && locks.length > 1 ? ` · ${c.lock_name}` : ''}
                         {c.ends_at ? ` · until ${fmtDate(c.ends_at.slice(0, 10))}` : ''}
                       </div>
                     </div>
@@ -241,7 +248,7 @@ export function GuestCodesPanel({
                         onClick={() => run(b.booking_id, () => issueGuestCodeAction(propertyId, b.booking_id))}
                         style={ghostBtn(pending && busy === b.booking_id)}
                       >
-                        {pending && busy === b.booking_id ? 'Issuing…' : 'Issue code'}
+                        {pending && busy === b.booking_id ? 'Issuing…' : `Issue code${locks.length > 1 ? ` · ${locks.length} locks` : ''}`}
                       </button>
                     )}
                   </div>
