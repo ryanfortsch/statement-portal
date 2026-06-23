@@ -43,12 +43,29 @@ export default async function ApplyPage({
   return (
     <FieldShell showSignOut={false}>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 8 }}>Inspect with Rising Tide</h1>
-      <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 8 }}>
-        Flexible, paid-per-visit work across Cape Ann, run from your phone. Claim inspection jobs near you, walk the
-        home, confirm it&apos;s guest-ready. About 20 to 30 minutes per home, mostly early afternoons.
+      <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 520, marginBottom: 14 }}>
+        Rising Tide manages a carefully-kept portfolio of short-term rentals across Cape Ann (Gloucester,
+        Rockport, and nearby). We&apos;re looking for a sharp, reliable local to be our eyes on the ground
+        between guests. Flexible, paid-per-visit contract work, run from your phone: claim inspection jobs
+        near you, walk the home, and confirm it&apos;s ready for the next guest. Visits run about 20 to 90
+        minutes and are usually batched 2 to 5 homes per trip.
       </p>
-      <p style={{ fontSize: 13, color: 'var(--ink-4)', marginBottom: 24 }}>
-        Typically $65 to $100 per inspection, depending on size and travel.
+      <div style={{ maxWidth: 520, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 8 }}>On every visit you cover three things:</div>
+        {([
+          ['Perfection', "the home should look flawless and guest-ready — you're the last set of eyes before check-in."],
+          ['Maintenance', 'flag anything worn, leaking, or heading toward a repair, with a quick photo.'],
+          ['Supplies & inventory', 'confirm the essentials are stocked and note anything running low.'],
+        ] as const).map(([t, d]) => (
+          <div key={t} style={{ display: 'flex', gap: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, marginBottom: 5 }}>
+            <span style={{ color: 'var(--signal)' }}>•</span>
+            <span><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{t}:</strong> {d}</span>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, marginBottom: 24 }}>
+        Typically $65 to $100 per inspection, depending on size and travel. This is a 1099 contract role;
+        we collect a W-9 and run a background check.
       </p>
 
       {sp.error && (
@@ -77,7 +94,7 @@ export default async function ApplyPage({
         </label>
         <label style={lbl}>
           When can you work?
-          <input name="availability" placeholder="e.g. weekend afternoons, weekday mornings" style={input} />
+          <input name="availability" placeholder="e.g. weekend afternoons (most turnovers are Wed–Sun)" style={input} />
         </label>
         <label style={lbl}>
           Tell us a little about yourself
