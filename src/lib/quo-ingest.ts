@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { normalizePhone } from '@/lib/quo';
 import { matchPropertyFromCleanerText } from '@/lib/properties';
+import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -170,6 +171,9 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
           .then((r) => {
             if (r.error && r.error.code !== '23505') throw r.error;
           });
+        // Mirror the authoritative "done" into cleaning_sessions (re-derives
+        // the checkout off bookings so it lands on the same row as the lock).
+        await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
       }
       return;
     }
