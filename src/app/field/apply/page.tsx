@@ -70,7 +70,7 @@ export default async function ApplyPage({
 
       {sp.error && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 14, marginBottom: 18, borderRadius: 6 }}>
-          Please add at least your name and a valid email.
+          Please add your name, a valid email, and a phone number.
         </div>
       )}
 
@@ -85,24 +85,44 @@ export default async function ApplyPage({
           <input name="email" type="email" required placeholder="you@example.com" style={input} />
         </label>
         <label style={lbl}>
-          Phone
-          <input name="phone" type="tel" placeholder="(978) 555-0123" style={input} />
+          Phone *
+          <input name="phone" type="tel" required placeholder="(978) 555-0123" style={input} />
         </label>
         <label style={lbl}>
           Where are you based?
           <input name="area" placeholder="Gloucester, Rockport, Beverly…" style={input} />
         </label>
+        <fieldset style={{ border: 'none', padding: 0, margin: '0 0 16px' }}>
+          <legend style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 8, padding: 0 }}>
+            Do you have a reliable vehicle? *
+          </legend>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--ink)' }}>
+              <input type="radio" name="has_transport" value="yes" required /> Yes
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--ink)' }}>
+              <input type="radio" name="has_transport" value="no" /> No
+            </label>
+          </div>
+        </fieldset>
         <label style={lbl}>
           When can you work?
           <input name="availability" placeholder="e.g. weekend afternoons (most turnovers are Wed–Sun)" style={input} />
         </label>
         <label style={lbl}>
+          How did you hear about us?
+          <input name="heard_about" placeholder="Indeed, a friend, Facebook…" style={input} />
+        </label>
+        <label style={lbl}>
           Tell us a little about yourself
           <textarea name="about" rows={4} placeholder="Any property, hospitality, cleaning, or home-maintenance experience? Why this work?" style={{ ...input, resize: 'vertical' }} />
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: 'var(--ink-3)', marginBottom: 24 }}>
-          <input type="checkbox" name="has_transport" defaultChecked />
-          I have my own transportation
+        <label style={lbl}>
+          Short intro video <span style={{ color: 'var(--ink-4)' }}>(optional)</span>
+          <input name="video_url" type="url" placeholder="Link to a 30–60s video — Loom, YouTube, Google Drive" style={input} />
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.5 }}>
+            Totally optional, but a quick clip on why you&apos;d be a fit goes a long way. Paste any shareable link.
+          </span>
         </label>
         <button
           type="submit"
