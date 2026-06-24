@@ -3,8 +3,9 @@
  *
  * Turns the canonical booking calendar into thermostat setpoints via Seam:
  *   - empty property                -> eco setpoint (save the owner's energy)
- *   - within precool_lead_hours of a check-in, or a guest in residence
- *                                    -> comfort setpoint
+ *   - within precool_lead_hours of a check-in
+ *                                    -> comfort setpoint (pre-condition)
+ *   - guest in residence            -> SKIP (guest owns the thermostat)
  * Summer cools, winter heats. The setpoints are per-property (each owner
  * wants different numbers), stored in property_climate_profiles.
  *
@@ -63,13 +64,14 @@ export type DesiredClimate = {
   mode: HvacMode;
   setpoint: number;
   reason: string;
+  occupied: boolean;
 };
 
 export type ClimateRunResult = {
   property_id: string;
   ok: boolean;
   applied: boolean;
-  skipped?: 'unchanged' | 'seam_unconfigured';
+  skipped?: 'unchanged' | 'seam_unconfigured' | 'guest_occupied';
   desired?: DesiredClimate;
   error?: string;
 };
@@ -164,7 +166,7 @@ export function computeDesiredClimate(
       ? `arrival within ${profile.precool_lead_hours}h`
       : 'no upcoming arrival';
 
-  return { season, state, mode, setpoint, reason };
+  return { season, state, mode, setpoint, reason, occupied };
 }
 
 /** Read one property's climate profile (server-side, service-role). */
@@ -240,6 +242,19 @@ export async function runClimateAutomation(
         .order('check_in', { ascending: true });
 
       const desired = computeDesiredClimate(profile, (bks ?? []) as BookingWindow[], nowMs);
+
+      // Guest in residence = guest owns the thermostat. We only control it
+      // when the house is empty (eco) or during the pre-arrival window
+      // (comfort/precooling). This prevents overriding a guest who set the
+      // Ecobee to their own preference.
+      if (desired.occupied) {
+        await sb
+          .from('property_climate_profiles')
+          .update({ last_run_at: nowIso, last_error: null })
+          .eq('property_id', profile.property_id);
+        results.push({ property_id: profile.property_id, ok: true, applied: false, skipped: 'guest_occupied', desired });
+        continue;
+      }
 
       const unchanged =
         profile.last_applied_state === desired.state &&
