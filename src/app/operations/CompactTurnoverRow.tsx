@@ -276,7 +276,13 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
       </Link>
     );
   }
-  if (t.fieldPacket) return null;
+  // A LIVE Field packet (published to a contractor and beyond) covers this
+  // turnover, so hide the staff Start CTA — otherwise a staff walk and a
+  // paid contractor walk both happen. A DRAFT packet is NOT yet published
+  // to anyone, so it must not block staff: a draft was silently hiding
+  // Start and forcing turnovers to be marked done by hand. The Field chip
+  // still shows the draft exists; cancel the packet to clear it.
+  if (t.fieldPacket && t.fieldPacket.status !== 'draft') return null;
   return (
     <form action={startInspection} style={{ margin: 0 }}>
       <input type="hidden" name="property_id" value={t.propertyId} />
