@@ -88,6 +88,9 @@ export async function runClimateNow(
     if (r.skipped === 'seam_unconfigured') {
       return { ok: false, message: 'SEAM_API_KEY is not set in this environment yet.' };
     }
+    if (r.skipped === 'guest_occupied') {
+      return { ok: true, message: 'Guest in residence - thermostat left alone so they control it.' };
+    }
     if (!r.ok) return { ok: false, message: r.error ?? 'Run failed.' };
     const d = r.desired;
     const summary = d ? `${d.mode} to ${d.setpoint}°F (${d.state}, ${d.reason})` : '';
