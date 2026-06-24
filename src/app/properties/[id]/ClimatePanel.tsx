@@ -43,6 +43,21 @@ export function ClimatePanel({
       ? `${profile.last_applied_mode} to ${profile.last_applied_setpoint}°F (${profile.last_applied_state})`
       : null;
 
+  // Key the form on saveable fields so React remounts with fresh defaults
+  // after save + revalidation (uncontrolled inputs ignore prop updates).
+  const formKey = [
+    profile?.seam_device_id,
+    profile?.enabled,
+    profile?.season_mode,
+    profile?.summer_eco_f,
+    profile?.summer_comfort_f,
+    profile?.winter_eco_f,
+    profile?.winter_comfort_f,
+    profile?.precool_lead_hours,
+    profile?.checkin_hour,
+    profile?.checkout_hour,
+  ].join('|');
+
   return (
     <div style={{ paddingBottom: 6 }}>
       <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
@@ -72,7 +87,7 @@ export function ClimatePanel({
         </div>
       )}
 
-      <form action={formAction} style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
+      <form key={formKey} action={formAction} style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
         {/* Device + enable */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end', marginBottom: 18 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 280px' }}>
