@@ -162,3 +162,101 @@ export type GuestyListingDetail = {
 export async function getGuestyListing(listingId: string): Promise<GuestyListingDetail> {
   return guestyGet<GuestyListingDetail>(`/v1/listings/${listingId}`);
 }
+
+/**
+ * A single photo on a Guesty listing, as returned by
+ * GET /v1/listings/{id}/photos. Guesty returns a bare array of these.
+ * `original` / `thumbnail` are public CDN URLs (no auth needed to load
+ * them in an <img> or to fetch them for the vision model).
+ */
+export type GuestyPhoto = {
+  _id: string;
+  source?: string;
+  original?: string;
+  thumbnail?: string;
+  caption?: string;
+  index?: number;
+};
+
+/**
+ * List every photo on a listing, in Guesty's display order.
+ * GET /v1/listings/{id}/photos -> GuestyPhoto[].
+ *
+ * Guesty returns a bare array here (not the {results,...} envelope its
+ * list endpoints use), but we guard for the wrapped shape so a future
+ * API change degrades to empty instead of throwing.
+ */
+export async function getListingPhotos(listingId: string): Promise<GuestyPhoto[]> {
+  const res = await guestyGet<GuestyPhoto[] | { results?: GuestyPhoto[]; data?: GuestyPhoto[] }>(
+    `/v1/listings/${listingId}/photos`,
+  );
+  if (Array.isArray(res)) return res;
+  return res.results ?? res.data ?? [];
+}
+
+/**
+ * JSON PATCH helper sharing guestyGet's token cache + 429 backoff.
+ * Used for photo-caption edits, which the GET-only guestyGet can't do.
+ */
+async function guestyPatch<T = unknown>(path: string, body: unknown): Promise<T> {
+  const token = await getGuestyToken();
+  const url = `${GUESTY_API}${path}`;
+  const delays = [0, 2000, 5000, 10000];
+  let lastStatus = 0;
+  let lastBody = '';
+  for (const d of delays) {
+    if (d) await sleep(d);
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) {
+      lastStatus = 429;
+      lastBody = await res.text();
+      continue;
+    }
+    if (!res.ok) throw new Error(`Guesty PATCH ${path} failed: ${res.status} ${await res.text()}`);
+    // Caption edits return 200/201 with the updated photo array; some
+    // Guesty mutations answer 204 empty. We don't depend on the body (the
+    // caption is what we sent), so tolerate a non-JSON 200 instead of
+    // throwing a parse error.
+    const text = await res.text();
+    if (!text) return null as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return null as T;
+    }
+  }
+  throw new Error(`Guesty PATCH ${path} rate-limited after retries (${lastStatus}): ${lastBody}`);
+}
+
+/**
+ * Edit one photo's caption.
+ * PATCH /v1/listings/{listingId}/photos/{photoId} with { caption }.
+ *
+ * Per Guesty's "replace photo or edit caption" endpoint, the order and
+ * room assignment are preserved; only the caption changes. Returns the
+ * updated photo array Guesty echoes back (best-effort; may be null on a
+ * 204).
+ *
+ * NOTE: Guesty's docs show two paths for this operation (the public
+ * Open API `/v1/listings/{id}/photos/{photoId}` and an internal
+ * properties-api path). We use the documented public path; if a future
+ * account hits the internal one, this is the single spot to adjust.
+ */
+export async function updatePhotoCaption(
+  listingId: string,
+  photoId: string,
+  caption: string,
+): Promise<GuestyPhoto[] | null> {
+  return guestyPatch<GuestyPhoto[] | null>(
+    `/v1/listings/${listingId}/photos/${photoId}`,
+    { caption },
+  );
+}

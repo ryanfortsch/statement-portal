@@ -61,6 +61,7 @@ export type LaunchStep = {
     | 'open_quo'           // jump to Quo cleaner mapping
     | 'open_seam'          // jump to Seam lock mapping
     | 'generate_copy'      // AI listing-copy generator
+    | 'caption_photos'     // AI Guesty photo-caption tool
     | 'send_welcome'       // owner welcome email
     | 'activate';          // flip is_active = true
 };
@@ -131,6 +132,15 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     phase: 'listing',
     title: 'Photo pack delivered',
     required: true,
+  },
+  {
+    key: 'photo_captions',
+    phase: 'listing',
+    title: 'Photo captions written in Guesty',
+    required: false,
+    description: 'AI-draft a caption for every gallery photo in our existing listings’ voice, then push them to Guesty.',
+    why: 'Captioned photos read as a curated gallery on Airbnb / VRBO and lift conversion.',
+    action: 'caption_photos',
   },
   {
     key: 'airbnb_live',
