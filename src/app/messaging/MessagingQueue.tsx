@@ -180,6 +180,10 @@ function ApprovalCard({
   const [scheduleCustom, setScheduleCustom] = useState(false);
   const [customDay, setCustomDay] = useState<'today' | 'tomorrow'>('today');
   const [customTime, setCustomTime] = useState(nextQuarterHour);
+  // Queued (scheduled) cards collapse to a compact row by default so a
+  // backlog of waiting sends doesn't clutter the dashboard; "Show" expands
+  // one to the full draft + actions.
+  const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
   // The draft text the editor was seeded from, so we can detect the AI/another
   // operator regenerating the draft underneath an open editor.
@@ -418,6 +422,81 @@ function ApprovalCard({
     setShowCoach(true);
   };
 
+  // Collapsed queued card: a single dense row (name, channel, countdown, a
+  // one-line draft preview) with its actions, so waiting sends stay quiet on
+  // the dashboard. "Show" expands to the full card below.
+  if (isScheduled && !expanded) {
+    return (
+      <article
+        ref={cardRef}
+        style={{
+          border: '1px solid var(--rule)',
+          borderLeft: `3px solid ${QUEUED_TONE}`,
+          background: 'var(--paper-2)',
+          padding: '11px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <ProactiveBadge label="Queued" tone={QUEUED_TONE} />
+        <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>
+          {guestLabel} · {propertyLabel}
+        </span>
+        {approval.channel && <ChannelBadge channel={approval.channel} />}
+        <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
+          {sendsInLabel(approval.send_at)}
+        </span>
+        <span
+          style={{
+            flex: '1 1 120px',
+            minWidth: 0,
+            fontSize: 12,
+            color: 'var(--ink-4)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={approval.draft}
+        >
+          {approval.draft}
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            Show ▾
+          </button>
+          <SecondaryButton
+            onClick={handleSendNow}
+            disabled={isPending}
+            loading={pendingAction === 'send-now'}
+            loadingLabel="Sending"
+          >
+            Send now
+          </SecondaryButton>
+          <SecondaryButton
+            onClick={handleCancelSchedule}
+            disabled={isPending}
+            loading={pendingAction === 'cancel-schedule'}
+            loadingLabel="Cancelling"
+          >
+            Cancel send
+          </SecondaryButton>
+        </div>
+        {error && (
+          <p style={{ width: '100%', margin: '4px 0 0', fontSize: 12, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+            {error}
+          </p>
+        )}
+      </article>
+    );
+  }
+
   return (
     <article
       ref={cardRef}
@@ -476,9 +555,19 @@ function ApprovalCard({
             </span>
           )}
         </div>
-        {/* Suppress the "drafted X ago" cue on a queued card so the only time
-            readout is the countdown above. */}
-        {!isScheduled && (
+        {/* Queued cards suppress the "drafted X ago" cue (the countdown is the
+            one time readout) and instead offer a Hide control to collapse back
+            to the compact row. */}
+        {isScheduled ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            Hide ▴
+          </button>
+        ) : (
           <span
             className="eyebrow"
             style={{ color: 'var(--ink-4)' }}
