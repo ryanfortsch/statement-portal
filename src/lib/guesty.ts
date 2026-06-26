@@ -164,10 +164,10 @@ export async function getGuestyListing(listingId: string): Promise<GuestyListing
 }
 
 /**
- * A single photo on a Guesty listing, as returned by
- * GET /v1/listings/{id}/photos. Guesty returns a bare array of these.
- * `original` / `thumbnail` are public CDN URLs (no auth needed to load
- * them in an <img> or to fetch them for the vision model).
+ * A single photo on a Guesty listing/property, as returned by the
+ * property-photos API. `original` / `thumbnail` are public CDN URLs (no
+ * auth needed to load them in an <img> or to fetch them for the vision
+ * model).
  */
 export type GuestyPhoto = {
   _id: string;
@@ -179,26 +179,44 @@ export type GuestyPhoto = {
 };
 
 /**
- * List every photo on a listing, in Guesty's display order.
- * GET /v1/listings/{id}/photos -> GuestyPhoto[].
+ * Guesty's property-photos resource. The path really does double the
+ * "property-photos" segment, and the id is Guesty's PROPERTY id (for our
+ * single-unit STR listings the listing `_id` doubles as the property id;
+ * if a property ever 404s here, fetch the listing detail to map it).
  *
- * Guesty returns a bare array here (not the {results,...} envelope its
- * list endpoints use), but we guard for the wrapped shape so a future
- * API change degrades to empty instead of throwing.
+ * NOTE: this is NOT under /v1/listings/{id}/photos — that path routes to a
+ * non-existent /api/v2 upstream and 404s (observed live 2026-06-26). The
+ * real path is the properties-api one below.
  */
-export async function getListingPhotos(listingId: string): Promise<GuestyPhoto[]> {
+function propertyPhotosPath(propertyId: string, photoId?: string): string {
+  const base = `/v1/properties-api/property-photos/property-photos/${propertyId}`;
+  return photoId ? `${base}/${photoId}` : base;
+}
+
+/**
+ * List every photo on a listing/property, in Guesty's display order.
+ * GET /v1/properties-api/property-photos/property-photos/{id} -> GuestyPhoto[].
+ *
+ * Guesty returns a bare array here, but we guard for a wrapped shape so a
+ * future API change degrades to empty instead of throwing.
+ */
+export async function getListingPhotos(propertyId: string): Promise<GuestyPhoto[]> {
   const res = await guestyGet<GuestyPhoto[] | { results?: GuestyPhoto[]; data?: GuestyPhoto[] }>(
-    `/v1/listings/${listingId}/photos`,
+    propertyPhotosPath(propertyId),
   );
   if (Array.isArray(res)) return res;
   return res.results ?? res.data ?? [];
 }
 
 /**
- * JSON PATCH helper sharing guestyGet's token cache + 429 backoff.
- * Used for photo-caption edits, which the GET-only guestyGet can't do.
+ * JSON write helper (POST/PATCH/PUT) sharing guestyGet's token cache +
+ * 429 backoff. The GET-only guestyGet can't mutate.
  */
-async function guestyPatch<T = unknown>(path: string, body: unknown): Promise<T> {
+async function guestyWrite<T = unknown>(
+  method: 'POST' | 'PATCH' | 'PUT',
+  path: string,
+  body: unknown,
+): Promise<T> {
   const token = await getGuestyToken();
   const url = `${GUESTY_API}${path}`;
   const delays = [0, 2000, 5000, 10000];
@@ -207,7 +225,7 @@ async function guestyPatch<T = unknown>(path: string, body: unknown): Promise<T>
   for (const d of delays) {
     if (d) await sleep(d);
     const res = await fetch(url, {
-      method: 'PATCH',
+      method,
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
@@ -220,8 +238,8 @@ async function guestyPatch<T = unknown>(path: string, body: unknown): Promise<T>
       lastBody = await res.text();
       continue;
     }
-    if (!res.ok) throw new Error(`Guesty PATCH ${path} failed: ${res.status} ${await res.text()}`);
-    // Caption edits return 200/201 with the updated photo array; some
+    if (!res.ok) throw new Error(`Guesty ${method} ${path} failed: ${res.status} ${await res.text()}`);
+    // The caption edit answers 201 with the updated photo array; some
     // Guesty mutations answer 204 empty. We don't depend on the body (the
     // caption is what we sent), so tolerate a non-JSON 200 instead of
     // throwing a parse error.
@@ -233,30 +251,25 @@ async function guestyPatch<T = unknown>(path: string, body: unknown): Promise<T>
       return null as T;
     }
   }
-  throw new Error(`Guesty PATCH ${path} rate-limited after retries (${lastStatus}): ${lastBody}`);
+  throw new Error(`Guesty ${method} ${path} rate-limited after retries (${lastStatus}): ${lastBody}`);
 }
 
 /**
  * Edit one photo's caption.
- * PATCH /v1/listings/{listingId}/photos/{photoId} with { caption }.
- *
- * Per Guesty's "replace photo or edit caption" endpoint, the order and
- * room assignment are preserved; only the caption changes. Returns the
- * updated photo array Guesty echoes back (best-effort; may be null on a
- * 204).
- *
- * NOTE: Guesty's docs show two paths for this operation (the public
- * Open API `/v1/listings/{id}/photos/{photoId}` and an internal
- * properties-api path). We use the documented public path; if a future
- * account hits the internal one, this is the single spot to adjust.
+ * POST /v1/properties-api/property-photos/property-photos/{id}/{photoId}
+ * with { caption }. (Yes, POST, not PATCH — Guesty's property-photos API
+ * uses POST for the caption/replace edit.) Order and room assignment are
+ * preserved; only the caption changes. Returns the updated photo array
+ * Guesty echoes back on 201 (best-effort; may be null).
  */
 export async function updatePhotoCaption(
-  listingId: string,
+  propertyId: string,
   photoId: string,
   caption: string,
 ): Promise<GuestyPhoto[] | null> {
-  return guestyPatch<GuestyPhoto[] | null>(
-    `/v1/listings/${listingId}/photos/${photoId}`,
+  return guestyWrite<GuestyPhoto[] | null>(
+    'POST',
+    propertyPhotosPath(propertyId, photoId),
     { caption },
   );
 }
