@@ -38,7 +38,10 @@ export type ScreenInput = {
 };
 
 const ItemSchema = z.object({
-  id: z.string().describe('The application id passed in. Echo it back exactly.'),
+  index: z
+    .number()
+    .int()
+    .describe('The 1-based number of the applicant in the list, exactly as labeled. Return one entry per applicant.'),
   recommendation: z
     .enum(['reach_out', 'maybe', 'pass'])
     .describe(
@@ -46,7 +49,6 @@ const ItemSchema = z.object({
     ),
   score: z
     .number()
-    .int()
     .min(0)
     .max(100)
     .describe('Overall fit 0-100. reach_out ~ 70-100, maybe ~ 40-69, pass ~ 0-39. Drives the sort.'),
@@ -80,9 +82,11 @@ Be fair and concrete:
 
 reason: one tight sentence naming the deciding factors, under 22 words, plain English. State the call, e.g. "Local Gloucester, has a vehicle, cleaning background -- strong fit." or "No vehicle and based in Boston -- likely pass."`;
 
-/** Screen a batch of applications in one call. Returns a map keyed by id;
- *  missing ids (LLM dropped one, or the whole call failed) simply aren't in
- *  the map and the caller leaves that row unscreened. */
+/** Screen a batch of applications in one call. Returns a map keyed by the
+ *  application id. Results are matched back by the 1-based list index we
+ *  control (NOT by asking the model to echo a UUID, which it mangles), so the
+ *  mapping is robust. A dropped or out-of-range index is simply skipped and
+ *  that row stays unscreened. */
 export async function screenApplications(apps: ScreenInput[]): Promise<Map<string, ScreenVerdict>> {
   const out = new Map<string, ScreenVerdict>();
   if (!apps.length) return out;
@@ -90,7 +94,7 @@ export async function screenApplications(apps: ScreenInput[]): Promise<Map<strin
   const lines = apps.map((a, i) => {
     const vehicle = a.has_transport == null ? 'not answered' : a.has_transport ? 'yes' : 'no';
     return [
-      `${i + 1}. id=${a.id}`,
+      `Applicant ${i + 1}:`,
       `   role: ${a.trade}`,
       `   based: ${a.area || '(blank)'}`,
       `   reliable vehicle: ${vehicle}`,
@@ -106,15 +110,18 @@ export async function screenApplications(apps: ScreenInput[]): Promise<Map<strin
       model: 'anthropic/claude-haiku-4.5',
       schema: BatchSchema,
       system: SYSTEM_PROMPT,
-      prompt: `Screen these ${apps.length} applicant(s). Return exactly one entry per applicant, echoing the ids.\n\n${lines.join('\n\n')}`,
+      prompt: `Screen these ${apps.length} applicant(s). Return exactly one entry per applicant, using its number (1 to ${apps.length}) as the index.\n\n${lines.join('\n\n')}`,
     });
     for (const item of object.items) {
-      out.set(item.id, {
+      const target = apps[item.index - 1];
+      if (!target) continue;
+      out.set(target.id, {
         recommendation: item.recommendation,
         score: Math.max(0, Math.min(100, Math.round(item.score))),
         reason: item.reason.trim(),
       });
     }
+    console.log(`[screen-applicant] in=${apps.length} verdicts=${out.size}`);
   } catch (err) {
     console.error('[screen-applicant]', err);
   }
