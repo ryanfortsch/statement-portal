@@ -41,10 +41,11 @@ export function HelmMobileMenu({ current }: Props) {
 
   // Same split the desktop nav uses (HelmModuleNav + HelmModuleNavMore):
   // the primary trio, then everything else minus the hidden Financials
-  // sub-tabs, sectioned the same way (Money / Operations / Growth /
-  // Relationships / Reference, plus Soon). Both surfaces read from the same
-  // helper so they stay congruent from a single source of truth.
-  const sections = getGroupedOverflowModules();
+  // sub-tabs. Uses the same grouping helper for ORDER (Money -> Operations
+  // -> Growth -> Relationships -> Reference -> Soon clusters related items)
+  // but renders flat, mirroring the desktop dropdown — visible section
+  // headers were burning vertical space without improving wayfinding.
+  const overflow: HelmModule[] = getGroupedOverflowModules().flatMap((s) => s.modules);
 
   // Lock body scroll + listen for Escape while the sheet is open.
   useEffect(() => {
@@ -136,21 +137,16 @@ export function HelmMobileMenu({ current }: Props) {
               />
             ))}
 
-            {/* Everything else, the desktop "More" dropdown's contents laid
-                out inline -- now sectioned under the same labels so the phone
-                view reads as a structured map instead of one long flat list. */}
-            {sections.map((section) => (
-              <div key={section.group}>
-                <div className="rt-mobile-menu-group-label">{section.label}</div>
-                {section.modules.map((m) => (
-                  <ModuleItem
-                    key={m.id}
-                    module={m}
-                    active={m.id === current}
-                    onPick={() => setOpen(false)}
-                  />
-                ))}
-              </div>
+            {/* Everything else, demoted under a single "More" divider.
+                Mirrors the flat desktop dropdown. */}
+            <div className="rt-mobile-menu-group-label">More</div>
+            {overflow.map((m) => (
+              <ModuleItem
+                key={m.id}
+                module={m}
+                active={m.id === current}
+                onPick={() => setOpen(false)}
+              />
             ))}
           </nav>
         </div>
