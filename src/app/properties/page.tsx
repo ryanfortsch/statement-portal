@@ -88,10 +88,10 @@ export default async function PropertiesPage() {
         style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
       >
         <Link
-          href="/properties/conform-sca"
+          href="/properties/listing-copy-studio"
           style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
         >
-          Conform Stay Cape Ann copy →
+          Stay Cape Ann listing copy →
         </Link>
         <Link
           href="/properties/bedroom-photos"
