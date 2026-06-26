@@ -111,6 +111,16 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
   },
   {
+    id: 'hiring',
+    href: '/operations/contractors/applicants',
+    number: '03b',
+    title: 'Hiring',
+    description: 'Applicant pipeline. Review applications, invite or decline, track source channels.',
+    status: 'active',
+    primary: false,
+    group: 'operations',
+  },
+  {
     id: 'work',
     href: '/work',
     number: '04',
