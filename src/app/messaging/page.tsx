@@ -10,10 +10,12 @@ import {
   getStats,
   getStatsTimeseries,
   getFacts,
+  getFactAudit,
   explainError,
   type Approval,
   type MessagingStats,
   type Fact,
+  type FactAudit,
   type TimeseriesPoint,
   type TopicRollup,
 } from '@/lib/stay-concierge';
@@ -21,6 +23,7 @@ import { MessagingQueue } from './MessagingQueue';
 import { RecentStrip } from './RecentStrip';
 import { RemindersSection } from './RemindersSection';
 import { PerformanceDropdown } from './PerformanceDropdown';
+import { FactAuditCard } from './FactAuditCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -36,6 +39,8 @@ type LoadResult =
       totalFacts: number;
       timeseries: TimeseriesPoint[];
       availableTopics: TopicRollup[];
+      audit: FactAudit | null;
+      auditError: string | null;
     }
   | { ok: false; error: string };
 
@@ -47,7 +52,7 @@ async function loadData(): Promise<LoadResult> {
         'STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel.',
     };
   }
-  const [pending, recent, stats, facts, ts] = await Promise.all([
+  const [pending, recent, stats, facts, ts, audit] = await Promise.all([
     listApprovals(),
     listRecentApprovals(24),
     // Default the stats window to All-time (hours=0). The 7d window is
@@ -56,6 +61,7 @@ async function loadData(): Promise<LoadResult> {
     getStats(0),
     getFacts(20),
     getStatsTimeseries(30),
+    getFactAudit(),
   ]);
   if (!pending.ok) return { ok: false, error: explainError(pending.error) };
   return {
@@ -68,6 +74,8 @@ async function loadData(): Promise<LoadResult> {
     totalFacts: facts.ok ? facts.data.total_facts : 0,
     timeseries: ts.ok ? ts.data.series : [],
     availableTopics: ts.ok ? ts.data.available_topics : [],
+    audit: audit.ok ? audit.data : null,
+    auditError: audit.ok ? null : explainError(audit.error),
   };
 }
 
@@ -119,6 +127,7 @@ export default async function MessagingPage() {
             initialTimeseries={data.timeseries}
             initialAvailableTopics={data.availableTopics}
           />
+          <FactAuditCard initial={data.audit} initialError={data.auditError} />
         </>
       )}
 

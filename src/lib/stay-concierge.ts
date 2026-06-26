@@ -132,6 +132,28 @@ async function request<T>(
   }
 }
 
+// --- Fact-base weekly health audit --------------------------------------
+
+/** Weekly recursive-learning health report shown on /messaging. Report-only:
+ * surfaces duplicates / contradictions / sprawl the inline guard missed, plus
+ * the coaching-load trend, so the loop can be kept honest from the dashboard
+ * instead of a text. */
+export type FactAudit = {
+  as_of: string;
+  markdown: string;
+  action_items: string[];
+  healthy: boolean;
+  stale: boolean;
+};
+
+export async function getFactAudit() {
+  return request<FactAudit>('/api/fact-audit');
+}
+
+export async function refreshFactAudit() {
+  return request<FactAudit>('/api/fact-audit/refresh', { method: 'POST' });
+}
+
 // --- Proactive: reservations picker + recurring reminders ----------------
 
 export type ReservationPick = {
