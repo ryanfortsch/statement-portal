@@ -5,7 +5,7 @@ import { isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { loadApplications, type ContractorApplication } from '@/lib/field-packets';
 import { CopyCode } from '@/app/field/CopyCode';
-import { inviteApplicant, declineApplicant, reopenApplicant } from './actions';
+import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +18,39 @@ function fmtWhen(d: string): string {
 }
 
 const SOURCES = ['indeed', 'facebook', 'nextdoor', 'craigslist', 'referral'];
+
+type Rec = 'reach_out' | 'maybe' | 'pass';
+const REC_META: Record<Rec, { label: string; color: string; bg: string; border: string }> = {
+  reach_out: { label: 'Reach out', color: '#2e7d4f',      bg: 'rgba(46,125,79,0.10)',  border: 'none' },
+  maybe:     { label: 'Maybe',     color: '#9a6a1e',      bg: 'rgba(154,106,30,0.10)', border: 'none' },
+  pass:      { label: 'Pass',      color: 'var(--ink-4)', bg: 'transparent',           border: '1px solid var(--rule)' },
+};
+
+/** Sort key for the active list: unscreened first (need attention), then
+ *  reach_out, maybe, pass. */
+function recRank(r: Rec | null): number {
+  if (r == null) return -1;
+  return r === 'reach_out' ? 0 : r === 'maybe' ? 1 : 2;
+}
+
+function RecChip({ rec, score }: { rec: Rec | null; score: number | null }) {
+  if (!rec) {
+    return (
+      <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-4)', marginLeft: 8 }}>
+        Not screened
+      </span>
+    );
+  }
+  const m = REC_META[rec];
+  return (
+    <span
+      title={score != null ? `AI fit ${score}/100` : undefined}
+      style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: m.color, background: m.bg, border: m.border, borderRadius: 999, padding: '2px 9px', marginLeft: 8, whiteSpace: 'nowrap' }}
+    >
+      {m.label}
+    </span>
+  );
+}
 
 export default async function ApplicantsPage() {
   if (!isFieldConfigured) {
@@ -32,9 +65,19 @@ export default async function ApplicantsPage() {
   }
 
   const apps = await loadApplications();
-  const active = apps.filter((a) => a.status === 'new' || a.status === 'reviewing');
+  const active = apps
+    .filter((a) => a.status === 'new' || a.status === 'reviewing')
+    .sort((a, b) => {
+      // Unscreened float to the top (they need attention / a Screen pass),
+      // then strong fits, then maybe, then likely-pass. Score breaks ties.
+      const ra = recRank(a.ai_recommendation);
+      const rb = recRank(b.ai_recommendation);
+      if (ra !== rb) return ra - rb;
+      return (b.ai_score ?? -1) - (a.ai_score ?? -1);
+    });
   const invited = apps.filter((a) => a.status === 'invited');
   const declined = apps.filter((a) => a.status === 'declined');
+  const unscreened = active.filter((a) => a.ai_assessed_at == null).length;
   const base = fieldBaseUrl();
 
   return (
@@ -62,6 +105,28 @@ export default async function ApplicantsPage() {
             ))}
           </div>
         </div>
+
+        {active.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.02em' }}>
+              Sorted by an AI first pass. Advisory only — you make the call.
+            </span>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+              {unscreened > 0 && (
+                <form action={screenApplicants} style={{ margin: 0 }}>
+                  <input type="hidden" name="scope" value="new" />
+                  <button type="submit" style={btnDark}>✦ Screen {unscreened} new</button>
+                </form>
+              )}
+              {active.length - unscreened > 0 && (
+                <form action={screenApplicants} style={{ margin: 0 }}>
+                  <input type="hidden" name="scope" value="all" />
+                  <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline', padding: 0 }}>Re-screen all</button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
 
         {active.length === 0 && (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No new applicants right now.</p>
@@ -92,6 +157,7 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
           {a.trade !== 'inspection' && (
             <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px', marginLeft: 8 }}>{a.trade}</span>
           )}
+          <RecChip rec={a.ai_recommendation} score={a.ai_score} />
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
             {a.email}{a.phone ? ` · ${a.phone}` : ''}{a.area ? ` · ${a.area}` : ''}
           </div>
@@ -100,6 +166,12 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
           {fmtWhen(a.created_at)}{a.source ? ` · via ${a.source}` : ''}
         </div>
       </div>
+      {a.ai_reason && (
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, display: 'flex', gap: 7 }}>
+          <span aria-hidden style={{ color: 'var(--tide-deep)', flexShrink: 0 }}>✦</span>
+          <span style={{ fontStyle: 'italic' }}>{a.ai_reason}</span>
+        </div>
+      )}
       {(a.availability || a.about || a.has_transport != null || a.heard_about || a.video_url) && (
         <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.55 }}>
           {a.has_transport != null && (
