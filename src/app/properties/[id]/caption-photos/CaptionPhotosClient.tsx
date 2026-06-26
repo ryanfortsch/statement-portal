@@ -38,6 +38,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saveErr, setSaveErr] = useState<Record<string, string>>({});
   const [savingAll, setSavingAll] = useState(false);
+  const [diag, setDiag] = useState<string | null>(null);
 
   // Fetch the gallery. First statement is the awaited action, so no
   // setState fires synchronously — safe to call straight from the effect
@@ -51,6 +52,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
     }
     setPhotos(res.photos);
     setDrafts(Object.fromEntries(res.photos.map((p) => [p.id, p.caption])));
+    setDiag(res.diag ?? null);
     setLoadError(null);
     setLoadState('ready');
   }, [propertyId]);
@@ -155,6 +157,12 @@ export function CaptionPhotosClient({ propertyId }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <style>{gridCss}</style>
+
+      {diag && (
+        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', color: 'var(--ink-4)' }}>
+          diag: {diag}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="rt-cap-toolbar">

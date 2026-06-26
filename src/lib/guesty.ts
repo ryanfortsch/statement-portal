@@ -193,19 +193,39 @@ function propertyPhotosPath(propertyId: string, photoId?: string): string {
   return photoId ? `${base}/${photoId}` : base;
 }
 
+/** Raw picture shape on a listing's `pictures` array. Guesty documents
+ *  original/thumbnail/regular/large/caption; `_id` is present in practice
+ *  even though the public schema omits it. */
+type RawListingPicture = {
+  _id?: string;
+  original?: string;
+  thumbnail?: string;
+  regular?: string;
+  large?: string;
+  caption?: string;
+  index?: number;
+};
+
 /**
- * List every photo on a listing/property, in Guesty's display order.
- * GET /v1/properties-api/property-photos/property-photos/{id} -> GuestyPhoto[].
+ * List every photo on a listing, in Guesty's display order.
  *
- * Guesty returns a bare array here, but we guard for a wrapped shape so a
- * future API change degrades to empty instead of throwing.
+ * Reads the listing object's `pictures` array (GET /v1/listings/{id}) —
+ * the same source sync-guesty uses for hero images. We do NOT use a
+ * `/listings/{id}/photos` sub-resource (it 404s) nor the property-photos
+ * GET (keyed by a property id our listings don't expose; it comes back
+ * empty). The picture `_id` (when present) doubles as the photoId for the
+ * caption write.
  */
-export async function getListingPhotos(propertyId: string): Promise<GuestyPhoto[]> {
-  const res = await guestyGet<GuestyPhoto[] | { results?: GuestyPhoto[]; data?: GuestyPhoto[] }>(
-    propertyPhotosPath(propertyId),
-  );
-  if (Array.isArray(res)) return res;
-  return res.results ?? res.data ?? [];
+export async function getListingPhotos(listingId: string): Promise<GuestyPhoto[]> {
+  const listing = await guestyGet<{ pictures?: RawListingPicture[] }>(`/v1/listings/${listingId}`);
+  const pics = Array.isArray(listing.pictures) ? listing.pictures : [];
+  return pics.map((p, i) => ({
+    _id: (p._id && p._id.trim()) || String(i),
+    original: p.original,
+    thumbnail: p.thumbnail ?? p.regular ?? p.large ?? p.original,
+    caption: p.caption,
+    index: typeof p.index === 'number' ? p.index : i,
+  }));
 }
 
 /**
