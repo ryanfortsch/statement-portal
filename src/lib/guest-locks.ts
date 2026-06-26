@@ -418,7 +418,13 @@ export async function syncSeamDevices(): Promise<{ ok: boolean; count: number; e
     const sb = getServiceClient();
     const devices = await listDevices();
     for (const d of devices) {
-      await ingestDeviceBattery(sb, normalizeFromDevice(d));
+      const res = await ingestDeviceBattery(sb, normalizeFromDevice(d));
+      if (res.propertyId) {
+        const { resolveCleanerCodeId } = await import('@/lib/cleaning-sessions');
+        const { resolveInspectorCodeId } = await import('@/lib/inspection-sessions');
+        await resolveCleanerCodeId(sb, res.deviceId);
+        await resolveInspectorCodeId(sb, res.deviceId);
+      }
     }
     return { ok: true, count: devices.length };
   } catch (err) {
