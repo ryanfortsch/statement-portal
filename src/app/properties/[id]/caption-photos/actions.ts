@@ -67,15 +67,51 @@ async function requireLinkedProperty(
   if (!data) return { ok: false, error: 'Property not found' };
 
   const property = data as PropertyRow;
-  const listingId = property.guesty_listing_id?.trim() || '';
+  const listingId = await resolveListingId(propertyId, property.guesty_listing_id);
   if (!listingId) {
     return {
       ok: false,
       needsListing: true,
-      error: 'This property is not linked to a Guesty listing yet. Set its Guesty listing ID first.',
+      error:
+        'This property is not linked to a Guesty listing yet. Add its Guesty listing ID on the Stay Cape Ann launch page (or run Sync Guesty), then come back.',
     };
   }
   return { ok: true, property, listingId };
+}
+
+/**
+ * The Guesty listing id for a property. `properties.guesty_listing_id` is the
+ * intended home but nothing populates it today, so we fall back to the two
+ * places the id actually lives:
+ *   1. guesty_listings.listing_id — the sync-verified live Guesty id
+ *      (sync-guesty maps each listing to a property).
+ *   2. sca_launches.guesty_listing_id — what the operator typed when
+ *      launching the property onto staycapeann.com.
+ * Both tables are anon-readable (the SCA page + campaign context read them
+ * the same way). First non-empty wins.
+ */
+async function resolveListingId(propertyId: string, fromProperty: string | null): Promise<string> {
+  const direct = fromProperty?.trim();
+  if (direct) return direct;
+
+  const { data: gl } = await supabase
+    .from('guesty_listings')
+    .select('listing_id')
+    .eq('property_id', propertyId)
+    .not('listing_id', 'is', null)
+    .limit(1);
+  const synced = (gl?.[0] as { listing_id: string | null } | undefined)?.listing_id?.trim();
+  if (synced) return synced;
+
+  const { data: sca } = await supabase
+    .from('sca_launches')
+    .select('guesty_listing_id')
+    .eq('property_id', propertyId)
+    .maybeSingle();
+  const launched = (sca as { guesty_listing_id: string | null } | null)?.guesty_listing_id?.trim();
+  if (launched) return launched;
+
+  return '';
 }
 
 function errMsg(err: unknown): string {
