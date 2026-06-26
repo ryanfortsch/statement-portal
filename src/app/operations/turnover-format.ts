@@ -127,7 +127,7 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
   let active: Lifecycle['active'] = null;
   if (!checkedOut) active = null;
   else if (monitored) {
-    if (!cleanerIn) active = due ? 'in' : null;
+    if (!cleanerIn && !cleaned) active = due ? 'in' : null;
     else if (!cleaned) active = 'cleaning';
     else if (!inspected) active = inspecting || due ? 'inspected' : null;
   } else {
@@ -143,7 +143,7 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
   const pips: StageCls[] = monitored
     ? [
         checkedOut ? 'passed' : 'future',
-        cleanerIn ? 'good' : active === 'in' ? 'active' : 'future',
+        cleanerIn || cleaned ? 'good' : active === 'in' ? 'active' : 'future',
         cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future',
         cleaned ? (cleanedEstimated ? 'est' : 'good') : 'future',
         inspected ? 'good' : active === 'inspected' ? 'active' : 'future',

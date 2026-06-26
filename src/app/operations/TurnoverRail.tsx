@@ -135,7 +135,7 @@ export function TurnoverRail(p: Props) {
   let active: 'in' | 'cleaning' | 'clean' | 'inspected' | null = null;
   if (!checkedOut) active = null;
   else if (monitored) {
-    if (!cleanerIn) active = due ? 'in' : null;
+    if (!cleanerIn && !cleaned) active = due ? 'in' : null;
     else if (!cleaned) active = 'cleaning';
     else if (!inspected) active = p.inspecting || due ? 'inspected' : null;
   } else {
@@ -151,7 +151,7 @@ export function TurnoverRail(p: Props) {
 
   // The two lock-only middle nodes degrade to muted 'na' on a lockless home
   // (never pulse, never claim a cleaner is in); the wait lands on Cleaned.
-  const inCls: NodeCls = monitored ? (cleanerIn ? 'good' : active === 'in' ? 'active' : 'future') : 'na';
+  const inCls: NodeCls = monitored ? (cleanerIn || cleaned ? 'good' : active === 'in' ? 'active' : 'future') : 'na';
   const cleaningCls: NodeCls = monitored ? (cleaned ? 'good' : active === 'cleaning' ? 'active' : 'future') : 'na';
   const cleanedCls: NodeCls = cleaned
     ? (p.cleanedEstimated && !justConfirmed ? 'est' : 'good')
