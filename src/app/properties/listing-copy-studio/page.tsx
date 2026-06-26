@@ -3,28 +3,30 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { auth } from '@/auth';
 import * as gh from '@/lib/github';
-import { listScaConformCandidates, type ConformCandidate } from '../[id]/stay-cape-ann/actions';
-import { ConformScaClient } from './ConformScaClient';
+import { listScaListingCopy, type ListingCopyRow } from '../[id]/stay-cape-ann/actions';
+import { ListingCopyStudio } from './ListingCopyStudio';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Bulk tool to bring every live Stay Cape Ann listing's "About the home" into
- * the structured Airbnb format (the chosen house standard). For each listing it
- * pulls the home's Guesty copy, structures the About (verbatim when Guesty is
- * already structured, AI otherwise), and opens an update PR the operator reviews
- * and publishes — all from one screen.
+ * One screen to review and fix the editorial copy on every Stay Cape Ann
+ * listing. Each listing's current tagline / About / highlights are shown inline
+ * (from data/ical-urls.json, the source of what's on the site) and flagged when
+ * the copy looks like OTA brochure-speak. The operator edits any of them by hand
+ * (or redrafts from Guesty), and one Publish ships every edit in a single PR that
+ * rebuilds the site once. The registry is the single source for this copy — the
+ * nightly Guesty refresh never overwrites it.
  */
-export default async function ConformScaPage() {
+export default async function ListingCopyStudioPage() {
   const session = await auth();
   const signedIn = !!session?.user?.email;
   const githubConfigured = gh.isGithubConfigured();
 
-  let candidates: ConformCandidate[] = [];
+  let rows: ListingCopyRow[] = [];
   let error: string | null = null;
   if (signedIn && githubConfigured) {
-    const res = await listScaConformCandidates();
-    if (res.ok) candidates = res.candidates;
+    const res = await listScaListingCopy();
+    if (res.ok) rows = res.rows;
     else error = res.error;
   }
 
@@ -43,15 +45,15 @@ export default async function ConformScaPage() {
 
       <HelmHero
         eyebrow="Helm · Properties"
-        title="Conform listing copy to"
+        title="Listing copy on"
         emphasis="Stay Cape Ann"
-        description="Bring every live listing's About into the structured Airbnb format. Helm pulls each home's Guesty copy, structures it, and opens an update PR you review and publish. Nothing goes live until you click Publish."
+        description="Review every listing's editorial copy in one place. Flagged listings read like OTA brochure-speak. Edit the tagline, About, and highlights by hand or redraft from Guesty, then publish all your edits in one pass. Nothing goes live until you click Publish."
         paddingTop={28}
       />
 
       <main className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 80, flex: 1 }}>
         {!signedIn ? (
-          <Notice>Sign in with your Rising Tide account to conform listings.</Notice>
+          <Notice>Sign in with your Rising Tide account to edit listing copy.</Notice>
         ) : !githubConfigured ? (
           <Notice>
             GITHUB_TOKEN is not configured on Helm, so it can&apos;t reach the Stay Cape Ann repo. Add it in
@@ -59,10 +61,10 @@ export default async function ConformScaPage() {
           </Notice>
         ) : error ? (
           <Notice>{error}</Notice>
-        ) : candidates.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Notice>No live Stay Cape Ann listings found yet.</Notice>
         ) : (
-          <ConformScaClient initialCandidates={candidates} />
+          <ListingCopyStudio initialRows={rows} />
         )}
       </main>
     </div>
