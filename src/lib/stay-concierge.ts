@@ -503,7 +503,8 @@ export function explainError(error: StayConciergeError): string {
   if (error.kind === 'unconfigured') {
     return 'Stay Concierge service is not configured. Set STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY in the environment.';
   }
-  if (error.kind === 'network') return `Network error: ${error.message}`;
+  if (error.kind === 'network')
+    return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   if (error.status === 401) return 'Stay Concierge rejected the dashboard key.';
   if (error.status === 404) return 'That approval no longer exists.';
   if (error.status === 409) return `That approval is no longer pending (${error.detail}).`;
@@ -514,6 +515,10 @@ export function explainError(error: StayConciergeError): string {
     return 'That time has already passed. Pick a time a little further out.';
   }
   if (error.status === 503) return 'Guesty is in OAuth cooldown. Try again in a minute.';
-  if (error.status === 502) return 'Guesty refused the send. The draft is still pending.';
+  // 502/504 from the Cloudflare Tunnel mean the stay-concierge origin is down or
+  // mid-restart, NOT a send failure. This surfaces on plain list calls too, so
+  // keep the message generic to the service rather than implying a draft action.
+  if (error.status === 502 || error.status === 504)
+    return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   return `Service error (${error.status}): ${error.detail}`;
 }
