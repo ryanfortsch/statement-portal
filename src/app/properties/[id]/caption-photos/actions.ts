@@ -28,7 +28,7 @@ export type ListingPhoto = {
 };
 
 export type LoadPhotosResult =
-  | { ok: true; listingId: string; propertyName: string; photos: ListingPhoto[]; diag?: string }
+  | { ok: true; listingId: string; propertyName: string; photos: ListingPhoto[] }
   | { ok: false; error: string; needsListing?: boolean };
 
 export type GenerateCaptionsResult =
@@ -136,13 +136,7 @@ export async function loadListingPhotosAction(propertyId: string): Promise<LoadP
       // return 0 so the stable sort preserves Guesty's array order (the
       // gallery order) rather than collapsing missing indices to 0.
       .sort((a, b) => (a.index == null || b.index == null ? 0 : a.index - b.index));
-    // Temporary diagnostic: confirms whether photo ids are real Guesty
-    // ObjectIds (needed as the photoId for the caption write) vs synthetic
-    // array-index fallbacks. Remove once the save path is confirmed.
-    const firstId = flattened[0]?.id ?? '';
-    const realId = /^[a-f0-9]{24}$/i.test(firstId);
-    const diag = `${flattened.length} photos · first id "${firstId.slice(0, 10)}…" · realObjectId=${realId}`;
-    return { ok: true, listingId: guard.listingId, propertyName: guard.property.name, photos: flattened, diag };
+    return { ok: true, listingId: guard.listingId, propertyName: guard.property.name, photos: flattened };
   } catch (err) {
     return { ok: false, error: `Could not load photos from Guesty: ${errMsg(err)}` };
   }
