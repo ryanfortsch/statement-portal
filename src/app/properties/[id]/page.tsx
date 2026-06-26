@@ -85,8 +85,8 @@ async function getScaLaunchStatus(
 }
 
 /**
- * Raw launch-checklist rows for this property. The Overview chip's
- * progress count is derived from these PLUS property data via
+ * Raw launch-checklist rows for this property. The Today tab's launch
+ * chip progress count is derived from these PLUS property data via
  * computeLaunchProgress (same calc the launch page uses), so the two
  * surfaces always agree. Returns [] on any error (table missing on old
  * preview envs, etc.) — computeLaunchProgress then still derives from
@@ -353,7 +353,11 @@ export default async function PropertyDetailPage({
   searchParams?: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
-  const initialTab = (await searchParams)?.tab ?? 'overview';
+  const rawTab = (await searchParams)?.tab ?? 'today';
+  // Old deep links (?tab=overview/history/documents/deliverables) still land
+  // somewhere sensible after the 6 to 5 tab restructure.
+  const initialTab =
+    ({ overview: 'today', history: 'records', documents: 'records', deliverables: 'records' } as Record<string, string>)[rawTab] ?? rawTab;
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -390,7 +394,7 @@ export default async function PropertyDetailPage({
   ]);
   const myEmail = session?.user?.email ?? '';
 
-  // Launch progress for the Overview chip — computed with the SAME
+  // Launch progress for the Today tab launch chip, computed with the SAME
   // derivation the launch page uses (computeLaunchProgress), so the chip
   // and the launch page never disagree (the 1/18-vs-5/18 mismatch).
   const launchProgress = computeLaunchProgress(launchRows, {
@@ -586,16 +590,15 @@ export default async function PropertyDetailPage({
       <PropertyTabs
         initialTab={initialTab}
         tabs={[
-          { id: 'overview', label: 'Overview', badge: openSlips.length || undefined },
+          { id: 'today', label: 'Today', badge: openSlips.length || undefined },
           { id: 'operations', label: 'Operations' },
-          { id: 'people', label: 'People', badge: crmContactsFull.length || undefined },
-          { id: 'history', label: 'History' },
-          { id: 'documents', label: 'Documents', badge: documents.length || undefined },
-          { id: 'deliverables', label: 'Deliverables' },
+          { id: 'people', label: 'People & owner', badge: crmContactsFull.length || undefined },
+          { id: 'growth', label: 'Listing & growth' },
+          { id: 'records', label: 'Guest & records', badge: documents.length || undefined },
         ]}
       >
-        {/* ════════════ OVERVIEW ════════════ */}
-        <TabSection tab="overview">
+        {/* ════════════ TODAY ════════════ */}
+        <TabSection tab="today">
           {/* Dictate/type a note; Helm routes it to the right field or
               note after operator review. Top of the tab — capture comes
               before scanning open work. */}
@@ -638,7 +641,7 @@ export default async function PropertyDetailPage({
                 margin: 0,
               }}
             >
-              Property Notes
+              Pinned from walkthroughs
             </h2>
             <span className="eyebrow">{pinnedNotes.length} pinned</span>
           </div>
@@ -808,7 +811,220 @@ export default async function PropertyDetailPage({
 
         </TabSection>
 
-        {/* ════════════ PEOPLE ════════════ */}
+        {/* ════════════ OPERATIONS ════════════ */}
+        <TabSection tab="operations">
+          <TabActions>
+            <ActionLink href={`/channels/${p.id}`}>Channels →</ActionLink>
+            <ActionLink href={`/properties/${p.id}/layout`}>Inspection layout →</ActionLink>
+            <ActionLink href={`/properties/${p.id}/edit`} primary>Edit operational data</ActionLink>
+            <PropertyBackfillButton propertyId={p.id} />
+          </TabActions>
+
+      <CollapsibleSection
+        title="Climate automation"
+        summary={climateProfile?.enabled ? 'on' : 'not set up'}
+      >
+        <ClimatePanel propertyId={p.id} profile={climateProfile} thermostats={seamThermostats} />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Guest door codes"
+        summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
+      >
+        <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
+      </CollapsibleSection>
+
+      {/* OPERATIONS NOTEBOOK — internal per-property knowledge base
+          (property_notes). Each row is a discrete note (quirk / workaround
+          / vendor / warning).
+          Closed-state chip surfaces the open count so a single glance
+          tells you whether there's tribal knowledge attached. */}
+      <CollapsibleSection
+        title="Operations notebook"
+        summary={(() => {
+          const open = propertyNotes.filter((n) => !n.resolved_at).length;
+          const total = propertyNotes.length;
+          if (total === 0) return 'no notes yet';
+          if (open === total) return `${total} note${total === 1 ? '' : 's'}`;
+          return `${open} open · ${total - open} resolved`;
+        })()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <Link
+            href={`/properties/${p.id}/notes/new`}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--paper)',
+              background: 'var(--ink)',
+              border: '1px solid var(--ink)',
+              padding: '6px 12px',
+              textDecoration: 'none',
+            }}
+          >
+            + Add note
+          </Link>
+        </div>
+        {propertyNotes.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            Nothing captured yet. The first note for {p.name} could be the smart-thermostat
+            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {propertyNotes.map((n) => (
+              <Link
+                key={n.id}
+                href={`/properties/${p.id}/notes/${n.id}/edit`}
+                style={{
+                  display: 'block',
+                  padding: '14px 16px',
+                  border: '1px solid var(--rule)',
+                  background: n.resolved_at ? 'var(--paper-2)' : 'var(--paper)',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  opacity: n.resolved_at ? 0.7 : 1,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <h3
+                    className="font-serif"
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 500,
+                      letterSpacing: '-0.005em',
+                      color: 'var(--ink)',
+                      margin: 0,
+                      flex: 1,
+                      textDecoration: n.resolved_at ? 'line-through' : 'none',
+                    }}
+                  >
+                    {n.title}
+                  </h3>
+                  {n.guest_facing && (
+                    <span
+                      title="Part of the guest-messaging knowledge base"
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--paper)',
+                        background: 'var(--tide-deep)',
+                        padding: '2px 7px',
+                      }}
+                    >
+                      Guest
+                    </span>
+                  )}
+                  {n.tag && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        border: '1px solid var(--rule)',
+                        padding: '2px 7px',
+                      }}
+                    >
+                      {n.tag}
+                    </span>
+                  )}
+                  {n.resolved_at && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: 'var(--positive)',
+                      }}
+                    >
+                      Resolved
+                    </span>
+                  )}
+                </div>
+                {n.body && (
+                  <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                    {n.body}
+                  </p>
+                )}
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                  {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
+                  {formatDate(n.created_at)}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+      {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
+      {operationalCounts.populated > 0 && (
+        <CollapsibleSection title="Operational data" summary={operationalSummary}>
+          <OperationalSections p={p} />
+        </CollapsibleSection>
+      )}
+
+      {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
+          quiet block at the bottom. Used rarely; collapsed by default. */}
+      <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
+        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
+          <Detail term="Helm ID" definition={p.id} mono />
+          <Detail term="Code" definition={p.code || '—'} />
+          <Detail term="Title" definition={p.title || '—'} />
+          <Detail term="Type" definition={p.type_of_unit || '—'} />
+          <Detail term="Tags" definition={p.tags || '—'} />
+          <Detail term="Timezone" definition={p.timezone || '—'} />
+          <Detail
+            term="Coordinates"
+            definition={
+              p.latitude != null && p.longitude != null
+                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
+                : '—'
+            }
+          />
+          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
+          <Detail term="Activated" definition={formatDate(p.activated_at)} />
+          <Detail term="Created" definition={formatDate(p.created_at)} />
+          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
+          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
+        </dl>
+        <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
+            Inspections, work slips, and turnover state still live in the Perfection app for some
+            workflows. Helm-native versions cover most cases above; click through if you need
+            the legacy view.
+          </p>
+          <a
+            href="https://inspect.risingtidestr.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              border: '1px solid var(--rule)',
+              padding: '8px 14px',
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+            }}
+          >
+            Open Perfection ↗
+          </a>
+        </div>
+      </CollapsibleSection>
+
+        </TabSection>
+
+        {/* ════════════ PEOPLE & OWNER ════════════ */}
         <TabSection tab="people">
       {/* OWNER */}
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
@@ -987,161 +1203,245 @@ export default async function PropertyDetailPage({
       </CollapsibleSection>
         </TabSection>
 
-        {/* ════════════ OPERATIONS ════════════ */}
-        <TabSection tab="operations">
+        {/* ════════════ LISTING & GROWTH ════════════ */}
+        <TabSection tab="growth">
           <TabActions>
-            <ActionLink href={`/channels/${p.id}`}>Channels →</ActionLink>
-            <ActionLink href={`/properties/${p.id}/layout`}>Inspection layout →</ActionLink>
-            <ActionLink href={`/properties/${p.id}/edit`} primary>Edit operational data</ActionLink>
-            <PropertyBackfillButton propertyId={p.id} />
-          </TabActions>
-
-      <CollapsibleSection
-        title="Climate automation"
-        summary={climateProfile?.enabled ? 'on' : 'not set up'}
-      >
-        <ClimatePanel propertyId={p.id} profile={climateProfile} thermostats={seamThermostats} />
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Guest door codes"
-        summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
-      >
-        <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
-      </CollapsibleSection>
-
-      {/* PROPERTY NOTES — internal per-property knowledge base. Each
-          row is a discrete note (quirk / workaround / vendor / warning).
-          Closed-state chip surfaces the open count so a single glance
-          tells you whether there's tribal knowledge attached. */}
-      <CollapsibleSection
-        title="Property Notes"
-        summary={(() => {
-          const open = propertyNotes.filter((n) => !n.resolved_at).length;
-          const total = propertyNotes.length;
-          if (total === 0) return 'no notes yet';
-          if (open === total) return `${total} note${total === 1 ? '' : 's'}`;
-          return `${open} open · ${total - open} resolved`;
-        })()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-          <Link
-            href={`/properties/${p.id}/notes/new`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--paper)',
-              background: 'var(--ink)',
-              border: '1px solid var(--ink)',
-              padding: '6px 12px',
-              textDecoration: 'none',
-            }}
-          >
-            + Add note
-          </Link>
-        </div>
-        {propertyNotes.length === 0 ? (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            Nothing captured yet. The first note for {p.name} could be the smart-thermostat
-            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {propertyNotes.map((n) => (
-              <Link
-                key={n.id}
-                href={`/properties/${p.id}/notes/${n.id}/edit`}
-                style={{
-                  display: 'block',
-                  padding: '14px 16px',
-                  border: '1px solid var(--rule)',
-                  background: n.resolved_at ? 'var(--paper-2)' : 'var(--paper)',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  opacity: n.resolved_at ? 0.7 : 1,
-                }}
+            <ActionLink
+              href={`/properties/${p.id}/listing-copy`}
+              title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
+            >
+              Draft listing →
+            </ActionLink>
+            <ActionLink
+              href={`/properties/${p.id}/caption-photos`}
+              title="AI-draft a caption for every Guesty gallery photo in our listings' voice, then push approved captions to the listing"
+            >
+              Caption photos →
+            </ActionLink>
+            <Link
+              href={`/properties/${p.id}/stay-cape-ann`}
+              title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
+              className="rt-action-link"
+              style={{
+                ...actionLinkStyle,
+                padding: '8px 14px',
+                border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
+                color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
+              }}
+            >
+              Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
+            </Link>
+            {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
+              <ActionLink
+                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
+                title="Add or replace this listing's bedroom photos on staycapeann.com"
               >
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                  <h3
-                    className="font-serif"
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 500,
-                      letterSpacing: '-0.005em',
-                      color: 'var(--ink)',
-                      margin: 0,
-                      flex: 1,
-                      textDecoration: n.resolved_at ? 'line-through' : 'none',
-                    }}
-                  >
-                    {n.title}
-                  </h3>
-                  {n.guest_facing && (
-                    <span
-                      title="Part of the guest-messaging knowledge base"
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--paper)',
-                        background: 'var(--tide-deep)',
-                        padding: '2px 7px',
-                      }}
-                    >
-                      Guest
-                    </span>
-                  )}
-                  {n.tag && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 600,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--ink-3)',
-                        border: '1px solid var(--rule)',
-                        padding: '2px 7px',
-                      }}
-                    >
-                      {n.tag}
-                    </span>
-                  )}
-                  {n.resolved_at && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 600,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--positive)',
-                      }}
-                    >
-                      Resolved
-                    </span>
-                  )}
-                </div>
-                {n.body && (
-                  <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                    {n.body}
-                  </p>
-                )}
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-                  {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
-                  {formatDate(n.created_at)}
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CollapsibleSection>
-
+                Bedroom photos →
+              </ActionLink>
+            )}
+          </TabActions>
         </TabSection>
 
-        {/* ════════════ HISTORY ════════════ */}
-        <TabSection tab="history">
+        {/* ════════════ GUEST & RECORDS ════════════ */}
+        <TabSection tab="records">
+      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
+          Information Note. */}
+      <CollapsibleSection title="Guest Deliverables" summary={deliverablesSummary}>
+        <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+          Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
+          (WiFi, parking, climate, safety equipment, etc). Edit operational data in the Operations tab to refresh.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          {/* Welcome Guide tile */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Welcome Guide</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              Stay Cape Ann home guide
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              One-page editorial guide. Wi-Fi, climate, parking, trash, plus two operator-picked cells.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
+              {/* Customize link anchors to the home-guide-customize <details>
+                  block that renders directly under the grid. The inline
+                  script in HomeGuideCustomizeForm auto-opens it when the
+                  URL hash matches. */}
+              <a
+                href="#home-guide-customize"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: '.18em',
+                  textTransform: 'uppercase',
+                  color: 'var(--ink-3)',
+                  textDecoration: 'none',
+                  padding: '13px 14px',
+                }}
+              >
+                Customize
+              </a>
+            </div>
+          </div>
+          {/* Welcome Card tile — 4 × 6 on-arrival card combining the warm
+              welcome with a subscribe pitch. QR points to
+              staycapeann.com/contact. Universal copy (no per-property data),
+              so it's always ready to print. */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Welcome Card</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              4 × 6 welcome + subscribe card
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              On-arrival counter card. &ldquo;Welcome.&rdquo; on top, a soft subscribe pitch on the bottom with a QR
+              to staycapeann.com/contact.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/welcome-card`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="welcome-card" label="Download PDF" />
+            </div>
+          </div>
+          {/* WiFi Placard tile */}
+          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="eyebrow">Wi-Fi Placard</div>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              4 × 6 placard with QR code
+            </h3>
+            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
+              {!p.wifi_name || !p.wifi_password ? (
+                <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                  Add Wi-Fi name + password to this property to generate the QR.
+                </span>
+              ) : null}
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+              <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
+                Open ↗
+              </Link>
+              <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
+            </div>
+          </div>
+          {/* Information Note tile — Gloucester-only. The note cites the
+              Gloucester STR ordinance and renders a Gloucester-issued
+              permit ID in the footer, so it's not a fit for Rockport,
+              Beverly, or out-of-state properties. */}
+          {isGloucester && (
+            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Information Note</div>
+              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                Posted house &amp; civic info
+              </h3>
+              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
+                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
+                {missingInfoNoteFields(p).length > 0 ? (
+                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                    Missing: {missingInfoNoteFields(p).join(', ')}.
+                  </span>
+                ) : null}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
+                  Open ↗
+                </Link>
+                <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Per-cell customization for the Welcome Guide tile above.
+            Anchored right after the grid (not at the very bottom) so the
+            relationship to the Welcome Guide tile is visually obvious;
+            the tile's "Customize" link auto-opens it on click. */}
+        <HomeGuideCustomizeForm propertyId={p.id} overrides={p.home_guide_overrides} />
+
+        {/* BESPOKE NOTICES — 4 × 6 SCA placards for property-specific quirks
+            (e.g. "please run the bathroom fan during showers"). Same brand
+            language as the WiFi placard so a stack of these in a glass
+            case reads as one consistent set. */}
+        <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+              Guest placards
+            </h3>
+            <Link
+              href={`/properties/${p.id}/notices/new`}
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                color: 'var(--ink)',
+                textDecoration: 'none',
+                padding: '8px 14px',
+                border: '1px solid var(--ink)',
+              }}
+            >
+              + New notice
+            </Link>
+          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+            Property-specific 4 × 6 placards for things the standardized deliverables don&rsquo;t cover.
+            Same Stay Cape Ann brand language; sized for the same glass case slot as the WiFi placard.
+          </p>
+
+          {propertyNotices.length === 0 ? (
+            <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              No notices yet.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              {propertyNotices.map((n) => (
+                <div
+                  key={n.id}
+                  style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {n.eyebrow ? <div className="eyebrow">{n.eyebrow}</div> : <div className="eyebrow" style={{ opacity: 0.4 }}>Notice</div>}
+                  <h4 className="font-serif" style={{ fontSize: 17, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0, lineHeight: 1.2 }}>
+                    {n.title}
+                  </h4>
+                  <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {n.body}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                    <Link href={`/properties/${p.id}/notice/${n.id}`} target="_blank" style={primaryActionStyle}>
+                      Open ↗
+                    </Link>
+                    <DownloadPropertyPdfButton
+                      propertyId={p.id}
+                      type="notice"
+                      noticeId={n.id}
+                      label="Download PDF"
+                    />
+                    <Link
+                      href={`/properties/${p.id}/notices/${n.id}/edit`}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        letterSpacing: '.18em',
+                        textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        textDecoration: 'none',
+                        padding: '13px 14px',
+                      }}
+                    >
+                      Edit
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+          <DocumentsPanel propertyId={p.id} documents={documents} />
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary={activitySummary}>
         <PropertyActivityList events={activityEvents} />
@@ -1272,306 +1572,6 @@ export default async function PropertyDetailPage({
         )}
       </CollapsibleSection>
 
-        </TabSection>
-
-        {/* ════════════ OPERATIONS (config + reference) ════════════ */}
-        <TabSection tab="operations">
-      {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
-      {operationalCounts.populated > 0 && (
-        <CollapsibleSection title="Operational data" summary={operationalSummary}>
-          <OperationalSections p={p} />
-        </CollapsibleSection>
-      )}
-
-      {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
-          quiet block at the bottom. Used rarely; collapsed by default. */}
-      <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
-          <Detail term="Helm ID" definition={p.id} mono />
-          <Detail term="Code" definition={p.code || '—'} />
-          <Detail term="Title" definition={p.title || '—'} />
-          <Detail term="Type" definition={p.type_of_unit || '—'} />
-          <Detail term="Tags" definition={p.tags || '—'} />
-          <Detail term="Timezone" definition={p.timezone || '—'} />
-          <Detail
-            term="Coordinates"
-            definition={
-              p.latitude != null && p.longitude != null
-                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
-                : '—'
-            }
-          />
-          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
-          <Detail term="Activated" definition={formatDate(p.activated_at)} />
-          <Detail term="Created" definition={formatDate(p.created_at)} />
-          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
-          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
-        </dl>
-        <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
-            Inspections, work slips, and turnover state still live in the Perfection app for some
-            workflows. Helm-native versions cover most cases above; click through if you need
-            the legacy view.
-          </p>
-          <a
-            href="https://inspect.risingtidestr.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-            }}
-          >
-            Open Perfection ↗
-          </a>
-        </div>
-      </CollapsibleSection>
-
-        </TabSection>
-
-        {/* ════════════ DOCUMENTS ════════════ */}
-        <TabSection tab="documents">
-          <DocumentsPanel propertyId={p.id} documents={documents} />
-        </TabSection>
-
-        {/* ════════════ DELIVERABLES ════════════ */}
-        <TabSection tab="deliverables">
-          <TabActions>
-            <ActionLink
-              href={`/properties/${p.id}/listing-copy`}
-              title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
-            >
-              Draft listing →
-            </ActionLink>
-            <Link
-              href={`/properties/${p.id}/stay-cape-ann`}
-              title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
-              className="rt-action-link"
-              style={{
-                ...actionLinkStyle,
-                padding: '8px 14px',
-                border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
-                color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
-              }}
-            >
-              Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
-            </Link>
-            {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
-              <ActionLink
-                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
-                title="Add or replace this listing's bedroom photos on staycapeann.com"
-              >
-                Bedroom photos →
-              </ActionLink>
-            )}
-          </TabActions>
-
-      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
-          Information Note. */}
-      <CollapsibleSection title="Guest Deliverables" summary={deliverablesSummary}>
-        <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-          (WiFi, parking, climate, safety equipment, etc). Edit operational data above to refresh.
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-          {/* Welcome Guide tile */}
-          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Welcome Guide</div>
-            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Stay Cape Ann home guide
-            </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              One-page editorial guide. Wi-Fi, climate, parking, trash, plus two operator-picked cells.
-            </p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-              <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
-                Open ↗
-              </Link>
-              <DownloadPropertyPdfButton propertyId={p.id} type="home-guide" label="Download PDF" />
-              {/* Customize link anchors to the home-guide-customize <details>
-                  block that renders directly under the grid. The inline
-                  script in HomeGuideCustomizeForm auto-opens it when the
-                  URL hash matches. */}
-              <a
-                href="#home-guide-customize"
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink-3)',
-                  textDecoration: 'none',
-                  padding: '13px 14px',
-                }}
-              >
-                Customize
-              </a>
-            </div>
-          </div>
-          {/* Welcome Card tile — 4 × 6 on-arrival card combining the warm
-              welcome with a subscribe pitch. QR points to
-              staycapeann.com/contact. Universal copy (no per-property data),
-              so it's always ready to print. */}
-          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Welcome Card</div>
-            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              4 × 6 welcome + subscribe card
-            </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              On-arrival counter card. &ldquo;Welcome.&rdquo; on top, a soft subscribe pitch on the bottom with a QR
-              to staycapeann.com/contact.
-            </p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-              <Link href={`/properties/${p.id}/welcome-card`} target="_blank" style={primaryActionStyle}>
-                Open ↗
-              </Link>
-              <DownloadPropertyPdfButton propertyId={p.id} type="welcome-card" label="Download PDF" />
-            </div>
-          </div>
-          {/* WiFi Placard tile */}
-          <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Wi-Fi Placard</div>
-            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              4 × 6 placard with QR code
-            </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
-              {!p.wifi_name || !p.wifi_password ? (
-                <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                  Add Wi-Fi name + password to this property to generate the QR.
-                </span>
-              ) : null}
-            </p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-              <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
-                Open ↗
-              </Link>
-              <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
-            </div>
-          </div>
-          {/* Information Note tile — Gloucester-only. The note cites the
-              Gloucester STR ordinance and renders a Gloucester-issued
-              permit ID in the footer, so it's not a fit for Rockport,
-              Beverly, or out-of-state properties. */}
-          {isGloucester && (
-            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Information Note</div>
-              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Posted house &amp; civic info
-              </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
-                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
-                {missingInfoNoteFields(p).length > 0 ? (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    Missing: {missingInfoNoteFields(p).join(', ')}.
-                  </span>
-                ) : null}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
-                  Open ↗
-                </Link>
-                <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Per-cell customization for the Welcome Guide tile above.
-            Anchored right after the grid (not at the very bottom) so the
-            relationship to the Welcome Guide tile is visually obvious;
-            the tile's "Customize" link auto-opens it on click. */}
-        <HomeGuideCustomizeForm propertyId={p.id} overrides={p.home_guide_overrides} />
-
-        {/* BESPOKE NOTICES — 4 × 6 SCA placards for property-specific quirks
-            (e.g. "please run the bathroom fan during showers"). Same brand
-            language as the WiFi placard so a stack of these in a glass
-            case reads as one consistent set. */}
-        <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
-            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Bespoke notices
-            </h3>
-            <Link
-              href={`/properties/${p.id}/notices/new`}
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink)',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                border: '1px solid var(--ink)',
-              }}
-            >
-              + New notice
-            </Link>
-          </div>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-            Property-specific 4 × 6 placards for things the standardized deliverables don&rsquo;t cover.
-            Same Stay Cape Ann brand language; sized for the same glass case slot as the WiFi placard.
-          </p>
-
-          {propertyNotices.length === 0 ? (
-            <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              No notices yet.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-              {propertyNotices.map((n) => (
-                <div
-                  key={n.id}
-                  style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}
-                >
-                  {n.eyebrow ? <div className="eyebrow">{n.eyebrow}</div> : <div className="eyebrow" style={{ opacity: 0.4 }}>Notice</div>}
-                  <h4 className="font-serif" style={{ fontSize: 17, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0, lineHeight: 1.2 }}>
-                    {n.title}
-                  </h4>
-                  <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {n.body}
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                    <Link href={`/properties/${p.id}/notice/${n.id}`} target="_blank" style={primaryActionStyle}>
-                      Open ↗
-                    </Link>
-                    <DownloadPropertyPdfButton
-                      propertyId={p.id}
-                      type="notice"
-                      noticeId={n.id}
-                      label="Download PDF"
-                    />
-                    <Link
-                      href={`/properties/${p.id}/notices/${n.id}/edit`}
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        letterSpacing: '.18em',
-                        textTransform: 'uppercase',
-                        color: 'var(--ink-3)',
-                        textDecoration: 'none',
-                        padding: '13px 14px',
-                      }}
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </CollapsibleSection>
         </TabSection>
       </PropertyTabs>
 
@@ -1753,7 +1753,7 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Gate code', value: p.gate_code, mono: true },
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
-    // Freeform notes have been moved to the structured Property Notes
+    // Freeform notes have been moved to the structured Operations notebook
     // accordion (renders above this section). See public.property_notes
     // and src/lib/property-notes.ts.
   ];
