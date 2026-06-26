@@ -1671,6 +1671,10 @@ export type ContractorApplication = {
   status: string;
   contractor_id: string | null;
   created_at: string;
+  ai_recommendation: 'reach_out' | 'maybe' | 'pass' | null;
+  ai_score: number | null;
+  ai_reason: string | null;
+  ai_assessed_at: string | null;
 };
 
 export async function loadApplications(): Promise<ContractorApplication[]> {

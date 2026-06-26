@@ -5,6 +5,8 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { sendInviteEmail } from '@/lib/field-notify';
+import { loadApplications } from '@/lib/field-packets';
+import { screenApplications } from '@/lib/ai/screen-applicant';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -67,6 +69,52 @@ export async function declineApplicant(formData: FormData): Promise<void> {
     .from('contractor_applications')
     .update({ status: 'declined', reviewed_by_email: staff, updated_at: new Date().toISOString() })
     .eq('id', id);
+  revalidatePath('/operations/contractors/applicants');
+}
+
+/**
+ * Run the AI first-pass over active applicants and store each verdict. Scope
+ * 'new' (default) only screens active applicants without a verdict yet -- the
+ * cheap path that backfills rows predating the feature or any that slipped
+ * through when Haiku was down. Scope 'all' re-screens every active applicant
+ * (use after tuning the rubric). Advisory only; never changes status.
+ */
+export async function screenApplicants(formData: FormData): Promise<void> {
+  await staffEmail();
+  const scope = String(formData.get('scope') || 'new') === 'all' ? 'all' : 'new';
+
+  const apps = await loadApplications();
+  const targets = apps.filter(
+    (a) => (a.status === 'new' || a.status === 'reviewing') && (scope === 'all' || a.ai_assessed_at == null),
+  );
+  if (!targets.length) return;
+
+  const verdicts = await screenApplications(
+    targets.map((a) => ({
+      id: a.id,
+      full_name: a.full_name,
+      area: a.area,
+      has_transport: a.has_transport,
+      availability: a.availability,
+      about: a.about,
+      heard_about: a.heard_about,
+      video_url: a.video_url,
+      trade: a.trade,
+    })),
+  );
+
+  const now = new Date().toISOString();
+  await Promise.all(
+    targets.map((a) => {
+      const v = verdicts.get(a.id);
+      if (!v) return Promise.resolve();
+      return fieldDb()
+        .from('contractor_applications')
+        .update({ ai_recommendation: v.recommendation, ai_score: v.score, ai_reason: v.reason, ai_assessed_at: now })
+        .eq('id', a.id)
+        .then(() => undefined);
+    }),
+  );
   revalidatePath('/operations/contractors/applicants');
 }
 

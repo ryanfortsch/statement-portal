@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { fieldDb } from '@/lib/field-db';
 import { sendNewApplicantEmail } from '@/lib/field-notify';
+import { screenApplication } from '@/lib/ai/screen-applicant';
 
 /** Public application submit (no auth — this is the top of the recruiting
  *  funnel). Writes via the service-role client; the table has no anon policy,
@@ -28,20 +29,35 @@ export async function submitApplication(formData: FormData): Promise<void> {
   const video_url = /^https?:\/\//i.test(rawVideo) ? rawVideo : null;
 
   const source = String(formData.get('source') || '').trim().slice(0, 40) || null;
+  const about = String(formData.get('about') || '').trim().slice(0, 2000) || null;
+  const availability = String(formData.get('availability') || '').trim().slice(0, 300) || null;
+  const heard_about = String(formData.get('heard_about') || '').trim().slice(0, 200) || null;
+
+  // AI first-pass: score this applicant against the role before the office ever
+  // looks, so the verdict is on the row from birth. Awaited (one fast Haiku
+  // call) but never fatal -- if it throws, the row inserts unscreened and the
+  // Applicants "Screen" button can backfill it.
+  const verdict = await screenApplication({
+    id: 'new', full_name, area, has_transport, availability, about, heard_about, video_url, trade,
+  }).catch(() => null);
 
   await fieldDb().from('contractor_applications').insert({
     full_name,
     email,
     phone: phone || null,
     area,
-    about: String(formData.get('about') || '').trim().slice(0, 2000) || null,
-    availability: String(formData.get('availability') || '').trim().slice(0, 300) || null,
-    heard_about: String(formData.get('heard_about') || '').trim().slice(0, 200) || null,
+    about,
+    availability,
+    heard_about,
     video_url,
     has_transport,
     trade,
     source,
     status: 'new',
+    ai_recommendation: verdict?.recommendation ?? null,
+    ai_score: verdict?.score ?? null,
+    ai_reason: verdict?.reason ?? null,
+    ai_assessed_at: verdict ? new Date().toISOString() : null,
   });
 
   sendNewApplicantEmail({ full_name, email, phone, area, has_transport, source }).catch(() => {});
