@@ -6,6 +6,7 @@ import { fieldBaseUrl } from '@/lib/field-notify';
 import { loadApplications, type ContractorApplication } from '@/lib/field-packets';
 import { CopyCode } from '@/app/field/CopyCode';
 import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
+import { ScreenButton } from './ScreenButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,13 +116,13 @@ export default async function ApplicantsPage() {
               {unscreened > 0 && (
                 <form action={screenApplicants} style={{ margin: 0 }}>
                   <input type="hidden" name="scope" value="new" />
-                  <button type="submit" style={btnDark}>✦ Screen {unscreened} new</button>
+                  <ScreenButton variant="primary" label={`✦ Screen ${unscreened} new`} />
                 </form>
               )}
               {active.length - unscreened > 0 && (
                 <form action={screenApplicants} style={{ margin: 0 }}>
                   <input type="hidden" name="scope" value="all" />
-                  <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline', padding: 0 }}>Re-screen all</button>
+                  <ScreenButton variant="ghost" label="Re-screen all" />
                 </form>
               )}
             </div>
