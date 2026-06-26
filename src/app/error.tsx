@@ -26,13 +26,56 @@ type Props = {
   reset: () => void;
 };
 
+// A chunk / dynamic-import failure means this tab was loaded before a deploy
+// and is now requesting JS the new build replaced (we ship many times a day, so
+// any tab left open hits this on its next click). reset() can't fix it (same
+// stale chunks); only a full reload pulls the current build. We match by name
+// AND message because the name is often minified in production.
+function isStaleDeployError(error: Error): boolean {
+  const name = error?.name || '';
+  const msg = error?.message || '';
+  return (
+    name === 'ChunkLoadError' ||
+    /loading chunk [\d]+ failed|chunkloaderror|failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i.test(
+      msg,
+    )
+  );
+}
+
 export default function GlobalError({ error, reset }: Props) {
+  const staleDeploy = isStaleDeployError(error);
+
   useEffect(() => {
-    // Surface the failure in the browser console for live debugging. Vercel
-    // captures the server-side throw separately via its logs; this is just so
-    // a developer hitting F12 in production can see what blew up.
     console.error('Helm error boundary caught:', error);
-  }, [error]);
+    // Auto-recover from a stale-deploy chunk error by reloading into the
+    // current build, instead of stranding the operator on this screen. Guard
+    // against a reload loop: only auto-reload once per short window, so if the
+    // reload still fails (a genuinely broken build), the error screen shows.
+    if (staleDeploy && typeof window !== 'undefined') {
+      try {
+        const key = 'helm-stale-deploy-reload-at';
+        const last = Number(window.sessionStorage.getItem(key) || 0);
+        if (Date.now() - last > 10_000) {
+          window.sessionStorage.setItem(key, String(Date.now()));
+          window.location.reload();
+        }
+      } catch {
+        window.location.reload();
+      }
+    }
+  }, [error, staleDeploy]);
+
+  // While the reload is in flight, don't flash the scary error screen.
+  if (staleDeploy) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: 'var(--paper)', color: 'var(--ink-3)', fontSize: 13 }}
+      >
+        Updating to the latest version…
+      </div>
+    );
+  }
 
   return (
     <div
