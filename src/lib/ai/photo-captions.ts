@@ -94,7 +94,7 @@ async function captionOnePhoto(photo: CaptionablePhoto, system: string): Promise
         caption: z
           .string()
           .describe(
-            'The single short gallery caption for THIS one photo: a simple, lightly warm line of roughly 4 to 9 words that helps a guest picture the place without overselling. For outside/grounds shots lead with a named local place or proximity from the property context, then one visible detail; for inside shots give a simple warm line tied to one real thing in the photo. Describe only what is in THIS photo and never invent a view, amenity, distance, or function. Sentence case, no trailing period, no surrounding quotes. No em dash, no street name or number, no exclamation mark, no emoji, and none of: luxurious, stunning, breathtaking, perfect, gem, paradise, dream, oasis. Not a furniture-inventory label.',
+            'The single short gallery caption for THIS one photo: a simple, lightly warm line of roughly 4 to 9 words that helps a guest picture the place without overselling. For outside/grounds shots lead with a named local place or proximity from the property context, then one visible detail; for inside shots give a simple warm line tied to one real thing in the photo. Describe only what is in THIS photo and never invent a view, amenity, distance, or function. Caption what a guest cares about, never house hardware (no solar panels, meters, HVAC, gutters). Sentence case, no trailing period, no surrounding quotes. No em dash, no street name or number, no exclamation mark, no emoji, and none of: luxurious, stunning, breathtaking, perfect, gem, paradise, dream, oasis. Not a furniture-inventory label.',
           ),
       }),
       system,
@@ -249,7 +249,8 @@ How to write it:
 Truth (non-negotiable):
 - Describe only what is visible in THIS photo. Never invent an amenity, finish, room, view, or distance. If the water is not in the frame, do not claim a water view.
 - The only off-photo facts you may use are the named places and details given in the property context above. Everything else must be in the picture.
-- Describe what a thing IS, not what it does. You may name visible solar panels; do not claim they power the home. No function or performance claim you cannot see.
+- Describe what a thing IS, not what it does. No function or performance claim you cannot see.
+- Caption what a GUEST cares about, never house hardware or ownership details. Do NOT mention solar panels, utility meters, HVAC units, satellite dishes, gutters, septic, or similar equipment even when clearly visible. For an exterior or aerial, the subject is the setting and location (the beach, the water, the greenery, the decks, the neighborhood), never the building's systems. "Coastal home with solar panels" is a failure: the solar panels are noise, the location is the point.
 
 Style (hard):
 - No em dashes, ever. Use a comma or a period.
