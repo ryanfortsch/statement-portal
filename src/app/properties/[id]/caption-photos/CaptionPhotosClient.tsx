@@ -16,6 +16,14 @@ type Props = {
 type LoadState = 'loading' | 'ready' | 'needs-listing' | 'error';
 
 /**
+ * Save-to-Guesty is paused (2026-06-26): the Guesty write does not reflect
+ * into the data we read and once appeared to blank a listing's captions.
+ * Keep this in sync with SAVE_TO_GUESTY_ENABLED in actions.ts. Drafting is
+ * unaffected. Flip both back on once a verified write path lands.
+ */
+const WRITE_PAUSED = true;
+
+/**
  * Operator surface for the Guesty photo-caption tool. Lives at
  * /properties/[id]/caption-photos.
  *
@@ -156,6 +164,13 @@ export function CaptionPhotosClient({ propertyId }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <style>{gridCss}</style>
 
+      {WRITE_PAUSED && (
+        <Notice tone="warn">
+          Saving to Guesty is paused while we fix the caption write. Drafting still works and nothing
+          is sent to Guesty. To publish a caption for now, paste it into Guesty’s own photo editor.
+        </Notice>
+      )}
+
       {/* Controls */}
       <div className="rt-cap-toolbar">
         <div className="rt-cap-counts">
@@ -179,14 +194,16 @@ export function CaptionPhotosClient({ propertyId }: Props) {
           >
             Draft all
           </button>
-          <button
-            type="button"
-            onClick={saveAllChanged}
-            disabled={savingAll || changedIds.length === 0}
-            style={changedIds.length > 0 ? saveAllButtonStyle : ghostButtonStyle}
-          >
-            {savingAll ? 'Saving…' : `Save changed to Guesty (${changedIds.length})`}
-          </button>
+          {!WRITE_PAUSED && (
+            <button
+              type="button"
+              onClick={saveAllChanged}
+              disabled={savingAll || changedIds.length === 0}
+              style={changedIds.length > 0 ? saveAllButtonStyle : ghostButtonStyle}
+            >
+              {savingAll ? 'Saving…' : `Save changed to Guesty (${changedIds.length})`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -273,15 +290,23 @@ function PhotoCard({
         />
 
         <div className="rt-cap-card-actions">
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving || !changed}
-            className={`rt-cap-save${changed ? ' rt-cap-save-on' : ''}`}
-          >
-            {saving ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save to Guesty'}
-          </button>
-          {changed && <span className="rt-cap-dirty">Unsaved</span>}
+          {WRITE_PAUSED ? (
+            <span className="rt-cap-dirty" style={{ color: 'var(--ink-4)' }}>
+              Draft only · saving paused
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={saving || !changed}
+                className={`rt-cap-save${changed ? ' rt-cap-save-on' : ''}`}
+              >
+                {saving ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save to Guesty'}
+              </button>
+              {changed && <span className="rt-cap-dirty">Unsaved</span>}
+            </>
+          )}
         </div>
 
         {error && <div className="rt-cap-error">{error}</div>}
