@@ -187,6 +187,16 @@ export async function generateCaptionsAction(
   }
 }
 
+/**
+ * SAVE TO GUESTY IS DISABLED (2026-06-26). The property-photos POST write
+ * does not reflect into the listing `pictures` array we read from, and at
+ * least once a save appeared to blank a listing's existing captions. Until
+ * a verified, non-destructive write path is in place this is a hard no-op
+ * so the tool can be used to DRAFT captions without any risk of touching a
+ * live listing. See updatePhotoCaption in lib/guesty.ts.
+ */
+const SAVE_TO_GUESTY_ENABLED: boolean = false;
+
 export async function saveCaptionAction(
   propertyId: string,
   photoId: string,
@@ -194,6 +204,14 @@ export async function saveCaptionAction(
 ): Promise<SaveCaptionResult> {
   const guard = await requireLinkedProperty(propertyId);
   if (!guard.ok) return { ok: false, error: guard.error };
+
+  if (!SAVE_TO_GUESTY_ENABLED) {
+    return {
+      ok: false,
+      error:
+        'Saving to Guesty is paused while we fix the caption write. Your drafts are safe and nothing is sent to Guesty. For now, paste captions into Guesty’s own photo editor.',
+    };
+  }
 
   // Same hygiene the AI drafts get, applied to operator edits too: strips
   // em dashes (the hard brand rule), trailing punctuation, and stray glyphs
