@@ -1225,6 +1225,12 @@ export default async function PropertyDetailPage({
             >
               Caption photos →
             </ActionLink>
+            <ActionLink
+              href={`/properties/${p.id}/sync-guesty`}
+              title="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live Guesty listing"
+            >
+              Sync to Guesty →
+            </ActionLink>
             <Link
               href={`/properties/${p.id}/stay-cape-ann`}
               title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
