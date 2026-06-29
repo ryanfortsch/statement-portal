@@ -176,10 +176,14 @@ export async function pushGuestyFieldsAction(
   const pushed: FieldKey[] = [];
   for (const s of selections) {
     if (!allowed.has(s.key)) continue;
-    fields[s.key] = s.value ?? '';
+    // Skip blanks: this tool fills/updates fields, it never clears one. An
+    // empty value would wipe whatever is live in Guesty, so we drop it.
+    const value = (s.value ?? '').trim();
+    if (!value) continue;
+    fields[s.key] = value;
     pushed.push(s.key);
   }
-  if (pushed.length === 0) return { ok: false, error: 'Nothing selected to push.' };
+  if (pushed.length === 0) return { ok: false, error: 'Nothing to push (all selected fields were empty).' };
 
   try {
     await updateListingGuestFields(guard.listingId, fields);

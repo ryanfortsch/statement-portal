@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   loadGuestyFieldsAction,
   pushGuestyFieldsAction,
@@ -11,18 +11,31 @@ import {
 
 const HAIRLINE = '1px solid rgba(30,46,52,0.12)';
 
-/** A field is actionable (selectable to push) when Helm has a value that
- *  isn't already identical in Guesty. */
-function selectable(row: FieldRow): boolean {
-  return row.status === 'guesty-empty' || row.status === 'differs';
+/** Long-form fields get a textarea; the wifi pair stays single-line. */
+const MULTILINE: ReadonlySet<FieldKey> = new Set<FieldKey>(['parkingInstructions', 'trashCollectedOn']);
+
+/** Live state of one field once the operator may have edited it. */
+type Computed = 'fill' | 'overwrite' | 'same' | 'empty';
+
+function norm(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-function StatusChip({ status }: { status: FieldRow['status'] }) {
-  const map: Record<FieldRow['status'], { label: string; fg: string; bg: string }> = {
-    'guesty-empty': { label: 'Will fill', fg: 'var(--tide-deep)', bg: 'rgba(30,99,110,0.10)' },
-    differs: { label: 'Will overwrite', fg: 'var(--signal)', bg: 'var(--signal-soft)' },
+/** What WOULD happen if this edited value were pushed, vs what's in Guesty now. */
+function computeStatus(edited: string, guestyValue: string): Computed {
+  const v = edited.trim();
+  if (!v) return 'empty';
+  if (norm(v) === norm(guestyValue)) return 'same';
+  if (!guestyValue) return 'fill';
+  return 'overwrite';
+}
+
+function StatusChip({ status }: { status: Computed }) {
+  const map: Record<Computed, { label: string; fg: string; bg: string }> = {
+    fill: { label: 'Will fill', fg: 'var(--tide-deep)', bg: 'rgba(30,99,110,0.10)' },
+    overwrite: { label: 'Will overwrite', fg: 'var(--signal)', bg: 'var(--signal-soft)' },
     same: { label: 'Already matches', fg: 'var(--ink-3)', bg: 'rgba(30,46,52,0.06)' },
-    'helm-empty': { label: 'No Helm data', fg: 'var(--ink-4)', bg: 'rgba(30,46,52,0.04)' },
+    empty: { label: 'Empty', fg: 'var(--ink-4)', bg: 'rgba(30,46,52,0.04)' },
   };
   const s = map[status];
   return (
@@ -44,39 +57,31 @@ function StatusChip({ status }: { status: FieldRow['status'] }) {
   );
 }
 
-function ValueBlock({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div
-        style={{
-          fontSize: 10,
-          letterSpacing: '.14em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-4)',
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: muted ? 'var(--ink-4)' : 'var(--ink)',
-          fontStyle: value ? 'normal' : 'italic',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-        }}
-      >
-        {value || 'empty'}
-      </div>
-    </div>
-  );
-}
+const FIELD_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-4)',
+  marginBottom: 4,
+};
+
+const INPUT_STYLE: React.CSSProperties = {
+  width: '100%',
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: 'var(--ink)',
+  background: 'var(--paper)',
+  border: HAIRLINE,
+  borderRadius: 8,
+  padding: '8px 10px',
+  fontFamily: 'inherit',
+  resize: 'vertical',
+};
 
 export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<LoadFieldsResult | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
   const [checked, setChecked] = useState<Set<FieldKey>>(new Set());
   const [revealPw, setRevealPw] = useState(false);
   const [pushing, setPushing] = useState(false);
@@ -88,6 +93,9 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
     const res = await loadGuestyFieldsAction(propertyId);
     setResult(res);
     if (res.ok) {
+      const v: Record<string, string> = {};
+      for (const r of res.rows) v[r.key] = r.helmValue;
+      setValues(v);
       setChecked(new Set(res.rows.filter((r) => r.recommend).map((r) => r.key)));
     }
     setLoading(false);
@@ -96,6 +104,12 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const rows: FieldRow[] = result?.ok ? result.rows : [];
+
+  const setValue = (key: FieldKey, value: string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
 
   const toggle = (key: FieldKey) => {
     setChecked((prev) => {
@@ -106,18 +120,34 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
     });
   };
 
+  const selectable = useCallback(
+    (row: FieldRow) => {
+      const s = computeStatus(values[row.key] ?? '', row.guestyValue);
+      return s === 'fill' || s === 'overwrite';
+    },
+    [values],
+  );
+
+  const selectedCount = useMemo(
+    () => rows.filter((r) => checked.has(r.key) && selectable(r)).length,
+    [rows, checked, selectable],
+  );
+
   const push = async () => {
     if (!result?.ok) return;
-    const selections = result.rows
+    const selections = rows
       .filter((r) => checked.has(r.key) && selectable(r))
-      .map((r) => ({ key: r.key, value: r.helmValue }));
+      .map((r) => ({ key: r.key, value: values[r.key] ?? '' }));
     if (selections.length === 0) return;
     setPushing(true);
     setPushMsg(null);
     const res = await pushGuestyFieldsAction(propertyId, selections);
     setPushing(false);
     if (res.ok) {
-      setPushMsg({ ok: true, text: `Pushed ${res.pushed.length} field${res.pushed.length === 1 ? '' : 's'} to Guesty.` });
+      setPushMsg({
+        ok: true,
+        text: `Pushed ${res.pushed.length} field${res.pushed.length === 1 ? '' : 's'} to Guesty.`,
+      });
       await load();
     } else {
       setPushMsg({ ok: false, text: res.error });
@@ -147,17 +177,17 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
     );
   }
 
-  const selectedCount = result.rows.filter((r) => checked.has(r.key) && selectable(r)).length;
-
   return (
     <div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {result.rows.map((row) => {
-          const canSelect = selectable(row);
-          const isChecked = checked.has(row.key);
+        {rows.map((row) => {
+          const val = values[row.key] ?? '';
+          const status = computeStatus(val, row.guestyValue);
+          const canSelect = status === 'fill' || status === 'overwrite';
+          const isChecked = checked.has(row.key) && canSelect;
           const isPw = row.sensitive;
-          const helmDisplay = isPw && !revealPw && row.helmValue ? '••••••••' : row.helmValue;
           const guestyDisplay = isPw && !revealPw && row.guestyValue ? '••••••••' : row.guestyValue;
+          const multiline = MULTILINE.has(row.key);
           return (
             <div
               key={row.key}
@@ -166,21 +196,20 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
                 borderRadius: 12,
                 padding: '16px 18px',
                 background: 'var(--card)',
-                opacity: canSelect ? 1 : 0.7,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: canSelect ? 'pointer' : 'default', flex: 1 }}>
                   <input
                     type="checkbox"
-                    checked={isChecked && canSelect}
+                    checked={isChecked}
                     disabled={!canSelect}
                     onChange={() => toggle(row.key)}
                     style={{ width: 16, height: 16, accentColor: 'var(--tide-deep)', cursor: canSelect ? 'pointer' : 'default' }}
                   />
                   <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>{row.label}</span>
                 </label>
-                {isPw && (row.helmValue || row.guestyValue) && (
+                {isPw && (
                   <button
                     type="button"
                     onClick={() => setRevealPw((v) => !v)}
@@ -197,11 +226,43 @@ export function SyncGuestyClient({ propertyId }: { propertyId: string }) {
                     {revealPw ? 'Hide' : 'Reveal'}
                   </button>
                 )}
-                <StatusChip status={row.status} />
+                <StatusChip status={status} />
               </div>
-              <div style={{ display: 'flex', gap: 24 }}>
-                <ValueBlock label="In Helm" value={helmDisplay} muted={!row.helmValue} />
-                <ValueBlock label="In Guesty now" value={guestyDisplay} muted={!row.guestyValue} />
+              <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={FIELD_LABEL_STYLE}>Value to push · editable</div>
+                  {multiline ? (
+                    <textarea
+                      value={val}
+                      onChange={(e) => setValue(row.key, e.target.value)}
+                      rows={Math.min(8, Math.max(2, val.split('\n').length + 1))}
+                      style={INPUT_STYLE}
+                    />
+                  ) : (
+                    <input
+                      type={isPw && !revealPw ? 'password' : 'text'}
+                      value={val}
+                      onChange={(e) => setValue(row.key, e.target.value)}
+                      style={INPUT_STYLE}
+                    />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={FIELD_LABEL_STYLE}>In Guesty now</div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: row.guestyValue ? 'var(--ink)' : 'var(--ink-4)',
+                      fontStyle: row.guestyValue ? 'normal' : 'italic',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      paddingTop: 8,
+                    }}
+                  >
+                    {guestyDisplay || 'empty'}
+                  </div>
+                </div>
               </div>
             </div>
           );
