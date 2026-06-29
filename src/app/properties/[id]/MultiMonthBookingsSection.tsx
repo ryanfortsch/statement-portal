@@ -34,12 +34,19 @@ type GuestyRow = {
   owner_net_revenue_guesty: number | null;
 };
 
-function spansMultipleMonths(checkIn: string, checkOut: string): boolean {
+// 30-night minimum: short bookings that happen to straddle a month
+// boundary (e.g. Aug 28 → Sep 5) don't justify the operator overhead of
+// a 2-month split. Long stays (1+ month residencies) are where the
+// "owner can't see any revenue until checkout" friction actually bites.
+const MIN_NIGHTS_FOR_INSTALLMENT = 30;
+
+function qualifiesForInstallment(checkIn: string, checkOut: string, nights: number | null): boolean {
   if (!checkIn || !checkOut) return false;
+  if ((nights || 0) < MIN_NIGHTS_FOR_INSTALLMENT) return false;
   // Check-out is the morning the guest leaves, not a paid night. The
   // stay's LAST PAID night is check_out - 1 day. If that night and the
   // check-in night are in different calendar months, the booking spans
-  // multiple months and qualifies for an installment split.
+  // multiple months.
   const lastNight = new Date(checkOut + 'T00:00:00Z');
   lastNight.setUTCDate(lastNight.getUTCDate() - 1);
   const ci = checkIn.slice(0, 7);
@@ -95,7 +102,7 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
       .gte('check_out', todayIso)
       .order('check_in', { ascending: true });
     const filtered = ((rows || []) as GuestyRow[])
-      .filter(r => spansMultipleMonths(r.check_in, r.check_out));
+      .filter(r => qualifiesForInstallment(r.check_in, r.check_out, r.nights));
     setBookings(filtered);
 
     if (filtered.length > 0) {
@@ -202,22 +209,32 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
         })}
       </div>
 
-      {editingBooking && (
-        <InstallmentEditor
-          booking={{
-            confirmation_code: editingBooking.confirmation_code,
-            property_id: propertyId,
-            guest_name: editingBooking.guest_name || editingBooking.confirmation_code,
-            check_in: editingBooking.check_in,
-            check_out: editingBooking.check_out,
-            nights: editingBooking.nights || 0,
-            adjusted_revenue: computeAdjustedRevenue(editingBooking),
-            channel: editingBooking.channel || editingBooking.guesty_channel_id,
-          } satisfies CrossMonthBooking}
-          open={!!editingCode}
-          onClose={() => { setEditingCode(null); load(); }}
-        />
-      )}
+      {editingBooking && (() => {
+        const totalPaid = Number(editingBooking.total_paid || 0);
+        const stripeFeeEst = totalPaid > 0
+          ? Math.round((totalPaid * 0.039 + 0.40) * 100) / 100
+          : 0;
+        return (
+          <InstallmentEditor
+            booking={{
+              confirmation_code: editingBooking.confirmation_code,
+              property_id: propertyId,
+              guest_name: editingBooking.guest_name || editingBooking.confirmation_code,
+              check_in: editingBooking.check_in,
+              check_out: editingBooking.check_out,
+              nights: editingBooking.nights || 0,
+              adjusted_revenue: computeAdjustedRevenue(editingBooking),
+              channel: editingBooking.channel || editingBooking.guesty_channel_id,
+              total_paid: editingBooking.total_paid,
+              total_taxes: editingBooking.total_taxes,
+              channel_commission: editingBooking.channel_commission,
+              stripe_fee_estimate: stripeFeeEst,
+            } satisfies CrossMonthBooking}
+            open={!!editingCode}
+            onClose={() => { setEditingCode(null); load(); }}
+          />
+        );
+      })()}
     </section>
   );
 }

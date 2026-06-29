@@ -24,6 +24,20 @@ export type CrossMonthBooking = {
   /** The booking's full pre-mgmt-fee, post-Stripe-fee net to be split. */
   adjusted_revenue: number;
   channel: string | null;
+  // Breakdown shown in the editor's "Booking breakdown" panel so the
+  // operator can see where adjusted_revenue came from. Optional --
+  // omit and the panel just doesn't render.
+  total_paid?: number | null;
+  total_taxes?: number | null;
+  channel_commission?: number | null;
+  stripe_fee_estimate?: number | null;
+};
+
+type VerifyResponse = {
+  guesty: { total_paid: number; total_taxes: number; channel_commission: number; owner_net_revenue_guesty: number; channel: string | null };
+  stripe: { total: number; charge_id: string; description: string | null; match_method: string } | null;
+  stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'error';
+  stripe_note: string | null;
 };
 
 function fmt(n: number): string {
@@ -48,8 +62,15 @@ export function InstallmentEditor({
   const [existing, setExisting] = useState<Installment[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Editable split target. Defaults to the computed adjusted_revenue;
+  // the operator can override if Guesty's number is stale (the Hancock
+  // glitch case) without leaving the editor to re-sync.
+  const [targetRev, setTargetRev] = useState<number>(Number(booking.adjusted_revenue) || 0);
+  // Stripe verification (only Stripe-channel bookings).
+  const [verify, setVerify] = useState<VerifyResponse | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
 
-  const totalRev = Number(booking.adjusted_revenue) || 0;
+  const totalRev = targetRev;
   const sum = drafts.reduce((s, d) => s + (Number(d.installment_revenue) || 0), 0);
   const sumCents = Math.round(sum * 100);
   const targetCents = Math.round(totalRev * 100);
@@ -87,6 +108,27 @@ export function InstallmentEditor({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) load(); }, [open, load]);
 
+  // Stripe cross-check on open. Surfaces silently when the property has
+  // no key or this isn't a Stripe-channel booking; loudly when Stripe
+  // disagrees with Guesty (the "Hancock glitch" signal). The eslint
+  // disable matches the same fetch-on-mount pattern used elsewhere in
+  // this file -- the rule is intended for unconditional setState during
+  // render, not async data loaders.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setVerifyLoading(true);
+    setVerify(null);
+    fetch(`/api/installments/verify-source?confirmation_code=${encodeURIComponent(booking.confirmation_code)}&property_id=${encodeURIComponent(booking.property_id)}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setVerify(d as VerifyResponse); })
+      .catch(() => { /* swallow -- the panel just won't render */ })
+      .finally(() => { if (!cancelled) setVerifyLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, booking.confirmation_code, booking.property_id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   function setRevenue(idx: number, raw: string) {
     setDrafts(prev => prev.map((d, i) => i === idx ? { ...d, installment_revenue: Number(raw.replace(/[^0-9.\-]/g, '')) || 0 } : d));
   }
@@ -110,6 +152,23 @@ export function InstallmentEditor({
       checkOutIso: booking.check_out,
       totalNights: booking.nights,
       totalRevenue: totalRev,
+    }));
+  }
+  function applyTargetFromStripe() {
+    // Pull Stripe's actual amount into the target field, then re-pro-rate
+    // a Stripe fee on it to get the post-fee net the operator should split.
+    if (!verify?.stripe) return;
+    const stripeGross = verify.stripe.total;
+    const stripeFeeEst = Math.round((stripeGross * 0.039 + 0.40) * 100) / 100;
+    const taxes = verify.guesty.total_taxes;
+    const commission = verify.guesty.channel_commission;
+    const net = Math.round((stripeGross - taxes - commission - stripeFeeEst) * 100) / 100;
+    setTargetRev(net);
+    setDrafts(computeNightsInMonthSplit({
+      checkInIso: booking.check_in,
+      checkOutIso: booking.check_out,
+      totalNights: booking.nights,
+      totalRevenue: net,
     }));
   }
 
@@ -198,6 +257,108 @@ export function InstallmentEditor({
           will reflect the per-month allocation. Cleaning and repairs still attach to the
           checkout month only.
         </div>
+
+        {/* Booking breakdown -- shows the operator exactly where the
+            split target came from, with a Stripe cross-check below. */}
+        {(booking.total_paid != null || verify) && (
+          <div style={{ border: '1px solid var(--rule)', background: 'var(--paper-2)', padding: '10px 14px', marginBottom: 14 }}>
+            <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>Booking breakdown</div>
+            <div style={{ fontSize: 12, display: 'grid', gridTemplateColumns: 'max-content 1fr', columnGap: 14, rowGap: 4 }}>
+              {booking.total_paid != null && (
+                <>
+                  <span style={{ color: 'var(--ink-3)' }}>Guesty total paid</span>
+                  <span className="tabular-nums" style={{ textAlign: 'right' }}>${fmt(Number(booking.total_paid))}</span>
+                </>
+              )}
+              {booking.total_taxes != null && booking.total_taxes > 0 && (
+                <>
+                  <span style={{ color: 'var(--ink-3)' }}>Taxes</span>
+                  <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(Number(booking.total_taxes))}</span>
+                </>
+              )}
+              {booking.channel_commission != null && booking.channel_commission > 0 && (
+                <>
+                  <span style={{ color: 'var(--ink-3)' }}>Channel commission</span>
+                  <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(Number(booking.channel_commission))}</span>
+                </>
+              )}
+              {booking.stripe_fee_estimate != null && booking.stripe_fee_estimate > 0 && (
+                <>
+                  <span style={{ color: 'var(--ink-3)' }}>Stripe fee (est.)</span>
+                  <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(Number(booking.stripe_fee_estimate))}</span>
+                </>
+              )}
+              <span style={{ color: 'var(--ink)', fontWeight: 600, borderTop: '1px solid var(--rule-soft)', paddingTop: 4 }}>
+                Total to split
+              </span>
+              <span style={{ textAlign: 'right', borderTop: '1px solid var(--rule-soft)', paddingTop: 4 }}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={targetRev.toFixed(2)}
+                  onChange={(e) => {
+                    const v = Number(e.target.value.replace(/[^0-9.\-]/g, '')) || 0;
+                    setTargetRev(v);
+                  }}
+                  onBlur={() => {
+                    // Re-pro-rate the per-month split to the new target
+                    setDrafts(computeNightsInMonthSplit({
+                      checkInIso: booking.check_in,
+                      checkOutIso: booking.check_out,
+                      totalNights: booking.nights,
+                      totalRevenue: targetRev,
+                    }));
+                  }}
+                  disabled={busy}
+                  style={{
+                    border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)',
+                    padding: '3px 6px', fontSize: 13, width: 110, textAlign: 'right',
+                    fontFamily: 'var(--font-mono, monospace)', fontWeight: 600,
+                  }}
+                />
+              </span>
+            </div>
+
+            {/* Stripe cross-check. Loud signal when Stripe disagrees with
+                Guesty -- the Hancock-style glitch case. */}
+            {verifyLoading && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-4)' }}>Checking Stripe...</div>
+            )}
+            {verify && verify.stripe && (() => {
+              const stripeTotal = verify.stripe!.total;
+              const guestyTotal = verify.guesty.total_paid;
+              const diff = Math.round((stripeTotal - guestyTotal) * 100) / 100;
+              const matches = Math.abs(diff) <= 5;
+              return (
+                <div style={{
+                  marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)',
+                  fontSize: 11, color: matches ? 'var(--positive, #2f6f3f)' : 'var(--signal)',
+                  lineHeight: 1.5,
+                }}>
+                  <strong>Stripe actual:</strong> <span className="tabular-nums">${fmt(stripeTotal)}</span>
+                  {' '}{matches
+                    ? <>&middot; matches Guesty ✓</>
+                    : <>&middot; differs from Guesty by ${fmt(Math.abs(diff))} {diff > 0 ? '(Stripe higher)' : '(Guesty higher)'} &mdash; consider re-syncing Guesty before splitting.</>}
+                  {!matches && (
+                    <button
+                      type="button"
+                      onClick={applyTargetFromStripe}
+                      disabled={busy}
+                      style={{ marginLeft: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)', padding: '3px 8px', cursor: 'pointer' }}
+                    >
+                      Use Stripe number
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+            {verify && !verify.stripe && verify.stripe_status !== 'wrong_channel' && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)', fontSize: 11, color: 'var(--ink-4)' }}>
+                Stripe cross-check: {verify.stripe_note}
+              </div>
+            )}
+          </div>
+        )}
 
         <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
