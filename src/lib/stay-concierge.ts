@@ -85,6 +85,16 @@ export type StayConciergeError =
   | { kind: 'http'; status: number; detail: string }
   | { kind: 'network'; message: string };
 
+// A hung Cloudflare tunnel (sleepy Mac Mini) used to stall a render for the
+// platform's full function timeout with no signal. Bound every call: 13s is
+// well past a warm round-trip but short of the multi-second "is it frozen?"
+// tail the messaging page was showing on mobile.
+const STAY_CONCIERGE_TIMEOUT_MS = 13_000;
+// Interactive LLM generations (polish, coach/regenerate, audit refresh) are an
+// operator actively waiting on a model write that can run well past 13s on a
+// cold upstream. Give those a roomier ceiling than the render-path fetches.
+const STAY_CONCIERGE_LLM_TIMEOUT_MS = 60_000;
+
 function readEnv(): { url: string; key: string } | null {
   const url = (process.env.STAY_CONCIERGE_URL || '').trim().replace(/\/$/, '');
   const key = (process.env.STAY_CONCIERGE_KEY || '').trim();
@@ -98,7 +108,9 @@ export function isStayConciergeConfigured(): boolean {
 
 async function request<T>(
   path: string,
-  init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown } = { method: 'GET' },
+  init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; timeoutMs?: number } = {
+    method: 'GET',
+  },
 ): Promise<{ ok: true; data: T } | { ok: false; error: StayConciergeError }> {
   const env = readEnv();
   if (!env) return { ok: false, error: { kind: 'unconfigured' } };
@@ -113,6 +125,7 @@ async function request<T>(
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       cache: 'no-store',
+      signal: AbortSignal.timeout(init.timeoutMs ?? STAY_CONCIERGE_TIMEOUT_MS),
     });
     if (!res.ok) {
       let detail = '';
@@ -127,7 +140,14 @@ async function request<T>(
     const data = (await res.json()) as T;
     return { ok: true, data };
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'fetch failed';
+    // AbortSignal.timeout() rejects with a TimeoutError (a DOMException); map
+    // it to a legible message. Everything else keeps its own error text.
+    const message =
+      e instanceof Error
+        ? e.name === 'TimeoutError'
+          ? 'Stay Concierge timed out'
+          : e.message
+        : 'fetch failed';
     return { ok: false, error: { kind: 'network', message } };
   }
 }
@@ -151,7 +171,10 @@ export async function getFactAudit() {
 }
 
 export async function refreshFactAudit() {
-  return request<FactAudit>('/api/fact-audit/refresh', { method: 'POST' });
+  return request<FactAudit>('/api/fact-audit/refresh', {
+    method: 'POST',
+    timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
+  });
 }
 
 // --- Proactive: reservations picker + recurring reminders ----------------
@@ -226,7 +249,11 @@ export async function createRecurring(input: CreateRecurringInput) {
 export async function polishProactive(reservationId: string, roughText: string) {
   return request<{ polished: string; guest_first: string }>(
     '/api/proactive/polish',
-    { method: 'POST', body: { reservation_id: reservationId, rough_text: roughText } },
+    {
+      method: 'POST',
+      body: { reservation_id: reservationId, rough_text: roughText },
+      timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
+    },
   );
 }
 
@@ -331,6 +358,7 @@ export async function coachOwnerApproval(id: string, feedback: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/coach`, {
     method: 'POST',
     body: { feedback },
+    timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
   });
 }
 
@@ -496,6 +524,7 @@ export async function coachApproval(id: string, feedback: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/coach`, {
     method: 'POST',
     body: { feedback },
+    timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
   });
 }
 
