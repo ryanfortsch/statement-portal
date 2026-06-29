@@ -11,21 +11,41 @@ import { getStripeKeysMap } from '@/lib/stripe-sync';
  *
  * Returns:
  *   {
- *     guesty: { total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, channel },
- *     stripe: { total: number, charge_id: string, description: string } | null,
- *     stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'error',
+ *     guesty: { total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, host_payout, channel },
+ *     stripe: { total, charge_id, description, match_method } | null,
+ *     stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'no_target' | 'error',
  *     stripe_note: string | null,
+ *     target: { amount: number, source: 'total_paid' | 'host_payout' | 'none' }
  *   }
  *
- * Helps catch the "Guesty had a glitch one-off adjustment" case Dotti
- * hit with Hancock (Guesty cached $29,343.60; she updated Guesty to
- * $32,000 in their UI; Helm's guesty_reservations row hadn't re-synced).
- * If Stripe disagrees with Guesty, the operator knows to re-sync Guesty
- * before splitting.
+ * Two distinct gotchas surfaced and motivate the lookup ordering:
+ *
+ * 1. The Hancock case: Guesty cached $29,343.60; Dotti updated Guesty
+ *    UI to $32,000; Helm's guesty_reservations row hadn't re-synced. The
+ *    Stripe charge is the source of truth, not the Guesty cache.
+ *
+ * 2. The pure SCA case: staycapeann.com bookings have total_paid IS NULL
+ *    in Guesty (Guesty never sees the money -- payment routes through
+ *    RT's Stripe directly). Without a fallback, the matcher would
+ *    require `Math.abs(charge.amount - 0) <= 1` which never matches a
+ *    real charge. host_payout is populated by the Guesty API sync and
+ *    equals the gross-including-taxes that the guest paid.
+ *
+ *    IMPORTANT: host_payout already includes taxes. Do NOT add
+ *    total_taxes on top -- doing so over-targets by the tax amount and
+ *    pushes every SCA booking out of the $1 tolerance band. Confirmed
+ *    via the Antebi sample (host_payout 2702.40 = guesty_rental_income
+ *    2356.06 + total_taxes 346.34, exact).
+ *
+ * Lookup ordering:
+ *   - total_paid > 0  → use that. Hancock case.
+ *   - else host_payout > 0  → use that. Pure SCA case.
+ *   - else target.source='none' → skip Stripe call entirely, return a
+ *     "no revenue in Guesty" note (likely a homeowner stay).
  *
  * Only attempts the Stripe lookup for Stripe-channel bookings (Direct,
  * Manual, VRBO/HomeAway). Airbnb / Booking.com process payment on their
- * side, not RT's Stripe, so there's nothing to verify there.
+ * side, not RT's Stripe.
  */
 
 function getSupabase() {
@@ -61,15 +81,8 @@ async function stripeGet<T>(key: string, path: string, params: Record<string, st
   return body as T;
 }
 
-/**
- * List succeeded Stripe charges in a window around the booking's check-in
- * date. Wide window because guests can book up to a year ahead. Cap pages
- * at 20 (~2000 charges) -- way more than any single property generates.
- */
 async function listChargesAroundCheckIn(key: string, checkInIso: string): Promise<StripeCharge[]> {
   const ci = new Date(checkInIso + 'T00:00:00Z').getTime() / 1000;
-  // 18 months before check-in (long lead bookings) through 6 months after
-  // (in case the charge processed late, refunds, etc.).
   const start = Math.floor(ci - 18 * 30 * 86400);
   const end = Math.floor(ci + 6 * 30 * 86400);
   const charges: StripeCharge[] = [];
@@ -90,49 +103,50 @@ async function listChargesAroundCheckIn(key: string, checkInIso: string): Promis
 }
 
 /**
- * Find the Stripe charge that paid for this booking. Prefers a charge
- * whose description contains the check-in date string (SCA Payment Link
- * format) and whose amount is within $5 of guesty.total_paid. Falls back
- * to amount-only match (within $5) if the description doesn't contain
- * either date.
+ * Find the Stripe charge that paid for this booking.
+ *
+ * Three passes, escalating risk:
+ *   1. Both dates in description AND amount within $5  (high confidence)
+ *   2. Both dates in description (any amount)          (signals Guesty staleness)
+ *   3. Amount within $1 in 60d before check-in AND
+ *      exactly one such candidate                      (strict, last resort)
+ *
+ * Pass 3 mirrors stripe-sync's amount-based fallback: $1 tolerance
+ * (matches src/lib/stripe-sync.ts line 339 ish) and exactly-one-candidate
+ * uniqueness guard. Two SCA stays at the same gross would otherwise
+ * silently mis-attribute (e.g. a cancel-and-rebook at the same price).
  */
 function pickMatchingCharge(
   charges: StripeCharge[],
   checkInIso: string,
   checkOutIso: string,
-  guestyTotal: number,
+  targetAmount: number,
 ): { charge: StripeCharge; method: 'desc+amount' | 'desc' | 'amount' } | null {
   const succeeded = charges.filter(c => (c.status === 'succeeded' || c.paid) && c.amount_refunded < c.amount);
-  const targetCents = Math.round(guestyTotal * 100);
+  const targetCents = Math.round(targetAmount * 100);
   const ciDate = checkInIso.slice(0, 10);
   const coDate = checkOutIso.slice(0, 10);
 
-  // Pass 1: description contains both dates AND amount matches within $5.
   for (const c of succeeded) {
     const desc = c.description || '';
     if (desc.includes(ciDate) && desc.includes(coDate) && Math.abs(c.amount - targetCents) <= 500) {
       return { charge: c, method: 'desc+amount' };
     }
   }
-  // Pass 2: description contains BOTH dates -- the canonical SCA Payment
-  // Link format -- even if amount differs (which is exactly the "Guesty
-  // glitch" signal we want to surface).
   for (const c of succeeded) {
     const desc = c.description || '';
     if (desc.includes(ciDate) && desc.includes(coDate)) {
       return { charge: c, method: 'desc' };
     }
   }
-  // Pass 3: amount-only match within $5, in a tight window around check-in
-  // (60 days before). Risky if the property has two same-amount stays,
-  // so only used as a last resort.
   const ciSec = new Date(checkInIso + 'T00:00:00Z').getTime() / 1000;
-  for (const c of succeeded) {
-    if (c.created > ciSec) continue;
-    if (ciSec - c.created > 60 * 86400) continue;
-    if (Math.abs(c.amount - targetCents) <= 500) {
-      return { charge: c, method: 'amount' };
-    }
+  const amountCandidates = succeeded.filter(c => {
+    if (c.created > ciSec) return false;
+    if (ciSec - c.created > 60 * 86400) return false;
+    return Math.abs(c.amount - targetCents) <= 100;
+  });
+  if (amountCandidates.length === 1) {
+    return { charge: amountCandidates[0], method: 'amount' };
   }
   return null;
 }
@@ -149,21 +163,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabase = getSupabase();
   const { data: booking, error: bookingErr } = await supabase
     .from('guesty_reservations')
-    .select('confirmation_code, channel, guesty_channel_id, check_in, check_out, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+    .select('confirmation_code, channel, guesty_channel_id, check_in, check_out, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, host_payout')
     .eq('confirmation_code', code)
     .maybeSingle();
   if (bookingErr) return NextResponse.json({ error: bookingErr.message }, { status: 500 });
   if (!booking) return NextResponse.json({ error: 'booking not found in guesty_reservations' }, { status: 404 });
 
+  const totalPaid = Number(booking.total_paid || 0);
+  const hostPayout = Number(booking.host_payout || 0);
   const guesty = {
     channel: booking.channel as string | null,
-    total_paid: Number(booking.total_paid || 0),
+    total_paid: totalPaid,
     total_taxes: Number(booking.total_taxes || 0),
     channel_commission: Number(booking.channel_commission || 0),
     owner_net_revenue_guesty: Number(booking.owner_net_revenue_guesty || 0),
+    host_payout: hostPayout,
   };
 
-  // Only Stripe channels have a Stripe charge to verify against.
+  // Pick the matcher target. total_paid wins when populated (covers the
+  // Hancock manual-edit case). host_payout is the fallback for SCA
+  // bookings that Guesty never saw the money for (total_paid=NULL).
+  // host_payout already includes taxes -- don't add them.
+  let target: { amount: number; source: 'total_paid' | 'host_payout' | 'none' };
+  if (totalPaid > 0) {
+    target = { amount: totalPaid, source: 'total_paid' };
+  } else if (hostPayout > 0) {
+    target = { amount: hostPayout, source: 'host_payout' };
+  } else {
+    target = { amount: 0, source: 'none' };
+  }
+
   const platform = ((booking.channel as string) || (booking.guesty_channel_id as string) || '').toLowerCase();
   const isStripeChannel = platform.includes('homeaway') || platform === 'vrbo' || platform === 'manual' || platform === 'direct';
   if (!isStripeChannel) {
@@ -172,6 +201,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stripe: null,
       stripe_status: 'wrong_channel',
       stripe_note: `Channel "${booking.channel}" doesn't process payment through Stripe.`,
+      target,
+    });
+  }
+
+  if (target.source === 'none') {
+    return NextResponse.json({
+      guesty,
+      stripe: null,
+      stripe_status: 'no_target',
+      stripe_note: 'Guesty has $0 revenue on this booking (total_paid and host_payout both empty). Likely a homeowner stay or a row that hasn’t synced yet.',
+      target,
     });
   }
 
@@ -183,18 +223,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stripe: null,
       stripe_status: 'no_key',
       stripe_note: `No Stripe restricted key configured for ${propertyId} in STRIPE_KEYS_JSON.`,
+      target,
     });
   }
 
   try {
     const charges = await listChargesAroundCheckIn(restrictedKey, booking.check_in as string);
-    const match = pickMatchingCharge(charges, booking.check_in as string, booking.check_out as string, guesty.total_paid);
+    const match = pickMatchingCharge(charges, booking.check_in as string, booking.check_out as string, target.amount);
     if (!match) {
       return NextResponse.json({
         guesty,
         stripe: null,
         stripe_status: 'no_match',
-        stripe_note: `Searched ${charges.length} Stripe charges around ${booking.check_in}; no charge matched the booking's dates or amount.`,
+        stripe_note: `Searched ${charges.length} Stripe charges around ${booking.check_in}; no charge matched the booking's dates or target amount ($${target.amount.toFixed(2)} via ${target.source}).`,
+        target,
       });
     }
     const stripeTotal = match.charge.amount / 100;
@@ -208,6 +250,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       stripe_status: 'matched',
       stripe_note: null,
+      target,
     });
   } catch (err) {
     return NextResponse.json({
@@ -215,6 +258,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stripe: null,
       stripe_status: 'error',
       stripe_note: err instanceof Error ? err.message : String(err),
+      target,
     });
   }
 }
