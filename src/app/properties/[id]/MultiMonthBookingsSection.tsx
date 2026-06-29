@@ -54,10 +54,39 @@ function qualifiesForInstallment(checkIn: string, checkOut: string, nights: numb
   return ci !== lastNightMonth;
 }
 
+/**
+ * Strip the legacy 4.4% commission kludge -- a duplicate of the helper
+ * in /api/ingest. Pre-overhaul, Ryan/Dotti added 4.4% to CHANNEL
+ * COMMISSION in Guesty so the PDF would approximate the post-Stripe
+ * owner net. Bookings before the fix landed still carry the inflated
+ * value (e.g. Hancock at $32,000 has commission=$1,408 -- exactly 4.4%
+ * -- on a Manual booking where the real commission is 0). Without this,
+ * the editor's breakdown overstates the deduction and lands on
+ * $29,343.60 instead of the correct $30,751.60.
+ */
+function effectiveCommission(platform: string, totalPaid: number, taxes: number, commission: number): number {
+  if (!commission || commission <= 0) return 0;
+  const base = Math.max(totalPaid - taxes, 0);
+  if (base <= 0) return commission;
+  const ratio = commission / base;
+  const p = platform.toUpperCase();
+  if (p === 'MANUAL' || p === 'DIRECT') {
+    // Real Manual/Direct commission = 0. Anything above 2% is the kludge.
+    return ratio > 0.02 ? 0 : commission;
+  }
+  if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Real VRBO commission = 5%. Above 7% has the 4.4% kludge stacked
+    // on top -- restore the underlying 5%.
+    return ratio > 0.07 ? Math.round(base * 0.05 * 100) / 100 : commission;
+  }
+  // Airbnb / Booking.com handle commission themselves -- never kludged.
+  return commission;
+}
+
 function computeAdjustedRevenue(g: GuestyRow): number {
-  // Mirrors the recognition math in /api/ingest closely enough for the
-  // editor pre-fill. The operator can edit any cell before saving, so
-  // a few-cent drift from the legacy-commission-kludge case isn't fatal.
+  // Mirrors the recognition math in /api/ingest exactly, including the
+  // legacy commission kludge stripping. The operator can still edit the
+  // result in the modal if Guesty has stale data.
   const platform = (g.channel || g.guesty_channel_id || '').toLowerCase();
   const isStripe = platform.includes('homeaway') || platform === 'vrbo' || platform === 'manual' || platform === 'direct';
   const totalPaid = Number(g.total_paid || 0);
@@ -65,7 +94,8 @@ function computeAdjustedRevenue(g: GuestyRow): number {
   if (isStripe && totalPaid === 0) return 0; // homeowner stay
   if (isStripe && totalPaid > 0) {
     const taxes = Number(g.total_taxes || 0);
-    const commission = Number(g.channel_commission || 0);
+    const rawCommission = Number(g.channel_commission || 0);
+    const commission = effectiveCommission(platform, totalPaid, taxes, rawCommission);
     const stripeFee = Math.round((totalPaid * 0.039 + 0.40) * 100) / 100;
     return Math.round((totalPaid - taxes - commission - stripeFee) * 100) / 100;
   }
