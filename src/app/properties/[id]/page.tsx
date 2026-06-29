@@ -18,6 +18,7 @@ import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { TaxCertEditor } from './TaxCertEditor';
+import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
@@ -586,6 +587,12 @@ export default async function PropertyDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Cross-month bookings -- inline action to split a long stay across
+          the months it spans. Hidden when this property has no qualifying
+          upcoming bookings, so it costs zero vertical space on the
+          ~9 properties that don't have one right now. */}
+      <MultiMonthBookingsSection propertyId={p.id} />
 
       <PropertyTabs
         initialTab={initialTab}
