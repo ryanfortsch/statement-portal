@@ -23,6 +23,11 @@ import { BRAND_VOICE_RULES } from './brand-voice';
 import scaListings from '@/data/sca-listings.json';
 import type { HelmPropertyRow } from '@/lib/properties';
 
+/** Stay Cape Ann's public Instagram handle, appended as a soft CTA to the
+ *  Airbnb/Guesty summary. Single source of truth so the handle is trivial to
+ *  change. Confirm it is correct before relying on the generated copy. */
+const SCA_INSTAGRAM = '@staycapeann';
+
 type ScaListing = {
   id: string;
   title: string;
@@ -61,10 +66,10 @@ function buildSchema(format: ListingCopyFormat) {
         'Public listing name. Format: "Stay at <Place>". <Place> is a short, evocative micro-location (a beach, cove, neighborhood). Maximum 50 characters total (Airbnb limit). No address, no street name or number. Must NOT duplicate any title in the taken-titles list.'
       ),
       summary: z.string().describe(
-        'The Guesty/Airbnb Summary field. STRICT 500 character maximum (Airbnb truncates beyond that). Structure: one hook headline line (pattern: "4-Minute Walk to Good Harbor Beach!"), then a blank line, then 3-5 lines each starting with "✓ " covering location, renovation/condition, sleeping capacity ("Sleeps N across ..."), standout amenity. One fact per line. No street names.'
+        `The Guesty/Airbnb "Summary" field. STRICT 500 character maximum INCLUDING the Instagram line below (Airbnb truncates past 500). Structure:\n(1) 4 or 5 lines, each starting "✓ ", each pairing a concrete fact with the guest benefit it creates (not a bare fact). Lead the first line with the single most bookable fact (walk time to a named beach, direct water access, a dock). Across the lines cover: location, the build or condition ("newly built", "fully renovated"), sleeping capacity ("Sleeps N across N bedrooms and N full baths"), the primary suite or standout amenity, and the gathering or outdoor spaces.\n(2) A blank line, then this exact call to action on its own line: "Visit ${SCA_INSTAGRAM} on Instagram for a video property tour."\nTrim the bullets so the whole field, Instagram line included, stays under 500 characters. No street names. No exclamation points.`
       ),
       space: z.string().describe(
-        'The Guesty "The space" field. Structure, in this exact order:\n(1) One grounded 2-4 sentence intro paragraph describing the property as a guest experiences it.\n(2) A blank line, then floor-by-floor sections. Each section is a header line like "★★★ 1ST FLOOR ★★★" (also "★★★ 2ND FLOOR ★★★", "★★★ OUTDOOR ★★★", "★★★ GUEST HOUSE ★★★" as applicable), followed by "→ <Room>: <detail>" lines, one per room or feature, e.g. "→ Kitchen: Fully-stocked with essentials" / "→ Primary bedroom: king bed, ensuite bath".\nOnly include floors/areas the photos or property data support. 150-350 words total. No em dashes. No street names.'
+        `The Guesty "The space" field: a warm, flowing, editorial description, NOT a terse spec list. In this exact order:\n(1) TWO short opening paragraphs. Paragraph 1 grounds the home (what it is, where it sits; lead with the build when supported, e.g. "Newly built" or "Recently renovated"; use a specific year ONLY if the operator brief gives one, never invent one). Paragraph 2 paints the guest experience in full sentences, e.g. "Whether you are enjoying coffee on the covered porch, preparing dinner in the open kitchen, or unwinding in the primary suite, every space was designed with comfort in mind."\n(2) A blank line, then "★★★ HIGHLIGHTS ★★★" and 4 to 6 "→ " lines, each one concrete top selling point.\n(3) A blank line, then floor-by-floor sections. Header lines like "★★★ MAIN LEVEL ★★★", then "★★★ SECOND FLOOR ★★★", "★★★ THIRD FLOOR ★★★", "★★★ OUTDOORS ★★★", "★★★ GUEST HOUSE ★★★" as applicable. Under each, "→ <Room>: <one warm, complete sentence>" lines. Room names in Title Case ("Living Room", "Primary Suite"). Each line frames the grounded detail as part of the stay, e.g. "Custom kitchen with a large center island, premium appliances, and room to cook for a crowd" (not "white cabinetry, dark backsplash"). Only include floors and rooms the photos or property data support.\n(4) A blank line, then a closing paragraph of 2 to 4 sentences tying the location and the stay together (the beach by day, the nearby Cape Ann spots, coming home to the house).\n250 to 450 words total. Plain text only: NO markdown and NO ** asterisks (they show as literal characters in Guesty and Airbnb). No em dashes. No street names.`
       ),
       guest_access: z.string().describe(
         'The Guesty "Guest access" field. 1-3 short sentences: how guests get in (smart lock, keypad), what they have access to (whole home, which outdoor areas), parking. Only state what the property data or operator notes support. No codes, no street names.'
@@ -89,7 +94,7 @@ function buildSchema(format: ListingCopyFormat) {
         'The italic subhead on the listing page: ONE line of 8-15 words. Concrete physical detail, not adjectives. No em dashes, no exclamation marks, no street names, no checkmarks.'
       ),
       description: z.string().describe(
-        '"About the home", in our structured house format — IDENTICAL to the Guesty/Airbnb "The space" field so the two surfaces match. Structure, in this exact order:\n(1) One grounded 2-4 sentence intro paragraph describing the home as a guest experiences it.\n(2) A blank line, then floor-by-floor sections. Each section is a header line like "★★★ 1ST FLOOR ★★★" (also "★★★ 2ND FLOOR ★★★", "★★★ 3RD FLOOR ★★★", "★★★ OUTDOORS ★★★", "★★★ GUEST HOUSE ★★★" as applicable), followed by "→ <Room>: <detail>" lines, one per room or feature (e.g. "→ Kitchen: Fully equipped for cooking and entertaining" / "→ Primary bedroom: King bed, water views, ensuite"). Group every room under its floor. Only include floors/areas the source supports. 150-350 words total. No em dashes. No "luxurious". No "perfect". No street names.'
+        'The staycapeann.com "About the home" body, in our warm editorial house format, IDENTICAL in shape to the Guesty/Airbnb "The space" field so the two surfaces match (the separate highlights field below carries the bullet perks, so do NOT add a HIGHLIGHTS block here). In this order:\n(1) TWO short opening paragraphs: paragraph 1 grounds the home (lead with the build when supported; a specific year only if the brief gives one), paragraph 2 paints the guest experience in full sentences.\n(2) A blank line, then floor-by-floor sections: "★★★ MAIN LEVEL ★★★" (then "★★★ SECOND FLOOR ★★★", "★★★ THIRD FLOOR ★★★", "★★★ OUTDOORS ★★★", "★★★ GUEST HOUSE ★★★" as applicable) with "→ <Room>: <one warm, complete sentence>" lines under each, Title-Case room names. Only include floors and rooms the source supports.\n(3) A blank line, then a closing paragraph of 2 to 4 sentences tying location and stay together.\n250 to 450 words. Plain text only, no markdown, no ** asterisks. No em dashes. No "perfect". No street names.'
       ),
       highlights: z
         .array(
@@ -345,7 +350,7 @@ You are filling the staycapeann.com launch form. The source material is the home
 
 - pitch: a 4-8 word map hook. Lead with the single most place-defining fact (the water, the beach, the neighborhood). No trailing punctuation.
 - tagline: ONE line, 8-15 words. Not a paragraph. The single most evocative true sentence about being there.
-- description: our structured house format, IDENTICAL to the Guesty/Airbnb "The space" field so the two surfaces match. One grounded 2-4 sentence intro paragraph, then "★★★ <FLOOR/AREA> ★★★" headers (1ST FLOOR, 2ND FLOOR, 3RD FLOOR, OUTDOORS, GUEST HOUSE as applicable) with "→ <Room>: <detail>" lines under each. Group every room under its floor; only include floors/areas the source supports.
+- description: our warm editorial house format, IDENTICAL in shape to the Guesty/Airbnb "The space" field. Two short opening paragraphs (ground the home, then paint the stay), then "★★★ <FLOOR/AREA> ★★★" headers (MAIN LEVEL, SECOND FLOOR, THIRD FLOOR, OUTDOORS, GUEST HOUSE as applicable) with "→ <Room>: <full warm sentence>" lines under each (Title-Case room names), then a short closing paragraph. Do NOT add a HIGHLIGHTS block here (the highlights field below carries those). Group every room under its floor; only include floors the source supports.
 - highlights: 3-5 short bullets, each a distinct concrete perk. Do not restate the tagline. No "✓".
 - Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate or invent finishes, views, or amenities not in the source.
 - Never include the street name or street number anywhere.`;
@@ -353,25 +358,43 @@ You are filling the staycapeann.com launch form. The source material is the home
 const AIRBNB_FORMAT_RULES = `
 GUESTY / AIRBNB LISTING RULES (in addition to the brand voice rules above):
 
-You are filling the five fields of Guesty's description editor. Each output field maps 1:1 onto a Guesty field, so respect each field's own structure and length limit.
+You are filling the five fields of Guesty's description editor; each output maps 1:1 onto a Guesty field. The copy should read like a warm, confident, editorial listing a guest wants to book, while staying grounded in real, supported detail. Fuller and warmer than a spec sheet, but never hype.
 
-- title: "Stay at <Place>". <Place> is a micro-location, never a street name or number. Maximum 50 characters (Airbnb hard limit).
-- summary: STRICT 500 character maximum (Airbnb truncates beyond it). One hook headline line leading with the single most bookable fact (walk time to a named beach, direct water access, dock) — pattern: "4-Minute Walk to Good Harbor Beach!". Then a blank line, then 3-5 "✓ " lines, one fact each: location, renovation state, sleeping capacity ("Sleeps N across ..."), standout amenity.
-- space: one grounded 2-4 sentence intro paragraph, then floor-by-floor sections in our exact house style:
-    ★★★ 1ST FLOOR ★★★
-    → Kitchen: Fully-stocked with essentials
-    → Dining: Kitchen bar and dining table
-    ★★★ 2ND FLOOR ★★★
-    → Primary bedroom: king bed, ensuite bath
-  Use "★★★ <FLOOR/AREA> ★★★" headers (1ST FLOOR, 2ND FLOOR, 3RD FLOOR, OUTDOOR, GUEST HOUSE as applicable) and "→ <Room>: <detail>" lines. Group every room under its floor. Only include floors/areas the photos, operator notes, or property data support.
-- guest_access: 1-3 short sentences. Entry method, what guests can use, parking. Never include actual codes.
-- neighborhood: one short paragraph on the immediate area as a guest walks it. Real Cape Ann place names.
-- Use the photos when attached. Reference what's actually visible. Do not invent finishes, appliance brands, or views that are not supported.
-- Use the supplied bedroom / bathroom / sleeps counts exactly. Do not exaggerate.
-- Never include the street name or street number anywhere.
-- No em dashes anywhere. No "luxurious", "stunning", "breathtaking", "paradise", "gem".
-- Concrete nouns over adjectives. "Wolf range" beats "high-end appliances" when the data supports it.
-- Write for a GUEST staying a few nights to a few weeks, never for a buyer or long-term resident. Every line describes what a guest experiences during the stay. Never mention potential ("space for a garden if you want one", "room to grow", "could be converted"), ownership concerns (HOA, taxes, utilities), or renovation opportunity. A lawn is where a guest plays with their kids, not a future garden bed.
+LISTING VOICE (this layers on the brand rules above):
+- Write in warm, flowing, full sentences. Frame specifics as guest benefits: "a center island with room to cook for a crowd", "soaring ceilings and oversized windows that fill the rooms with light".
+- These descriptors are welcome WHEN the data or photos support them: newly built, recently renovated, custom, thoughtfully designed, open-concept, soaring ceilings, abundant natural light, high-end finishes, refined finishes, spa-inspired, water views, covered porch.
+- Still banned (empty hype): stunning, breathtaking, luxurious, paradise, gem, perfect, must-see. Use the word "luxury" at most once, and only when new construction plus high-end finishes genuinely warrant it; never "luxurious".
+- Ground every concrete detail in the property data, operator notes, or the attached photos. Do not invent finishes, appliance brands, views, or a year built.
+
+FIELDS:
+- title: "Stay at <Place>". A micro-location, never a street name or number. Maximum 50 characters (Airbnb hard limit).
+- summary: 4 to 5 "✓ " benefit-led lines (each a fact plus the benefit it creates), then a blank line, then exactly: "Visit ${SCA_INSTAGRAM} on Instagram for a video property tour." Keep the whole field under 500 characters. No exclamation points.
+- space: the warm editorial body. Two opening paragraphs (ground the home, then paint the stay), then "★★★ HIGHLIGHTS ★★★" with "→" bullets, then floor-by-floor sections, then a closing lifestyle paragraph. 250 to 450 words. Plain text only, no ** markdown (asterisks show as literal characters in Guesty/Airbnb). Title-Case room names. Example shape:
+
+    Newly built and a short walk from the beach, this home pairs custom design with an easy, open layout.
+
+    Whether you are having coffee on the porch, cooking for a crowd, or unwinding upstairs, every space was made for a relaxed stay.
+
+    ★★★ HIGHLIGHTS ★★★
+    → Three-minute walk to the beach
+    → Open-concept living filled with natural light
+
+    ★★★ MAIN LEVEL ★★★
+    → Living Room: Open great room with comfortable seating and oversized windows
+    → Kitchen: Custom kitchen with a large island and room to cook together
+
+    ★★★ SECOND FLOOR ★★★
+    → Primary Suite: King bedroom with water views and a spa-inspired bath
+
+    Spend your days at the beach and your evenings back at the house.
+
+- guest_access: 1 to 3 sentences. Entry method, what guests can use, parking. Never include actual codes.
+- neighborhood: one warm paragraph on the immediate area as a guest walks it, using real Cape Ann place names.
+
+- Use the photos when attached: reference what is actually visible.
+- Use the supplied bedroom and bathroom counts exactly; derive "Sleeps N" sensibly. Do not exaggerate.
+- Never include the street name or street number anywhere. No em dashes anywhere.
+- Write for a GUEST staying a few nights to a few weeks, never for a buyer or long-term resident. Never mention potential ("room to grow", "space for a garden"), ownership concerns (HOA, taxes, utilities), or renovation opportunity.
 `;
 
 const LISTING_SPECIFIC_RULES = `
