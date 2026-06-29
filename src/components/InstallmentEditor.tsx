@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { computeNightsInMonthSplit, type Installment, type InstallmentDraft } from '@/lib/installments';
+import { effectiveCommission, wasCommissionStripped } from '@/lib/revenue-math';
 
 /**
  * Inline editor for a cross-month booking's installment split.
@@ -259,8 +260,26 @@ export function InstallmentEditor({
         </div>
 
         {/* Booking breakdown -- shows the operator exactly where the
-            split target came from, with a Stripe cross-check below. */}
-        {(booking.total_paid != null || verify) && (
+            split target came from, with a Stripe cross-check below. The
+            commission line mirrors the legacy-kludge stripping that
+            /api/ingest applies, so the displayed lines reconcile with
+            the editable target. */}
+        {(() => {
+          const rawCommission = Number(booking.channel_commission ?? 0);
+          const effComm = effectiveCommission(
+            booking.channel || '',
+            Number(booking.total_paid ?? 0),
+            Number(booking.total_taxes ?? 0),
+            rawCommission,
+          );
+          const commissionStripped = wasCommissionStripped(
+            booking.channel || '',
+            Number(booking.total_paid ?? 0),
+            Number(booking.total_taxes ?? 0),
+            rawCommission,
+          );
+          if (booking.total_paid == null && !verify) return null;
+          return (
           <div style={{ border: '1px solid var(--rule)', background: 'var(--paper-2)', padding: '10px 14px', marginBottom: 14 }}>
             <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>Booking breakdown</div>
             <div style={{ fontSize: 12, display: 'grid', gridTemplateColumns: 'max-content 1fr', columnGap: 14, rowGap: 4 }}>
@@ -276,10 +295,18 @@ export function InstallmentEditor({
                   <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(Number(booking.total_taxes))}</span>
                 </>
               )}
-              {booking.channel_commission != null && booking.channel_commission > 0 && (
+              {effComm > 0 && (
                 <>
                   <span style={{ color: 'var(--ink-3)' }}>Channel commission</span>
-                  <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(Number(booking.channel_commission))}</span>
+                  <span className="tabular-nums" style={{ textAlign: 'right' }}>&minus; ${fmt(effComm)}</span>
+                </>
+              )}
+              {effComm === 0 && commissionStripped && (
+                <>
+                  <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>Channel commission</span>
+                  <span style={{ textAlign: 'right', color: 'var(--ink-4)', fontStyle: 'italic', fontSize: 11 }}>
+                    (legacy 4.4% kludge stripped)
+                  </span>
                 </>
               )}
               {booking.stripe_fee_estimate != null && booking.stripe_fee_estimate > 0 && (
@@ -352,13 +379,25 @@ export function InstallmentEditor({
                 </div>
               );
             })()}
-            {verify && !verify.stripe && verify.stripe_status !== 'wrong_channel' && (
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)', fontSize: 11, color: 'var(--ink-4)' }}>
-                Stripe cross-check: {verify.stripe_note}
-              </div>
-            )}
+            {verify && !verify.stripe && verify.stripe_status !== 'wrong_channel' && (() => {
+              const channelUpper = (booking.channel || '').toUpperCase();
+              const isDirect = channelUpper === 'DIRECT' || channelUpper === 'MANUAL';
+              // For Direct/Manual bookings (the SCA path) a "no_match"
+              // miss usually means the charge cleared off-Stripe (wire,
+              // check, off-platform), not a matcher failure. Make the
+              // copy actionable rather than alarming.
+              const actionable = isDirect && verify.stripe_status === 'no_match';
+              return (
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)', fontSize: 11, color: 'var(--ink-4)' }}>
+                  Stripe cross-check: {actionable
+                    ? 'No Stripe charge matched in the search window. Confirm payment in Stripe directly, or trust the Guesty number.'
+                    : verify.stripe_note}
+                </div>
+              );
+            })()}
           </div>
-        )}
+          );
+        })()}
 
         <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
