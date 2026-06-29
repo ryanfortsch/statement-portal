@@ -293,3 +293,60 @@ export async function updatePhotoCaption(
     { caption },
   );
 }
+
+/**
+ * The guest-facing listing fields Helm can fill from its own property data.
+ * All top-level on the Guesty listing object, confirmed against Guesty's
+ * "Property Location & Details" docs (open-api-docs.guesty.com/docs/listing-location).
+ * These double as auto-message variables on the Guesty side.
+ */
+export type GuestyGuestFields = {
+  wifiName: string;
+  wifiPassword: string;
+  parkingInstructions: string;
+  trashCollectedOn: string;
+};
+
+export const GUESTY_GUEST_FIELD_KEYS: (keyof GuestyGuestFields)[] = [
+  'wifiName',
+  'wifiPassword',
+  'parkingInstructions',
+  'trashCollectedOn',
+];
+
+/**
+ * Read the current values of the guest-facing fields off a listing.
+ * Anything Guesty leaves unset comes back as '' so the diff UI can treat it
+ * as empty without null-juggling.
+ */
+export async function getListingGuestFields(listingId: string): Promise<GuestyGuestFields> {
+  const l = await guestyGet<Partial<Record<keyof GuestyGuestFields, unknown>>>(
+    `/v1/listings/${listingId}`,
+  );
+  const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v));
+  return {
+    wifiName: str(l.wifiName),
+    wifiPassword: str(l.wifiPassword),
+    parkingInstructions: str(l.parkingInstructions),
+    trashCollectedOn: str(l.trashCollectedOn),
+  };
+}
+
+/**
+ * Write a partial set of guest-facing fields to a listing.
+ * PUT /v1/listings/{id} with ONLY the provided keys — Guesty merges the body,
+ * so omitted fields are left untouched (never clobbered). No-op when nothing
+ * is supplied. If Guesty ever rejects PUT here, guestyWrite also speaks PATCH.
+ */
+export async function updateListingGuestFields(
+  listingId: string,
+  fields: Partial<GuestyGuestFields>,
+): Promise<void> {
+  const body: Record<string, string> = {};
+  for (const k of GUESTY_GUEST_FIELD_KEYS) {
+    const v = fields[k];
+    if (v != null) body[k] = String(v);
+  }
+  if (Object.keys(body).length === 0) return;
+  await guestyWrite('PUT', `/v1/listings/${listingId}`, body);
+}
