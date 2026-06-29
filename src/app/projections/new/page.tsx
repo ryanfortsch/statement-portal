@@ -8,11 +8,11 @@ export const dynamic = 'force-dynamic';
 export default function NewProjectionPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="projections" />
+      <HelmMasthead current="properties" />
 
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/projections" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
+          <Link href="/properties?view=prospects" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
             ← Prospects
           </Link>
         </div>

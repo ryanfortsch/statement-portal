@@ -247,7 +247,7 @@ export async function createProjection(formData: FormData) {
 
   if (error || !data) throw new Error(error?.message || 'Failed to create projection');
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   redirect(`/projections/${data.id}`);
 }
 
@@ -303,7 +303,7 @@ export async function updateProjection(id: string, formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
   redirect(`/projections/${id}`);
 }
@@ -315,8 +315,8 @@ export async function deleteProjection(id: string) {
   const { error } = await supabase.from('projections').delete().eq('id', id);
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
-  redirect('/projections');
+  revalidatePath('/properties');
+  redirect('/properties?view=prospects');
 }
 
 /**
@@ -345,7 +345,7 @@ export async function resetContractOverrides(
     .eq('id', id);
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
   revalidatePath(`/projections/${id}/contract`);
   return { ok: true };
@@ -383,7 +383,7 @@ export async function markSent(id: string) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
@@ -408,7 +408,7 @@ export async function markOnboardingDone(id: string) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
@@ -423,7 +423,7 @@ export async function unmarkOnboardingDone(id: string) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
@@ -449,7 +449,7 @@ export async function markContractDone(id: string) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
@@ -464,7 +464,7 @@ export async function unmarkContractDone(id: string) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
@@ -495,7 +495,7 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/projections');
+  revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
 }
 
