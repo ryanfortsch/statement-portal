@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { InstallmentEditor, type CrossMonthBooking } from '@/components/InstallmentEditor';
 import type { Installment } from '@/lib/installments';
+import { effectiveCommission } from '@/lib/revenue-math';
 
 /**
  * Cross-month bookings surface on /properties/[id].
@@ -52,35 +53,6 @@ function qualifiesForInstallment(checkIn: string, checkOut: string, nights: numb
   const ci = checkIn.slice(0, 7);
   const lastNightMonth = lastNight.toISOString().slice(0, 7);
   return ci !== lastNightMonth;
-}
-
-/**
- * Strip the legacy 4.4% commission kludge -- a duplicate of the helper
- * in /api/ingest. Pre-overhaul, Ryan/Dotti added 4.4% to CHANNEL
- * COMMISSION in Guesty so the PDF would approximate the post-Stripe
- * owner net. Bookings before the fix landed still carry the inflated
- * value (e.g. Hancock at $32,000 has commission=$1,408 -- exactly 4.4%
- * -- on a Manual booking where the real commission is 0). Without this,
- * the editor's breakdown overstates the deduction and lands on
- * $29,343.60 instead of the correct $30,751.60.
- */
-function effectiveCommission(platform: string, totalPaid: number, taxes: number, commission: number): number {
-  if (!commission || commission <= 0) return 0;
-  const base = Math.max(totalPaid - taxes, 0);
-  if (base <= 0) return commission;
-  const ratio = commission / base;
-  const p = platform.toUpperCase();
-  if (p === 'MANUAL' || p === 'DIRECT') {
-    // Real Manual/Direct commission = 0. Anything above 2% is the kludge.
-    return ratio > 0.02 ? 0 : commission;
-  }
-  if (p.includes('HOMEAWAY') || p === 'VRBO') {
-    // Real VRBO commission = 5%. Above 7% has the 4.4% kludge stacked
-    // on top -- restore the underlying 5%.
-    return ratio > 0.07 ? Math.round(base * 0.05 * 100) / 100 : commission;
-  }
-  // Airbnb / Booking.com handle commission themselves -- never kludged.
-  return commission;
 }
 
 function computeAdjustedRevenue(g: GuestyRow): number {
