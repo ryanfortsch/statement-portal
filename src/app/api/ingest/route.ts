@@ -4,6 +4,7 @@ import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/l
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
+import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -491,6 +492,66 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── Cross-month installments ────────────────────────────────────────
+    // A long booking (Hancock at 3 South, Jun 22 → Aug 6) can be opt-in
+    // split across months via reservation_installments. Two effects below:
+    //  1. PDF FORK: if this month's parsed PDF includes a reservation that
+    //     has an installment row for THIS month, override its
+    //     adjustedRevenue with the installment amount and pro-rate the
+    //     Stripe fee by share. Nights field also reduced to the in-month
+    //     portion so dashboards report correct monthly occupancy.
+    //  2. SYNTHETIC INJECTION: for installments in this month whose
+    //     confirmation_code is NOT in the PDF (the booking checks out in
+    //     a later month, so Guesty wouldn't list it on this month's
+    //     statement), look the booking up in guesty_reservations and
+    //     synthesize a processedReservation row so the owner gets the
+    //     in-month portion on this month's statement.
+    // Whenever no installment rows exist for this property/month, the
+    // entire feature is a no-op and the per-reservation loop runs
+    // byte-for-byte identical to today.
+    const installmentsThisMonth: Installment[] = await loadInstallmentsForMonth(supabase, propertyId, month);
+    const installmentByCode = new Map<string, Installment>();
+    for (const inst of installmentsThisMonth) installmentByCode.set(inst.confirmation_code, inst);
+    // Cache the full per-code installment set so the share denominator
+    // (sum of installment_revenue across all months of a booking) is
+    // computed once per code, not per-reservation.
+    const allInstallmentsByCode = new Map<string, Installment[]>();
+    async function getAllInstallmentsForCode(code: string): Promise<Installment[]> {
+      const cached = allInstallmentsByCode.get(code);
+      if (cached) return cached;
+      const all = await loadInstallmentsForCode(supabase, code);
+      allInstallmentsByCode.set(code, all);
+      return all;
+    }
+    // For synthetic injection, we need guesty_reservations metadata
+    // (guest, dates, channel, money fields) for installment codes that
+    // AREN'T in the parsed PDF. Build a separate lookup keyed by code.
+    type SynthGuesty = {
+      confirmation_code: string;
+      guest_name: string | null;
+      check_in: string | null;
+      check_out: string | null;
+      nights: number | null;
+      channel: string | null;
+      guesty_channel_id: string | null;
+      total_paid: number | null;
+      total_taxes: number | null;
+      channel_commission: number | null;
+      owner_net_revenue_guesty: number | null;
+    };
+    const syntheticInstallments: Installment[] = installmentsThisMonth.filter(i => !codes.includes(i.confirmation_code));
+    const synthGuestyByCode = new Map<string, SynthGuesty>();
+    if (syntheticInstallments.length > 0) {
+      const synthCodes = syntheticInstallments.map(i => i.confirmation_code);
+      const { data: synthRows } = await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+        .in('confirmation_code', synthCodes);
+      (synthRows || []).forEach(r => {
+        if (r.confirmation_code) synthGuestyByCode.set(r.confirmation_code, r as SynthGuesty);
+      });
+    }
+
     const unresolvedNameCodes: string[] = [];
     for (const res of reservations) {
       const platformInfo = platformMap[res.confirmation_code];
@@ -740,6 +801,25 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // ── Installment fork ──────────────────────────────────────────
+      // If this booking has an installment row for the CURRENT month,
+      // swap the computed adjustedRevenue / stripeFee / nights for the
+      // in-month allocation. The bookings that DON'T have an
+      // installment row take the existing path untouched.
+      let nightsForRow = res.nights;
+      const installment = installmentByCode.get(res.confirmation_code);
+      if (installment && !isHomeownerStay) {
+        const allForCode = await getAllInstallmentsForCode(res.confirmation_code);
+        const denom = allForCode.reduce((s, i) => s + (Number(i.installment_revenue) || 0), 0);
+        const monthRev = Number(installment.installment_revenue) || 0;
+        const proratedFee = denom > 0
+          ? Math.round((stripeFee * (monthRev / denom)) * 100) / 100
+          : 0;
+        adjustedRevenue = monthRev;
+        stripeFee = proratedFee;
+        if (installment.installment_nights != null) nightsForRow = installment.installment_nights;
+      }
+
       if (!isHomeownerStay) {
         totalRevenue += adjustedRevenue;
         totalStripeFees += stripeFee;
@@ -750,13 +830,87 @@ export async function POST(request: NextRequest) {
         confirmation_code: res.confirmation_code,
         check_in: res.check_in,
         check_out: res.check_out,
-        nights: res.nights,
+        nights: nightsForRow,
         platform,
         guesty_rental_income: res.rental_income,
         stripe_fee: stripeFee,
         adjusted_revenue: adjustedRevenue,
         bank_deposit_amount: bankMatch.amount || null,
         bank_match_status: bankMatch.status,
+      });
+    }
+
+    // ── Synthetic installment injection ─────────────────────────────────
+    // For bookings whose checkout is in a LATER month than `month`, the
+    // Guesty PDF for `month` won't list them -- but if the operator has
+    // split the booking, this month deserves its allocated installment.
+    // Synthesize a processedReservation row from guesty_reservations
+    // metadata so the in-month installment_revenue flows into
+    // totalRevenue + the reservations table.
+    //
+    // These rows have check_out outside the statement month, so they're
+    // EXCLUDED from num_stays at write-time (line below) -- the booking
+    // counts as one stay only in its final / checkout month. Cleaning
+    // and repairs also don't attach (they happen at the bank-CSV
+    // matching pass above, which only sees checkout-month events).
+    for (const installment of syntheticInstallments) {
+      const synth = synthGuestyByCode.get(installment.confirmation_code);
+      if (!synth || !synth.check_in || !synth.check_out) continue;
+
+      const platformInfo = platformMap[installment.confirmation_code];
+      const platform =
+        normalizePlatform(platformInfo?.platform) ||
+        normalizePlatform(synth.guesty_channel_id) ||
+        normalizePlatform(synth.channel) ||
+        'Unknown';
+      const platformUpper = platform.toUpperCase();
+      const isStripeChannel = platformUpper.includes('HOMEAWAY') || platformUpper.includes('VRBO') || platformUpper === 'MANUAL';
+
+      // Reconstruct the booking's FULL stripe_fee + adjusted_revenue
+      // (same math as the PDF path above) so we can pro-rate them across
+      // installments by revenue share.
+      let bookingStripeFee = 0;
+      if (isStripeChannel && synth.total_paid && synth.total_paid > 0) {
+        const totalPaid = synth.total_paid;
+        const totalTaxes = synth.total_taxes ?? 0;
+        const rawCommission = synth.channel_commission ?? 0;
+        const { effective: effCommission } = stripLegacyCommissionKludge({
+          platform, totalPaid, totalTaxes, commission: rawCommission,
+        });
+        bookingStripeFee = calcStripeFee(totalPaid);
+        // adjusted_revenue full = totalPaid - taxes - commission - fee
+        // (we don't actually need it here -- the operator already
+        // entered the per-month installment_revenue, so we just
+        // pro-rate the fee by share)
+        void effCommission;
+      }
+
+      const allForCode = await getAllInstallmentsForCode(installment.confirmation_code);
+      const denom = allForCode.reduce((s, i) => s + (Number(i.installment_revenue) || 0), 0);
+      const monthRev = Number(installment.installment_revenue) || 0;
+      const proratedFee = denom > 0
+        ? Math.round((bookingStripeFee * (monthRev / denom)) * 100) / 100
+        : 0;
+
+      totalRevenue += monthRev;
+      totalStripeFees += proratedFee;
+
+      processedReservations.push({
+        guest_name: synth.guest_name || 'Guest',
+        confirmation_code: installment.confirmation_code,
+        check_in: synth.check_in,
+        check_out: synth.check_out,
+        nights: installment.installment_nights ?? 0,
+        platform,
+        guesty_rental_income: monthRev,
+        stripe_fee: proratedFee,
+        adjusted_revenue: monthRev,
+        bank_deposit_amount: null,
+        // Mark synthetic non-final installment rows so the UI doesn't
+        // flag "missing bank deposit" -- the deposit (Stripe Payment
+        // Link for SCA Direct, channel ACH for Airbnb/VRBO/Booking) lands
+        // once, attached to the checkout-month statement only.
+        bank_match_status: 'installment_no_bank_event',
       });
     }
 
@@ -856,7 +1010,10 @@ export async function POST(request: NextRequest) {
         repairs_total: repairsTotal,
         tax_remittance: 0,
         owner_payout: ownerPayout,
-        num_stays: processedReservations.filter(r => r.adjusted_revenue > 0).length,
+        // num_stays counts a booking ONCE on its checkout month, not on
+        // every month an installment lands. Synthetic non-final-month
+        // rows have check_out outside `month`, so the slice excludes them.
+        num_stays: processedReservations.filter(r => r.adjusted_revenue > 0 && (r.check_out || '').slice(0, 7) === month).length,
         nights_booked: processedReservations.reduce((s, r) => s + (r.nights || 0), 0),
         has_guesty_statement: hasGuesty,
         has_platform_csv: hasPlatform,
