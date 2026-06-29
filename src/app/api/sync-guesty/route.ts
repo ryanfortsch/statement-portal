@@ -393,7 +393,11 @@ type GuestyReservation = {
   source?: string;
   integration?: { platform?: string };
   channel?: string;
-  money?: { hostPayout?: number };
+  // The `money` block is requested in `fields`; Guesty returns the whole
+  // sub-document, so invoiceItems (the guest folio line items -- extra
+  // services / Resolution Center charges included) ride along here even
+  // though we historically only read hostPayout.
+  money?: { hostPayout?: number; invoiceItems?: unknown[] };
 };
 
 async function fetchAllReservations(token: string, sinceIso?: string): Promise<GuestyReservation[]> {
@@ -451,13 +455,31 @@ async function syncReservations(token: string, listingMap: Record<string, string
       guesty_channel_id: rawChannel || null,
       status: r.status || null,
       host_payout: toNumber(r.money?.hostPayout),
+      // Store the raw folio line items so we can see the real shape and
+      // build automatic extra-revenue capture against it. null when Guesty
+      // doesn't return any (e.g. some channels) so the column stays clean.
+      folio_items: Array.isArray(r.money?.invoiceItems) && r.money.invoiceItems.length > 0
+        ? r.money.invoiceItems
+        : null,
       synced_at: new Date().toISOString(),
     });
   }
 
   if (rows.length > 0) {
-    const { error } = await getSupabase().from('guesty_reservations').upsert(rows, { onConflict: 'guesty_reservation_id' });
-    if (error) throw new Error(`guesty_reservations upsert failed: ${error.message}`);
+    const sb = getSupabase();
+    const { error } = await sb.from('guesty_reservations').upsert(rows, { onConflict: 'guesty_reservation_id' });
+    if (error) {
+      // Tolerate the folio_items column not existing yet (migration unrun):
+      // retry without it so the sync -- and its cron safety-net -- keeps
+      // working. Everything else still persists; folio capture turns on
+      // once supabase-schema-guesty-folio-items.sql is applied.
+      const missingFolioCol = error.code === 'PGRST204'
+        || /folio_items|column .*folio/i.test(error.message || '');
+      if (!missingFolioCol) throw new Error(`guesty_reservations upsert failed: ${error.message}`);
+      const stripped = rows.map(r => { const copy = { ...r }; delete copy.folio_items; return copy; });
+      const { error: retryErr } = await sb.from('guesty_reservations').upsert(stripped, { onConflict: 'guesty_reservation_id' });
+      if (retryErr) throw new Error(`guesty_reservations upsert failed: ${retryErr.message}`);
+    }
   }
   return { fetched: reservations.length, upserted: rows.length, skipped: skippedNoProp };
 }
