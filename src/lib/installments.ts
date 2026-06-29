@@ -100,6 +100,32 @@ export async function loadInstallmentsForCode(
 }
 
 /**
+ * Pull every installment for a property in a specific month -- across
+ * any confirmation code. /api/ingest uses this to (a) fork the per-stay
+ * revenue when a parsed PDF reservation has an installment row, and (b)
+ * inject "synthetic" rows for installments whose booking ISN'T in the
+ * month's PDF (e.g. Hancock's June + July installments, since Hancock
+ * checks out in August).
+ */
+export async function loadInstallmentsForMonth(
+  supabase: SupabaseClient,
+  propertyId: string,
+  month: string,
+): Promise<Installment[]> {
+  if (!propertyId || !month) return [];
+  const { data, error } = await supabase
+    .from('reservation_installments')
+    .select(COLS)
+    .eq('property_id', propertyId)
+    .eq('month', month);
+  if (error) {
+    if (!isMissingTableError(error)) console.warn('loadInstallmentsForMonth failed:', error.message);
+    return [];
+  }
+  return (data || []) as Installment[];
+}
+
+/**
  * Bulk lookup for a set of confirmation codes scoped to a single month.
  * Returns a Map keyed by confirmation_code -> installment row for
  * O(1) lookups while iterating reservations in /api/ingest.
