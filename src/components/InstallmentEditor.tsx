@@ -35,10 +35,11 @@ export type CrossMonthBooking = {
 };
 
 type VerifyResponse = {
-  guesty: { total_paid: number; total_taxes: number; channel_commission: number; owner_net_revenue_guesty: number; channel: string | null };
+  guesty: { total_paid: number; total_taxes: number; channel_commission: number; owner_net_revenue_guesty: number; host_payout?: number; channel: string | null };
   stripe: { total: number; charge_id: string; description: string | null; match_method: string } | null;
-  stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'error';
+  stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'no_target' | 'error';
   stripe_note: string | null;
+  target?: { amount: number; source: 'total_paid' | 'host_payout' | 'none' };
 };
 
 function fmt(n: number): string {
@@ -353,9 +354,11 @@ export function InstallmentEditor({
             )}
             {verify && verify.stripe && (() => {
               const stripeTotal = verify.stripe!.total;
-              const guestyTotal = verify.guesty.total_paid;
-              const diff = Math.round((stripeTotal - guestyTotal) * 100) / 100;
+              const targetSource = verify.target?.source || 'total_paid';
+              const targetAmount = verify.target?.amount ?? verify.guesty.total_paid;
+              const diff = Math.round((stripeTotal - targetAmount) * 100) / 100;
               const matches = Math.abs(diff) <= 5;
+              const sourceLabel = targetSource === 'host_payout' ? 'Guesty host_payout' : 'Guesty';
               return (
                 <div style={{
                   marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)',
@@ -364,8 +367,8 @@ export function InstallmentEditor({
                 }}>
                   <strong>Stripe actual:</strong> <span className="tabular-nums">${fmt(stripeTotal)}</span>
                   {' '}{matches
-                    ? <>&middot; matches Guesty ✓</>
-                    : <>&middot; differs from Guesty by ${fmt(Math.abs(diff))} {diff > 0 ? '(Stripe higher)' : '(Guesty higher)'} &mdash; consider re-syncing Guesty before splitting.</>}
+                    ? <>&middot; matches {sourceLabel} ✓</>
+                    : <>&middot; differs from {sourceLabel} by ${fmt(Math.abs(diff))} {diff > 0 ? '(Stripe higher)' : '(Guesty higher)'} &mdash; consider re-syncing Guesty before splitting.</>}
                   {!matches && (
                     <button
                       type="button"
@@ -376,16 +379,17 @@ export function InstallmentEditor({
                       Use Stripe number
                     </button>
                   )}
+                  {targetSource === 'host_payout' && (
+                    <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--ink-4)' }}>
+                      Verified against host_payout because Guesty&apos;s total_paid is empty (typical for SCA Direct bookings).
+                    </div>
+                  )}
                 </div>
               );
             })()}
             {verify && !verify.stripe && verify.stripe_status !== 'wrong_channel' && (() => {
               const channelUpper = (booking.channel || '').toUpperCase();
               const isDirect = channelUpper === 'DIRECT' || channelUpper === 'MANUAL';
-              // For Direct/Manual bookings (the SCA path) a "no_match"
-              // miss usually means the charge cleared off-Stripe (wire,
-              // check, off-platform), not a matcher failure. Make the
-              // copy actionable rather than alarming.
               const actionable = isDirect && verify.stripe_status === 'no_match';
               return (
                 <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dotted var(--rule-soft)', fontSize: 11, color: 'var(--ink-4)' }}>
