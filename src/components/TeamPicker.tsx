@@ -90,6 +90,7 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
           cursor: disabled ? 'default' : 'pointer',
           fontSize: 13,
           minWidth: 160,
+          touchAction: 'manipulation',
         }}
       >
         <Avatar initials={initials} dimmed={!value} />
@@ -103,7 +104,22 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
           Lets us darken the page behind the bottom-sheet panel so it
           reads clearly as a contextual modal, plus gives a tap target
           for dismiss outside the picker. */}
-      {open && <div className="rt-team-picker-backdrop" onClick={() => setOpen(false)} aria-hidden="true" />}
+      {/* Tap-to-dismiss backdrop (mobile bottom-sheet only). onPointerDown,
+          not onClick: iOS Safari won't fire click on a bare div from a
+          touch, which left the dim area dead and the sheet impossible to
+          close. The backdrop is a child of this picker root, so the
+          document outside-tap listener treats it as "inside" and skips it —
+          its own handler is what closes the sheet. */}
+      {open && (
+        <div
+          className="rt-team-picker-backdrop"
+          onPointerDown={() => {
+            setOpen(false);
+            setCustomMode(false);
+          }}
+          aria-hidden="true"
+        />
+      )}
       {open && (
         <div
           className="rt-team-picker-panel"
@@ -238,9 +254,28 @@ function PickerRow({
   selected?: boolean;
   onClick: () => void;
 }) {
+  // Tap-vs-scroll detection. iOS can swallow a button's `click` when the
+  // tap lands inside a scrollable fixed panel (our mobile bottom-sheet),
+  // which left the picker stuck open after choosing someone. Firing on
+  // pointerup when the finger barely moved makes selection reliable; the
+  // movement guard keeps a scroll gesture from selecting a row. onClick
+  // stays for mouse + keyboard, and the handler is idempotent so a
+  // double-fire is harmless.
+  const downRef = useRef<{ x: number; y: number } | null>(null);
   return (
     <button
       type="button"
+      onPointerDown={(e) => {
+        downRef.current = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerUp={(e) => {
+        const start = downRef.current;
+        downRef.current = null;
+        if (!start) return;
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;
+        e.preventDefault();
+        onClick();
+      }}
       onClick={onClick}
       style={{
         display: 'flex',
@@ -256,6 +291,7 @@ function PickerRow({
         border: 'none',
         cursor: 'pointer',
         color: 'var(--ink)',
+        touchAction: 'manipulation',
       }}
     >
       <Avatar initials={initials} />
