@@ -140,14 +140,21 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     group: 'relationships',
   },
+  // Prospects is now a TAB inside Properties (the Prospects tab at
+  // /properties?view=prospects), same pattern as Statements / Revenue under
+  // Financials. Hidden from the nav lists so it doesn't duplicate the
+  // Properties entry; the prospect detail/create routes (/projections/[id],
+  // /projections/new) still resolve and Cmd+K search still finds it. The
+  // standalone /projections index redirects to the Properties tab.
   {
     id: 'projections',
-    href: '/projections',
+    href: '/properties?view=prospects',
     number: '06',
     title: 'Prospects',
     description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract, all from the same shared inputs.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'growth',
   },
   {

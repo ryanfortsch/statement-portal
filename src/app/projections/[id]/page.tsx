@@ -208,12 +208,12 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="projections" />
+      <HelmMasthead current="properties" />
 
       {/* ─── Identity strip ─────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 36, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/projections" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
+          <Link href="/properties?view=prospects" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
             ← Prospects
           </Link>
           {' · '}

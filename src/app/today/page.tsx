@@ -494,7 +494,7 @@ export default async function TodayPage() {
             </span>
           </div>
           <Link
-            href="/projections"
+            href="/properties?view=prospects"
             className="text-[11px] uppercase tracking-[0.14em] hover:underline"
             style={{ color: 'var(--signal)' }}
           >
