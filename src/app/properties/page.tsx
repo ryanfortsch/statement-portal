@@ -6,6 +6,8 @@ import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
+import { ProspectsPanel } from '@/components/projections/ProspectsPanel';
+import type { ReactNode } from 'react';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -59,13 +61,116 @@ async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
   }
 }
 
-export default async function PropertiesPage() {
-  const [{ properties, error }, workCounts] = await Promise.all([
-    getProperties(),
-    getWorkCountsByProperty(),
-  ]);
-  const active = properties.filter((p) => p.is_active);
-  const inactive = properties.filter((p) => !p.is_active);
+export default async function PropertiesPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ view?: string }>;
+}) {
+  // The Properties index is two tabs over the same lifecycle: Properties (the
+  // managed roster + map) and Prospects (the deal funnel, reused verbatim from
+  // the standalone /projections page). Tab state lives in ?view= so each tab
+  // is deep-linkable and only the active tab's data is fetched.
+  const view = (await searchParams)?.view === 'prospects' ? 'prospects' : 'properties';
+
+  let heroEmphasis = 'properties.';
+  let heroDescription: string | undefined;
+  let body: ReactNode;
+
+  if (view === 'prospects') {
+    heroEmphasis = 'prospects.';
+    heroDescription = 'The prospect funnel, in one place.';
+    body = <ProspectsPanel />;
+  } else {
+    const [{ properties, error }, workCounts] = await Promise.all([
+      getProperties(),
+      getWorkCountsByProperty(),
+    ]);
+    const active = properties.filter((p) => p.is_active);
+    const inactive = properties.filter((p) => !p.is_active);
+    heroDescription = !error
+      ? `${active.length} active${inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.`
+      : undefined;
+    body = (
+      <>
+        {/* Cross-listing Stay Cape Ann tools. */}
+        <div
+          className="max-w-[1100px] mx-auto px-10 w-full"
+          style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
+        >
+          <Link
+            href="/properties/listing-copy-studio"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+          >
+            Stay Cape Ann listing copy →
+          </Link>
+          <Link
+            href="/properties/bedroom-photos"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+          >
+            Bedroom photos →
+          </Link>
+        </div>
+
+        {/* MAP — geographic portfolio view above the list. Click a pin to
+            surface a card with property name + slip count + Open link. */}
+        {!error && active.length > 0 && (
+          <section
+            className="max-w-[1100px] mx-auto px-10"
+            style={{ width: '100%', paddingBottom: 28 }}
+          >
+            <PropertiesMap properties={active} workCounts={workCounts} />
+          </section>
+        )}
+
+        {/* LIST */}
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+          {error ? (
+            <ErrorBlock error={error} />
+          ) : properties.length === 0 ? (
+            <EmptyBlock />
+          ) : (
+            <>
+              {/* Single column. The 2-column md:grid-cols-2 layout looked
+                  tidy in theory but PropertyRow's internal 5-col grid
+                  (64px 1fr auto auto auto) was designed for the full
+                  container width - at half width the auto cols squeezed
+                  the subtitle and meta into truncated, wrapping mess. The
+                  map up top is doing the portfolio overview job; the
+                  list below just needs to be a clean lookup with room
+                  to breathe. */}
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {active.map((p, i) => (
+                  <PropertyRow
+                    key={p.id}
+                    property={p}
+                    number={String(i + 1).padStart(2, '0')}
+                    workCounts={workCounts[p.id]}
+                  />
+                ))}
+              </div>
+
+              {inactive.length > 0 && (
+                <div style={{ marginTop: 56 }}>
+                  <div className="eyebrow" style={{ marginBottom: 18 }}>Inactive</div>
+                  <div style={{ borderTop: '1px solid var(--rule)' }}>
+                    {inactive.map((p, i) => (
+                      <PropertyRow
+                        key={p.id}
+                        property={p}
+                        number={String(i + 1).padStart(2, '0')}
+                        workCounts={workCounts[p.id]}
+                        dimmed
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -74,93 +179,55 @@ export default async function PropertiesPage() {
       <HelmHero
         eyebrow="Helm · Properties"
         title="All Rising Tide"
-        emphasis="properties."
-        description={
-          !error
-            ? `${active.length} active${inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.`
-            : undefined
-        }
+        emphasis={heroEmphasis}
+        description={heroDescription}
       />
 
-      {/* Cross-listing Stay Cape Ann tools. */}
-      <div
-        className="max-w-[1100px] mx-auto px-10 w-full"
-        style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
-      >
-        <Link
-          href="/properties/listing-copy-studio"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-        >
-          Stay Cape Ann listing copy →
-        </Link>
-        <Link
-          href="/properties/bedroom-photos"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-        >
-          Bedroom photos →
-        </Link>
-      </div>
+      <PropertiesTabBar active={view} />
 
-      {/* MAP — geographic portfolio view above the list. Click a pin to
-          surface a card with property name + slip count + Open link. */}
-      {!error && active.length > 0 && (
-        <section
-          className="max-w-[1100px] mx-auto px-10"
-          style={{ width: '100%', paddingBottom: 28 }}
-        >
-          <PropertiesMap properties={active} workCounts={workCounts} />
-        </section>
-      )}
-
-      {/* LIST */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        {error ? (
-          <ErrorBlock error={error} />
-        ) : properties.length === 0 ? (
-          <EmptyBlock />
-        ) : (
-          <>
-            {/* Single column. The 2-column md:grid-cols-2 layout looked
-                tidy in theory but PropertyRow's internal 5-col grid
-                (64px 1fr auto auto auto) was designed for the full
-                container width - at half width the auto cols squeezed
-                the subtitle and meta into truncated, wrapping mess. The
-                map up top is doing the portfolio overview job; the
-                list below just needs to be a clean lookup with room
-                to breathe. */}
-            <div style={{ borderTop: '1px solid var(--ink)' }}>
-              {active.map((p, i) => (
-                <PropertyRow
-                  key={p.id}
-                  property={p}
-                  number={String(i + 1).padStart(2, '0')}
-                  workCounts={workCounts[p.id]}
-                />
-              ))}
-            </div>
-
-            {inactive.length > 0 && (
-              <div style={{ marginTop: 56 }}>
-                <div className="eyebrow" style={{ marginBottom: 18 }}>Inactive</div>
-                <div style={{ borderTop: '1px solid var(--rule)' }}>
-                  {inactive.map((p, i) => (
-                    <PropertyRow
-                      key={p.id}
-                      property={p}
-                      number={String(i + 1).padStart(2, '0')}
-                      workCounts={workCounts[p.id]}
-                      dimmed
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+      {body}
 
       <HelmFooter module="Properties" right="Source: Helm" />
     </div>
+  );
+}
+
+/** Two-tab switch over the Properties index: the managed roster and the
+ *  prospect funnel. Server-rendered Links (no client JS) so each tab is a
+ *  plain deep-linkable URL. Styled to match the property detail tab bar. */
+function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' }) {
+  const tabs = [
+    { id: 'properties' as const, label: 'Properties', href: '/properties' },
+    { id: 'prospects' as const, label: 'Prospects', href: '/properties?view=prospects' },
+  ];
+  return (
+    <nav aria-label="Properties sections" style={{ borderBottom: '1px solid var(--ink)', marginBottom: 28 }}>
+      <div className="max-w-[1100px] mx-auto px-10" style={{ display: 'flex', gap: 4 }}>
+        {tabs.map((t) => {
+          const on = t.id === active;
+          return (
+            <Link
+              key={t.id}
+              href={t.href}
+              aria-current={on ? 'page' : undefined}
+              style={{
+                borderBottom: on ? '2px solid var(--ink)' : '2px solid transparent',
+                margin: '0 0 -1px',
+                padding: '14px 14px 12px',
+                fontSize: 11,
+                letterSpacing: '.18em',
+                textTransform: 'uppercase',
+                fontWeight: on ? 600 : 500,
+                color: on ? 'var(--ink)' : 'var(--ink-3)',
+                textDecoration: 'none',
+              }}
+            >
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
