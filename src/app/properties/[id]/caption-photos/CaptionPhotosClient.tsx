@@ -16,12 +16,18 @@ type Props = {
 type LoadState = 'loading' | 'ready' | 'needs-listing' | 'error';
 
 /**
- * Save-to-Guesty is paused (2026-06-26): the Guesty write does not reflect
- * into the data we read and once appeared to blank a listing's captions.
- * Keep this in sync with SAVE_TO_GUESTY_ENABLED in actions.ts. Drafting is
- * unaffected. Flip both back on once a verified write path lands.
+ * Per-photo Save is re-enabled behind the self-verifying saveCaptionAction
+ * (it re-reads Guesty after writing and refuses to report success unless the
+ * caption landed and no other caption changed). Keep in sync with
+ * SAVE_TO_GUESTY_ENABLED in actions.ts.
  */
-const WRITE_PAUSED = true;
+const WRITE_PAUSED: boolean = false;
+/**
+ * "Save all" stays off for now: each verified save re-reads the whole
+ * listing, so a bulk run is slow and we want one-at-a-time confidence while
+ * the Guesty write is still being trusted. Re-enable once a save is proven.
+ */
+const SAVE_ALL_ENABLED: boolean = false;
 
 /**
  * Operator surface for the Guesty photo-caption tool. Lives at
@@ -164,10 +170,15 @@ export function CaptionPhotosClient({ propertyId }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <style>{gridCss}</style>
 
-      {WRITE_PAUSED && (
+      {WRITE_PAUSED ? (
         <Notice tone="warn">
           Saving to Guesty is paused while we fix the caption write. Drafting still works and nothing
           is sent to Guesty. To publish a caption for now, paste it into Guesty’s own photo editor.
+        </Notice>
+      ) : (
+        <Notice>
+          Each save is verified: after writing, Helm re-reads the listing and only confirms if your
+          caption landed and no other photo changed. New here, so try one photo first.
         </Notice>
       )}
 
@@ -194,7 +205,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
           >
             Draft all
           </button>
-          {!WRITE_PAUSED && (
+          {SAVE_ALL_ENABLED && (
             <button
               type="button"
               onClick={saveAllChanged}

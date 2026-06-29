@@ -187,15 +187,40 @@ export async function generateCaptionsAction(
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 /**
- * SAVE TO GUESTY IS DISABLED (2026-06-26). The property-photos POST write
- * does not reflect into the listing `pictures` array we read from, and at
- * least once a save appeared to blank a listing's existing captions. Until
- * a verified, non-destructive write path is in place this is a hard no-op
- * so the tool can be used to DRAFT captions without any risk of touching a
- * live listing. See updatePhotoCaption in lib/guesty.ts.
+ * Save one caption to Guesty, SELF-VERIFIED.
+ *
+ * History: the earlier version called updatePhotoCaption and trusted the
+ * 2xx. That write goes through Guesty's property-photos endpoint, which on
+ * these listings does not reflect into the `pictures` array we (and
+ * staycapeann.com) read from — and a save once appeared to blank a
+ * listing's other captions. So this version never trusts the write:
+ *
+ *   1. snapshot every caption on the listing (BEFORE)
+ *   2. perform the write
+ *   3. re-read the listing (AFTER), with a short retry for async propagation
+ *   4. ABORT if any OTHER photo's caption changed (collateral damage) —
+ *      report exactly what changed so it can be restored by hand
+ *   5. FAIL if our own caption didn't actually land (write was a no-op)
+ *   6. only then report success
+ *
+ * Net effect: a save can no longer silently fail or wipe captions. The
+ * worst case is an honest "it didn't take / it touched other photos" with
+ * the before-values, instead of false success + data loss.
  */
-const SAVE_TO_GUESTY_ENABLED: boolean = false;
+const SAVE_TO_GUESTY_ENABLED: boolean = true;
+
+/** A real Guesty photo id is a 24-char hex ObjectId. getListingPhotos
+ *  falls back to a synthetic String(index) when a picture has no _id; we
+ *  must never write against those (the POST would target the wrong photo,
+ *  and the id isn't stable across reorders). */
+function isRealPhotoId(id: string): boolean {
+  return /^[a-f0-9]{24}$/i.test(id);
+}
 
 export async function saveCaptionAction(
   propertyId: string,
@@ -209,7 +234,7 @@ export async function saveCaptionAction(
     return {
       ok: false,
       error:
-        'Saving to Guesty is paused while we fix the caption write. Your drafts are safe and nothing is sent to Guesty. For now, paste captions into Guesty’s own photo editor.',
+        'Saving to Guesty is paused. Your drafts are safe and nothing is sent to Guesty. For now, paste captions into Guesty’s own photo editor.',
     };
   }
 
@@ -217,14 +242,98 @@ export async function saveCaptionAction(
   // em dashes (the hard brand rule), trailing punctuation, and stray glyphs
   // before anything reaches the live listing.
   const clean = cleanCaption(caption);
+  if (!clean) {
+    // Never send an empty caption: Guesty may silently ignore it, which the
+    // verify step below couldn't distinguish from a real no-op clear.
+    return { ok: false, error: 'Add some caption text before saving. To remove a caption, clear it in Guesty directly.' };
+  }
   if (clean.length > 250) {
     return { ok: false, error: 'Caption is too long (over 250 characters). Trim it before saving.' };
   }
-
-  try {
-    await updatePhotoCaption(guard.listingId, photoId, clean);
-    return { ok: true, caption: clean };
-  } catch (err) {
-    return { ok: false, error: `Guesty rejected the caption update: ${errMsg(err)}` };
+  if (!isRealPhotoId(photoId)) {
+    return { ok: false, error: 'This photo has no stable Guesty id, so it can’t be captioned from here. Add the caption in Guesty directly.' };
   }
+
+  const listingId = guard.listingId;
+  // Compare captions through the SAME normalization we send, so a Guesty
+  // echo with different whitespace/punctuation doesn't read as a change.
+  const norm = (s: string | null | undefined) => cleanCaption(s ?? '');
+  // Identity that survives id synthesis AND array reordering: the photo's
+  // immutable CDN URL (fall back to the id only if a URL is somehow absent).
+  type Pic = Awaited<ReturnType<typeof getListingPhotos>>[number];
+  const keyOf = (p: Pic): string => p.original || p.thumbnail || p._id;
+
+  // 1. BEFORE snapshot — keyed by stable URL identity.
+  let before: Pic[];
+  try {
+    before = await getListingPhotos(listingId);
+  } catch (err) {
+    return { ok: false, error: `Could not read the listing from Guesty before saving: ${errMsg(err)}. Nothing changed.` };
+  }
+  const target = before.find((p) => p._id === photoId);
+  if (!target) {
+    return { ok: false, error: 'That photo is no longer on the Guesty listing. Reload and try again.' };
+  }
+  const targetKey = keyOf(target);
+  const targetCaptionAt = (list: Pic[]) =>
+    norm(list.find((p) => keyOf(p) === targetKey)?.caption);
+  const beforeByKey = new Map(before.map((p) => [keyOf(p), norm(p.caption)]));
+
+  // 2. write (isolated so a write failure reads as "nothing changed").
+  try {
+    await updatePhotoCaption(listingId, photoId, clean);
+  } catch (err) {
+    return { ok: false, error: `Guesty rejected the caption write: ${errMsg(err)}. Nothing changed.` };
+  }
+
+  // 3. AFTER — re-read to verify, retrying briefly for async propagation. A
+  //    read failure here is NOT a write failure: the caption may have saved.
+  let after: Pic[];
+  try {
+    after = await getListingPhotos(listingId);
+    for (let i = 0; i < 2 && targetCaptionAt(after) !== clean; i++) {
+      await sleep(1500);
+      after = await getListingPhotos(listingId);
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Wrote the caption, but Helm couldn’t read the listing back to verify it (${errMsg(err)}). It may have saved — check this photo in Guesty before re-saving.`,
+    };
+  }
+  const afterByKey = new Map(after.map((p) => [keyOf(p), norm(p.caption)]));
+
+  // 4. collateral check — did any OTHER photo's caption change or vanish?
+  const collateral: Array<{ before: string; after: string }> = [];
+  for (const [key, was] of beforeByKey) {
+    if (key === targetKey) continue;
+    if (!afterByKey.has(key)) {
+      collateral.push({ before: was, after: '(photo removed)' });
+      continue;
+    }
+    const now = afterByKey.get(key) ?? '';
+    if (now !== was) collateral.push({ before: was, after: now });
+  }
+  if (collateral.length > 0) {
+    console.error('[saveCaptionAction] collateral change', { listingId, photoId, collateral });
+    const changes = collateral
+      .map((c) => `"${c.before || '(empty)'}" -> "${c.after || '(empty)'}"`)
+      .join('; ');
+    return {
+      ok: false,
+      error: `Aborted: that save also changed ${collateral.length} other photo(s) on this Guesty listing, so the write is not safe here. Nothing else was sent. What changed: ${changes}. Restore those in Guesty directly and caption there for now.`,
+    };
+  }
+
+  // 5. did OUR caption actually land?
+  if (targetCaptionAt(after) !== clean) {
+    return {
+      ok: false,
+      error:
+        'Guesty accepted the update but the caption did not appear on the listing, so the API write is not effective for this listing. Nothing was harmed — caption it in Guesty directly.',
+    };
+  }
+
+  // 6. verified
+  return { ok: true, caption: clean };
 }
