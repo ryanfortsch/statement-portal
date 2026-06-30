@@ -30,6 +30,7 @@ export const SYNC_SOURCES = [
   'guesty-calendar',
   'guesty-guests',
   'gmail-replies',
+  'gmail-invoices',
   'csv-fallback',
   'stripe',
   'quo',
