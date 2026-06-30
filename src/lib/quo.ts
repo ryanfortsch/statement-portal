@@ -232,6 +232,35 @@ export async function listCalls(p: ListCallsParams): Promise<QuoListResponse<Quo
   });
 }
 
+// ── Conversations ───────────────────────────────────────────────────
+// A conversation is a thread on one of our numbers. `participants` is the
+// set of OTHER parties (our own number is not listed). A 1:1 thread has a
+// single participant; a group thread (e.g. two co-owners on one text
+// chain) has several. The per-participant /messages query only matches
+// 1:1 threads, so group threads need this endpoint to discover the full
+// participant set, then a /messages query with all of them.
+export type QuoConversation = {
+  id: string;
+  participants: string[];
+  phoneNumberId: string;
+  name: string | null;
+  lastActivityAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function listConversations(p: {
+  phoneNumberId: string;
+  maxResults?: number;
+  pageToken?: string;
+}): Promise<QuoListResponse<QuoConversation>> {
+  return get('/conversations', {
+    phoneNumberId: p.phoneNumberId,
+    maxResults: Math.min(p.maxResults ?? QUO_MAX_PAGE, QUO_MAX_PAGE),
+    pageToken: p.pageToken,
+  });
+}
+
 export type SendMessageParams = {
   from: string;
   to: string;
