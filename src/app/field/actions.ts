@@ -46,7 +46,12 @@ async function logEvent(args: {
 
 /** Finish onboarding: record W9-on-file + the signed agreement and flip the
  *  contractor to active so they can claim. */
-export async function completeOnboarding(formData: FormData) {
+export type OnboardingState = { error: string };
+
+export async function completeOnboarding(
+  _prev: OnboardingState,
+  formData: FormData,
+): Promise<OnboardingState> {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
@@ -55,9 +60,9 @@ export async function completeOnboarding(formData: FormData) {
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const homeAddress = String(formData.get('home_address') || '').trim();
-  if (!agree || signedName.length < 3 || homeAddress.length < 2) {
-    redirect('/field/onboarding?error=incomplete');
-  }
+  if (homeAddress.length < 2) return { error: 'Add your home base (the town or ZIP you work from).' };
+  if (!agree) return { error: 'Check the box agreeing to the contractor terms.' };
+  if (signedName.length < 3) return { error: 'Type your full name at the bottom to sign.' };
 
   // W-9 (stored locked + encrypted; see field-w9). Must save cleanly before we
   // mark the contractor onboarded.
@@ -75,9 +80,7 @@ export async function completeOnboarding(formData: FormData) {
     signedName,
     signedIp: signIp,
   });
-  if (w9Error) {
-    redirect('/field/onboarding?error=incomplete');
-  }
+  if (w9Error) return { error: w9Error };
 
   // How to pay them (record-keeping; Helm doesn't move money).
   const payErr = await savePayment(
@@ -85,9 +88,7 @@ export async function completeOnboarding(formData: FormData) {
     String(formData.get('payment_method') || ''),
     String(formData.get('payment_details') || ''),
   );
-  if (payErr) {
-    redirect('/field/onboarding?error=incomplete');
-  }
+  if (payErr) return { error: payErr };
 
   // Geocode their home base so the marketplace can rank packets "near you".
   // Best-effort: a failed lookup just leaves coords null (no ranking).
