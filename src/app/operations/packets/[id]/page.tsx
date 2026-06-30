@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketReview, getContractorReliability, type ReliabilityTier } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
+import { StopAttachments, PacketInstructions } from './StopAttachments';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
@@ -62,6 +63,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
+
+  // Attaching work slips + instructions is allowed any time the packet is still
+  // live (incl. after a contractor claims it); locked once submitted/closed.
+  const attachEditable = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
+  const attachableByStop = attachEditable
+    ? await Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
+    : packet.stops.map(() => []);
 
   // The claimable pool for this packet (active, onboarded, cleared, same trade),
   // ranked the way the SMS blast ranks it — reliability first, then distance —
@@ -318,7 +326,8 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         </div>
 
         {/* Stops */}
-        <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)' }}>
+        <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
+          <PacketInstructions packetId={packet.id} instructions={packet.instructions} editable={attachEditable} />
           {packet.stops.map((s, i) => (
             <div key={s.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 14, alignItems: 'baseline' }}>
               <span style={{ width: 22, color: 'var(--ink-4)', fontSize: 13 }}>{i + 1}</span>
@@ -327,6 +336,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                   {s.property.address} · {windowLabel(s)} · {dollars(s.base_price_cents)}
                 </div>
+                <StopAttachments
+                  packetId={packet.id}
+                  stopId={s.id}
+                  stopWorkSlipId={s.work_slip_id}
+                  attached={s.attachedSlips}
+                  attachable={attachableByStop[i]}
+                  instructions={s.instructions}
+                  editable={attachEditable}
+                />
               </div>
               <div style={{ textAlign: 'right', fontSize: 12 }}>
                 {s.inspection_id ? (

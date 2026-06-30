@@ -367,6 +367,72 @@ export async function completeMaintenanceStop(formData: FormData) {
   redirect(`/field/packet/${packetId}`);
 }
 
+/** Inspector marks an ATTACHED work slip done (an extra task the office put on a
+ *  stop). Records the resolution on the slip (stays in_progress until office
+ *  approval) and stamps the attachment's completed_at. Decoupled from
+ *  packet_stops.status, so it never closes the stop or skips the inspection, and
+ *  several attached slips complete independently. Advisory: does NOT gate submit. */
+export async function completeAttachedSlip(formData: FormData) {
+  const packetId = String(formData.get('packet_id') || '');
+  const attachmentId = String(formData.get('attachment_id') || '');
+  const note = String(formData.get('resolution') || '').trim();
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
+  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  // The attachment and its stop must belong to THIS packet (no cross-packet writes).
+  const { data: aData } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id, work_slip_id, packet_stops!inner(packet_id, property_id)')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  const att = aData as { id: string; work_slip_id: string; packet_stops: { packet_id: string; property_id: string } } | null;
+  if (!att || att.packet_stops.packet_id !== packetId) redirect(`/field/packet/${packetId}`);
+  if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
+
+  const photos = (() => {
+    try {
+      const v = JSON.parse(String(formData.get('photo_urls') || '[]'));
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  // APPEND the inspector's completion photos to the slip's existing ones rather
+  // than overwrite: an attached slip often carries the office's reference photos
+  // ("here's the broken thing"), which we must not destroy.
+  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
+  const mergedPhotos = [...new Set([...existing, ...photos])];
+  await fieldDb()
+    .from('work_slips')
+    .update({ status: 'in_progress', resolution_notes: note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
+    .eq('id', att.work_slip_id);
+  await fieldDb().from('packet_stop_work_slips').update({ completed_at: new Date().toISOString() }).eq('id', attachmentId);
+  if (packet.status === 'claimed') {
+    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
+  }
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    eventType: 'attached_slip_completed',
+    propertyId: att.packet_stops.property_id,
+    payload: { attachment_id: attachmentId, work_slip_id: att.work_slip_id },
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  redirect(`/field/packet/${packetId}`);
+}
+
 /** Submit the whole packet for office review once every stop is complete. */
 export async function submitPacket(formData: FormData) {
   const packetId = String(formData.get('packet_id') || '');
