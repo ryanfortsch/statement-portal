@@ -169,6 +169,108 @@ export async function deleteContactTouch(args: {
   return { ok: true };
 }
 
+// ── Contact reconciliation suggestions ────────────────────────────
+
+/** Mark a reconcile suggestion accepted and apply the proposed change. */
+export async function acceptContactSuggestion(args: {
+  id: string;
+  /** Required when suggestion_type is 'add_contact'. */
+  contactType?: ContactType;
+}): Promise<{ ok: true; contactId?: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from('contact_reconcile_suggestions')
+    .select('*')
+    .eq('id', args.id)
+    .eq('status', 'pending')
+    .maybeSingle();
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? 'Suggestion not found' };
+
+  const r = row as {
+    suggestion_type: string;
+    helm_contact_id: string | null;
+    suggested_name: string | null;
+    suggested_emails: string[];
+    suggested_org: string | null;
+    phone: string | null;
+  };
+
+  let contactId: string | undefined;
+
+  if (r.suggestion_type === 'add_contact') {
+    const type = args.contactType ?? 'other';
+    if (!VALID_TYPES.includes(type)) return { ok: false, error: 'Invalid type' };
+    if (!r.suggested_name) return { ok: false, error: 'No suggested name' };
+    const { data: inserted, error: insErr } = await supabase
+      .from('contacts')
+      .insert({
+        type,
+        name: r.suggested_name,
+        emails: r.suggested_emails ?? [],
+        phone: r.phone ?? null,
+        organization: r.suggested_org ?? null,
+        tags: [],
+        linked_property_ids: [],
+        created_by_email: session.user.email,
+      })
+      .select('id')
+      .single();
+    if (insErr || !inserted) return { ok: false, error: insErr?.message ?? 'Failed to create contact' };
+    contactId = (inserted as { id: string }).id;
+  } else if (r.suggestion_type === 'fill_email' && r.helm_contact_id) {
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('emails')
+      .eq('id', r.helm_contact_id)
+      .maybeSingle();
+    const current: string[] = (existing as { emails?: string[] } | null)?.emails ?? [];
+    const merged = Array.from(new Set([...current, ...(r.suggested_emails ?? [])]));
+    const { error: upErr } = await supabase
+      .from('contacts')
+      .update({ emails: merged })
+      .eq('id', r.helm_contact_id);
+    if (upErr) return { ok: false, error: upErr.message };
+    contactId = r.helm_contact_id;
+  } else if (r.suggestion_type === 'fill_org' && r.helm_contact_id) {
+    const { error: upErr } = await supabase
+      .from('contacts')
+      .update({ organization: r.suggested_org })
+      .eq('id', r.helm_contact_id);
+    if (upErr) return { ok: false, error: upErr.message };
+    contactId = r.helm_contact_id;
+  } else {
+    return { ok: false, error: 'Unknown suggestion type' };
+  }
+
+  await supabase
+    .from('contact_reconcile_suggestions')
+    .update({ status: 'accepted', reviewed_at: new Date().toISOString(), reviewed_by: session.user.email })
+    .eq('id', args.id);
+
+  revalidatePath('/crm');
+  if (contactId) revalidatePath(`/crm/${contactId}`);
+  return { ok: true, contactId };
+}
+
+/** Hide a reconcile suggestion without applying it. */
+export async function dismissContactSuggestion(
+  args: { id: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('contact_reconcile_suggestions')
+    .update({ status: 'dismissed', reviewed_at: new Date().toISOString(), reviewed_by: session.user.email })
+    .eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/crm');
+  return { ok: true };
+}
+
 // ── Unknown-number triage queue ────────────────────────────────────
 
 /** Hide an unknown Quo number from the triage queue (spam / wrong number). */
@@ -249,4 +351,63 @@ export async function addUnknownAsContact(args: {
   revalidatePath('/crm');
   revalidatePath(`/crm/${contactId}`);
   return { ok: true, id: contactId };
+}
+
+/**
+ * Attach an unknown Quo number to an EXISTING contact (the "they're already an
+ * owner in Helm, just missing their number" case) instead of creating a
+ * duplicate. Fills the contact's phone only when it's empty, so we never clobber
+ * a number they already have; either way the triage row is resolved and the
+ * captured conversation is backfilled onto the contact.
+ *
+ * Returns `filled` so the caller can tell the operator whether the number became
+ * the contact's primary (and will auto-recognize future texts) or was just
+ * linked (the contact already had a different primary number).
+ */
+export async function attachUnknownToContact(args: {
+  phone: string;
+  contactId: string;
+}): Promise<{ ok: true; filled: boolean; contactName: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const phone = args.phone?.trim();
+  if (!phone) return { ok: false, error: 'Phone is required' };
+  if (!args.contactId) return { ok: false, error: 'Pick a contact' };
+
+  const { data: contact, error: cErr } = await supabase
+    .from('contacts')
+    .select('id, name, phone')
+    .eq('id', args.contactId)
+    .maybeSingle();
+  if (cErr) return { ok: false, error: cErr.message };
+  if (!contact) return { ok: false, error: 'Contact not found' };
+  const c = contact as { id: string; name: string; phone: string | null };
+
+  // Fill only when empty. matchContact recognizes future texts by the contact's
+  // single phone field, so an empty one becomes the primary; a contact that
+  // already has a (different) number keeps it, and this conversation is still
+  // linked.
+  const filled = !c.phone;
+  if (filled) {
+    const { error: uErr } = await supabase
+      .from('contacts')
+      .update({ phone, updated_at: new Date().toISOString() })
+      .eq('id', args.contactId);
+    if (uErr) return { ok: false, error: uErr.message };
+  }
+
+  await supabase
+    .from('quo_unknown_numbers')
+    .update({ status: 'added', contact_id: args.contactId })
+    .eq('phone', phone);
+
+  try {
+    await backfillTouchesForPhone(phone);
+  } catch (err) {
+    console.error('[attachUnknownToContact] backfill failed', err);
+  }
+
+  revalidatePath('/crm');
+  revalidatePath(`/crm/${args.contactId}`);
+  return { ok: true, filled, contactName: c.name };
 }

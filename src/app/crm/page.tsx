@@ -4,6 +4,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
 import { CrmListClient } from './CrmListClient';
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,12 @@ async function getContacts(): Promise<{
   properties: PropertyMini[];
   lastTouchByContact: Record<string, LastTouch>;
   unknownNumbers: UnknownNumberRow[];
+  suggestions: ContactReconcileSuggestionRow[];
   error: string | null;
 }> {
+  const empty = { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], suggestions: [] };
   if (!isHelmConfigured) {
-    return { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], error: 'Helm Supabase env vars are not set.' };
+    return { ...empty, error: 'Helm Supabase env vars are not set.' };
   }
   try {
     const [
@@ -28,25 +31,30 @@ async function getContacts(): Promise<{
       { data: properties, error: pErr },
       { data: touches, error: tErr },
       { data: unknownNumbers },
+      { data: suggestions },
     ] = await Promise.all([
       supabase.from('contacts').select('*').order('name'),
       supabase.from('properties').select('id, name').order('name'),
-      // All touches from the last 60 days. Group on client to "last per
-      // contact". Volume is small (~hundreds at most) so a single query
-      // is fine; if it grows we can swap to a database view.
+      // All touches from the last 60 days; grouped client-side to "last per contact".
       supabase
         .from('contact_touches')
         .select('contact_id, touched_at, summary, channel')
         .gte('touched_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString())
         .order('touched_at', { ascending: false }),
-      // Unknown-number triage queue. Error (e.g. table not yet migrated)
-      // is ignored so it never breaks the page — fail safe to empty.
+      // Unknown-number triage queue. Errors ignored (fail-safe to empty).
       supabase
         .from('quo_unknown_numbers')
         .select('*')
         .eq('status', 'pending')
         .order('last_message_at', { ascending: false })
         .limit(50),
+      // Quo address-book suggestions. Errors ignored (table may not be migrated yet).
+      supabase
+        .from('contact_reconcile_suggestions')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(100),
     ]);
     if (cErr) throw cErr;
     if (pErr) throw pErr;
@@ -54,7 +62,6 @@ async function getContacts(): Promise<{
 
     const lastTouchByContact: Record<string, LastTouch> = {};
     for (const t of (touches ?? []) as Array<{ contact_id: string; touched_at: string; summary: string; channel: string }>) {
-      // Touches are sorted desc — first one we see for a contact_id is the latest.
       if (!lastTouchByContact[t.contact_id]) {
         lastTouchByContact[t.contact_id] = { at: t.touched_at, summary: t.summary, channel: t.channel };
       }
@@ -65,15 +72,16 @@ async function getContacts(): Promise<{
       properties: (properties ?? []) as PropertyMini[],
       lastTouchByContact,
       unknownNumbers: (unknownNumbers ?? []) as UnknownNumberRow[],
+      suggestions: (suggestions ?? []) as ContactReconcileSuggestionRow[],
       error: null,
     };
   } catch (err) {
-    return { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], error: err instanceof Error ? err.message : String(err) };
+    return { ...empty, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 export default async function CrmPage() {
-  const { contacts, properties, lastTouchByContact, unknownNumbers, error } = await getContacts();
+  const { contacts, properties, lastTouchByContact, unknownNumbers, suggestions, error } = await getContacts();
 
   const counts = {
     all: contacts.length,
@@ -124,6 +132,7 @@ export default async function CrmPage() {
           counts={counts}
           lastTouchByContact={lastTouchByContact}
           unknownNumbers={unknownNumbers}
+          suggestions={suggestions}
         />
       )}
 
@@ -135,5 +144,4 @@ export default async function CrmPage() {
 export type CrmPageCounts = Record<ContactType | 'all', number>;
 export type { ContactRow };
 
-// Eyebrow → glance use only; primary list rendering lives in the client.
 export const VIEW_LABELS = CONTACT_TYPE_LABELS;

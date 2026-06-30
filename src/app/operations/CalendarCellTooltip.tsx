@@ -7,13 +7,13 @@
  *
  * Cross-device by design:
  *   - Desktop (hover-capable pointers): opens on mouse-enter, closes on
- *     mouse-leave — the quick-preview behavior the old Radix Tooltip had.
+ *     mouse-leave ; the quick-preview behavior the old Radix Tooltip had.
  *   - Mobile / touch: a tap toggles it open (Radix Tooltip never opened on
  *     touch, so taps did nothing before). Tap outside or Escape closes.
  *
  * Built on a *controlled* Popover (Tooltip is hover/focus-only and can't
  * serve touch). `asChild` keeps the cell itself as the trigger so the
- * CSS-grid layout is preserved exactly — the card is purely additive.
+ * CSS-grid layout is preserved exactly; the card is purely additive.
  */
 
 import { useState } from 'react';
@@ -50,7 +50,7 @@ export function CalendarCellTooltip({
       <PopoverTrigger
         asChild
         // Hover preview on devices with a real pointer. Touch fires
-        // pointerenter too, so gate on pointerType — taps fall through to
+        // pointerenter too, so gate on pointerType; taps fall through to
         // the trigger's built-in click toggle (controlled via onOpenChange).
         onPointerEnter={(e) => {
           if (e.pointerType === 'mouse') setOpen(true);
@@ -65,7 +65,7 @@ export function CalendarCellTooltip({
         side="top"
         align="center"
         sideOffset={6}
-        // Read-only card — don't steal focus / scroll the page open on tap.
+        // Read-only card, don't steal focus / scroll the page open on tap.
         onOpenAutoFocus={(e) => e.preventDefault()}
         style={{
           width: 'auto',
@@ -163,7 +163,7 @@ export function CalendarCellTooltip({
 }
 
 function formatShort(iso: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -172,7 +172,7 @@ function formatShort(iso: string): string {
   }
 }
 
-/** "3:14p Sat" — the guest's keypad entry time, in Eastern (the lock's local
+/** "3:14p Sat": the guest's keypad entry time, in Eastern (the lock's local
  *  time), kept compact for the one-line in-residence row. */
 function formatArrival(iso: string): string {
   try {

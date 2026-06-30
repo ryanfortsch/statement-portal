@@ -299,7 +299,7 @@ export async function listAccessCodes(deviceId: string): Promise<SeamAccessCodeF
   return res.access_codes ?? [];
 }
 
-/** Unmanaged codes — PINs set outside Seam (e.g. in the Schlage app) that the
+/** Unmanaged codes: PINs set outside Seam (e.g. in the Schlage app) that the
  *  managed /access_codes/list does not return. */
 export async function listUnmanagedAccessCodes(deviceId: string): Promise<SeamAccessCodeFull[]> {
   const res = await seamPost<{ access_codes: SeamAccessCodeFull[] }>('/access_codes/unmanaged/list', {

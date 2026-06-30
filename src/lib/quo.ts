@@ -134,6 +134,65 @@ export async function listPhoneNumbers(): Promise<QuoPhoneNumber[]> {
   return res.data;
 }
 
+// ── Contacts ────────────────────────────────────────────────────────
+// The Quo address book. Standard fields nest under `defaultFields`; emails
+// and phoneNumbers are arrays of { name?, value }. With no externalIds the
+// list endpoint returns all org contacts. NOTE: Quo's API has historically
+// only guaranteed contacts created/associated through the API: the first
+// reconcile run reports how many actually come back so we know whether the
+// app address book is reachable.
+export type QuoContact = {
+  id: string;
+  externalId?: string | null;
+  source?: string | null;
+  defaultFields?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    company?: string | null;
+    role?: string | null;
+    emails?: Array<{ name?: string | null; value?: string | null }> | null;
+    phoneNumbers?: Array<{ name?: string | null; value?: string | null }> | null;
+  } | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function listContacts(p?: { maxResults?: number; pageToken?: string }): Promise<QuoListResponse<QuoContact>> {
+  return get('/contacts', {
+    maxResults: p?.maxResults ?? 100,
+    pageToken: p?.pageToken,
+  });
+}
+
+/** Page through the whole Quo address book. Capped at 50 pages (~5000
+ *  contacts) so a pagination bug can't loop forever. */
+export async function listAllContacts(): Promise<QuoContact[]> {
+  const out: QuoContact[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 50; page += 1) {
+    const res = await listContacts({ maxResults: 100, pageToken });
+    out.push(...(res.data ?? []));
+    if (!res.nextPageToken) break;
+    pageToken = res.nextPageToken;
+  }
+  return out;
+}
+
+/** Flatten a Quo contact to the fields we reconcile on: a display name, its
+ *  email addresses, its phone numbers, and the company. */
+export function quoContactFields(c: QuoContact): {
+  name: string;
+  emails: string[];
+  phones: string[];
+  company: string | null;
+} {
+  const d = c.defaultFields ?? {};
+  const name = [d.firstName, d.lastName].filter(Boolean).join(' ').trim();
+  const emails = (d.emails ?? []).map((e) => (e?.value ?? '').trim()).filter(Boolean);
+  const phones = (d.phoneNumbers ?? []).map((p) => (p?.value ?? '').trim()).filter(Boolean);
+  return { name, emails, phones, company: (d.company ?? '').trim() || null };
+}
+
 export type ListMessagesParams = {
   phoneNumberId: string;
   participants: string[];
@@ -173,7 +232,7 @@ export type SendMessageParams = {
   content: string;
 };
 
-// POST /v1/messages — Quo's outbound SMS endpoint. `from` is the E.164
+// POST /v1/messages: Quo's outbound SMS endpoint. `from` is the E.164
 // of one of our Quo numbers (use the env-pinned QUO_FROM_NUMBER or pick
 // the first from listPhoneNumbers()); `to` is the recipient E.164.
 export async function sendMessage(p: SendMessageParams): Promise<QuoMessage> {
