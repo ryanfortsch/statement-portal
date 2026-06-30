@@ -290,7 +290,7 @@ export function TurnoverRail(p: Props) {
                   textAlign: 'center',
                   fontWeight: isActive ? 500 : 400,
                   color: labelColor,
-                  whiteSpace: 'nowrap',
+                  overflowWrap: 'break-word',
                 }}
               >
                 {n.glyph === 'lock' ? (
