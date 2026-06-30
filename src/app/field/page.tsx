@@ -6,6 +6,7 @@ import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings
 import { canClaim, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
+import { FieldPillars } from './FieldPillars';
 
 const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
 const NEXT_TIER: Record<string, { name: string; at: number }> = {
@@ -154,14 +155,6 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
   );
 }
 
-/** The three things every visit covers — the contractor's quality bar, shown
- *  on the welcome screen so they learn the standard before their first claim. */
-const WELCOME_PILLARS: Array<{ title: string; desc: string }> = [
-  { title: 'Perfection', desc: "The home should look flawless: staged, spotless, guest-ready. You're the last set of eyes before check-in." },
-  { title: 'Maintenance', desc: 'Flag anything worn, leaking, or drifting toward a repair, so we fix it before a guest ever notices.' },
-  { title: 'Supplies', desc: "Confirm the essentials are stocked, and note whatever's running low so we can restock fast." },
-];
-
 /** The onboarding journey as a status rail on the welcome screen. activeIndex
  *  marks the live stage; everything before it reads as done. `failed` paints the
  *  active node in the negative tone with no pulse. */
@@ -295,20 +288,10 @@ export default async function FieldHome({
           )}
         </div>
 
-        {/* Learn the standard while you wait */}
+        {/* The standard: three flip cards */}
         <div style={{ marginBottom: 28 }}>
-          <div style={eyebrow}>While you wait · know the standard</div>
-          <div style={card}>
-            {WELCOME_PILLARS.map((p, i) => (
-              <div key={p.title} style={{ display: 'flex', gap: 14, paddingTop: i === 0 ? 0 : 14, marginTop: i === 0 ? 0 : 14, borderTop: i === 0 ? 'none' : '1px solid var(--rule)' }}>
-                <span className="font-mono" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, flexShrink: 0, width: 18 }}>{i + 1}</span>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{p.title}</div>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55 }}>{p.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div style={eyebrow}>The standard</div>
+          <FieldPillars />
         </div>
 
         {/* How a visit works */}
@@ -323,6 +306,37 @@ export default async function FieldHome({
             ],
             'var(--ink-4)',
           )}
+        </div>
+
+        {/* Why it matters: the mission */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={eyebrow}>Why it matters</div>
+          <div style={{ ...card, padding: '22px 24px' }}>
+            <p className="font-serif" style={{ fontSize: 22, fontWeight: 300, lineHeight: 1.3, margin: '0 0 18px' }}>
+              Our whole business is the guest experience.
+            </p>
+            <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ flexShrink: 0 }}>
+                <div className="font-serif" style={{ fontSize: 46, fontWeight: 300, color: 'var(--signal)', lineHeight: 1 }}>3rd</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', maxWidth: 120, marginTop: 5, lineHeight: 1.35 }}>
+                  biggest factor in a booking, after location and price
+                </div>
+              </div>
+              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, flex: 1, minWidth: 220, margin: 0 }}>
+                That factor is <strong style={{ color: 'var(--ink)' }}>guest reviews</strong>. They&apos;re the
+                lifeblood of Rising Tide, and they start with the home being perfect the moment a guest walks in.
+              </p>
+            </div>
+            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 16px' }}>
+              You&apos;re the last set of eyes before that door opens. What a guest feels stepping inside, and what
+              they write afterward, runs through your visit. Those reviews are tied to you: the more five-star stays
+              you help create, the higher your tier climbs (Bronze, Silver, Gold) and the more you earn.
+            </p>
+            <p className="font-serif" style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--ink)', lineHeight: 1.5, margin: 0, borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+              This isn&apos;t checkbox work. It&apos;s looking around corners, catching the thing a guest would notice
+              before they ever do.
+            </p>
+          </div>
         </div>
 
         {/* A preview of the work */}
