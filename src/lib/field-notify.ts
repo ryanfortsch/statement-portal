@@ -361,6 +361,36 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
   });
 }
 
+/** A contractor tapped "Send a note" in the portal. Goes to Ryan (cc office),
+ *  with reply-to set to the contractor so Ryan can answer straight from his
+ *  inbox, and their phone surfaced for a quick text back. */
+export async function sendContractorQuestionEmail(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone'>,
+  message: string,
+): Promise<boolean> {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safe = esc(message.trim().slice(0, 2000));
+  const name = esc(contractor.full_name);
+  const email = esc(contractor.email);
+  const phone = contractor.phone ? esc(contractor.phone) : null;
+  const first = esc(contractor.full_name.split(' ')[0]);
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 6px;">Question from ${name}</h1>
+    <p style="font-size:12px;color:#7a8a90;margin:0 0 16px;">${email}${phone ? ` &middot; ${phone}` : ''}</p>
+    <p style="white-space:pre-wrap;font-size:15px;margin:0 0 18px;">${safe}</p>
+    <p style="font-size:13px;color:#7a8a90;border-top:1px solid #e6ded2;padding-top:14px;">Reply to this email to answer ${first} directly${phone ? `, or text ${phone}` : ''}.</p>
+  `);
+  return sendTransactionalViaResend({
+    to: 'ryan@risingtidestr.com',
+    cc: OFFICE_CC,
+    subject: `Field question from ${contractor.full_name}`,
+    fromName: FROM_NAME,
+    replyTo: contractor.email,
+    html,
+    text: `${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) asks:\n\n${message.trim()}`,
+  });
+}
+
 export async function sendNewApplicantEmail(app: {
   full_name: string; email: string; phone: string | null; area: string | null;
   has_transport: boolean | null; source: string | null;

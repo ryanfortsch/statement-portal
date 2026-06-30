@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { signOutField } from './actions';
+import { RyanContact } from './RyanContact';
 
 /**
  * Standalone shell for the contractor portal. Deliberately NOT the Helm
@@ -79,9 +80,10 @@ export function FieldShell({
           )}
         </div>
       </header>
-      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 64px' }}>
+      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>
+      {contractorName && <RyanContact />}
       <footer
         style={{
           borderTop: '1px solid var(--rule)',

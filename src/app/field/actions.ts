@@ -13,7 +13,19 @@ import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail } from '@/lib/field-notify';
+
+/** "Send a note" from the portal's Reach-out affordance. Auth'd by the
+ *  contractor cookie so we know who is asking; emails Ryan with reply-to set to
+ *  the contractor. Returns a result the client can show. */
+export async function sendContractorNote(message: string): Promise<{ ok: boolean; error?: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+  const text = (message || '').trim();
+  if (text.length < 2) return { ok: false, error: 'Add a short message first.' };
+  const sent = await sendContractorQuestionEmail(contractor, text.slice(0, 2000));
+  return sent ? { ok: true } : { ok: false, error: 'Could not send just now. Give us a text or call instead.' };
+}
 
 async function reqContext() {
   const h = await headers();
