@@ -1,6 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingTabs } from '@/components/MessagingTabs';
 import { Section } from '@/components/Section';
 import {
   isStayConciergeConfigured,
@@ -50,7 +51,8 @@ export default async function CleanerMessagingPage() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="cleaner-messaging" />
+      <HelmMasthead current="messaging" />
+      <MessagingTabs current="cleaners" />
 
       <HelmHero
         eyebrow="Cleaner Messaging"

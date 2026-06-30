@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listApprovals, listOwnerApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
+import { listApprovals, listOwnerApprovals, listCleanerApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
 
 /**
  * Lightweight count endpoint for the Messaging nav badge.
@@ -22,9 +22,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ count: 0, guests: 0, owners: 0 });
+    return NextResponse.json({ count: 0, guests: 0, owners: 0, cleaners: 0 });
   }
-  const [guestRes, ownerRes] = await Promise.all([listApprovals(), listOwnerApprovals()]);
+  const [guestRes, ownerRes, cleanerRes] = await Promise.all([
+    listApprovals(),
+    listOwnerApprovals(),
+    listCleanerApprovals(),
+  ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
   // match because stay-concierge's array contents drift from what either
@@ -44,5 +48,6 @@ export async function GET() {
     ? guestRes.data.approvals.filter((a) => a.status !== 'scheduled').length
     : 0;
   const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
-  return NextResponse.json({ count: guests + owners, guests, owners });
+  const cleaners = cleanerRes.ok ? cleanerRes.data.approvals.length : 0;
+  return NextResponse.json({ count: guests + owners + cleaners, guests, owners, cleaners });
 }
