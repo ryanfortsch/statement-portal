@@ -41,6 +41,7 @@ type StepperResult = {
   zone_id: string | null;
   status: InspectionStatus;
   notes: string | null;
+  photo_urls: string[];
 };
 
 function cardKeyOf(itemId: string, zoneId: string | null): string {
@@ -170,11 +171,39 @@ export function Stepper({
       zone_id: activeCard.zoneId,
       status,
       notes: activeResult?.notes ?? null,
+      photo_urls: activeResult?.photo_urls ?? [],
     };
     applyOptimistic(activeCard, next);
     persist(activeCard, next);
     // Advance after a beat so the user sees their mark register
     setTimeout(() => setActiveIdx((i) => Math.min(i + 1, total)), 180);
+  }
+
+  // Quick "+ Photo" attaches evidence to the CARD's result (inspection_results.
+  // photo_urls) — the field the submit gate, summary, report, and owner email
+  // all read. Storing it as a note (the old behavior) left an Issue card
+  // permanently un-submittable. If the card isn't marked yet, fall back to a
+  // note so an early photo isn't lost.
+  async function attachCardPhoto(url: string): Promise<string | null> {
+    if (!activeCard) return 'No active card';
+    const current = results.get(activeCard.cardKey);
+    if (!current) return submitNote('', false, [url]);
+    const nextPhotos = [...current.photo_urls, url];
+    const next: StepperResult = { ...current, photo_urls: nextPhotos };
+    applyOptimistic(activeCard, next);
+    const res = await saveResult({
+      inspectionId,
+      itemId: activeCard.itemId,
+      zoneId: activeCard.zoneId,
+      status: current.status,
+      notes: current.notes,
+      photoUrls: nextPhotos,
+    });
+    if (!res.ok) {
+      applyOptimistic(activeCard, current); // rollback
+      return res.error;
+    }
+    return null;
   }
 
   async function submitNote(text: string, asProperty: boolean, photoUrls: string[]): Promise<string | null> {
@@ -457,6 +486,21 @@ export function Stepper({
           </div>
         )}
 
+        {/* Issue evidence: a photo is required to submit, so make that explicit
+            on the card and show what's attached. */}
+        {activeResult?.status === 'issue' && (
+          activeResult.photo_urls.length > 0 ? (
+            <div style={{ marginTop: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--signal)' }}>Issue photo{activeResult.photo_urls.length > 1 ? 's' : ''}</div>
+              <PhotoThumbs urls={activeResult.photo_urls} size={64} />
+            </div>
+          ) : (
+            <div style={{ marginTop: 16, padding: '10px 14px', borderLeft: '2px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)', lineHeight: 1.5 }}>
+              Add a photo of this issue before you submit — tap <strong>+ Photo</strong> below.
+            </div>
+          )
+        )}
+
         {/* Notes + work slips already attached to this card */}
         {(activeNotes.length > 0 || activeWorkSlips.length > 0 || activeResult?.notes) && (
           <div style={{ marginTop: 24 }}>
@@ -544,7 +588,7 @@ export function Stepper({
           </button>
           <QuickPhotoButton
             folder={`inspections/${inspectionId.slice(0, 8)}/quick`}
-            onPhoto={(url) => submitNote('', false, [url])}
+            onPhoto={attachCardPhoto}
           />
           <button
             type="button"
