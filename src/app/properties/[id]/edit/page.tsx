@@ -233,6 +233,18 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
           <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} hint="If known. e.g. 2027-04-30" />
         </Group>
 
+        {/* ── Billing ── */}
+        <Group eyebrow="08" title="Billing">
+          <Field
+            name="bank_last4"
+            label="Bank account last 4"
+            defaultValue={p.bank_last4}
+            id="bank"
+            maxLength={4}
+            hint="Last 4 digits of the account that receives this property's deposits. Used to match Chase deposits on the monthly statement."
+          />
+        </Group>
+
         {/* Save button + inline error banner + draft restore live in
             EditFormShell so failures keep the form (and Dotti's typing)
             on screen instead of bouncing to the dead error page. */}
@@ -268,17 +280,20 @@ type FieldProps = {
   step?: string;
   hint?: string;
   textarea?: boolean;
+  /** Anchor target so the detail page can deep-link straight to this field. */
+  id?: string;
+  maxLength?: number;
 };
 
-function Field({ name, label, defaultValue, type, step, hint, textarea }: FieldProps) {
+function Field({ name, label, defaultValue, type, step, hint, textarea, id, maxLength }: FieldProps) {
   const dv = defaultValue == null ? '' : String(defaultValue);
   return (
-    <label className="rt-edit-field">
+    <label className="rt-edit-field" id={id}>
       <span className="rt-edit-label">{label}</span>
       {textarea ? (
         <textarea name={name} defaultValue={dv} rows={3} />
       ) : (
-        <input name={name} type={type || 'text'} step={step} defaultValue={dv} />
+        <input name={name} type={type || 'text'} step={step} maxLength={maxLength} defaultValue={dv} />
       )}
       {hint && <span className="rt-edit-hint">{hint}</span>}
     </label>
@@ -315,6 +330,9 @@ const editCss = `
     gap: 16px;
   }
   .rt-edit-field { display: flex; flex-direction: column; gap: 6px; }
+  /* Deep-linked fields (e.g. #bank from the detail stat card) shouldn't
+     land under the sticky masthead. */
+  .rt-edit-field[id] { scroll-margin-top: 90px; }
   .rt-edit-label {
     font-size: 11px;
     letter-spacing: 0.06em;

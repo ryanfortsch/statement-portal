@@ -145,6 +145,13 @@ async function performPropertyUpdate(
   id: string,
   formData: FormData,
 ): Promise<{ error: string | null }> {
+  // Bank account last 4: optional, but if present must be exactly 4 digits
+  // (it keys the statement bank-matching). Empty clears the field.
+  const bankDigits = String(formData.get('bank_last4') ?? '').replace(/\D/g, '');
+  if (bankDigits && bankDigits.length !== 4) {
+    return { error: 'Bank account last 4 must be exactly 4 digits.' };
+  }
+
   const payload = {
     // Owner identity + contact. owner_full / owner_greeting are NOT NULL
     // columns (empty-string default); owner_emails is a text[]. The
@@ -159,6 +166,9 @@ async function performPropertyUpdate(
     owner_phone: phoneOrNull(formData, 'owner_phone'),
     owner_mailing_address: strOrNull(formData, 'owner_mailing_address'),
     owner_preferred_contact: strOrNull(formData, 'owner_preferred_contact'),
+
+    // Billing
+    bank_last4: bankDigits ? bankDigits : null,
 
     // Property specs
     bedrooms: intOrNull(formData, 'bedrooms'),

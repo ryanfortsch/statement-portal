@@ -582,7 +582,7 @@ export default async function PropertyDetailPage({
               label="Cleaning Est"
               value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
             />
-            <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} />
+            <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} href={`/properties/${p.id}/edit#bank`} />
             <Stat label="Owner" value={p.owner_last} last />
           </div>
         </div>
@@ -1843,20 +1843,33 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
   );
 }
 
-function Stat({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div
-      style={{
-        padding: '20px 20px',
-        borderRight: last ? 'none' : '1px solid var(--rule)',
-      }}
-    >
+function Stat({ label, value, last = false, href }: { label: string; value: string; last?: boolean; href?: string }) {
+  const style = {
+    padding: '20px 20px',
+    borderRight: last ? 'none' : '1px solid var(--rule)',
+  };
+  const inner = (
+    <>
       <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
       <div className="font-serif tabular-nums" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)' }}>
         {value}
       </div>
-    </div>
+    </>
   );
+  if (href) {
+    // Clickable stat that deep-links to its editor (e.g. Bank -> the edit form).
+    const cleanLabel = label.replace(/[^A-Za-z0-9].*$/, '').trim() || label;
+    return (
+      <Link
+        href={href}
+        title={`Edit ${cleanLabel.toLowerCase()}`}
+        style={{ ...style, display: 'block', textDecoration: 'none', color: 'inherit' }}
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return <div style={style}>{inner}</div>;
 }
 
 function Detail({ term, definition, mono = false }: { term: string; definition: string; mono?: boolean }) {
