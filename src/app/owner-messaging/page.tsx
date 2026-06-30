@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -31,14 +30,6 @@ function Shell({ children }: { children: ReactNode }) {
     >
       <HelmMasthead current="messaging" />
       <MessagingTabs current="owners" />
-
-      <HelmHero
-        eyebrow="Module 08 · Messaging"
-        title="Owner replies,"
-        emphasis="one tap to ship."
-        paddingTop={36}
-        paddingBottom={20}
-      />
 
       {children}
 
