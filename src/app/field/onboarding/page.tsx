@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { onboardingComplete } from '@/lib/field-types';
+import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
+import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { FieldShell } from '../FieldShell';
 import { OnboardingForm } from './OnboardingForm';
 
@@ -27,7 +29,12 @@ export default async function OnboardingPage() {
         Two quick things before you claim
       </h1>
 
-      <OnboardingForm defaultName={contractor.full_name} defaultPhone={contractor.phone} />
+      <OnboardingForm
+        defaultName={contractor.full_name}
+        defaultPhone={contractor.phone}
+        taxClassifications={TAX_CLASSIFICATIONS}
+        paymentMethods={PAYMENT_METHODS}
+      />
     </FieldShell>
   );
 }
