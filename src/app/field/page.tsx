@@ -15,6 +15,18 @@ const NEXT_TIER: Record<string, { name: string; at: number }> = {
   silver: { name: 'Gold', at: 100 },
 };
 
+/** The one repeatable editorial section header: a tide index numeral, a serif
+ *  title, and a hairline rule running to the edge. The page's spine. */
+function SectionHeader({ n, title }: { n?: string; title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
+      {n && <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide)', flexShrink: 0 }}>{n}</span>}
+      <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)', flexShrink: 0 }}>{title}</span>
+      <span style={{ flex: 1, height: 0, borderTop: '1px solid var(--rule)', alignSelf: 'center', marginLeft: 4 }} />
+    </div>
+  );
+}
+
 /** The contractor's own reputation: a ladder toward Bronze (25) / Silver (50) /
  *  Gold (100) cumulative 5-star reviews, with the current "in a row" run as a
  *  flourish. */
@@ -31,7 +43,7 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
     { n: 100, label: 'Gold' },
   ];
   return (
-    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
+    <div style={{ borderRadius: 0, padding: '18px 20px', marginBottom: 36, background: 'var(--paper-2)', boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Your rating</div>
         {count > 0 && (
@@ -54,20 +66,20 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
               {tier === 'unrated' ? 'Unrated' : tier}
             </span>
             <span style={{ fontSize: 14, color: 'var(--ink)' }}>{total} five-star</span>
-            {streak >= 3 && <span style={{ fontSize: 13, color: 'var(--signal)' }}>🔥 {streak} in a row</span>}
+            {streak >= 3 && <span style={{ fontSize: 13, color: 'var(--signal)' }}>{streak} in a row</span>}
             {next ? (
-              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rating?.toNextTier ?? Math.max(0, next.at - total)} more → {next.name}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rating?.toNextTier ?? Math.max(0, next.at - total)} more to {next.name}</span>
             ) : (
-              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>
+              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier</span>
             )}
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--paper-3)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: TIER_TINT[tier === 'unrated' ? 'bronze' : tier], transition: 'width .3s ease' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
             {milestones.map((m) => (
               <span key={m.n} style={{ fontSize: 10.5, fontWeight: total >= m.n ? 700 : 400, color: total >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
-                {total >= m.n ? '✓ ' : ''}{m.label} {m.n}
+                {m.label} {m.n}
               </span>
             ))}
           </div>
@@ -118,8 +130,10 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
         display: 'block',
         textDecoration: 'none',
         color: 'var(--ink)',
-        border: featured ? '2px solid var(--signal)' : '1px solid var(--rule)',
-        background: 'var(--paper-2, #fff)',
+        border: 'none',
+        borderLeft: featured ? '3px solid var(--signal)' : undefined,
+        background: 'var(--paper-2)',
+        boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)',
         padding: '18px 20px',
         marginBottom: 14,
       }}
@@ -155,33 +169,34 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
   );
 }
 
-/** The onboarding journey as a status rail on the welcome screen. activeIndex
- *  marks the live stage; everything before it reads as done. `failed` paints the
- *  active node in the negative tone with no pulse. */
+/** The onboarding journey as a flat progress track reversed out of the navy
+ *  hero plate. The fill (tide, or negative when failed) runs to the live stage;
+ *  labels carry the state. No dots, no pulse. */
 function JourneyRail({ activeIndex, failed }: { activeIndex: number; failed?: boolean }) {
   const steps = ['Applied', 'Account set up', 'Background check', 'Ready to claim'];
+  const pct = (activeIndex / (steps.length - 1)) * 100;
+  const fill = failed ? 'var(--negative)' : 'var(--tide)';
   return (
-    <div style={{ display: 'flex' }}>
-      {steps.map((label, i) => {
-        const done = i < activeIndex;
-        const active = i === activeIndex;
-        const dotBg = done ? 'var(--signal)' : active ? (failed ? 'var(--negative, #b3261e)' : 'var(--signal)') : 'var(--paper)';
-        return (
-          <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', minWidth: 0 }}>
-            {i > 0 && <span style={{ position: 'absolute', top: 9, left: 0, width: '50%', height: 2, background: i <= activeIndex ? 'var(--signal)' : 'var(--rule)' }} />}
-            {i < steps.length - 1 && <span style={{ position: 'absolute', top: 9, right: 0, width: '50%', height: 2, background: i < activeIndex ? 'var(--signal)' : 'var(--rule)' }} />}
+    <div style={{ marginTop: 24 }}>
+      <div style={{ position: 'relative', height: 2, background: 'rgba(245,239,226,0.18)' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, height: 2, width: `${pct}%`, background: fill }} />
+        <span style={{ position: 'absolute', top: -1, left: `calc(${pct}% - 2px)`, width: 4, height: 4, background: fill }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+        {steps.map((label, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          const color = done ? 'var(--paper)' : active ? (failed ? 'var(--negative)' : 'var(--signal-soft)') : 'rgba(245,239,226,0.4)';
+          return (
             <span
-              className={active && !failed ? 'animate-pulse' : undefined}
-              style={{ position: 'relative', zIndex: 1, width: 18, height: 18, borderRadius: '50%', background: dotBg, border: done || active ? 'none' : '2px solid var(--rule)', color: 'var(--paper)', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: active && !failed ? '0 0 0 4px rgba(200,90,58,0.14)' : 'none' }}
+              key={label}
+              style={{ flex: 1, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', lineHeight: 1.3, color, fontWeight: active ? 600 : 400, textAlign: i === 0 ? 'left' : i === steps.length - 1 ? 'right' : 'center' }}
             >
-              {done ? '✓' : ''}
-            </span>
-            <span style={{ fontSize: 10.5, marginTop: 8, textAlign: 'center', lineHeight: 1.3, color: done || active ? 'var(--ink)' : 'var(--ink-4)', fontWeight: active ? 600 : 400, padding: '0 2px' }}>
               {label}
             </span>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -237,12 +252,10 @@ export default async function FieldHome({
     const activeIndex = setupDone ? 2 : 1;
     const preview = available.slice(0, 3);
 
-    const card: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '18px 22px' };
-    const eyebrow: React.CSSProperties = { fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 };
     const numbered = (rows: Array<[string, string]>, accent: string) => (
-      <div style={card}>
+      <div>
         {rows.map(([t, d], i) => (
-          <div key={t} style={{ display: 'flex', gap: 14, paddingTop: i === 0 ? 0 : 14, marginTop: i === 0 ? 0 : 14, borderTop: i === 0 ? 'none' : '1px solid var(--rule)' }}>
+          <div key={t} style={{ display: 'flex', gap: 14, paddingTop: i === 0 ? 0 : 16, marginTop: i === 0 ? 0 : 16, borderTop: i === 0 ? 'none' : '1px solid var(--rule-soft)' }}>
             <span className="font-mono" style={{ fontSize: 13, color: accent, fontWeight: 600, flexShrink: 0, width: 18 }}>{i + 1}</span>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{t}</div>
@@ -255,23 +268,24 @@ export default async function FieldHome({
 
     return (
       <FieldShell contractorName={contractor.full_name}>
-        {/* Hero + journey rail */}
-        <div style={{ border: '1px solid var(--rule)', borderTop: '3px solid var(--signal)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '24px 24px 22px', marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 22 }}>
-            <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} />
+        {/* Hero plate: the page's one navy ground, the welcome moment */}
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 4 }}>
+            <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} onDark />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: failed ? 'var(--negative, #b3261e)' : 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
+              <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: failed ? 'var(--negative)' : 'var(--signal-soft)', fontWeight: 600, marginBottom: 6 }}>
                 {failed ? 'Action needed' : setupDone ? 'Welcome aboard' : 'One step left'}
               </div>
-              <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, lineHeight: 1.05, margin: 0 }}>
-                {failed ? `Let's clear this up, ${first}` : setupDone ? `You made the crew, ${first}` : `Almost there, ${first}`}
+              <h1 className="font-serif" style={{ fontSize: 'clamp(28px,7vw,36px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-0.01em', margin: 0, color: 'var(--paper)' }}>
+                {failed ? "Let's clear this up, " : setupDone ? 'You made the crew, ' : 'Almost there, '}
+                <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
               </h1>
             </div>
           </div>
 
           <JourneyRail activeIndex={activeIndex} failed={failed} />
 
-          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '22px 0 0' }}>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
             {failed ? (
               <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2387 and we&apos;ll get it sorted.</>
             ) : setupDone ? (
@@ -282,21 +296,21 @@ export default async function FieldHome({
           </p>
 
           {!setupDone && !failed && (
-            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 16, background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 20, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
               Finish setup
             </Link>
           )}
         </div>
 
         {/* The standard: three flip cards */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={eyebrow}>The standard</div>
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="01" title="The standard" />
           <FieldPillars />
         </div>
 
         {/* How a visit works */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={eyebrow}>How a visit works</div>
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="02" title="How a visit works" />
           {numbered(
             [
               ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
@@ -304,35 +318,35 @@ export default async function FieldHome({
               ['Walk each home', 'Inspect against the standard above, snap a few photos, and flag anything off.'],
               ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
             ],
-            'var(--ink-4)',
+            'var(--tide)',
           )}
         </div>
 
-        {/* Why it matters: the mission */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={eyebrow}>Why it matters</div>
-          <div style={{ ...card, padding: '22px 24px' }}>
-            <p className="font-serif" style={{ fontSize: 22, fontWeight: 300, lineHeight: 1.3, margin: '0 0 18px' }}>
+        {/* Why it matters: the mission, as the second navy feature */}
+        <div style={{ margin: '48px 0' }}>
+          <SectionHeader n="03" title="Why it matters" />
+          <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(24px,5vw,30px)' }}>
+            <p className="font-serif" style={{ fontSize: 22, fontWeight: 300, lineHeight: 1.3, margin: '0 0 18px', color: 'var(--paper)' }}>
               Our whole business is the guest experience.
             </p>
             <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap' }}>
               <div style={{ flexShrink: 0 }}>
-                <div className="font-serif" style={{ fontSize: 46, fontWeight: 300, color: 'var(--signal)', lineHeight: 1 }}>3rd</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', maxWidth: 120, marginTop: 5, lineHeight: 1.35 }}>
+                <div className="font-serif" style={{ fontSize: 46, fontWeight: 300, color: 'var(--signal-soft)', lineHeight: 1 }}>3rd</div>
+                <div style={{ fontSize: 11, color: 'rgba(245,239,226,0.6)', maxWidth: 120, marginTop: 5, lineHeight: 1.35 }}>
                   biggest factor in a booking, after location and price
                 </div>
               </div>
-              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, flex: 1, minWidth: 220, margin: 0 }}>
-                That factor is <strong style={{ color: 'var(--ink)' }}>guest reviews</strong>. They&apos;re the
+              <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, flex: 1, minWidth: 220, margin: 0 }}>
+                That factor is <strong style={{ color: 'var(--paper)' }}>guest reviews</strong>. They&apos;re the
                 lifeblood of Rising Tide, and they start with the home being perfect the moment a guest walks in.
               </p>
             </div>
-            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 16px' }}>
+            <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 16px' }}>
               You&apos;re the last set of eyes before that door opens. What a guest feels stepping inside, and what
               they write afterward, runs through your visit. Those reviews are tied to you: the more five-star stays
               you help create, the higher your tier climbs (Bronze, Silver, Gold) and the more you earn.
             </p>
-            <p className="font-serif" style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--ink)', lineHeight: 1.5, margin: 0, borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+            <p className="font-serif" style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--paper-2)', lineHeight: 1.5, margin: 0, borderTop: '1px solid var(--tide)', paddingTop: 16 }}>
               This isn&apos;t checkbox work. It&apos;s looking around corners, catching the thing a guest would notice
               before they ever do.
             </p>
@@ -341,7 +355,7 @@ export default async function FieldHome({
 
         {/* A preview of the work */}
         <div>
-          <div style={eyebrow}>{preview.length > 0 ? 'A look at what’s waiting' : 'The work'}</div>
+          <SectionHeader n="04" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
           {preview.length > 0 ? (
             <>
               {preview.map((p, i) => (
@@ -352,11 +366,9 @@ export default async function FieldHome({
               </p>
             </>
           ) : (
-            <div style={card}>
-              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-                No routes are open this minute, but new ones post all the time. We&apos;ll text you the moment a packet near you goes up.
-              </p>
-            </div>
+            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
+              No routes are open this minute, but new ones post all the time. We&apos;ll text you the moment a packet near you goes up.
+            </p>
           )}
         </div>
       </FieldShell>
@@ -403,18 +415,8 @@ export default async function FieldHome({
       <StreakLadder rating={rating} />
 
       {mine.length > 0 && (
-        <section style={{ marginBottom: 36 }}>
-          <h2
-            style={{
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-4)',
-              marginBottom: 12,
-            }}
-          >
-            Your packets
-          </h2>
+        <section style={{ marginBottom: 40 }}>
+          <SectionHeader title="Your packets" />
           {mine.map((p) => (
             <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
           ))}
@@ -423,17 +425,7 @@ export default async function FieldHome({
 
       {available.length > 0 && (
         <section>
-          <h2
-            style={{
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-4)',
-              marginBottom: 12,
-            }}
-          >
-            Available now
-          </h2>
+          <SectionHeader title="Available now" />
           {available.map((p, i) => (
             <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
           ))}
