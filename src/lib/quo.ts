@@ -157,20 +157,26 @@ export type QuoContact = {
   updatedAt?: string;
 };
 
+// Quo's API caps maxResults at 50 on every list endpoint. Asking for
+// more returns a 400 ("Expected integer to be less or equal to 50"),
+// which is what broke the CRM "Sync Quo" button. Page size is 50; the
+// pageToken loops below fetch everything regardless.
+const QUO_MAX_PAGE = 50;
+
 export async function listContacts(p?: { maxResults?: number; pageToken?: string }): Promise<QuoListResponse<QuoContact>> {
   return get('/contacts', {
-    maxResults: p?.maxResults ?? 100,
+    maxResults: Math.min(p?.maxResults ?? QUO_MAX_PAGE, QUO_MAX_PAGE),
     pageToken: p?.pageToken,
   });
 }
 
-/** Page through the whole Quo address book. Capped at 50 pages (~5000
- *  contacts) so a pagination bug can't loop forever. */
+/** Page through the whole Quo address book. Capped at 100 pages (~5000
+ *  contacts at 50/page) so a pagination bug can't loop forever. */
 export async function listAllContacts(): Promise<QuoContact[]> {
   const out: QuoContact[] = [];
   let pageToken: string | undefined;
-  for (let page = 0; page < 50; page += 1) {
-    const res = await listContacts({ maxResults: 100, pageToken });
+  for (let page = 0; page < 100; page += 1) {
+    const res = await listContacts({ maxResults: QUO_MAX_PAGE, pageToken });
     out.push(...(res.data ?? []));
     if (!res.nextPageToken) break;
     pageToken = res.nextPageToken;
@@ -206,7 +212,7 @@ export async function listMessages(p: ListMessagesParams): Promise<QuoListRespon
   return get('/messages', {
     phoneNumberId: p.phoneNumberId,
     participants: p.participants,
-    maxResults: p.maxResults ?? 100,
+    maxResults: Math.min(p.maxResults ?? QUO_MAX_PAGE, QUO_MAX_PAGE),
     createdAfter: p.createdAfter,
     createdBefore: p.createdBefore,
     pageToken: p.pageToken,
@@ -219,7 +225,7 @@ export async function listCalls(p: ListCallsParams): Promise<QuoListResponse<Quo
   return get('/calls', {
     phoneNumberId: p.phoneNumberId,
     participants: p.participants,
-    maxResults: p.maxResults ?? 100,
+    maxResults: Math.min(p.maxResults ?? QUO_MAX_PAGE, QUO_MAX_PAGE),
     createdAfter: p.createdAfter,
     createdBefore: p.createdBefore,
     pageToken: p.pageToken,
