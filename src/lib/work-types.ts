@@ -17,6 +17,9 @@ export type WorkSlipRow = {
   title: string;
   description: string | null;
   action_summary: string | null;
+  /** Operator-authored materials the inspector grabs to complete this job;
+   *  rolled into the packet's 85 Eastern supply-run pick list. */
+  bring_list: string | null;
   location: string | null;
   category: WorkSlipCategory;
   priority: WorkSlipPriority;

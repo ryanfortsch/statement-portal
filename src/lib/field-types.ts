@@ -116,6 +116,7 @@ export type WorkSlipLite = {
   title: string;
   description: string | null;
   action_summary: string | null;
+  bring_list: string | null;
   location: string | null;
   priority: string;
   photo_urls: string[];
