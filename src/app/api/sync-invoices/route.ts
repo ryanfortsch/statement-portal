@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { recordSyncSuccess, recordSyncFailure } from '@/lib/sync-status';
 
 // Service role: this route UPDATEs cleaning_events when an invoice matches
 // an existing bank-sourced row. The anon key's RLS silently no-ops UPDATE
@@ -274,6 +275,17 @@ export async function POST(request: NextRequest) {
 
     const { matched, inserted, skipped, results } = await processInvoices(month, invoices);
 
+    // Stamp sync_status so the dashboard's "last synced" indicator updates.
+    // Empty Gmail for the month counts as success (it's a valid outcome,
+    // not a failure).
+    await recordSyncSuccess('gmail-invoices', {
+      month,
+      total_invoices_found: invoices.length,
+      matched,
+      inserted,
+      skipped,
+    });
+
     return NextResponse.json({
       success: true,
       month,
@@ -285,6 +297,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('Sync invoices error:', err);
+    await recordSyncFailure('gmail-invoices', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : JSON.stringify(err) },
       { status: 500 }
