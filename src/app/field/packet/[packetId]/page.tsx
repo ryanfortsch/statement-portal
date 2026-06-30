@@ -10,12 +10,22 @@ import { MaintenanceComplete } from './MaintenanceComplete';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
+import { PhotoThumbs } from '@/components/PhotoUploader';
 
-function mapsUrl(s: PacketStopDetail): string {
+// Office phone for the door-side "stuck? call us" fallbacks.
+const OFFICE_TEL = '+19788652387';
+
+/** A geocodable maps target for a stop, or null when we have neither coords nor
+ *  a real street address (so we hide the link instead of sending them to a
+ *  search for an internal name like "21 Horton"). */
+function mapsUrl(s: PacketStopDetail): string | null {
   if (s.property.latitude != null && s.property.longitude != null) {
     return `https://www.google.com/maps/search/?api=1&query=${s.property.latitude},${s.property.longitude}`;
   }
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.property.address || s.property.name)}`;
+  const addr = (s.property.address || '').trim();
+  if (!addr) return null;
+  const q = `${addr}${s.property.city ? `, ${s.property.city}` : ''}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 }
 
 export const dynamic = 'force-dynamic';
@@ -159,7 +169,11 @@ function AccessLines({ a }: { a: AccessBundle }) {
     ([, v]) => v && String(v).trim() && !ACCESS_NOISE.has(String(v).trim().toLowerCase()),
   );
   if (present.length === 0) {
-    return <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>No entry details on file — text the office when you arrive.</div>;
+    return (
+      <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
+        No entry details on file. <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>Call the office</a> when you arrive and we&apos;ll get you in.
+      </div>
+    );
   }
   return (
     <div>
@@ -167,12 +181,19 @@ function AccessLines({ a }: { a: AccessBundle }) {
         How to get in
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13 }}>
-        {present.map(([k, v]) => (
-          <div key={k} style={{ display: 'contents' }}>
-            <span style={{ color: 'var(--ink-4)' }}>{k}</span>
-            <CopyCode value={String(v)} mono={ACCESS_CODE_LABELS.has(k)} />
-          </div>
-        ))}
+        {present.map(([k, v]) => {
+          const sv = String(v);
+          const isCode = ACCESS_CODE_LABELS.has(k);
+          // A door code stored as "Schlage: 4417" should copy just "4417" so it
+          // pastes cleanly into a keypad.
+          const copyValue = isCode && sv.includes(':') ? sv.split(':').pop()!.trim() : undefined;
+          return (
+            <div key={k} style={{ display: 'contents' }}>
+              <span style={{ color: 'var(--ink-4)' }}>{k}</span>
+              <CopyCode value={sv} copyValue={copyValue} mono={isCode} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -357,6 +378,14 @@ export default async function PacketPage({
                   <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
                     {s.workSlip.location ? `${s.workSlip.location} · ` : ''}priority: {s.workSlip.priority}
                   </div>
+                  {s.workSlip.bring_list && (
+                    <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
+                      <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{s.workSlip.bring_list}
+                    </div>
+                  )}
+                  {s.workSlip.photo_urls && s.workSlip.photo_urls.length > 0 && (
+                    <PhotoThumbs urls={s.workSlip.photo_urls} size={56} />
+                  )}
                 </div>
               ) : isMine ? (
                 <div
@@ -376,16 +405,19 @@ export default async function PacketPage({
               ) : (
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s, packet.visit_date)}</div>
               )}
-              {isMine && (
-                <a
-                  href={mapsUrl(s)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-block', marginTop: 4 }}
-                >
-                  Open in Maps ↗
-                </a>
-              )}
+              {isMine && (() => {
+                const href = mapsUrl(s);
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-block', marginTop: 4 }}
+                  >
+                    Open in Maps ↗
+                  </a>
+                ) : null;
+              })()}
               {isMine && s.access && (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--rule)' }}>
                   <AccessLines a={s.access} />
