@@ -29,7 +29,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { PRIMARY_MODULES, getGroupedOverflowModules, type HelmModule } from '@/lib/helm-modules';
+import { PRIMARY_MODULES, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
 
 type Props = {
@@ -45,7 +45,7 @@ export function HelmMobileMenu({ current }: Props) {
   // -> Growth -> Relationships -> Reference -> Soon clusters related items)
   // but renders flat, mirroring the desktop dropdown — visible section
   // headers were burning vertical space without improving wayfinding.
-  const overflow: HelmModule[] = getGroupedOverflowModules().flatMap((s) => s.modules);
+  const overflow: HelmModule[] = getOverflowModulesFlat();
 
   // Lock body scroll + listen for Escape while the sheet is open.
   useEffect(() => {

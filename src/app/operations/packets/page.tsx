@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
@@ -120,6 +121,7 @@ export default async function PacketsBoard({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
+      <FieldTabs current="packets" />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>

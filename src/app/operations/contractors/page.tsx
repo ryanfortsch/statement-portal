@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
@@ -119,8 +120,8 @@ export default async function ContractorsPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
+      <FieldTabs current="contractors" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Field packets</Link>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
           <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Contractors</div>
           <Link href="/operations/contractors/applicants" style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
