@@ -300,7 +300,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
               <input
                 type="number"
                 min={0}
-                step={5}
+                step={1}
                 value={priceStr}
                 placeholder={String(suggestedDollars)}
                 onChange={(e) => setPriceStr(e.target.value)}

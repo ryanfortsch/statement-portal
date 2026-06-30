@@ -157,7 +157,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="hidden" name="packet_id" value={packet.id} />
                 <span style={{ color: 'var(--ink-4)' }}>$</span>
-                <input type="number" name="price_dollars" min={0} step={5} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
+                <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
                 <button type="submit" style={btnGhost}>Update price</button>
               </form>
               <form action={publishPacket}>
