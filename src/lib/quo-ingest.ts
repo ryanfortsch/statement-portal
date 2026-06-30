@@ -410,13 +410,19 @@ async function attributeCleaningProperty(
 
 // Attribute to the most recent checkout at or before the message time, so
 // backfilled completions land on the turnover they actually finished, not
-// whatever is most recent today.
+// whatever is most recent today. Reads bookings (the Helm-native turnover
+// source operations.ts uses post Guesty wind-down), with the same
+// confirmed/completed + non-duplicate filters, so a cleaner text keys to the
+// exact checkout the turnover row joins on. (Was guesty_reservations, which is
+// wound down and could miss a checkout that only lives in bookings.)
 async function mostRecentCheckout(propertyId: string, asOf?: string): Promise<string> {
   const cutoff = (asOf ? new Date(asOf) : new Date()).toISOString().slice(0, 10);
   const { data } = await supabase
-    .from('guesty_reservations')
+    .from('bookings')
     .select('check_out')
     .eq('property_id', propertyId)
+    .in('status', ['confirmed', 'completed'])
+    .is('duplicate_of', null)
     .lte('check_out', cutoff)
     .order('check_out', { ascending: false })
     .limit(1)

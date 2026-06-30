@@ -59,14 +59,20 @@ export async function mostRecentCheckoutForProperty(
   propertyId: string,
   asOfIso: string,
 ): Promise<string | null> {
-  // guesty_reservations.check_out — the SAME source operations.ts derives
-  // previousCheckout from (and the Quo cleaning path keys off), so the
-  // cleaning_sessions row joins to the right turnover.
+  // bookings.check_out: the SAME source operations.ts now derives
+  // previousCheckout from (post Guesty wind-down), with the same
+  // confirmed/completed + non-duplicate filters, so the cleaning_sessions row
+  // keys to the exact checkout the turnover joins on. (Was guesty_reservations,
+  // which is wound down: a checkout that only exists in bookings returned null
+  // here, dropping the cleaner signal entirely and leaving a false "awaiting
+  // cleaner".)
   const cutoff = asOfIso.slice(0, 10);
   const { data } = await sb
-    .from('guesty_reservations')
+    .from('bookings')
     .select('check_out')
     .eq('property_id', propertyId)
+    .in('status', ['confirmed', 'completed'])
+    .is('duplicate_of', null)
     .lte('check_out', cutoff)
     .order('check_out', { ascending: false })
     .limit(1)
@@ -192,8 +198,8 @@ export async function mirrorQuoFinish(
   sb: SupabaseClient,
   args: { propertyId: string; completedAt: string },
 ): Promise<void> {
-  // Re-derive checkout_date (guesty_reservations) so the Quo finish lands on
-  // the same cleaning_sessions row as the lock entry.
+  // Re-derive checkout_date (off bookings) so the Quo finish lands on the same
+  // cleaning_sessions row as the lock entry and the turnover join.
   const checkoutDate = await mostRecentCheckoutForProperty(sb, args.propertyId, args.completedAt);
   if (!checkoutDate) return;
   await sb.from('cleaning_sessions').upsert(
