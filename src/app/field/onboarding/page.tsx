@@ -152,7 +152,7 @@ export default async function OnboardingPage({
             type="text"
             required
             minLength={3}
-            defaultValue={contractor.full_name}
+            placeholder={contractor.full_name}
             autoComplete="off"
             style={{ ...inputStyle, fontFamily: 'var(--font-fraunces), serif', fontStyle: 'italic', fontSize: 22, color: 'var(--signal)' }}
           />
