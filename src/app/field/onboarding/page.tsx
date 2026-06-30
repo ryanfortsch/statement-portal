@@ -6,6 +6,7 @@ import { completeOnboarding } from '../actions';
 import { FieldShell } from '../FieldShell';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
 import { PAYMENT_METHODS } from '@/lib/field-pay';
+import { PhoneInput } from '@/components/PhoneInput';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -66,7 +67,7 @@ export default async function OnboardingPage({
         </div>
         <div>
           <label style={labelStyle}>Mobile phone</label>
-          <input name="phone" type="tel" defaultValue={contractor.phone ?? ''} placeholder="(978) 555-0123" style={inputStyle} />
+          <PhoneInput name="phone" defaultValue={contractor.phone} placeholder="(978) 555-0123" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Home base (town or ZIP)</label>
