@@ -5,6 +5,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
+import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
@@ -394,22 +395,20 @@ export default async function PacketPage({
                   <form action={startStopInspection} style={{ margin: 0 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="stop_id" value={s.id} />
-                    <button
-                      type="submit"
+                    <PendingButton
+                      label={s.status === 'in_progress' ? 'Resume' : 'Start'}
+                      busyLabel="Opening…"
                       style={{
                         background: 'var(--ink)',
                         color: 'var(--paper)',
                         border: 'none',
-                        cursor: 'pointer',
                         fontSize: 11,
                         fontWeight: 600,
                         letterSpacing: '0.12em',
                         textTransform: 'uppercase',
                         padding: '9px 16px',
                       }}
-                    >
-                      {s.status === 'in_progress' ? 'Resume' : 'Start'}
-                    </button>
+                    />
                   </form>
                 )}
               </div>
@@ -427,22 +426,20 @@ export default async function PacketPage({
         {claimable && (
           <form action={claimPacket}>
             <input type="hidden" name="packet_id" value={packet.id} />
-            <button
-              type="submit"
+            <PendingButton
+              label={`Claim this packet · ${dollars(packet.posted_price_cents)}`}
+              busyLabel="Claiming…"
               style={{
                 background: 'var(--signal)',
                 color: 'var(--paper)',
                 border: 'none',
-                cursor: 'pointer',
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: '0.14em',
                 textTransform: 'uppercase',
                 padding: '16px 34px',
               }}
-            >
-              Claim this packet · {dollars(packet.posted_price_cents)}
-            </button>
+            />
             <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
               First inspector to claim gets it. You&apos;ll get the addresses and entry details right away.
             </p>
@@ -462,9 +459,10 @@ export default async function PacketPage({
         {isMine && packet.status !== 'submitted' && packet.status !== 'approved' && (
           <form action={submitPacket}>
             <input type="hidden" name="packet_id" value={packet.id} />
-            <button
-              type="submit"
+            <PendingButton
               disabled={!allComplete}
+              label={allComplete ? 'Submit completed packet' : 'Finish all stops to submit'}
+              busyLabel="Submitting…"
               style={{
                 background: allComplete ? 'var(--ink)' : 'transparent',
                 color: allComplete ? 'var(--paper)' : 'var(--ink-4)',
@@ -476,9 +474,7 @@ export default async function PacketPage({
                 textTransform: 'uppercase',
                 padding: '16px 34px',
               }}
-            >
-              {allComplete ? 'Submit completed packet' : 'Finish all stops to submit'}
-            </button>
+            />
           </form>
         )}
         {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
