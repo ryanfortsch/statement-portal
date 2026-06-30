@@ -71,9 +71,9 @@ export default async function OnboardingPage({
         </div>
         <div>
           <label style={labelStyle}>Home base (town or ZIP)</label>
-          <input name="home_address" type="text" placeholder="Gloucester, MA" style={inputStyle} />
+          <input name="home_address" type="text" required placeholder="Gloucester, MA" style={inputStyle} />
           <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginTop: 4, display: 'block' }}>
-            So we can show you the closest work first. Optional.
+            So we can show you the closest work first.
           </span>
         </div>
 

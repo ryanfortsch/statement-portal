@@ -55,7 +55,7 @@ export async function completeOnboarding(formData: FormData) {
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const homeAddress = String(formData.get('home_address') || '').trim();
-  if (!agree || signedName.length < 3) {
+  if (!agree || signedName.length < 3 || homeAddress.length < 2) {
     redirect('/field/onboarding?error=incomplete');
   }
 
