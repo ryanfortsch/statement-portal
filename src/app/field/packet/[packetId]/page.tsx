@@ -86,11 +86,13 @@ function InspectionScope() {
 }
 
 /** Stop 1 of every route: the supply closet at 85 Eastern Ave. The inspector
- *  grabs each home's labeled bin (routine refill tubs, physical + pre-stocked),
- *  any consumables a prior visit flagged low, and the parts each work slip on
- *  the packet needs — all before they head out. */
+ *  grabs ONE bag, packed for the whole trip — the routine refills for every home
+ *  on the route plus the parts each work slip needs. Helm names the trip the bag
+ *  is packed for and lists the job-specific parts so nothing's left behind. */
 function SupplyRunCard({ run }: { run: SupplyRun }) {
-  if (run.bins.length === 0 && run.jobs.length === 0) return null;
+  const homes = run.bins.map((b) => b.propertyName);
+  const restock = [...new Set(run.bins.flatMap((b) => b.lowItems))];
+  if (homes.length === 0 && run.jobs.length === 0) return null;
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SUPPLY_CLOSET}, Gloucester, MA`)}`;
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
@@ -99,34 +101,30 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Start at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> and load up before the route.
+          Grab your bag at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> — one bag, packed for this whole trip.
         </div>
         <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
           Directions →
         </a>
       </div>
 
-      {run.bins.length > 0 && (
-        <div style={{ marginBottom: run.jobs.length > 0 ? 16 : 0 }}>
-          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Grab these bins</div>
-          <div style={{ display: 'grid', gap: 9 }}>
-            {run.bins.map((s) => (
-              <div key={s.propertyName} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500 }}>{s.binLabel} bin</span>
-                {s.lowItems.length > 0 ? (
-                  <span style={{ fontSize: 12.5, color: 'var(--signal)' }}>+ extra: {s.lowItems.join(', ')}</span>
-                ) : (
-                  <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>routine restock</span>
-                )}
-              </div>
-            ))}
-          </div>
+      {homes.length > 0 && (
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: restock.length > 0 || run.jobs.length > 0 ? 12 : 0 }}>
+          <span style={{ color: 'var(--ink-4)' }}>Packed for: </span>
+          <span style={{ color: 'var(--ink)' }}>{homes.join(' · ')}</span>
+        </div>
+      )}
+
+      {restock.length > 0 && (
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: run.jobs.length > 0 ? 12 : 0 }}>
+          <span style={{ color: 'var(--ink-4)' }}>Also restocking: </span>
+          <span style={{ color: 'var(--signal)' }}>{restock.join(', ')}</span>
         </div>
       )}
 
       {run.jobs.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>For the work slips</div>
+          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Job parts in the bag</div>
           <div style={{ display: 'grid', gap: 9 }}>
             {run.jobs.map((j, i) => (
               <div key={`${j.title}-${i}`} style={{ fontSize: 13, lineHeight: 1.5 }}>
