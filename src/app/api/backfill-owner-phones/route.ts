@@ -92,6 +92,43 @@ export async function POST(req: Request) {
     );
   }
 
+  // Optional explicit phone corrections. Body: { overrides: [{ email,
+  // phone }] }. The card is normally the source of truth, but when a card
+  // carries a wrong number these force the matching owner contact's phone
+  // to a verified value (authoritative, overwrites even a non-empty phone).
+  const overrideResults: Array<{ email: string; phone: string; action: string }> = [];
+  try {
+    const body = await req.json().catch(() => ({}));
+    const overrides = Array.isArray(body?.overrides) ? body.overrides : [];
+    for (const o of overrides) {
+      const email = String(o?.email ?? '').trim().toLowerCase();
+      const phone = toE164(String(o?.phone ?? ''));
+      if (!email || !phone) {
+        overrideResults.push({ email, phone, action: 'skipped_invalid' });
+        continue;
+      }
+      const { data: matches, error } = await sb
+        .from('contacts')
+        .select('id')
+        .eq('type', 'owner')
+        .overlaps('emails', [email]);
+      if (error) {
+        overrideResults.push({ email, phone, action: `error: ${error.message}` });
+        continue;
+      }
+      if (!matches || matches.length === 0) {
+        overrideResults.push({ email, phone, action: 'no_contact_found' });
+        continue;
+      }
+      for (const m of matches as Array<{ id: string }>) {
+        const { error: upErr } = await sb.from('contacts').update({ phone }).eq('id', m.id);
+        overrideResults.push({ email, phone, action: upErr ? `error: ${upErr.message}` : 'phone_set' });
+      }
+    }
+  } catch {
+    // No body / unparseable: proceed with the card-driven backfill only.
+  }
+
   const { data: props, error: propErr } = await sb
     .from('properties')
     .select('id, name, owners, owner_full, owner_phone, owner_emails')
@@ -195,6 +232,7 @@ export async function POST(req: Request) {
     linked_property: tally('linked_property'),
     noop: tally('noop'),
     errors: tally('error'),
+    overrides: overrideResults,
     actions,
   });
 }
