@@ -23,7 +23,7 @@ function hintFor(method: string, details: string): string {
 export async function savePayment(contractorId: string, method: string, details: string): Promise<string | null> {
   if (!method.trim()) return 'Pick a payout method.';
   if (method !== 'Check' && !details.trim()) return 'Add your payout details.';
-  await fieldDb()
+  const { error } = await fieldDb()
     .from('contractors')
     .update({
       payment_method: method,
@@ -32,6 +32,7 @@ export async function savePayment(contractorId: string, method: string, details:
       updated_at: new Date().toISOString(),
     })
     .eq('id', contractorId);
+  if (error) return 'Could not save your payout details. Please try again.';
   return null;
 }
 
