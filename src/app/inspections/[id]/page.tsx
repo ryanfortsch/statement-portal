@@ -238,6 +238,7 @@ export default async function InspectionInProgressPage({
         zone_id: r.property_zone_id,
         status: r.status,
         notes: r.notes,
+        photo_urls: r.photo_urls ?? [],
       }))}
     />
   );

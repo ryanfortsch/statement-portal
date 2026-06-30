@@ -102,6 +102,10 @@ export async function saveResult(args: {
   zoneId: string | null;
   status: InspectionStatus;
   notes: string | null;
+  /** Photo evidence for this card. The submit gate requires a photo on every
+   *  Issue, and the summary/report/email read these. Only written when passed,
+   *  so a plain status mark never clobbers photos already attached. */
+  photoUrls?: string[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const actor = await resolveInspectionActor();
   if (!actor) return { ok: false, error: 'Not signed in' };
@@ -110,18 +114,18 @@ export async function saveResult(args: {
     return { ok: false, error: `Invalid status: ${args.status}` };
   }
 
+  const row: Record<string, unknown> = {
+    inspection_id: args.inspectionId,
+    item_id: args.itemId,
+    property_zone_id: args.zoneId,
+    status: args.status,
+    notes: args.notes || null,
+  };
+  if (args.photoUrls !== undefined) row.photo_urls = args.photoUrls;
+
   const { error } = await supabase
     .from('inspection_results')
-    .upsert(
-      {
-        inspection_id: args.inspectionId,
-        item_id: args.itemId,
-        property_zone_id: args.zoneId,
-        status: args.status,
-        notes: args.notes || null,
-      },
-      { onConflict: 'inspection_id,item_id,property_zone_id' }
-    );
+    .upsert(row, { onConflict: 'inspection_id,item_id,property_zone_id' });
 
   if (error) return { ok: false, error: error.message };
 
