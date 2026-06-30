@@ -409,8 +409,14 @@ async function fetchAllReservations(token: string, sinceIso?: string): Promise<G
   // to populate host_payout. Without this every row's host_payout comes back
   // null and the Revenue dashboard reads zero across the board.
   const fields = '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
+  // ignoreStatusFilter=true keeps canceled/inquiry/declined/expired rows in
+  // the response. Without this, Guesty defaults to filtering them out, so a
+  // reservation that flips to canceled AFTER its first sync never gets
+  // re-upserted -- guesty_reservations.status stays "confirmed" forever and
+  // owner statements leak the cancelled stay. See memory
+  // project_guesty_cancelled_reservation_leak.
   while (true) {
-    const page = await guestyGet('/v1/reservations', token, { limit, skip, fields });
+    const page = await guestyGet('/v1/reservations', token, { limit, skip, fields, ignoreStatusFilter: 'true' });
     const batch: GuestyReservation[] = page.data || page.results || [];
     if (batch.length === 0) break;
     let hitFloor = false;
