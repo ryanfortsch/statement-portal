@@ -6,6 +6,7 @@ import { completeOnboarding, type OnboardingState } from '../actions';
 import { PhoneInput } from '@/components/PhoneInput';
 import { PaymentFields } from './PaymentFields';
 import { TinInput } from './TinInput';
+import { BG_DISCLOSURE_TITLE, BG_DISCLOSURE_TEXT, BG_AUTHORIZATION_TEXT } from '@/lib/field-bg-consent';
 
 const labelStyle: React.CSSProperties = {
   fontSize: 11,
@@ -161,6 +162,31 @@ export function OnboardingForm({
             </div>
           </div>
           <PaymentFields methods={paymentMethods} inputStyle={inputStyle} labelStyle={labelStyle} />
+        </div>
+
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{BG_DISCLOSURE_TITLE}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.6 }}>
+              {BG_DISCLOSURE_TEXT}
+            </div>
+          </div>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.5, cursor: 'pointer' }}>
+            <input type="checkbox" name="bg_authorize" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
+            <span>{BG_AUTHORIZATION_TEXT}</span>
+          </label>
+          <div>
+            <label style={labelStyle}>Type your full name to authorize</label>
+            <input
+              name="bg_signed_name"
+              type="text"
+              required
+              minLength={3}
+              placeholder={defaultName}
+              autoComplete="off"
+              style={{ ...inputStyle, fontFamily: 'var(--font-fraunces), serif', fontStyle: 'italic', fontSize: 18, color: 'var(--signal)' }}
+            />
+          </div>
         </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>

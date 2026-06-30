@@ -11,6 +11,7 @@ import { revalidatePacket, getContractorReliability } from '@/lib/field-packets'
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
+import { BG_DISCLOSURE_VERSION } from '@/lib/field-bg-consent';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail } from '@/lib/field-notify';
@@ -72,7 +73,10 @@ export async function completeOnboarding(
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const homeAddress = String(formData.get('home_address') || '').trim();
+  const bgAuthorize = formData.get('bg_authorize') === 'on';
+  const bgSignedName = String(formData.get('bg_signed_name') || '').trim();
   if (homeAddress.length < 2) return { error: 'Add your home base (the town or ZIP you work from).' };
+  if (!bgAuthorize || bgSignedName.length < 3) return { error: 'Authorize the background check and type your name to sign it.' };
   if (!agree) return { error: 'Check the box agreeing to the contractor terms.' };
   if (signedName.length < 3) return { error: 'Type your full name at the bottom to sign.' };
 
@@ -127,6 +131,10 @@ export async function completeOnboarding(
       agreement_signed_name: signedName,
       agreement_ip: ip,
       agreement_user_agent: userAgent,
+      bg_authorized_at: new Date().toISOString(),
+      bg_authorized_name: bgSignedName,
+      bg_authorized_ip: ip,
+      bg_disclosure_version: BG_DISCLOSURE_VERSION,
       status: 'active',
       updated_at: new Date().toISOString(),
     })

@@ -340,6 +340,16 @@ function ContractorCard({
             Field {dollars(ps!.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
           </div>
         )}
+        <div>
+          BG authorization:{' '}
+          {c.bg_authorized_at ? (
+            <span style={{ color: 'var(--positive)' }}>
+              signed{c.bg_authorized_name ? ` by ${c.bg_authorized_name}` : ''} · {new Date(c.bg_authorized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--signal)' }}>not on file</span>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
           <span>Portal link</span>
           <CopyCode value={`${base}/field/${c.portal_token}`} mono />

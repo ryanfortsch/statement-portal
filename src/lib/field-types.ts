@@ -34,6 +34,12 @@ export type ContractorRow = {
   agreement_signed_name: string | null;
   agreement_ip: string | null;
   agreement_user_agent: string | null;
+  // Background-check authorization captured at onboarding (FCRA consent on
+  // file; the office runs the actual report through a screening provider).
+  bg_authorized_at: string | null;
+  bg_authorized_name: string | null;
+  bg_authorized_ip: string | null;
+  bg_disclosure_version: string | null;
   home_lat: number | null;
   home_lng: number | null;
   service_radius_miles: number;
