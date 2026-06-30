@@ -236,6 +236,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
         <Swatch bg="rgba(58,107,138,0.16)" label="already out to a contractor" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
+        <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 4, height: 14, background: 'var(--signal)' }} /> next check-in
         </span>
