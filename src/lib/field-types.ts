@@ -92,6 +92,7 @@ export type PacketRow = {
   paid_reference: string | null;
   published_at: string | null;
   notes: string | null;
+  instructions: string | null; // packet-wide free-form note from the office, shown to the inspector
   entry_code: string | null;
   auto_generated: boolean;
   suggestion_key: string | null;
@@ -112,6 +113,7 @@ export type PacketStopRow = {
   walk_order: number;
   inspection_id: string | null;
   work_slip_id: string | null;
+  instructions: string | null; // per-stop free-form note from the office, shown to the inspector
   status: StopStatus;
   created_at: string;
 };
@@ -126,6 +128,15 @@ export type WorkSlipLite = {
   location: string | null;
   priority: string;
   photo_urls: string[];
+};
+
+/** A work slip ATTACHED to a stop (extra task riding on the visit), as opposed
+ *  to a maintenance stop that IS a slip. Carries the per-attachment office note
+ *  and its own completion, tracked independently of the stop's status. */
+export type AttachedSlip = WorkSlipLite & {
+  attachmentId: string;
+  officeNote: string | null;
+  completedAt: string | null;
 };
 
 /** Property fields the Field module needs: location + the access bundle. */
@@ -186,6 +197,9 @@ export type PacketStopDetail = PacketStopRow & {
   property: FieldProperty;
   access: AccessBundle | null;
   workSlip: WorkSlipLite | null;
+  /** Extra work slips the office attached to this stop (separate from workSlip,
+   *  which is the maintenance job the stop itself is). [] when none. */
+  attachedSlips: AttachedSlip[];
 };
 
 /** A packet joined with its stops, for both internal and contractor views. */

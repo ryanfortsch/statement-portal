@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
-import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
+import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -92,6 +92,41 @@ function InspectionScope() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** An extra work slip the office attached to a stop: title, details, the
+ *  per-attachment office note, and (for the assigned inspector, until done) a
+ *  completion form keyed to the attachment, not the stop. */
+function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: AttachedSlip; isMine: boolean }) {
+  const done = !!slip.completedAt;
+  return (
+    <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+        {done && <span style={{ fontSize: 12, color: 'var(--positive)', flexShrink: 0 }}>✓ Done</span>}
+      </div>
+      {(slip.action_summary || slip.description) && (
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.5 }}>{slip.action_summary || slip.description}</div>
+      )}
+      <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
+        {slip.location ? `${slip.location} · ` : ''}priority: {slip.priority}
+      </div>
+      {slip.bring_list && (
+        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
+          <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{slip.bring_list}
+        </div>
+      )}
+      {slip.officeNote && (
+        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '6px 10px', lineHeight: 1.5 }}>
+          <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>Note: </span>{slip.officeNote}
+        </div>
+      )}
+      {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={56} />}
+      {isMine && !done && (
+        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark this done" placeholder="What did you do?" />
+      )}
     </div>
   );
 }
@@ -330,6 +365,12 @@ export default async function PacketPage({
           <span style={{ color: 'var(--ink)' }}>{packet.notes}</span> Please re-do the stops and submit again.
         </div>
       )}
+      {isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.instructions && (
+        <div style={{ borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '12px 16px', marginBottom: 22 }}>
+          <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 4 }}>From the office</div>
+          <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{packet.instructions}</div>
+        </div>
+      )}
 
       {isMaint && !isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
@@ -367,6 +408,12 @@ export default async function PacketPage({
               <div className="font-serif" style={{ fontSize: 17 }}>
                 {isMine ? s.property.address : s.property.title || s.property.name}
               </div>
+              {isMine && s.instructions && (
+                <div style={{ marginTop: 8, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px' }}>
+                  <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 3 }}>From the office</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{s.instructions}</div>
+                </div>
+              )}
               {s.workSlip ? (
                 <div style={{ marginTop: 4 }}>
                   <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.workSlip.title}</div>
@@ -425,6 +472,16 @@ export default async function PacketPage({
               )}
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} />
+              )}
+              {isMine && s.attachedSlips.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
+                    Also at this stop
+                  </div>
+                  {s.attachedSlips.map((a) => (
+                    <AttachedSlipCard key={a.attachmentId} packetId={packet.id} slip={a} isMine={isMine} />
+                  ))}
+                </div>
               )}
             </div>
             {isMine && !s.workSlip && (

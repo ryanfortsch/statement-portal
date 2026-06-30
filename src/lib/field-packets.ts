@@ -41,6 +41,7 @@ import {
   type WindowBasis,
   type ContractorRow,
   type WorkSlipLite,
+  type AttachedSlip,
 } from '@/lib/field-types';
 
 // Same exclusions the Operations turnover pipeline uses: out-of-region
@@ -455,6 +456,28 @@ async function stopsWithProperties(
       .in('id', slipIds);
     for (const s of (slips ?? []) as WorkSlipLite[]) slipById.set(s.id, s);
   }
+
+  // Extra work slips the office attached to any stop (inspection or maintenance),
+  // each with its per-attachment note + independent completion. One batch query.
+  const stopIds = stops.map((s) => s.id);
+  const attachedByStop = new Map<string, AttachedSlip[]>();
+  if (stopIds.length) {
+    const { data: att } = await fieldDb()
+      .from('packet_stop_work_slips')
+      .select('id, stop_id, office_note, completed_at, ordering, created_at, work_slips(id, title, description, action_summary, bring_list, location, priority, photo_urls)')
+      .in('stop_id', stopIds)
+      .order('ordering', { ascending: true })
+      .order('created_at', { ascending: true });
+    // Supabase types the to-one embed as an array; at runtime it's one object.
+    for (const row of (att ?? []) as unknown as AttachmentRow[]) {
+      const slip = row.work_slips;
+      if (!slip) continue;
+      const list = attachedByStop.get(row.stop_id) ?? [];
+      list.push({ ...slip, attachmentId: row.id, officeNote: row.office_note, completedAt: row.completed_at });
+      attachedByStop.set(row.stop_id, list);
+    }
+  }
+
   return stops
     .slice()
     .sort((a, b) => a.walk_order - b.walk_order)
@@ -465,9 +488,20 @@ async function stopsWithProperties(
         property,
         access: revealAccess && property ? accessBundle(property) : null,
         workSlip: s.work_slip_id ? slipById.get(s.work_slip_id) ?? null : null,
+        attachedSlips: attachedByStop.get(s.id) ?? [],
       };
     });
 }
+
+/** Raw shape of a packet_stop_work_slips row joined to its work slip. */
+type AttachmentRow = {
+  id: string;
+  stop_id: string;
+  office_note: string | null;
+  completed_at: string | null;
+  ordering: number;
+  work_slips: WorkSlipLite | null;
+};
 
 export async function loadPacketDetail(
   packetId: string,
@@ -1118,6 +1152,21 @@ export async function loadOpenMaintenance(): Promise<MaintenanceSlip[]> {
         lng: p.longitude,
       };
     });
+}
+
+/** Every active (non-done) work slip on one property: the pool the office can
+ *  ATTACH to a packet stop. Unlike loadOpenMaintenance this keeps all categories
+ *  and assignments, since an inspector might also handle an inventory or owner
+ *  item while they're in the home. The office UI filters out ones already
+ *  attached to the stop. */
+export async function loadAttachableSlips(propertyId: string): Promise<WorkSlipLite[]> {
+  const { data } = await fieldDb()
+    .from('work_slips')
+    .select('id, title, description, action_summary, bring_list, location, priority, photo_urls')
+    .eq('property_id', propertyId)
+    .neq('status', 'done')
+    .order('created_at', { ascending: false });
+  return (data ?? []) as WorkSlipLite[];
 }
 
 /** Bundle selected work slips into a maintenance packet (trade='maintenance').

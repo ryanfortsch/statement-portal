@@ -20,6 +20,59 @@ async function staffEmail(): Promise<string> {
   return session.user.email;
 }
 
+// ── Attach work slips + instructions to a packet stop ──────────────────
+// Hand the assigned inspector extra tasks per property: open work slips (with a
+// per-slip note) plus free-form per-stop / per-packet instructions. Allowed
+// anytime the packet is still live (incl. after a contractor claims it) — the
+// attachment just shows up on their packet on next load. Unpriced, so no payout
+// or stop-count effect.
+
+export async function attachSlipToStop(packetId: string, stopId: string, workSlipId: string): Promise<{ ok: boolean }> {
+  const email = await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .upsert({ stop_id: stopId, work_slip_id: workSlipId, created_by_email: email }, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function detachSlipFromStop(packetId: string, attachmentId: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb().from('packet_stop_work_slips').delete().eq('id', attachmentId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function updateStopSlipNote(packetId: string, attachmentId: string, note: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .update({ office_note: note.trim().slice(0, 2000) || null })
+    .eq('id', attachmentId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function setStopInstructions(packetId: string, stopId: string, text: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stops')
+    .update({ instructions: text.trim().slice(0, 4000) || null })
+    .eq('id', stopId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function setPacketInstructions(packetId: string, text: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('inspection_packets')
+    .update({ instructions: text.trim().slice(0, 4000) || null })
+    .eq('id', packetId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
 /** Office-only: decrypt a contractor's full TIN for filing their 1099. */
 export async function revealW9(contractorId: string): Promise<string | null> {
   const email = await staffEmail(); // staff session required
