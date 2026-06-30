@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { saveOwnerCards, type OwnerCard } from '@/app/properties/actions';
 
 /**
@@ -31,6 +32,7 @@ export function OwnersEditor({
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   const isDirty = JSON.stringify(owners) !== JSON.stringify(initialOwners);
 
@@ -76,6 +78,9 @@ export function OwnersEditor({
       }
       setOwners(res.owners);
       setSavedAt(new Date().toLocaleTimeString());
+      // Re-pull server data so the rest of the People tab (contact count,
+      // primary card) reflects the persisted write, not just local state.
+      router.refresh();
     });
   };
 
