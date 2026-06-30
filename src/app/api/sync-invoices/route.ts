@@ -16,7 +16,15 @@ const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
 
-// Property name mapping from invoice greeting to property_id
+// Property name mapping from invoice greeting (Cape Ann Elite addresses
+// each invoice "Dear Allie O'Brien: <address>") to property_id. Match is
+// lowercase substring -- add common abbreviations / no-suffix forms so a
+// stray "St" / "Rd" / "Ln" doesn't break attribution.
+//
+// Keep this in sync as properties onboard. Without an entry, the invoice
+// silently parses with property_id=null and the route skips it -- the
+// statement then shows $0 cleaning even when bank charges and Gmail
+// invoices both exist.
 const INVOICE_PROPERTY_MAP: Record<string, string> = {
   '21 horton': '21_horton',
   '21 horton st': '21_horton',
@@ -32,6 +40,22 @@ const INVOICE_PROPERTY_MAP: Record<string, string> = {
   '20 enon': '20_enon',
   '17 beach': '17_beach_rd',
   '17 beach rd': '17_beach_rd',
+  '36 granite': '36_granite',
+  '36 granite st': '36_granite',
+  '16 waterman': '16_waterman',
+  '16 waterman st': '16_waterman',
+  '19 rackliffe': '19_rackliffe',
+  '19 rackliffe st': '19_rackliffe',
+  '79 main': '79_main',
+  '79 main st': '79_main',
+  '4 middle': '4_middle',
+  '4 middle rd': '4_middle',
+  '4 middle road': '4_middle',
+  '84 thatcher': '84_thatcher',
+  '84 thatcher rd': '84_thatcher',
+  '84 thatcher road': '84_thatcher',
+  '3 locust': '3_locust',
+  '3 locust ln': '3_locust',
 };
 
 function matchProperty(text: string): string | null {
