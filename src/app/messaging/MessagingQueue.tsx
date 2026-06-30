@@ -176,6 +176,11 @@ function ApprovalCard({
   // others) so only one drawer is ever armed at a time.
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(approval.draft);
+  // After a successful inline edit, show the saved text immediately instead of
+  // waiting for a full router.refresh to bring the canonical row down (that
+  // refresh re-renders the page off the sometimes-cold upstream and can lag).
+  // Cleared by the reconcile effect once the prop catches up.
+  const [savedDraft, setSavedDraft] = useState<string | null>(null);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleCustom, setScheduleCustom] = useState(false);
   const [customDay, setCustomDay] = useState<'today' | 'tomorrow'>('today');
@@ -195,8 +200,14 @@ function ApprovalCard({
   const isScheduled = approval.status === 'scheduled';
   // The draft changed server-side while the editor is open and the operator
   // hasn't already typed the new text: warn instead of silently overwriting.
+  // While an optimistic save is still settling, the prop lags behind what we
+  // persisted, so skip conflict detection (it would false-positive against our
+  // own just-saved text). It resumes once the canonical row catches up.
   const draftChangedUnderEdit =
-    editing && approval.draft !== editBaseRef.current && approval.draft !== draftText;
+    editing &&
+    savedDraft == null &&
+    approval.draft !== editBaseRef.current &&
+    approval.draft !== draftText;
 
   const closeDrawers = () => {
     setShowCoach(false);
@@ -236,6 +247,9 @@ function ApprovalCard({
     prevDraftRef.current = approval.draft;
     if (isPending || editing) return;
     setDraftText(approval.draft);
+    // The canonical draft caught up to (or moved past) our optimistic save;
+    // drop the override so the prop is the single source of truth again.
+    setSavedDraft(null);
     setShowCoach(false);
     setFeedback('');
   }, [approval.draft, isPending, editing]);
@@ -383,25 +397,48 @@ function ApprovalCard({
   };
   const handleSendNow = () => run('send-now', () => approveDraft(approval.id));
   const handleCancelSchedule = () => run('cancel-schedule', () => cancelSchedule(approval.id));
-  const handleSaveEdit = () =>
-    run(
-      'save-edit',
-      () => editDraft(approval.id, draftText),
-      // Transient error: keep the editor open with the operator's text intact.
-      () => setEditing(true),
-      // Stale (e.g. the card was scheduled in another tab): don't silently
-      // discard the typed text via a refresh. Keep it and explain.
-      () => {
-        setEditing(true);
+  // Unlike approve/reject/coach (which resolve the card and so legitimately
+  // hold their working state until router.refresh removes it), a saved edit
+  // KEEPS the card. Tying "Saving…" to the post-write router.refresh meant a
+  // cold upstream could freeze the button for minutes after the write had
+  // already landed. So resolve on the write itself: show the saved text
+  // optimistically and stop the spinner; the 15s auto-refresh reconciles the
+  // canonical row in the background.
+  const handleSaveEdit = () => {
+    setError(null);
+    setPendingAction('save-edit');
+    const text = draftText;
+    startTransition(async () => {
+      const res = await editDraft(approval.id, text);
+      if (!res.ok) {
+        if (res.stale) {
+          // The card was queued or changed elsewhere; keep the typed text and
+          // explain rather than discarding it via a refresh.
+          setEditing(true);
+          setPendingAction(null);
+          setError('This draft was just queued or changed elsewhere. Copy your text, then cancel the send to keep editing.');
+          return;
+        }
+        // Transient error: keep the editor open with the operator's text intact.
+        setError(res.error);
         setPendingAction(null);
-        setError('This draft was just queued or changed elsewhere. Copy your text, then cancel the send to keep editing.');
-      },
-    );
+        setEditing(true);
+        return;
+      }
+      setSavedDraft(text);
+      editBaseRef.current = text;
+      setEditing(false);
+      setPendingAction(null);
+    });
+  };
 
   const startEdit = () => {
     closeDrawers();
-    setDraftText(approval.draft);
-    editBaseRef.current = approval.draft;
+    // Seed from the optimistic save if the canonical row hasn't caught up yet,
+    // so re-opening the editor right after a save shows the saved text.
+    const base = savedDraft ?? approval.draft;
+    setDraftText(base);
+    editBaseRef.current = base;
     setEditing(true);
   };
   const toggleSchedule = () => {
@@ -687,7 +724,7 @@ function ApprovalCard({
               </div>
             </div>
           ) : (
-            <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
+            <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
           )}
         </FieldBlock>
       </div>
