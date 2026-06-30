@@ -1,5 +1,4 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { MessagingTabs } from '@/components/MessagingTabs';
 import { Section } from '@/components/Section';
@@ -53,14 +52,6 @@ export default async function CleanerMessagingPage() {
     >
       <HelmMasthead current="messaging" />
       <MessagingTabs current="cleaners" />
-
-      <HelmHero
-        eyebrow="Cleaner Messaging"
-        title="Rosa & Nina,"
-        emphasis="bilingual one-tap replies."
-        paddingTop={36}
-        paddingBottom={20}
-      />
 
       {!data.ok && (
         <Section title="Service not reachable" eyebrow="Setup required">
