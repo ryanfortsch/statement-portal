@@ -31,6 +31,9 @@ export type CalendarCellTooltipData = {
   nights: number | null;
   hostPayout: number | null;
   confirmationCode: string | null;
+  /** ISO time the guest physically keyed in (guest code) for a current stay,
+   *  or null. Drives the "In residence" line + the calendar home glyph. */
+  guestArrivedAt: string | null;
 };
 
 export function CalendarCellTooltip({
@@ -132,6 +135,28 @@ export function CalendarCellTooltip({
             </>
           )}
         </div>
+        {/* Guest-presence: a green "in residence" line when the guest has
+            physically keyed in on a guest code during this current stay. */}
+        {data.guestArrivedAt && (
+          <div
+            style={{
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: '1px solid var(--rule-soft)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11.5,
+              color: 'var(--positive)',
+              fontWeight: 500,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M12 3 2 11h2.2v9H10v-5.5h4V20h5.8v-9H22z" />
+            </svg>
+            In residence · keyed in {formatArrival(data.guestArrivedAt)}
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -144,6 +169,26 @@ function formatShort(iso: string): string {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   } catch {
     return iso;
+  }
+}
+
+/** "3:14p Sat" — the guest's keypad entry time, in Eastern (the lock's local
+ *  time), kept compact for the one-line in-residence row. */
+function formatArrival(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const time = d
+      .toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+      .replace(' AM', 'a')
+      .replace(' PM', 'p');
+    const day = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+    return `${time} ${day}`;
+  } catch {
+    return '';
   }
 }
 

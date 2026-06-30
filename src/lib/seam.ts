@@ -318,6 +318,95 @@ export async function deleteUnmanagedAccessCode(accessCodeId: string): Promise<S
   return res.action_attempt ?? null;
 }
 
+// ── Access-code role classification + registry ──────────────────────
+//
+// The locks' PINs are unmanaged (set in the Schlage app), so each carries a
+// human NAME but no time window. We classify the name into a role so the
+// Operations calendar can tell a GUEST keypad entry from a cleaner / owner /
+// staff / repair unlock. The PIN digits are never persisted -- only the id,
+// name, and role land in lock_access_codes.
+
+export type AccessCodeRole =
+  | 'guest'
+  | 'cleaner'
+  | 'owner'
+  | 'staff'
+  | 'repair'
+  | 'inspector'
+  | 'unknown';
+
+/**
+ * Derive a code's role from its Seam name. Order matters: the keyworded roles
+ * (cleaner / owner / inspector / repair / staff) are matched first, because in
+ * the real Schlage naming they are reliably labeled ("Cleaning", "SNYDER OWNER
+ * CODE", "Rising tide", "Repair code"). Anything left is treated as a guest
+ * code -- whether it's a generic "Guest Code" / "September Guest Code" or a
+ * per-stay personal name like "Julie Polvinen". An empty name stays 'unknown'
+ * (never counted as a guest, so a blank code can't fake presence).
+ */
+export function classifyCodeRole(name: string | null | undefined): AccessCodeRole {
+  const n = (name ?? '').toLowerCase().trim();
+  if (!n) return 'unknown';
+  if (/clean/.test(n)) return 'cleaner';
+  if (/owner/.test(n)) return 'owner';
+  if (/inspect/.test(n)) return 'inspector';
+  if (/repair|mainten/.test(n)) return 'repair';
+  // Rising Tide staff / master codes, including the operator + ops names that
+  // recur as personal-named codes across locks (so they don't read as guests).
+  if (/rising\s*tide|master|\bstaff\b|\boffice\b|\badmin\b|\brt\b|fortsch|o['’]?brien|\ballie\b/.test(n))
+    return 'staff';
+  if (/guest/.test(n)) return 'guest';
+  // A named personal code with no role keyword is the per-stay guest PIN.
+  return 'guest';
+}
+
+/**
+ * Resolve + store the full access-code inventory for one lock: list its codes
+ * (unmanaged + managed), classify each by name, and upsert id -> {name, role}
+ * into lock_access_codes. Run per mapped device on the daily Seam sync so the
+ * presence read always has a current id->role map. Returns the count stored.
+ * Never throws: a Seam hiccup just yields 0 and leaves the prior rows in place.
+ */
+export async function resolveAccessCodeInventory(
+  sb: SupabaseClient,
+  deviceId: string,
+): Promise<number> {
+  let codes: SeamAccessCodeFull[] = [];
+  try {
+    // Unmanaged holds the named Schlage PINs we classify; managed is included
+    // for completeness so a future Seam-issued code is registered too.
+    const [unmanaged, managed] = await Promise.all([
+      listUnmanagedAccessCodes(deviceId),
+      listAccessCodes(deviceId).catch(() => [] as SeamAccessCodeFull[]),
+    ]);
+    codes = [...unmanaged, ...managed];
+  } catch {
+    return 0;
+  }
+
+  // Dedup by access_code_id (managed + unmanaged shouldn't overlap, but be
+  // safe). PIN digits (c.code) are intentionally dropped here.
+  const byId = new Map<string, { device_id: string; access_code_id: string; name: string | null; role: AccessCodeRole; resolved_at: string }>();
+  const nowIso = new Date().toISOString();
+  for (const c of codes) {
+    if (!c.access_code_id) continue;
+    byId.set(c.access_code_id, {
+      device_id: deviceId,
+      access_code_id: c.access_code_id,
+      name: c.name ?? null,
+      role: classifyCodeRole(c.name),
+      resolved_at: nowIso,
+    });
+  }
+  if (byId.size === 0) return 0;
+
+  const { error } = await sb
+    .from('lock_access_codes')
+    .upsert([...byId.values()], { onConflict: 'device_id,access_code_id' });
+  if (error) return 0;
+  return byId.size;
+}
+
 // ── Webhook signature verification (Svix scheme) ────────────────────
 //
 // Seam delivers webhooks via Svix. The signed content is
