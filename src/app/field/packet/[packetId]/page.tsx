@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRunStop } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -85,31 +85,58 @@ function InspectionScope() {
   );
 }
 
-/** Before-you-go prep: most inspections start with a stop at the supply closet
- *  to grab each home's labeled bin (routine supplies + its odds-and-ends) plus
- *  anything a prior visit already flagged as running low. */
-function SupplyRun({ stops }: { stops: SupplyRunStop[] }) {
-  if (stops.length === 0) return null;
+/** Stop 1 of every route: the supply closet at 85 Eastern Ave. The inspector
+ *  grabs each home's labeled bin (routine refill tubs, physical + pre-stocked),
+ *  any consumables a prior visit flagged low, and the parts each work slip on
+ *  the packet needs — all before they head out. */
+function SupplyRunCard({ run }: { run: SupplyRun }) {
+  if (run.bins.length === 0 && run.jobs.length === 0) return null;
+  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SUPPLY_CLOSET}, Gloucester, MA`)}`;
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
-      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
-        Before you go · supply run
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
+        Stop 1 · Supply closet
       </div>
-      <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, lineHeight: 1.55 }}>
-        Swing by the supply closet at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> and grab each home&apos;s labeled bin — routine supplies plus its odds-and-ends — before you head out.
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          Start at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> and load up before the route.
+        </div>
+        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          Directions →
+        </a>
       </div>
-      <div style={{ display: 'grid', gap: 10 }}>
-        {stops.map((s) => (
-          <div key={s.propertyName} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500 }}>{s.binLabel} bin</span>
-            {s.lowItems.length > 0 ? (
-              <span style={{ fontSize: 12.5, color: 'var(--signal)' }}>Bring extra: {s.lowItems.join(', ')}</span>
-            ) : (
-              <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>Routine restock only</span>
-            )}
+
+      {run.bins.length > 0 && (
+        <div style={{ marginBottom: run.jobs.length > 0 ? 16 : 0 }}>
+          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Grab these bins</div>
+          <div style={{ display: 'grid', gap: 9 }}>
+            {run.bins.map((s) => (
+              <div key={s.propertyName} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500 }}>{s.binLabel} bin</span>
+                {s.lowItems.length > 0 ? (
+                  <span style={{ fontSize: 12.5, color: 'var(--signal)' }}>+ extra: {s.lowItems.join(', ')}</span>
+                ) : (
+                  <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>routine restock</span>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {run.jobs.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>For the work slips</div>
+          <div style={{ display: 'grid', gap: 9 }}>
+            {run.jobs.map((j, i) => (
+              <div key={`${j.title}-${i}`} style={{ fontSize: 13, lineHeight: 1.5 }}>
+                <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{j.bring}</span>
+                <span style={{ color: 'var(--ink-4)' }}> · {j.title} ({j.propertyName})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -186,8 +213,9 @@ export default async function PacketPage({
   // open-ended errand: a progress bar + live per-stop status.
   const working = isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
-  // Inspection packets start with a supply-closet run; maintenance jobs don't.
-  const supplyRun = working && !isMaint ? await loadPacketSupplyRun(packetId) : [];
+  // Every route starts at the supply closet: home bins + flagged-low consumables
+  // for inspections, plus the parts each work slip needs for maintenance.
+  const supplyRun = working ? await loadPacketSupplyRun(packetId) : { bins: [], jobs: [] };
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -233,7 +261,7 @@ export default async function PacketPage({
         </div>
       )}
 
-      {working && !isMaint && <SupplyRun stops={supplyRun} />}
+      {working && <SupplyRunCard run={supplyRun} />}
 
       {sp.taken && (
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>

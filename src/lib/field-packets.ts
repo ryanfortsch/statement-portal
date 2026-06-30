@@ -451,7 +451,7 @@ async function stopsWithProperties(
   if (slipIds.length) {
     const { data: slips } = await fieldDb()
       .from('work_slips')
-      .select('id, title, description, action_summary, location, priority, photo_urls')
+      .select('id, title, description, action_summary, bring_list, location, priority, photo_urls')
       .in('id', slipIds);
     for (const s of (slips ?? []) as WorkSlipLite[]) slipById.set(s.id, s);
   }
@@ -994,23 +994,32 @@ export async function createPacketFromProperties(args: {
 export const SUPPLY_CLOSET = '85 Eastern Ave';
 
 export type SupplyRunStop = { propertyName: string; binLabel: string; lowItems: string[] };
+export type SupplyRunJob = { title: string; propertyName: string; bring: string };
+/** The full 85 Eastern pick list for a packet: the per-home bins to grab (with
+ *  any consumables a prior visit flagged low), plus the materials each work slip
+ *  on the packet needs to be completed. */
+export type SupplyRun = { bins: SupplyRunStop[]; jobs: SupplyRunJob[] };
 
-/** Per-property supply-run prep for a packet: grab the property's labeled bin
- *  from the closet, plus any items a prior inspection already flagged low
- *  (open Rising Tide restock slips, category 'inventory'). */
-export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRunStop[]> {
+/** Supply-run prep for a packet, assembled for the supply-closet stop:
+ *  - bins: one per property in the packet, labeled, with any open restock slips
+ *    (category 'inventory') flagged as "bring extra".
+ *  - jobs: the operator-authored bring_list for every work slip on the packet,
+ *    so the inspector grabs the parts to finish each job in the same trip. */
+export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> {
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('property_id, walk_order')
+    .select('property_id, work_slip_id, walk_order')
     .eq('packet_id', packetId)
     .order('walk_order', { ascending: true });
-  const orderedIds = ((sData ?? []) as { property_id: string }[]).map((s) => s.property_id);
+  const stopRows = (sData ?? []) as { property_id: string; work_slip_id: string | null }[];
+  const orderedIds = stopRows.map((s) => s.property_id);
   const propIds = [...new Set(orderedIds)];
-  if (propIds.length === 0) return [];
+  if (propIds.length === 0) return { bins: [], jobs: [] };
 
   const { data: pData } = await fieldDb().from('properties').select('id, name').in('id', propIds);
   const nameById = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
 
+  // Consumables a prior inspection already flagged low at these homes.
   const { data: wData } = await fieldDb()
     .from('work_slips')
     .select('property_id, title')
@@ -1025,10 +1034,30 @@ export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRunSt
     lowByProp.set(w.property_id, arr);
   }
 
-  return propIds.map((id) => {
+  const bins = propIds.map((id) => {
     const name = nameById.get(id) ?? id;
     return { propertyName: name, binLabel: name, lowItems: lowByProp.get(id) ?? [] };
   });
+
+  // Materials to complete the work slips on this packet (maintenance stops, plus
+  // any slip attached to an inspection stop) — only those the office authored a
+  // bring_list for.
+  const slipIds = [...new Set(stopRows.map((s) => s.work_slip_id).filter((v): v is string => !!v))];
+  const jobs: SupplyRunJob[] = [];
+  if (slipIds.length) {
+    const { data: jData } = await fieldDb()
+      .from('work_slips')
+      .select('property_id, title, bring_list')
+      .in('id', slipIds)
+      .not('bring_list', 'is', null);
+    for (const j of (jData ?? []) as { property_id: string; title: string; bring_list: string | null }[]) {
+      const bring = (j.bring_list ?? '').trim();
+      if (!bring) continue;
+      jobs.push({ title: j.title, propertyName: nameById.get(j.property_id) ?? j.property_id, bring });
+    }
+  }
+
+  return { bins, jobs };
 }
 
 // ── Maintenance trade: work slips → claimable packets ─────────────────

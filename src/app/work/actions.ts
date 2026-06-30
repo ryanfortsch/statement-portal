@@ -122,6 +122,31 @@ export async function updateWorkSlipTitle(args: {
 }
 
 /**
+ * Save the "what to bring" list on a work slip. This is the materials a
+ * contractor needs to COMPLETE the job (e.g. "P-trap washer, plunger"). It gets
+ * rolled into the packet's supply-closet (85 Eastern) pick list so nothing's
+ * forgotten before the route. Empty clears it.
+ */
+export async function updateWorkSlipBringList(args: {
+  id: string;
+  bringList: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const bring = args.bringList.trim();
+
+  const { error } = await supabase
+    .from('work_slips')
+    .update({ bring_list: bring || null })
+    .eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
  * Save resolution notes (and optionally the status) on a work slip from
  * the detail page. Used when marking done or capturing context after
  * the fact -- e.g. "Replaced the bulb, took 5 min."

@@ -13,6 +13,7 @@ import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipComments } from './SlipComments';
 import { SnoozeButton } from './SnoozeButton';
 import { SlipTitleEditor } from './SlipTitleEditor';
+import { SlipBringListEditor } from './SlipBringListEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,6 +178,11 @@ export default async function WorkSlipDetailPage({
           )}
         </Section>
       )}
+
+      {/* SUPPLY RUN — what the inspector grabs at 85 Eastern to finish this job */}
+      <Section title="Supply run" eyebrow="Before the visit">
+        <SlipBringListEditor slipId={slip.id} initialBringList={slip.bring_list ?? null} />
+      </Section>
 
       {/* ASSIGNMENT */}
       <Section
