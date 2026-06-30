@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketReview } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketReview, getContractorReliability, type ReliabilityTier } from '@/lib/field-packets';
+import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
@@ -22,6 +23,25 @@ function windowLabel(s: PacketStopDetail): string {
   if (s.window_basis === 'checkout_day') return `after ${s.prior_checkout ?? 'morning'} checkout`;
   if (s.window_basis === 'pre_checkin') return `before ${s.next_checkin ?? ''} check-in`;
   return 'vacant all day';
+}
+
+const TIER_LABEL: Record<ReliabilityTier, string> = { top: 'top', steady: 'steady', new: 'new', watch: 'watch' };
+
+function ageDays(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
+function ageLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = ageDays(iso);
+  return d === 0 ? 'published today' : d === 1 ? 'published yesterday' : `published ${d} days ago`;
+}
+function deadlineLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return `claim by ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  } catch {
+    return null;
+  }
 }
 
 export default async function PacketDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -43,19 +63,45 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
 
-  // Eligible contractors for direct assign/reassign (active, onboarded, same
-  // trade), excluding whoever already holds it.
-  let assignable: Array<Pick<ContractorRow, 'id' | 'full_name'>> = [];
+  // The claimable pool for this packet (active, onboarded, cleared, same trade),
+  // ranked the way the SMS blast ranks it — reliability first, then distance —
+  // and tagged with each inspector's tier + miles to the cluster. Drives both
+  // the coverage strip ("will this get claimed?") and the assign dropdown.
+  type CRow = Pick<ContractorRow, 'id' | 'full_name' | 'status' | 'w9_on_file' | 'agreement_signed_at' | 'background_check_status'> & {
+    home_lat: number | null; home_lng: number | null; service_radius_miles: number | null; phone: string | null;
+  };
+  type PoolMember = { id: string; full_name: string; tier: ReliabilityTier; score: number | null; miles: number | null; inRadius: boolean; hasPhone: boolean };
+  let assignable: PoolMember[] = [];
   if (packet.status === 'published' || packet.status === 'claimed') {
-    const { data: cData } = await fieldDb()
-      .from('contractors')
-      .select('id, full_name, trade, status, w9_on_file, agreement_signed_at')
-      .eq('trade', packet.trade)
-      .eq('status', 'active');
-    assignable = ((cData ?? []) as ContractorRow[])
+    const [{ data: cData }, reliability] = await Promise.all([
+      fieldDb()
+        .from('contractors')
+        .select('id, full_name, status, w9_on_file, agreement_signed_at, background_check_status, home_lat, home_lng, service_radius_miles, phone')
+        .eq('trade', packet.trade)
+        .eq('status', 'active'),
+      getContractorReliability(),
+    ]);
+    assignable = ((cData ?? []) as CRow[])
       .filter((c) => canClaim(c) && c.id !== packet.awarded_contractor_id)
-      .map((c) => ({ id: c.id, full_name: c.full_name }));
+      .map((c) => {
+        const rel = reliability.get(c.id);
+        const miles =
+          c.home_lat != null && c.home_lng != null && packet.centroid_lat != null && packet.centroid_lng != null
+            ? haversineMiles({ lat: c.home_lat, lng: c.home_lng }, { lat: packet.centroid_lat, lng: packet.centroid_lng })
+            : null;
+        const inRadius = miles == null ? true : miles <= (c.service_radius_miles ?? 40);
+        return { id: c.id, full_name: c.full_name, tier: rel?.tier ?? 'new', score: rel?.score ?? null, miles, inRadius, hasPhone: !!c.phone };
+      })
+      .sort((a, b) => (b.score ?? 70) - (a.score ?? 70) || (a.miles ?? 9999) - (b.miles ?? 9999));
   }
+
+  // Coverage summary for a published, not-yet-claimed packet: who would actually
+  // get pinged (in radius + has a phone), their tier mix, and the nearest one.
+  const eligible = assignable.filter((p) => p.inRadius && p.hasPhone);
+  const tierCounts = { top: 0, steady: 0, new: 0, watch: 0 } as Record<ReliabilityTier, number>;
+  for (const e of eligible) tierCounts[e.tier]++;
+  const nearestMi = eligible.reduce<number | null>((m, e) => (e.miles == null ? m : m == null ? e.miles : Math.min(m, e.miles)), null);
+  const showCoverage = packet.status === 'published' && !packet.awarded_contractor_id;
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
@@ -83,8 +129,41 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{packet.status}</div>
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
+            {isLive && packet.entry_code && (
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
+                entry <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{packet.entry_code}</span>
+              </div>
+            )}
           </div>
         </div>
+
+        {showCoverage && (
+          <div style={{ marginTop: 18, border: `1px solid ${eligible.length === 0 ? 'var(--signal)' : 'var(--rule)'}`, borderRadius: 10, padding: '12px 16px', background: eligible.length === 0 ? 'rgba(200,90,58,0.06)' : 'var(--paper-2, #fff)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>Coverage</div>
+            {eligible.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: 'var(--signal)', lineHeight: 1.5 }}>
+                No inspectors are in range for this one{nearestMi == null && assignable.length > 0 ? ' with a location on file' : ''}. Assign someone below, widen a contractor&apos;s service area, or move the date.
+              </div>
+            ) : (
+              <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span><strong>{eligible.length}</strong> {eligible.length === 1 ? 'inspector' : 'inspectors'} in range</span>
+                <span style={{ color: 'var(--ink-4)' }}>
+                  ({[
+                    tierCounts.top ? `${tierCounts.top} top` : null,
+                    tierCounts.steady ? `${tierCounts.steady} steady` : null,
+                    tierCounts.new ? `${tierCounts.new} new` : null,
+                    tierCounts.watch ? `${tierCounts.watch} watch` : null,
+                  ].filter(Boolean).join(' · ')})
+                </span>
+                {nearestMi != null && <span style={{ color: 'var(--ink-3)' }}>· nearest {nearestMi < 1 ? '<1' : Math.round(nearestMi)} mi</span>}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {ageLabel(packet.published_at) && <span>{ageLabel(packet.published_at)}</span>}
+              {deadlineLabel(packet.claim_deadline) && <><span>·</span><span>{deadlineLabel(packet.claim_deadline)}</span></>}
+            </div>
+          </div>
+        )}
 
         {tracking && (
           <div style={{ marginTop: 18 }}>
@@ -179,7 +258,9 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               <select name="contractor_id" required defaultValue="" style={priceInput}>
                 <option value="" disabled>{packet.status === 'claimed' ? 'Reassign to…' : 'Assign to…'}</option>
                 {assignable.map((c) => (
-                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.full_name} · {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
+                  </option>
                 ))}
               </select>
               <button type="submit" style={btnGhost}>{packet.status === 'claimed' ? 'Reassign' : 'Assign'}</button>
