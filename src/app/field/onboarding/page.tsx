@@ -7,6 +7,7 @@ import { FieldShell } from '../FieldShell';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
 import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { PhoneInput } from '@/components/PhoneInput';
+import { TinInput } from './TinInput';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -120,17 +121,7 @@ export default async function OnboardingPage({
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Taxpayer ID type</label>
-              <select name="w9_tin_type" required defaultValue="ssn" style={inputStyle}>
-                <option value="ssn">SSN (individual)</option>
-                <option value="ein">EIN (business)</option>
-              </select>
-            </div>
-            <div style={{ flex: 2 }}>
-              <label style={labelStyle}>SSN or EIN (9 digits)</label>
-              <input name="w9_tin" type="text" required inputMode="numeric" autoComplete="off" placeholder="123-45-6789" style={inputStyle} />
-            </div>
+            <TinInput labelStyle={labelStyle} inputStyle={inputStyle} />
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
             🔒 Your SSN is encrypted the moment you submit and is visible only to the Rising Tide office, used
