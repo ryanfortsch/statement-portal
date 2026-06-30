@@ -16,11 +16,12 @@ import { MessagingTabCount } from './MessagingTabCount';
 export function MessagingTabs({
   current,
 }: {
-  current: 'guests' | 'owners';
+  current: 'guests' | 'owners' | 'cleaners';
 }) {
   const tabs = [
     { id: 'guests', label: 'Guests', href: '/messaging' },
     { id: 'owners', label: 'Owners', href: '/owner-messaging' },
+    { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging' },
   ] as const;
 
   return (
