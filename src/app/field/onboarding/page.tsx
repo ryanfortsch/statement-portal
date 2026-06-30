@@ -7,6 +7,7 @@ import { FieldShell } from '../FieldShell';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
 import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { PhoneInput } from '@/components/PhoneInput';
+import { PaymentFields } from './PaymentFields';
 import { TinInput } from './TinInput';
 
 export const dynamic = 'force-dynamic';
@@ -136,21 +137,7 @@ export default async function OnboardingPage({
               Rising Tide pays you directly once your work is approved. Stored privately for the office.
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Method</label>
-              <select name="payment_method" required defaultValue="" style={inputStyle}>
-                <option value="" disabled>Select…</option>
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 2 }}>
-              <label style={labelStyle}>Details (handle, email, or account)</label>
-              <input name="payment_details" type="text" autoComplete="off" placeholder="@handle, email, or account #" style={inputStyle} />
-            </div>
-          </div>
+          <PaymentFields methods={PAYMENT_METHODS} inputStyle={inputStyle} labelStyle={labelStyle} />
         </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
