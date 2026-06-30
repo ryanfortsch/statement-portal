@@ -33,14 +33,36 @@ type PropertyRow = {
   id: string;
   name: string;
   owners: OwnerCard[] | null;
+  owner_full: string | null;
+  owner_phone: string | null;
+  owner_emails: string[] | null;
 };
 
-type Update = {
-  contact_id: string;
-  contact_name: string;
-  matched_email: string;
-  phone: string;
+type ExistingContact = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  emails: string[] | null;
+  linked_property_ids: string[] | null;
 };
+
+type Action = {
+  action: 'created' | 'updated_phone' | 'linked_property' | 'noop' | 'error';
+  name: string;
+  phone: string;
+  property_id: string;
+  detail?: string;
+};
+
+/** Best-effort E.164. Accepts "(978) 771-5630", "9787715630", "+1978...". */
+function toE164(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const d = raw.replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  if (raw.trim().startsWith('+') && d) return `+${d}`;
+  return '';
+}
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -72,72 +94,107 @@ export async function POST(req: Request) {
 
   const { data: props, error: propErr } = await sb
     .from('properties')
-    .select('id, name, owners')
+    .select('id, name, owners, owner_full, owner_phone, owner_emails')
     .eq('is_active', true);
   if (propErr) return NextResponse.json({ error: propErr.message }, { status: 500 });
 
-  // Flatten properties.owners into (email, phone) pairs.
-  const pairs: Array<{ email: string; phone: string }> = [];
+  // Build one owner record per E.164 phone across all property cards. Read
+  // the owners JSONB first; fall back to the Owner block (owner_full /
+  // owner_phone / owner_emails) for cards that predate the JSONB. Merge
+  // emails + linked properties when the same phone appears on multiple
+  // cards (a person who owns more than one home).
+  type Rec = { name: string; emails: Set<string>; phone: string; propertyIds: Set<string> };
+  const recs = new Map<string, Rec>();
+  const addRec = (name: string, email: string, phoneRaw: string, propertyId: string) => {
+    const phone = toE164(phoneRaw);
+    if (!phone) return;
+    const r = recs.get(phone) ?? { name: '', emails: new Set<string>(), phone, propertyIds: new Set<string>() };
+    if (!r.name && name) r.name = name;
+    const e = email.trim().toLowerCase();
+    if (e) r.emails.add(e);
+    if (propertyId) r.propertyIds.add(propertyId);
+    recs.set(phone, r);
+  };
+
   for (const row of (props ?? []) as PropertyRow[]) {
-    const owners = Array.isArray(row.owners) ? row.owners : [];
-    for (const o of owners) {
-      const email = (o.email ?? '').trim().toLowerCase();
-      const phone = (o.phone ?? '').trim();
-      if (email && phone) pairs.push({ email, phone });
+    const cards = Array.isArray(row.owners) ? row.owners : [];
+    if (cards.length > 0) {
+      for (const o of cards) {
+        const name = [o.first_name, o.last_name].filter(Boolean).join(' ').trim();
+        addRec(name, o.email ?? '', o.phone ?? '', row.id);
+      }
+    } else if (row.owner_phone) {
+      addRec(row.owner_full ?? '', (row.owner_emails ?? [])[0] ?? '', row.owner_phone, row.id);
     }
   }
 
-  // Pull owner contacts with empty phones, scoped by emails we care about.
-  const allEmails = [...new Set(pairs.map((p) => p.email))];
-  if (allEmails.length === 0) {
-    return NextResponse.json({ ok: true, updates: [], summary: 'no owner cards with email+phone' });
-  }
-
-  const { data: contacts, error: contactErr } = await sb
+  // All existing owner contacts, matched by normalized phone or email.
+  const { data: existingRows, error: contactErr } = await sb
     .from('contacts')
-    .select('id, name, phone, emails')
-    .eq('type', 'owner')
-    .overlaps('emails', allEmails);
+    .select('id, name, phone, emails, linked_property_ids')
+    .eq('type', 'owner');
   if (contactErr) return NextResponse.json({ error: contactErr.message }, { status: 500 });
+  const existing = (existingRows ?? []) as ExistingContact[];
 
-  const updates: Update[] = [];
-  for (const c of (contacts ?? []) as Array<{
-    id: string;
-    name: string | null;
-    phone: string | null;
-    emails: string[] | null;
-  }>) {
-    if (c.phone && c.phone.trim().length > 0) continue;
-    const emails = (c.emails ?? []).map((e) => e.toLowerCase());
-    const match = pairs.find((p) => emails.includes(p.email));
-    if (!match) continue;
-    const { error: updErr } = await sb
-      .from('contacts')
-      .update({ phone: match.phone })
-      .eq('id', c.id);
-    if (updErr) {
-      updates.push({
-        contact_id: c.id,
-        contact_name: c.name ?? '',
-        matched_email: match.email,
-        phone: `ERROR: ${updErr.message}`,
+  const actions: Action[] = [];
+
+  for (const rec of recs.values()) {
+    const recEmails = [...rec.emails];
+    const propId = [...rec.propertyIds][0] ?? '';
+    let match =
+      existing.find((c) => toE164(c.phone) === rec.phone) ??
+      existing.find((c) =>
+        (c.emails ?? []).some((e) => recEmails.includes(e.toLowerCase())),
+      );
+
+    if (match) {
+      const patch: Record<string, unknown> = {};
+      if (!toE164(match.phone)) patch.phone = rec.phone;
+      const linked = new Set([...(match.linked_property_ids ?? []), ...rec.propertyIds]);
+      if (linked.size !== (match.linked_property_ids ?? []).length) {
+        patch.linked_property_ids = [...linked];
+      }
+      if (Object.keys(patch).length === 0) {
+        actions.push({ action: 'noop', name: match.name ?? rec.name, phone: rec.phone, property_id: propId });
+        continue;
+      }
+      const { error } = await sb.from('contacts').update(patch).eq('id', match.id);
+      actions.push({
+        action: error ? 'error' : patch.phone ? 'updated_phone' : 'linked_property',
+        name: match.name ?? rec.name,
+        phone: rec.phone,
+        property_id: propId,
+        detail: error?.message,
       });
-      continue;
+    } else {
+      const { error } = await sb.from('contacts').insert({
+        type: 'owner',
+        name: rec.name || '(owner)',
+        emails: recEmails,
+        phone: rec.phone,
+        linked_property_ids: [...rec.propertyIds],
+        created_by_email: 'system@backfill',
+      });
+      actions.push({
+        action: error ? 'error' : 'created',
+        name: rec.name || '(owner)',
+        phone: rec.phone,
+        property_id: propId,
+        detail: error?.message,
+      });
     }
-    updates.push({
-      contact_id: c.id,
-      contact_name: c.name ?? '',
-      matched_email: match.email,
-      phone: match.phone,
-    });
   }
 
+  const tally = (a: Action['action']) => actions.filter((x) => x.action === a).length;
   return NextResponse.json({
     ok: true,
-    candidates_seen: pairs.length,
-    contacts_eligible: contacts?.length ?? 0,
-    updated: updates.filter((u) => !u.phone.startsWith('ERROR:')).length,
-    failed: updates.filter((u) => u.phone.startsWith('ERROR:')).length,
-    updates,
+    cards_with_phone: recs.size,
+    existing_owner_contacts: existing.length,
+    created: tally('created'),
+    updated_phone: tally('updated_phone'),
+    linked_property: tally('linked_property'),
+    noop: tally('noop'),
+    errors: tally('error'),
+    actions,
   });
 }
