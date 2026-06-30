@@ -90,9 +90,6 @@ export function OnboardingForm({ defaultName, defaultPhone }: { defaultName: str
         <div>
           <label style={labelStyle}>Home base (town or ZIP)</label>
           <input name="home_address" type="text" required placeholder="Gloucester, MA" style={inputStyle} />
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginTop: 4, display: 'block' }}>
-            So we can show you the closest work first.
-          </span>
         </div>
 
         <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 16 }}>
