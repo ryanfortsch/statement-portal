@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   listMessages,
   listCalls,
+  listConversations,
   listPhoneNumbers,
   normalizePhone,
   type QuoMessage,
@@ -81,6 +82,22 @@ export async function POST(request: NextRequest) {
             `${ourNum.formattedNumber} <-> ${participantPhone}: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+      }
+    }
+
+    // Group threads. The per-participant loop above only matches 1:1
+    // conversations; a text chain with two co-owners (e.g. Claudia +
+    // Vicente on 21 Horton) is a single multi-participant thread that
+    // never appears in a single-participant /messages query. Walk the
+    // conversation list and pull any group thread that includes a known
+    // contact, attributing every message to the owner in the thread.
+    for (const ourNum of ourNumbers) {
+      try {
+        await pullGroupConversations(ourNum, targets, since, summary);
+      } catch (err) {
+        summary.errors.push(
+          `${ourNum.formattedNumber} groups: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -209,6 +226,72 @@ async function pullCalls(
     }
     if (!res.nextPageToken) break;
     pageToken = res.nextPageToken;
+  }
+}
+
+// Pull every group conversation (2+ external participants) that includes
+// at least one known contact, and attribute its messages to the owner in
+// the thread. Co-owner couples share one text chain; without this they're
+// invisible to the per-participant sync. Each message attributes to ONE
+// canonical contact (the first owner-type participant, else the first
+// known contact), keeping the whole thread coherent under one owner.
+// Dedupe is by quo_message_id (unique), so a thread already partly synced
+// 1:1 won't double-insert.
+async function pullGroupConversations(
+  ourNum: QuoPhoneNumber,
+  targets: Map<string, Target>,
+  since: string,
+  summary: SyncSummary,
+): Promise<void> {
+  let convToken: string | undefined;
+  for (let page = 0; page < 40; page += 1) {
+    const res = await listConversations({
+      phoneNumberId: ourNum.id,
+      pageToken: convToken,
+    });
+    for (const conv of res.data) {
+      const participants = conv.participants ?? [];
+      if (participants.length < 2) continue; // 1:1 already handled above
+
+      // Which participants do we recognize? Prefer an owner contact as the
+      // canonical attribution target for the whole thread.
+      const known = participants
+        .map((p) => targets.get(p))
+        .filter((t): t is Target => Boolean(t?.contact));
+      if (known.length === 0) continue;
+      const canonical =
+        known.find((t) => t.contact?.type === 'owner') ?? known[0];
+
+      let msgToken: string | undefined;
+      for (let mp = 0; mp < 20; mp += 1) {
+        const mres = await listMessages({
+          phoneNumberId: ourNum.id,
+          participants,
+          createdAfter: since,
+          pageToken: msgToken,
+        });
+        for (const msg of mres.data) {
+          summary.messages_seen++;
+          if (msg.direction === 'incoming') {
+            // Attribute an inbound to whichever known participant sent it,
+            // falling back to the canonical owner if the sender isn't a
+            // tracked contact (e.g. a team member's personal phone).
+            const sender = targets.get(msg.from);
+            const t = sender?.contact ? sender : canonical;
+            const inserted = await ingestInboundMessage(msg, t);
+            if (inserted.touch) summary.messages_inserted++;
+            if (inserted.cleaning) summary.cleaning_completions_inserted++;
+          } else {
+            const inserted = await ingestOutboundMessage(msg, canonical);
+            if (inserted) summary.messages_inserted++;
+          }
+        }
+        if (!mres.nextPageToken) break;
+        msgToken = mres.nextPageToken;
+      }
+    }
+    if (!res.nextPageToken) break;
+    convToken = res.nextPageToken;
   }
 }
 
