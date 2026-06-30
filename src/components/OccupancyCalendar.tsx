@@ -355,6 +355,10 @@ function PropertyCalendarRow({
             {startsVisually && pm && (() => {
               const label = displayLabel(pm.guest_name);
               const isHold = label === 'Hold';
+              // Guest is in residence: they physically keyed in on a guest code
+              // during this (current) stay. Only the active stay ever carries
+              // guestArrivedAt, so a set value is an unambiguous "they're home."
+              const inResidence = !!pm.guestArrivedAt;
               // The bar's visible left edge is mid-cell on a real check-in
               // (right half filled) and the cell's left edge on a window-edge
               // already-in-progress stay (both halves filled). Anchor the
@@ -392,6 +396,19 @@ function PropertyCalendarRow({
                     opacity: 1,
                   }}
                 >
+                  {inResidence && (
+                    <span
+                      aria-label="Guest in residence"
+                      style={{
+                        color: 'var(--positive)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <HomeGlyph />
+                    </span>
+                  )}
                   {label}
                 </span>
               );
@@ -414,6 +431,7 @@ function PropertyCalendarRow({
               nights: primary.nights,
               hostPayout: primary.host_payout,
               confirmationCode: primary.confirmation_code,
+              guestArrivedAt: primary.guestArrivedAt,
             }}
           >
             {cellInner}
@@ -421,6 +439,24 @@ function PropertyCalendarRow({
         );
       })}
     </div>
+  );
+}
+
+/** Filled house silhouette — marks a stay whose guest has physically keyed in
+ *  and is in residence right now. Inherits color from its wrapper (--positive).
+ *  Sized to sit inline before the guest name without crowding the bar. */
+function HomeGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+      style={{ marginRight: 3, verticalAlign: '-1px' }}
+    >
+      <path d="M12 3 2 11h2.2v9H10v-5.5h4V20h5.8v-9H22z" />
+    </svg>
   );
 }
 

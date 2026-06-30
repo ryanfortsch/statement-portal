@@ -5,6 +5,7 @@ import {
   listDevices,
   normalizeFromDevice,
   ingestDeviceBattery,
+  resolveAccessCodeInventory,
 } from '@/lib/seam';
 import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
 import { resolveInspectorCodeId } from '@/lib/inspection-sessions';
@@ -55,6 +56,7 @@ export async function POST() {
       unmapped: 0,
       low_count: 0,
       slips_created: 0,
+      codes_registered: 0,
       devices: [] as DeviceSummary[],
       errors: [] as string[],
     };
@@ -80,9 +82,13 @@ export async function POST() {
         // locks so the webhook can tell a 2222 cleaner unlock from a master /
         // inspection code unlock. The inspector resolve is a no-op until
         // SEAM_INSPECTION_CODE is set, so it stays dark by default.
+        // Also register the full code inventory (id -> name/role) so the
+        // Operations calendar can tell a GUEST keypad entry from an owner /
+        // staff / cleaner unlock and light a "guest in residence" indicator.
         if (res.propertyId) {
           await resolveCleanerCodeId(supabase, res.deviceId);
           await resolveInspectorCodeId(supabase, res.deviceId);
+          summary.codes_registered += await resolveAccessCodeInventory(supabase, res.deviceId);
         }
       } catch (err) {
         summary.errors.push(

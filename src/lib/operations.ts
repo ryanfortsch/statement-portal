@@ -62,6 +62,13 @@ export const VALID_CALENDAR_RANGES: CalendarRange[] = ['7d', '14d', '30d'];
 // bars already in motion when they cross the today line.
 export const CALENDAR_LOOKBACK_DAYS = 2;
 
+// How far back to read lock.unlocked events for the calendar's guest-presence
+// signal. A current stay's check-in can predate the visible window by up to a
+// max stay length, so we look back further than the calendar lookback to catch
+// a guest who keyed in a week ago and is still in residence. The lock_events
+// volume is small (a few hundred unlocks across all locks), so this is cheap.
+const PRESENCE_LOOKBACK_DAYS = 30;
+
 // Properties Rising Tide doesn't physically inspect (out-of-region, owner
 // handles cleaning + turnovers locally). They stay in the registry for
 // statements/revenue but are hidden from the turnover pipeline + calendar
@@ -85,6 +92,41 @@ function addDaysStr(base: string, days: number): string {
   const d = new Date(`${base}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split('T')[0];
+}
+
+// The Eastern calendar date (YYYY-MM-DD) of an instant. Lock events are stored
+// in UTC, but a stay's check_in / check_out are Gloucester (Eastern) dates, so
+// we compare a keypad entry to the stay window by its Eastern date -- otherwise
+// a 9pm-ET entry (01:00 UTC next day) would land on the wrong calendar day.
+const EASTERN_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+function easternDateStr(iso: string): string {
+  return EASTERN_DATE_FMT.format(new Date(iso));
+}
+
+// Significant lowercase tokens (>= 3 chars) of a name, for matching a lock code
+// name to a reservation's guest. Drops short joiners so "Julie Polvinen" ->
+// {julie, polvinen} and a one-letter initial can't cause a spurious match.
+function nameTokens(name: string | null): Set<string> {
+  const out = new Set<string>();
+  for (const t of (name ?? '').toLowerCase().split(/[^a-z0-9]+/)) {
+    if (t.length >= 3) out.add(t);
+  }
+  return out;
+}
+
+// Does a guest-role lock code belong to THIS stay? True when the code is a
+// generic guest code (name contains "guest", e.g. "September Guest Code") or
+// when it shares a name token with the stay's guest (e.g. a "Julie Polvinen"
+// code for guest Julie). A blank-named guest code passes as generic (it's still
+// a guest-role PIN), but a leftover personal-named code for a different guest
+// is rejected, so the wrong name never lights up.
+function codeFitsGuest(codeName: string | null, guestTokens: Set<string>): boolean {
+  const n = (codeName ?? '').toLowerCase();
+  if (!n.trim() || /guest/.test(n)) return true;
+  for (const t of nameTokens(codeName)) {
+    if (guestTokens.has(t)) return true;
+  }
+  return false;
 }
 
 /** The earlier of two ISO timestamps, ignoring nulls (null if both null).
@@ -113,6 +155,14 @@ export type ReservationRow = {
   // "payout" line; confirmation_code rides as a small monospaced trailer.
   host_payout: number | null;
   confirmation_code: string | null;
+  /** When this stay is the one happening RIGHT NOW (check_in <= today <
+   *  check_out) on a lock-monitored property AND the guest has physically keyed
+   *  in (a keycode unlock on a GUEST-role code during the stay), this is the
+   *  ISO timestamp of that first entry. The calendar lights a "guest in
+   *  residence" home glyph off it. null for past / future / lockless stays, and
+   *  for a current stay where no guest keypad entry has been seen yet -- so the
+   *  signal only ever appears as a positive fact, never a guess. */
+  guestArrivedAt: string | null;
 };
 
 export type InspectionRow = {
@@ -340,6 +390,7 @@ export async function loadOperationsData(
       status: b.status,
       host_payout: b.payout,
       confirmation_code: b.external_confirmation_code,
+      guestArrivedAt: null,
     }))
     .filter(
       (r) =>
@@ -465,6 +516,8 @@ export async function loadOperationsData(
     { data: cleaningSessionData },
     { data: lockDeviceData },
     { data: inspectionSessionData },
+    { data: guestCodeData },
+    { data: unlockEventData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -499,7 +552,7 @@ export async function loadOperationsData(
     // lockless. Near-zero added cost: parallels the battery read above.
     supabase
       .from('lock_devices')
-      .select('property_id')
+      .select('property_id, device_id')
       .in('property_id', propertyIdList)
       .eq('active', true),
     // The lock-driven "inspection underway" signal (a master / inspection code
@@ -511,6 +564,26 @@ export async function loadOperationsData(
       .from('inspection_sessions')
       .select('property_id, checkout_date, started_at, started_source')
       .gte('checkout_date', fetchStart),
+    // Guest-presence inputs (calendar). guestCodeData = which access_code_ids
+    // are GUEST codes per device (vs cleaner / owner / staff); unlockEventData =
+    // recent keypad unlocks. Joined below so a stay bar can show the guest is
+    // in residence the moment they key in. Both degrade to "no signal" (null
+    // data) if lock_access_codes isn't applied yet -- never breaks the page.
+    supabase
+      .from('lock_access_codes')
+      .select('device_id, access_code_id, name, role')
+      .eq('role', 'guest'),
+    // Newest-first + an explicit cap above the implicit 1000-row PostgREST
+    // default: presence only cares about the current stay, so if the unlock
+    // volume ever outgrows the cap, the rows we drop are the OLDEST (outside any
+    // active window), never a recent guest entry. ~475 unlocks / 30d today.
+    supabase
+      .from('lock_events')
+      .select('device_id, payload')
+      .eq('event_type', 'lock.unlocked')
+      .gte('received_at', addDaysStr(rangeStart, -PRESENCE_LOOKBACK_DAYS))
+      .order('received_at', { ascending: false })
+      .limit(4000),
   ]);
 
   // Set of properties with a live smart lock. Anything not in here is a
@@ -518,8 +591,88 @@ export async function loadOperationsData(
   // manual) -> inspected -> ready, with no lock-only "Cleaner in"/"Cleaning"
   // stages and no false "Awaiting cleaner" pulse.
   const monitoredPropertyIds = new Set<string>();
-  for (const row of (lockDeviceData ?? []) as Array<{ property_id: string | null }>) {
+  // device_id -> property_id, so a lock_events row (which carries only a device)
+  // can be attributed to a property for the guest-presence signal below.
+  const deviceToProperty = new Map<string, string>();
+  for (const row of (lockDeviceData ?? []) as Array<{ property_id: string | null; device_id: string | null }>) {
     if (row.property_id) monitoredPropertyIds.add(row.property_id);
+    if (row.property_id && row.device_id) deviceToProperty.set(row.device_id, row.property_id);
+  }
+
+  // Guest-presence signal for the calendar. We build, per property, the times a
+  // GUEST keypad code was used (a real "someone keyed in" fact; cleaner / owner
+  // / staff / repair codes are excluded by role, and thumbturn 'manual' unlocks
+  // carry no code so they're ignored). Each active stay then claims the earliest
+  // such entry inside its own window as its arrival time.
+  //
+  // device_id -> (access_code_id -> code name). The name lets the attribution
+  // below stay precise: an entry counts for a stay only if it's a generic guest
+  // code OR its name matches that stay's guest, so a leftover personal-named
+  // code can't light the wrong guest.
+  const guestCodeNameByDevice = new Map<string, Map<string, string | null>>();
+  for (const row of (guestCodeData ?? []) as Array<{ device_id: string; access_code_id: string; name: string | null; role: string }>) {
+    const m = guestCodeNameByDevice.get(row.device_id) ?? new Map<string, string | null>();
+    m.set(row.access_code_id, row.name);
+    guestCodeNameByDevice.set(row.device_id, m);
+  }
+
+  // property_id -> ascending list of guest keypad entries ({ at, codeName }).
+  type GuestEntry = { at: string; codeName: string | null };
+  const guestEntriesByProperty = new Map<string, GuestEntry[]>();
+  for (const row of (unlockEventData ?? []) as Array<{
+    device_id: string | null;
+    payload: { method?: string | null; access_code_id?: string | null; occurred_at?: string | null } | null;
+  }>) {
+    const deviceId = row.device_id;
+    const p = row.payload;
+    if (!deviceId || !p) continue;
+    // Only a keypad PIN entry signals an arrival; thumbturn / mobile / manual
+    // unlocks (no access_code_id) are not a code we can attribute to a guest.
+    if ((p.method ?? '').toLowerCase() !== 'keycode') continue;
+    const codeId = p.access_code_id;
+    const occurredAt = p.occurred_at;
+    if (!codeId || !occurredAt) continue;
+    const codeMap = guestCodeNameByDevice.get(deviceId);
+    if (!codeMap || !codeMap.has(codeId)) continue; // not a guest-role code
+    const propertyId = deviceToProperty.get(deviceId);
+    if (!propertyId) continue;
+    const arr = guestEntriesByProperty.get(propertyId) ?? [];
+    arr.push({ at: occurredAt, codeName: codeMap.get(codeId) ?? null });
+    guestEntriesByProperty.set(propertyId, arr);
+  }
+  for (const arr of guestEntriesByProperty.values()) {
+    arr.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  }
+
+  // Stamp the arrival time onto the stay that is happening RIGHT NOW. A stay is
+  // "current" when check_in <= today < check_out; only then does a guest's
+  // keypad entry mean "they're in residence" (a past stay is over, a future one
+  // hasn't started). We claim the earliest guest entry whose Eastern date falls
+  // inside [check_in, check_out], whose instant is already past, AND whose code
+  // is a generic guest code or matches this stay's guest name. Mutating the
+  // reservation object here flows straight into the calendar cells below, which
+  // reference these same objects by identity.
+  const presenceNowMs = Date.now();
+  // Eastern "today" (not the module's UTC rangeStart) for the current-stay gate,
+  // so it agrees with the Eastern window check just below and with check_in /
+  // check_out, which are Gloucester dates. Using UTC here would drop the glyph
+  // during the guest's true last evening (7pm-midnight ET, already "tomorrow" in
+  // UTC) even though they're still in the house.
+  const easternToday = easternDateStr(new Date(presenceNowMs).toISOString());
+  for (const r of reservations) {
+    if (!monitoredPropertyIds.has(r.property_id)) continue;
+    if (!(r.check_in <= easternToday && easternToday < r.check_out)) continue;
+    const entries = guestEntriesByProperty.get(r.property_id);
+    if (!entries) continue;
+    const guestTokens = nameTokens(r.guest_name);
+    for (const e of entries) {
+      if (Date.parse(e.at) > presenceNowMs) break; // ascending: nothing later qualifies
+      const etDate = easternDateStr(e.at);
+      if (etDate < r.check_in || etDate > r.check_out) continue;
+      if (!codeFitsGuest(e.codeName, guestTokens)) continue;
+      r.guestArrivedAt = e.at;
+      break; // earliest qualifying entry wins
+    }
   }
 
   const completionByKey = new Map<string, { completedAt: string; by: string | null }>();
