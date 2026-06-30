@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
@@ -83,10 +83,10 @@ export default async function ApplicantsPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="operations" />
+      <HelmMasthead current="field" />
+      <FieldTabs current="hiring" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/contractors" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Contractors</Link>
-        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Applicants</div>
+        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Applicants</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 620 }}>
           People who applied through the public link. Invite the good ones (we email them a portal link and they
           onboard themselves) or decline. Post the job anywhere and point it at these links:
