@@ -94,7 +94,7 @@ export function FieldShell({
           textAlign: 'center',
         }}
       >
-        Rising Tide STR · Gloucester, MA · (978) 865-2387
+        Rising Tide STR · Gloucester, MA · <a href="tel:+19788652387" style={{ color: 'inherit' }}>(978) 865-2387</a>
       </footer>
     </div>
   );
