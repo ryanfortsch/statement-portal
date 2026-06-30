@@ -23,11 +23,11 @@ export function FieldShell({
       <header
         style={{
           borderBottom: '1px solid var(--rule)',
-          padding: '18px 24px',
+          padding: '16px clamp(16px, 5vw, 24px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 16,
+          gap: 12,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -79,13 +79,13 @@ export function FieldShell({
           )}
         </div>
       </header>
-      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: '32px 24px 64px' }}>
+      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 64px' }}>
         {children}
       </main>
       <footer
         style={{
           borderTop: '1px solid var(--rule)',
-          padding: '16px 24px',
+          padding: '16px clamp(16px, 5vw, 24px)',
           fontSize: 11,
           color: 'var(--ink-4)',
           letterSpacing: '0.06em',
