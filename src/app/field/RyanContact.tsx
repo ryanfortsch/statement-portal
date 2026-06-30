@@ -13,9 +13,9 @@ const PHOTO_SRC = '/ryan.jpg';
  * him, call him, or send a note in-app (delivered to Ryan, reply-to the
  * contractor). Rendered in FieldShell only when a contractor is signed in.
  *
- * The portrait is duotoned to the brand (navy shadows, warm-paper highlights)
- * via an inline SVG filter so a phone snapshot reads like it belongs here;
- * falls back to a navy monogram if the photo file isn't present yet.
+ * The portrait is Ryan's real photo in natural color (a warm, human face is
+ * the whole point of "reach a real person"); falls back to a navy monogram if
+ * the photo file (public/ryan.jpg) isn't present yet.
  */
 export function RyanContact() {
   const [open, setOpen] = useState(false);
@@ -49,7 +49,6 @@ export function RyanContact() {
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 clamp(16px,5vw,24px)', width: '100%' }}>
-      <Duotone />
       <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, paddingBottom: 8 }}>
         {/* Collapsed trigger */}
         <button
@@ -58,7 +57,7 @@ export function RyanContact() {
           aria-expanded={open}
           style={{ boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', width: '100%', background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left', outlineOffset: 3 }}
         >
-          <Portrait size={40} />
+          <Portrait size={46} />
           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span className="font-serif" style={{ fontSize: 16, color: 'var(--ink)', lineHeight: 1.2 }}>
               Have a question?
@@ -117,27 +116,6 @@ export function RyanContact() {
   );
 }
 
-/** The brand duotone filter, declared once, off-screen. */
-function Duotone() {
-  return (
-    <svg width="0" height="0" style={{ position: 'absolute', overflow: 'hidden' }} aria-hidden focusable="false">
-      {/* Soft brand duotone: shadows to ink-2 (not pure navy), a warm midtone
-          stop so skin doesn't posterize, highlights to warm paper. */}
-      <filter id="rt-duotone" colorInterpolationFilters="sRGB">
-        <feColorMatrix
-          type="matrix"
-          values="0.33 0.34 0.33 0 0  0.33 0.34 0.33 0 0  0.33 0.34 0.33 0 0  0 0 0 1 0"
-        />
-        <feComponentTransfer>
-          <feFuncR type="table" tableValues="0.094 0.52 0.92" />
-          <feFuncG type="table" tableValues="0.216 0.45 0.90" />
-          <feFuncB type="table" tableValues="0.361 0.38 0.84" />
-        </feComponentTransfer>
-      </filter>
-    </svg>
-  );
-}
-
 function Portrait({ size }: { size: number }) {
   const [ok, setOk] = useState(true);
   if (!ok) {
@@ -158,7 +136,7 @@ function Portrait({ size }: { size: number }) {
         src={PHOTO_SRC}
         alt="Ryan, Rising Tide"
         onError={() => setOk(false)}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 28%', filter: 'url(#rt-duotone)', display: 'block' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 22%', display: 'block' }}
       />
     </span>
   );
