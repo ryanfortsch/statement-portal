@@ -46,7 +46,17 @@ import {
 // Same exclusions the Operations turnover pipeline uses: out-of-region
 // properties Rising Tide doesn't physically inspect.
 const NON_OPERATIONS_PROPERTY_IDS = new Set(['65_calderwood', '3246_ne_27th']);
+// A guest reservation is a turnover to PREP (inspect before the next arrival).
 const TURNOVER_STATUSES = ['confirmed', 'completed'];
+// An owner / manual "block" (Guesty owner-use, etc.) means the home is OCCUPIED
+// but is NOT a turnover: it must count as occupancy (never send someone to
+// inspect into it, and its end is a valid checkout boundary) yet must never
+// generate inspection work or a deadline. Occupancy queries fetch this superset;
+// turnover/candidate logic re-filters to guest stays via isGuestStay().
+const BLOCK_STATUS = 'block';
+const OCCUPANCY_STATUSES = [...TURNOVER_STATUSES, BLOCK_STATUS];
+const isGuestStay = (b: { status: string | null }): boolean =>
+  TURNOVER_STATUSES.includes(b.status ?? '');
 
 // Clustering + pricing knobs now live in @/lib/field-pricing (shared with the
 // operator's live preview so the two can't drift).
@@ -147,7 +157,7 @@ async function deriveDayCandidates(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', fetchEnd)
     .gte('check_out', fetchStart)
@@ -182,8 +192,12 @@ async function deriveDayCandidates(
     const occupiedOn = (d: string) =>
       propBookings.some((b) => b.check_in <= d && d < b.check_out);
 
-    // Each upcoming check-in within the window is a reason to inspect.
-    const upcoming = propBookings.filter((b) => b.check_in >= windowStart && b.check_in <= windowEnd);
+    // Each upcoming GUEST check-in within the window is a reason to inspect.
+    // Owner/manual blocks are occupancy only (occupiedOn / priorCheckout below
+    // see them), never a turnover to prep.
+    const upcoming = propBookings.filter(
+      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd,
+    );
     for (const stay of upcoming) {
       const checkIn = stay.check_in;
       // Most recent checkout on/before this check-in (the turnover this preps).
@@ -547,7 +561,7 @@ async function staleStopIds(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('property_id')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', ids)
     .lt('check_in', visitDate)
@@ -837,7 +851,7 @@ async function candidatesForDay(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', addDays(day, 365))
     .gte('check_out', addDays(day, -30));
@@ -861,8 +875,8 @@ async function candidatesForDay(
   for (const p of properties) {
     if (blocked.has(p.id)) continue;
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
-    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight
-    const next = pb.find((b) => b.check_in > day) ?? null;
+    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight (guest or owner block)
+    const next = pb.find((b) => isGuestStay(b) && b.check_in > day) ?? null; // next GUEST arrival to prep for
     const priorCheckout = pb.filter((b) => b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
     let basis: WindowBasis = 'vacant';
     if (priorCheckout && day === priorCheckout) basis = 'checkout_day';
@@ -1220,7 +1234,7 @@ export async function suggestRecurringInspections(): Promise<number> {
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', horizonEnd)
     .gte('check_out', today);
@@ -1258,8 +1272,9 @@ export async function suggestRecurringInspections(): Promise<number> {
     if (covered.has(p.id)) continue;
     const bks = byProp.get(p.id) ?? [];
     // Skip homes with a guest arriving or leaving within the cadence window —
-    // the normal turnover flow will surface those days on the board.
-    if (bks.some((b) => (b.check_out >= today && b.check_out <= cadenceEnd) || (b.check_in >= today && b.check_in <= cadenceEnd))) {
+    // the normal turnover flow will surface those days on the board. (Owner
+    // blocks aren't turnovers; occupiedOn below just avoids their days.)
+    if (bks.some((b) => isGuestStay(b) && ((b.check_out >= today && b.check_out <= cadenceEnd) || (b.check_in >= today && b.check_in <= cadenceEnd)))) {
       continue;
     }
     const last = lastInspected.get(p.id);
@@ -1451,7 +1466,7 @@ export async function loadInspectionCalendar(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', propIds)
     .lte('check_in', fetchEnd)
@@ -1489,17 +1504,18 @@ export async function loadInspectionCalendar(
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
     const uncovered = pb.filter(
-      (b) => b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
+      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
     );
     if (uncovered.length === 0) continue;
     const nextDeadline = uncovered.map((b) => b.check_in).sort()[0];
 
     const cells: CalCell[] = days.map((D) => {
-      const occupied = pb.some((b) => b.check_in <= D && D < b.check_out);
-      const isBlocked = blocked.has(`${p.id}:${D}`);
-      const checkIn = pb.some((b) => b.check_in === D);
-      const state: CalCellState = isBlocked ? 'blocked' : occupied ? 'occupied' : 'open';
-      const next = pb.find((b) => b.check_in > D);
+      const guestOccupied = pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out);
+      const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
+      const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied;
+      const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
+      const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
+      const next = pb.find((b) => isGuestStay(b) && b.check_in > D);
       const nextCovered = !!next && coveredBookings.has(next.id);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
       const covered = state === 'open' && nextCovered;
