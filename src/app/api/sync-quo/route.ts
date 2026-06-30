@@ -159,22 +159,31 @@ async function pullMessages(
   since: string,
   summary: SyncSummary,
 ): Promise<void> {
-  const res = await listMessages({
-    phoneNumberId: ourNum.id,
-    participants: [participant],
-    createdAfter: since,
-    maxResults: 100,
-  });
-  for (const msg of res.data) {
-    summary.messages_seen++;
-    if (msg.direction === 'incoming') {
-      const inserted = await ingestInboundMessage(msg, target);
-      if (inserted.touch) summary.messages_inserted++;
-      if (inserted.cleaning) summary.cleaning_completions_inserted++;
-    } else {
-      const inserted = await ingestOutboundMessage(msg, target);
-      if (inserted) summary.messages_inserted++;
+  // Page through the window. Quo caps page size at 50, so a chatty
+  // participant over a 30-day backfill needs the pageToken loop or we
+  // silently drop everything past the first 50. Bounded at 20 pages
+  // (1000 messages) per participant as a runaway guard.
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20; page += 1) {
+    const res = await listMessages({
+      phoneNumberId: ourNum.id,
+      participants: [participant],
+      createdAfter: since,
+      pageToken,
+    });
+    for (const msg of res.data) {
+      summary.messages_seen++;
+      if (msg.direction === 'incoming') {
+        const inserted = await ingestInboundMessage(msg, target);
+        if (inserted.touch) summary.messages_inserted++;
+        if (inserted.cleaning) summary.cleaning_completions_inserted++;
+      } else {
+        const inserted = await ingestOutboundMessage(msg, target);
+        if (inserted) summary.messages_inserted++;
+      }
     }
+    if (!res.nextPageToken) break;
+    pageToken = res.nextPageToken;
   }
 }
 
@@ -185,16 +194,21 @@ async function pullCalls(
   since: string,
   summary: SyncSummary,
 ): Promise<void> {
-  const res = await listCalls({
-    phoneNumberId: ourNum.id,
-    participants: [participant],
-    createdAfter: since,
-    maxResults: 100,
-  });
-  for (const call of res.data) {
-    summary.calls_seen++;
-    const inserted = await ingestCall(call, target);
-    if (inserted) summary.calls_inserted++;
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20; page += 1) {
+    const res = await listCalls({
+      phoneNumberId: ourNum.id,
+      participants: [participant],
+      createdAfter: since,
+      pageToken,
+    });
+    for (const call of res.data) {
+      summary.calls_seen++;
+      const inserted = await ingestCall(call, target);
+      if (inserted) summary.calls_inserted++;
+    }
+    if (!res.nextPageToken) break;
+    pageToken = res.nextPageToken;
   }
 }
 
