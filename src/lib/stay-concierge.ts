@@ -409,6 +409,80 @@ export async function saveOwnerCuratedFacts(content: string) {
   });
 }
 
+// ── Cleaner-messaging surface (bilingual; Portuguese drafts) ───────────
+
+export type CleanerApproval = {
+  id: string;
+  short_id: string;
+  channel: string;                  // 'sms_quo'
+  cleaner_contact: string;          // E.164 phone
+  cleaner_name: string;
+  property_id: string;
+  property_name: string;
+  external_thread_id: string;
+  external_message_id: string;
+  cleaner_text: string;             // verbatim — usually Portuguese
+  cleaner_text_english: string;     // LLM translation; empty if input was already EN
+  inbound_language: 'pt' | 'en' | 'mixed' | string;
+  draft: string;                    // Portuguese — what gets sent on approve
+  draft_english: string;            // English translation for operator audit
+  topic: string;
+  status: string;
+  final_response: string;
+  created_at: string;
+  resolved_at: string | null;
+  age_minutes: number | null;
+};
+
+export type CleanerApprovalsResponse = {
+  approvals: CleanerApproval[];
+  count: number;
+};
+
+export async function listCleanerApprovals() {
+  return request<CleanerApprovalsResponse>('/api/cleaner-approvals');
+}
+
+export async function listRecentCleanerApprovals(hours = 24) {
+  return request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`);
+}
+
+export async function approveCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/approve`, { method: 'POST' });
+}
+
+export async function rejectCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/reject`, { method: 'POST' });
+}
+
+export async function markHandledCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+export async function coachCleanerApproval(id: string, feedback: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/coach`, {
+    method: 'POST',
+    body: { feedback },
+  });
+}
+
+export type CleanerCuratedFacts = {
+  content: string;
+  path: string;
+  bytes: number;
+};
+
+export async function getCleanerCuratedFacts() {
+  return request<CleanerCuratedFacts>('/api/cleaner-curated-facts');
+}
+
+export async function saveCleanerCuratedFacts(content: string) {
+  return request<{ ok: true; bytes: number }>('/api/cleaner-curated-facts', {
+    method: 'PUT',
+    body: { content },
+  });
+}
+
 export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }

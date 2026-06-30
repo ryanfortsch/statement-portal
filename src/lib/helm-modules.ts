@@ -188,6 +188,15 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
   },
   {
+    id: 'cleaner-messaging',
+    href: '/cleaner-messaging',
+    number: '08c',
+    title: 'Cleaner Messaging',
+    description: 'Bilingual reply drafts for Rosa and Nina. Portuguese draft + English translation side-by-side, plus translation of their inbound message. Approve, reject, or coach the AI from Helm.',
+    status: 'active',
+    primary: false,
+  },
+  {
     id: 'revenue',
     href: '/revenue',
     number: '10',
