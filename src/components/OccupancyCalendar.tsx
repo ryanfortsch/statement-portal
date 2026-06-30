@@ -7,7 +7,7 @@ import type { CalendarData } from '@/lib/operations';
 /**
  * Portfolio occupancy calendar: one row per property, one column per day.
  * Stays render as channel-tinted bars using the half-cell model every
- * booking calendar uses — a bar starts at the CENTER of its check-in day
+ * booking calendar uses: a bar starts at the CENTER of its check-in day
  * (right half filled) and ends at the CENTER of its check-out day (left
  * half filled). That makes check-ins and, critically, check-outs legible:
  * a checkout is a bar ending mid-cell, not an empty square that looks like
@@ -33,7 +33,7 @@ const CHANNEL_LEGEND: { label: string; channel: string }[] = [
 export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
   return (
     <div>
-      {/* Channel legend — decodes the bar tint on each stay. */}
+      {/* Channel legend: decodes the bar tint on each stay. */}
       <div className="flex items-center flex-wrap" style={{ gap: 14, marginBottom: 6 }}>
         {CHANNEL_LEGEND.map((c) => (
           <span
@@ -310,9 +310,9 @@ function PropertyCalendarRow({
               opacity: isPast ? 0.55 : 1,
             }}
           >
-            {/* AM (left) half — morning occupant. On a checkout day this is
+            {/* AM (left) half: morning occupant. On a checkout day this is
                 the departing guest and the bar ENDS here: rounded + capped at
-                the cell's center, which is the whole point — checkouts become
+                the cell's center, which is the whole point: checkouts become
                 visible instead of looking like a plain vacancy. */}
             {am && (
               <div
@@ -332,7 +332,7 @@ function PropertyCalendarRow({
                 }}
               />
             )}
-            {/* PM (right) half — night occupant. On a check-in day the bar
+            {/* PM (right) half: night occupant. On a check-in day the bar
                 STARTS here: rounded + capped at the cell's center. */}
             {pm && (
               <div
@@ -442,7 +442,7 @@ function PropertyCalendarRow({
   );
 }
 
-/** Filled house silhouette — marks a stay whose guest has physically keyed in
+/** Filled house silhouette: marks a stay whose guest has physically keyed in
  *  and is in residence right now. Inherits color from its wrapper (--positive).
  *  Sized to sit inline before the guest name without crowding the bar. */
 function HomeGlyph() {

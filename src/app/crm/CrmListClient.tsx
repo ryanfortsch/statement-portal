@@ -5,10 +5,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
 import type { LastTouch } from './page';
-import { createContact, addUnknownAsContact, dismissUnknownNumber } from './actions';
+import {
+  createContact,
+  addUnknownAsContact,
+  dismissUnknownNumber,
+  attachUnknownToContact,
+  acceptContactSuggestion,
+  dismissContactSuggestion,
+} from './actions';
 import { SyncGmailButton } from './SyncGmailButton';
 import { SyncQuoButton } from './SyncQuoButton';
+import { SyncQuoContactsButton } from './SyncQuoContactsButton';
 
 type PropertyMini = { id: string; name: string };
 
@@ -18,11 +27,12 @@ type Props = {
   counts: Record<ContactType | 'all', number>;
   lastTouchByContact: Record<string, LastTouch>;
   unknownNumbers: UnknownNumberRow[];
+  suggestions: ContactReconcileSuggestionRow[];
 };
 
 type FilterId = 'all' | ContactType;
 
-export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers }: Props) {
+export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, suggestions }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<FilterId>('all');
   const [query, setQuery] = useState('');
@@ -30,8 +40,27 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
   const [promotePhone, setPromotePhone] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [busyPhone, setBusyPhone] = useState<string | null>(null);
+  // Per-unknown-row "attach to existing contact" selection + inline result.
+  const [attachSel, setAttachSel] = useState<Record<string, string>>({});
+  const [attachMsg, setAttachMsg] = useState<Record<string, string>>({});
+  // Suggestions: dismissed row IDs (optimistic hide), busy id, add-contact type picker.
+  const [hiddenSuggestions, setHiddenSuggestions] = useState<Set<string>>(new Set());
+  const [busySuggestion, setBusySuggestion] = useState<string | null>(null);
+  const [suggestionTypeFor, setSuggestionTypeFor] = useState<Record<string, ContactType>>({});
+  const [suggestionErr, setSuggestionErr] = useState<Record<string, string>>({});
 
   const propertyMap = useMemo(() => new Map(properties.map((p) => [p.id, p.name])), [properties]);
+
+  // Contacts for the attach picker: phone-less ones first (the likely targets,
+  // e.g. an owner missing their number), each sorted by name.
+  const attachOptions = useMemo(() => {
+    return [...contacts].sort((a, b) => {
+      const ap = a.phone ? 1 : 0;
+      const bp = b.phone ? 1 : 0;
+      if (ap !== bp) return ap - bp;
+      return a.name.localeCompare(b.name);
+    });
+  }, [contacts]);
 
   const visibleUnknowns = useMemo(
     () => unknownNumbers.filter((u) => !hidden.has(u.phone)),
@@ -45,6 +74,58 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
     if (res.ok) {
       setHidden((h) => new Set(h).add(phone));
       router.refresh();
+    }
+  }
+
+  async function onAttach(phone: string) {
+    const contactId = attachSel[phone];
+    if (!contactId) return;
+    setBusyPhone(phone);
+    const res = await attachUnknownToContact({ phone, contactId });
+    setBusyPhone(null);
+    if (res.ok) {
+      if (res.filled) {
+        setHidden((h) => new Set(h).add(phone));
+        router.refresh();
+      } else {
+        // Linked, but the contact already had a different primary number, so
+        // this one won't auto-recognize. Keep the row visible with a note.
+        setAttachMsg((m) => ({
+          ...m,
+          [phone]: `Linked to ${res.contactName}, but they already have a primary phone, so edit the contact to make this their main number.`,
+        }));
+      }
+    } else {
+      setAttachMsg((m) => ({ ...m, [phone]: res.error }));
+    }
+  }
+
+  const visibleSuggestions = useMemo(
+    () => suggestions.filter((s) => !hiddenSuggestions.has(s.id)),
+    [suggestions, hiddenSuggestions],
+  );
+
+  async function onAcceptSuggestion(s: ContactReconcileSuggestionRow) {
+    setBusySuggestion(s.id);
+    setSuggestionErr((m) => { const n = { ...m }; delete n[s.id]; return n; });
+    const contactType = suggestionTypeFor[s.id] ?? 'other';
+    const res = await acceptContactSuggestion({ id: s.id, contactType });
+    setBusySuggestion(null);
+    if (!res.ok) {
+      setSuggestionErr((m) => ({ ...m, [s.id]: res.error }));
+      return;
+    }
+    setHiddenSuggestions((h) => new Set(h).add(s.id));
+    router.refresh();
+    if (res.contactId) router.push(`/crm/${res.contactId}`);
+  }
+
+  async function onDismissSuggestion(id: string) {
+    setBusySuggestion(id);
+    const res = await dismissContactSuggestion({ id });
+    setBusySuggestion(null);
+    if (res.ok) {
+      setHiddenSuggestions((h) => new Set(h).add(id));
     }
   }
 
@@ -68,6 +149,74 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
 
   return (
     <>
+      {/* QUO ADDRESS BOOK SUGGESTIONS */}
+      {visibleSuggestions.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
+          <div style={{ border: '1px solid var(--tide)', padding: '16px 18px' }}>
+            <div className="eyebrow" style={{ color: 'var(--tide)', marginBottom: 12 }}>
+              From your Quo address book · {visibleSuggestions.length}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {visibleSuggestions.map((s) => (
+                <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                      {s.suggested_name ?? formatPhone(s.phone ?? '')}
+                    </span>
+                    {s.phone && s.suggested_name && (
+                      <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                        {formatPhone(s.phone)}
+                      </span>
+                    )}
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', minWidth: 160 }}>
+                      {s.reason}
+                    </span>
+                    {s.suggestion_type === 'add_contact' && (
+                      <select
+                        value={suggestionTypeFor[s.id] ?? 'other'}
+                        onChange={(e) => setSuggestionTypeFor((m) => ({ ...m, [s.id]: e.target.value as ContactType }))}
+                        style={{
+                          fontSize: 11,
+                          padding: '5px 7px',
+                          border: '1px solid var(--rule)',
+                          background: 'var(--paper)',
+                          color: 'var(--ink)',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <option value="owner">Owner</option>
+                        <option value="vendor">Vendor</option>
+                        <option value="lead">Lead</option>
+                        <option value="other">Other</option>
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busySuggestion === s.id}
+                      onClick={() => onAcceptSuggestion(s)}
+                      style={smallBtn(true)}
+                    >
+                      {busySuggestion === s.id ? '…' : suggestionLabel(s.suggestion_type)}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busySuggestion === s.id}
+                      onClick={() => onDismissSuggestion(s.id)}
+                      style={smallBtn(false)}
+                    >
+                      Skip
+                    </button>
+                  </div>
+                  {suggestionErr[s.id] && (
+                    <div style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* NEW NUMBERS REACHING OUT — Quo triage queue */}
       {visibleUnknowns.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
@@ -77,27 +226,64 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {visibleUnknowns.map((u) => (
-                <div key={u.phone} style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-                  <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                    {formatPhone(u.phone)}
-                  </span>
-                  <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
-                    {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
-                    {u.last_message_at && (
-                      <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>
-                    )}
-                  </span>
-                  <button type="button" onClick={() => setPromotePhone(u.phone)} style={smallBtn(true)}>
-                    Add as contact
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyPhone === u.phone}
-                    onClick={() => onDismiss(u.phone)}
-                    style={smallBtn(false)}
-                  >
-                    {busyPhone === u.phone ? '…' : 'Dismiss'}
-                  </button>
+                <div key={u.phone} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+                    <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                      {formatPhone(u.phone)}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
+                      {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
+                      {u.last_message_at && (
+                        <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>
+                      )}
+                    </span>
+                    {/* Attach to an existing contact (fills their phone) before
+                        the "create new" path, so an owner already in Helm isn't
+                        duplicated. */}
+                    <select
+                      value={attachSel[u.phone] ?? ''}
+                      onChange={(e) => setAttachSel((s) => ({ ...s, [u.phone]: e.target.value }))}
+                      style={{
+                        fontSize: 12,
+                        padding: '6px 8px',
+                        maxWidth: 200,
+                        border: '1px solid var(--rule)',
+                        background: 'var(--paper)',
+                        color: 'var(--ink)',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <option value="">Attach to existing…</option>
+                      {attachOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                          {c.phone ? '' : ' · no #'}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={busyPhone === u.phone || !attachSel[u.phone]}
+                      onClick={() => onAttach(u.phone)}
+                      style={smallBtn(!!attachSel[u.phone])}
+                    >
+                      {busyPhone === u.phone ? '…' : 'Attach'}
+                    </button>
+                    <button type="button" onClick={() => setPromotePhone(u.phone)} style={smallBtn(false)}>
+                      Add as new
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyPhone === u.phone}
+                      onClick={() => onDismiss(u.phone)}
+                      style={smallBtn(false)}
+                    >
+                      {busyPhone === u.phone ? '…' : 'Dismiss'}
+                    </button>
+                  </div>
+                  {attachMsg[u.phone] && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -131,6 +317,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
           />
           <SyncGmailButton />
           <SyncQuoButton />
+          <SyncQuoContactsButton />
           <button
             type="button"
             onClick={() => setShowNew(true)}
@@ -625,6 +812,13 @@ function formatPhone(p: string): string {
   const ten = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
   if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
   return p;
+}
+
+function suggestionLabel(type: string): string {
+  if (type === 'add_contact') return 'Add to Helm';
+  if (type === 'fill_email') return 'Add email';
+  if (type === 'fill_org') return 'Add org';
+  return 'Accept';
 }
 
 function smallBtn(primary: boolean): React.CSSProperties {
