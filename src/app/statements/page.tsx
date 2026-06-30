@@ -1917,6 +1917,7 @@ function DashboardContent() {
       if (data.success) {
         setSyncResult({ total: data.total_invoices_found, matched: data.matched, inserted: data.inserted, skipped: data.skipped });
         await loadPeriod(selectedMonth);
+        await loadLastSync();
       } else {
         setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
       }
