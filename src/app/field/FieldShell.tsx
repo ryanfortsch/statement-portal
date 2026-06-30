@@ -42,7 +42,7 @@ export function FieldShell({
               fontSize: 11,
               letterSpacing: '0.22em',
               textTransform: 'uppercase',
-              color: 'var(--signal)',
+              color: 'var(--tide)',
               fontWeight: 600,
             }}
           >

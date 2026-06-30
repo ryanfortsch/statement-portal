@@ -32,11 +32,10 @@ function face(isBack: boolean): React.CSSProperties {
     inset: 0,
     display: 'flex',
     flexDirection: 'column',
-    border: '1px solid var(--rule)',
-    borderTop: isBack ? '3px solid var(--signal)' : '1px solid var(--rule)',
-    borderRadius: 12,
-    background: isBack ? 'rgba(200,90,58,0.05)' : 'var(--paper-2, #fff)',
-    padding: '16px 18px',
+    border: 'none',
+    borderTop: isBack ? '3px solid var(--tide)' : '1px solid var(--rule)',
+    background: isBack ? 'rgba(78,124,158,0.07)' : 'transparent',
+    padding: isBack ? '16px 16px' : '14px 16px 16px 0',
     backfaceVisibility: 'hidden',
     WebkitBackfaceVisibility: 'hidden',
     transform: isBack ? 'rotateY(180deg)' : undefined,
@@ -68,7 +67,7 @@ function Flip({ title, front, back }: { title: string; front: string; back: stri
         <div style={face(false)}>
           <div className="font-serif" style={{ fontSize: 18, fontWeight: 400 }}>{title}</div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.45 }}>{front}</div>
-          <div style={{ marginTop: 'auto', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+          <div style={{ marginTop: 'auto', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--tide)' }}>
             Tap to read
           </div>
         </div>

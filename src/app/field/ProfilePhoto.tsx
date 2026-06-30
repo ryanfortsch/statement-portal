@@ -25,11 +25,15 @@ export function ProfilePhoto({
   name,
   size = 64,
   stacked = false,
+  onDark = false,
 }: {
   current: string | null;
   name: string;
   size?: number;
   stacked?: boolean;
+  /** Rendered on a navy ground (the hero plate): rings the avatar in soft gold
+   *  and lightens the change-photo link so it reads on dark. */
+  onDark?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(current);
   const [busy, setBusy] = useState(false);
@@ -77,7 +81,7 @@ export function ProfilePhoto({
         type="button"
         onClick={() => !busy && inputRef.current?.click()}
         title="Change photo"
-        style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', cursor: busy ? 'wait' : 'pointer', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}
+        style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', cursor: busy ? 'wait' : 'pointer', background: 'var(--paper-2, #fff)', border: onDark ? 'none' : '1px solid var(--rule)', boxShadow: onDark ? '0 0 0 1px var(--signal-soft)' : undefined, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}
       >
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -91,7 +95,7 @@ export function ProfilePhoto({
           type="button"
           onClick={() => !busy && inputRef.current?.click()}
           disabled={busy}
-          style={{ background: 'none', border: 'none', cursor: busy ? 'wait' : 'pointer', color: 'var(--signal)', fontSize: 12, fontWeight: 600, padding: 0, textDecoration: 'underline' }}
+          style={{ background: 'none', border: 'none', cursor: busy ? 'wait' : 'pointer', color: onDark ? 'var(--signal-soft)' : 'var(--signal)', fontSize: 12, fontWeight: 600, padding: 0, textDecoration: 'underline' }}
         >
           {busy ? 'Uploading…' : url ? 'Change photo' : 'Add a photo'}
         </button>
