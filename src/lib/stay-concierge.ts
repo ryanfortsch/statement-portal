@@ -396,6 +396,8 @@ export type OwnerCuratedFacts = {
   content: string;
   path: string;
   bytes: number;
+  // Loop-owned facts auto-distilled from owner-draft coaching (read-only).
+  learned?: string;
 };
 
 export async function getOwnerCuratedFacts() {
@@ -407,6 +409,50 @@ export async function saveOwnerCuratedFacts(content: string) {
     method: 'PUT',
     body: { content },
   });
+}
+
+// ── Proposed property updates ──────────────────────────────────────────
+// Durable property facts an owner shared in a message (wifi, a code, trash
+// day), detected by the stay-concierge owner-property extractor. Helm lists
+// them, applies the chosen ones through its OWN safe routing (properties /
+// property_access / property_notes), then marks them applied so they stop
+// surfacing. The extractor never writes to Helm's DB.
+
+export type ProposedPropertyUpdate = {
+  id: string;
+  property_id: string;
+  property_name: string;
+  owner_name: string;
+  category: string;
+  fact_text: string;
+  raw_quote: string;
+  confidence: 'high' | 'medium' | 'low' | string;
+  source: string;
+  created_at: string;
+  status: 'pending' | 'applied' | 'dismissed' | string;
+};
+
+export type ProposedPropertyUpdatesResponse = {
+  updates: ProposedPropertyUpdate[];
+  count: number;
+};
+
+export async function listProposedPropertyUpdates() {
+  return request<ProposedPropertyUpdatesResponse>('/api/proposed-property-updates');
+}
+
+export async function dismissProposedPropertyUpdate(id: string) {
+  return request<{ ok: true; id: string; status: string }>(
+    `/api/proposed-property-updates/${id}/dismiss`,
+    { method: 'POST' },
+  );
+}
+
+export async function markProposedPropertyUpdateApplied(id: string) {
+  return request<{ ok: true; id: string; status: string }>(
+    `/api/proposed-property-updates/${id}/applied`,
+    { method: 'POST' },
+  );
 }
 
 // ── Cleaner-messaging surface (bilingual; Portuguese drafts) ───────────

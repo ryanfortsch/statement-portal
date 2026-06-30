@@ -11,12 +11,15 @@ import {
   listRecentOwnerApprovals,
   listOwnerHistory,
   getOwnerCuratedFacts,
+  listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
+import { supabase } from '@/lib/supabase';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
 import { OwnerFactsEditor } from './OwnerFactsEditor';
+import { ProposedPropertyUpdatesCard } from './ProposedPropertyUpdatesCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -74,6 +77,35 @@ async function OwnerQueueSection() {
   );
 }
 
+// Helm's own property list (anon-readable id + name) for the target selector
+// on each proposed update. Independent of the stay-concierge service; a
+// failure here just yields an empty list (operator can still dismiss, and the
+// synced slug usually matches).
+async function loadProperties(): Promise<{ id: string; name: string }[]> {
+  try {
+    const { data, error } = await supabase.from('properties').select('id, name').order('name');
+    if (error || !data) return [];
+    return data as { id: string; name: string }[];
+  } catch {
+    return [];
+  }
+}
+
+// Mid boundary: property facts owners shared, ready to file to the property.
+async function ProposedUpdatesSection() {
+  const [proposed, properties] = await Promise.all([
+    listProposedPropertyUpdates(),
+    loadProperties(),
+  ]);
+  return (
+    <ProposedPropertyUpdatesCard
+      initial={proposed.ok ? proposed.data.updates : []}
+      initialError={proposed.ok ? null : explainError(proposed.error)}
+      properties={properties}
+    />
+  );
+}
+
 // Below-the-fold boundary: contact history + curated owner facts editor.
 async function OwnerDetailSection() {
   const [history, facts] = await Promise.all([
@@ -86,6 +118,7 @@ async function OwnerDetailSection() {
       <OwnerFactsEditor
         initialContent={facts.ok ? facts.data.content : ''}
         initialBytes={facts.ok ? facts.data.bytes : 0}
+        learnedContent={facts.ok ? facts.data.learned ?? '' : ''}
       />
     </>
   );
@@ -104,6 +137,9 @@ export default function OwnerMessagingPage() {
     <Shell>
       <Suspense fallback={<QueueSkeleton />}>
         <OwnerQueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ProposedUpdatesSection />
       </Suspense>
       <Suspense fallback={null}>
         <OwnerDetailSection />
