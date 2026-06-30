@@ -1190,7 +1190,7 @@ function WorkSlipModal({
             <option value="" disabled>Pick a property…</option>
             {properties.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}{p.title ? ` · ${p.title}` : ''}
+                {p.name}
               </option>
             ))}
           </select>
