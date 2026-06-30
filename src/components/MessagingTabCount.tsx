@@ -52,6 +52,15 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
 
   if (!count || count <= 0) return null;
 
+  // Per-category badge color so the operator can read the tab strip at a
+  // glance — guests/owners/cleaners are different conversational threads
+  // and deserve visually distinct chips. All colors are dark enough that
+  // var(--paper) text reads cleanly on top.
+  const background =
+    category === 'guests' ? 'var(--ink)' :              // navy — brand default
+    category === 'owners' ? 'var(--signal)' :           // gold — established
+    '#1f5e6b';                                          // teal — cleaners
+
   return (
     <span
       aria-label={`${count} draft${count === 1 ? '' : 's'} waiting`}
@@ -64,7 +73,7 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
         height: 16,
         padding: '0 5px',
         borderRadius: 8,
-        background: 'var(--signal)',
+        background,
         color: 'var(--paper)',
         fontSize: 9,
         fontWeight: 700,
