@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, type SupplyRun } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -94,7 +94,7 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
   const homes = run.bins.map((b) => b.propertyName);
   const restock = [...new Set(run.bins.flatMap((b) => b.lowItems))];
   if (homes.length === 0 && run.jobs.length === 0) return null;
-  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SUPPLY_CLOSET}, Gloucester, MA`)}`;
+  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
       <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
@@ -215,6 +215,21 @@ export default async function PacketPage({
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
   const supplyRun = working ? await loadPacketSupplyRun(packetId) : { bins: [], jobs: [] };
+  // The supply closet is a real first leg of the route whenever there's a bag to
+  // grab. It owns pin 1 on the map (order below every home) and the homes
+  // renumber to 2..N+1 behind it.
+  const showSupplyStop = working && (supplyRun.bins.length > 0 || supplyRun.jobs.length > 0);
+  const routeStops = [
+    ...(showSupplyStop
+      ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1 }]
+      : []),
+    ...packet.stops.map((s) => ({
+      label: isMine ? s.property.address : s.property.title || s.property.name,
+      lat: s.property.latitude ?? NaN,
+      lng: s.property.longitude ?? NaN,
+      order: s.walk_order,
+    })),
+  ];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -303,14 +318,7 @@ export default async function PacketPage({
       )}
       {!isMaint && <InspectionScope />}
 
-      <PacketRouteMap
-        stops={packet.stops.map((s) => ({
-          label: isMine ? s.property.address : s.property.title || s.property.name,
-          lat: s.property.latitude ?? NaN,
-          lng: s.property.longitude ?? NaN,
-          order: s.walk_order,
-        }))}
-      />
+      <PacketRouteMap stops={routeStops} />
 
       <section>
         {packet.stops.map((s, i) => (
@@ -332,7 +340,7 @@ export default async function PacketPage({
                 color: s.status === 'complete' ? 'var(--positive)' : 'var(--ink-3)',
               }}
             >
-              {s.status === 'complete' ? '✓' : i + 1}
+              {s.status === 'complete' ? '✓' : i + 1 + (showSupplyStop ? 1 : 0)}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="font-serif" style={{ fontSize: 17 }}>

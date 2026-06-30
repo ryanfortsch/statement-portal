@@ -992,6 +992,10 @@ export async function createPacketFromProperties(args: {
 // ── Supply run (inspection prep) ──────────────────────────────────────
 /** Where Rising Tide stages supplies + the per-property odds-and-ends bins. */
 export const SUPPLY_CLOSET = '85 Eastern Ave';
+/** Geocode of the supply closet, so it can be the literal first pin on a
+ *  packet's route map. Matches the "85 Eastern Ave" coords annotated in
+ *  projections-distance.ts (NOT the ~1mi-off value some pricing code uses). */
+export const SUPPLY_CLOSET_COORDS = { lat: 42.6209, lng: -70.645 };
 
 export type SupplyRunStop = { propertyName: string; binLabel: string; lowItems: string[] };
 export type SupplyRunJob = { title: string; propertyName: string; bring: string };
