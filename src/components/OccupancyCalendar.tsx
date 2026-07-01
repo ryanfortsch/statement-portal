@@ -294,6 +294,17 @@ function PropertyCalendarRow({
         const RADIUS = 5;
 
         const primary = pm ?? am; // the reservation the hover tooltip describes
+
+        // A same-day turnover: one guest checks OUT and a different guest
+        // checks IN on this date (am and pm are different reservations). The
+        // plain vertical half-split reads as the departing guest "ending
+        // yesterday" (their last full cell is the day before), so instead we
+        // split the day on a diagonal — departing guest in the upper-left
+        // triangle, arriving in the lower-right — the standard booking-
+        // calendar convention. Both guests then clearly read ON this day.
+        const isTurnover =
+          !!am && !!pm && am.guesty_reservation_id !== pm.guesty_reservation_id;
+
         const cellInner = (
           <div
             style={{
@@ -310,47 +321,99 @@ function PropertyCalendarRow({
               opacity: isPast ? 0.55 : 1,
             }}
           >
-            {/* AM (left) half: morning occupant. On a checkout day this is
-                the departing guest and the bar ENDS here: rounded + capped at
-                the cell's center, which is the whole point: checkouts become
-                visible instead of looking like a plain vacancy. */}
-            {am && (
-              <div
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  top: BAR_INSET,
-                  bottom: BAR_INSET,
-                  left: 0,
-                  width: '50%',
-                  background: tint(channelAccent(am.channel)),
-                  borderTopRightRadius: cell.isCheckOut ? RADIUS : 0,
-                  borderBottomRightRadius: cell.isCheckOut ? RADIUS : 0,
-                  boxShadow: cell.isCheckOut
-                    ? `inset -3px 0 0 ${channelAccent(am.channel)}`
-                    : undefined,
-                }}
-              />
-            )}
-            {/* PM (right) half: night occupant. On a check-in day the bar
-                STARTS here: rounded + capped at the cell's center. */}
-            {pm && (
-              <div
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  top: BAR_INSET,
-                  bottom: BAR_INSET,
-                  right: 0,
-                  width: '50%',
-                  background: tint(channelAccent(pm.channel)),
-                  borderTopLeftRadius: cell.isCheckIn ? RADIUS : 0,
-                  borderBottomLeftRadius: cell.isCheckIn ? RADIUS : 0,
-                  boxShadow: cell.isCheckIn
-                    ? `inset 3px 0 0 ${channelAccent(pm.channel)}`
-                    : undefined,
-                }}
-              />
+            {isTurnover ? (
+              <>
+                {/* Departing guest — upper-left triangle. Its left edge is
+                    full-height, so it connects seamlessly to the guest's
+                    solid bar coming in from the previous day, then tapers up
+                    to the right: the guest visibly spans this whole day and
+                    leaves during it, not the day before. */}
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    top: BAR_INSET,
+                    bottom: BAR_INSET,
+                    left: 0,
+                    right: 0,
+                    background: tint(channelAccent(am!.channel)),
+                    clipPath: 'polygon(0 0, 100% 0, 0 100%)',
+                  }}
+                />
+                {/* Arriving guest — lower-right triangle. Full-height right
+                    edge connects into their solid bar continuing tomorrow. */}
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    top: BAR_INSET,
+                    bottom: BAR_INSET,
+                    left: 0,
+                    right: 0,
+                    background: tint(channelAccent(pm!.channel)),
+                    clipPath: 'polygon(100% 0, 100% 100%, 0 100%)',
+                  }}
+                />
+                {/* Hairline along the diagonal so the split still reads when
+                    both guests share a channel (identical tint). */}
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    top: BAR_INSET,
+                    bottom: BAR_INSET,
+                    left: 0,
+                    right: 0,
+                    background: 'var(--paper)',
+                    clipPath: 'polygon(calc(100% - 1px) 0, 100% 0, 1px 100%, 0 100%)',
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                {/* AM (left) half: morning occupant. On a checkout day this is
+                    the departing guest and the bar ENDS here: rounded + capped
+                    at the cell's center, so a plain checkout stays visible
+                    instead of looking like a vacancy. */}
+                {am && (
+                  <div
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      top: BAR_INSET,
+                      bottom: BAR_INSET,
+                      left: 0,
+                      width: '50%',
+                      background: tint(channelAccent(am.channel)),
+                      borderTopRightRadius: cell.isCheckOut ? RADIUS : 0,
+                      borderBottomRightRadius: cell.isCheckOut ? RADIUS : 0,
+                      boxShadow: cell.isCheckOut
+                        ? `inset -3px 0 0 ${channelAccent(am.channel)}`
+                        : undefined,
+                    }}
+                  />
+                )}
+                {/* PM (right) half: night occupant. On a check-in day the bar
+                    STARTS here: rounded + capped at the cell's center. */}
+                {pm && (
+                  <div
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      top: BAR_INSET,
+                      bottom: BAR_INSET,
+                      right: 0,
+                      width: '50%',
+                      background: tint(channelAccent(pm.channel)),
+                      borderTopLeftRadius: cell.isCheckIn ? RADIUS : 0,
+                      borderBottomLeftRadius: cell.isCheckIn ? RADIUS : 0,
+                      boxShadow: cell.isCheckIn
+                        ? `inset 3px 0 0 ${channelAccent(pm.channel)}`
+                        : undefined,
+                    }}
+                  />
+                )}
+              </>
             )}
             {startsVisually && pm && (() => {
               const label = displayLabel(pm.guest_name);
