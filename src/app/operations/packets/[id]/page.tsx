@@ -374,7 +374,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 {e.event_type.replace(/_/g, ' ')}
                 {e.actor_email ? ` · ${e.actor_email}` : ''}
                 {' · '}
-                {new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {new Date(e.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </div>
             ))}
           </div>
