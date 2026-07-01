@@ -232,6 +232,7 @@ type ExistingStmt = {
   management_fee_pct: number;
   cleaning_total: number;
   repairs_total: number;
+  reserve_holdback?: number;
   has_guesty_statement: boolean;
   has_platform_csv: boolean;
   has_bank_csv: boolean;
@@ -440,7 +441,8 @@ async function fillPlatformGap(args: {
   //    (unchanged from the prior run, since platform CSV doesn't touch
   //    bank-sourced cleaning).
   const managementFee = round2(totalRevenue * (stmt.management_fee_pct / 100));
-  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+  const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
+  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
   const numStays = reservations.filter(r => {
     const ch = changes.find(c => c.id === r.id);
     const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
@@ -583,7 +585,7 @@ export async function POST(request: NextRequest) {
 
     const { data: stmt } = await supabase
       .from('property_statements')
-      .select('id, property_id, property_name, rental_revenue, management_fee, management_fee_pct, cleaning_total, repairs_total, has_guesty_statement, has_platform_csv, has_bank_csv')
+      .select('id, property_id, property_name, rental_revenue, management_fee, management_fee_pct, cleaning_total, repairs_total, reserve_holdback, has_guesty_statement, has_platform_csv, has_bank_csv')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
@@ -838,8 +840,9 @@ export async function POST(request: NextRequest) {
     //    rental_revenue + management_fee are unchanged (those come from Guesty,
     //    which we haven't touched). cleaning_total + repairs_total change,
     //    owner_payout recomputes from both.
+    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
     const newOwnerPayout =
-      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal) * 100) / 100;
+      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal - reserveHoldback) * 100) / 100;
 
     // Confidence: green if we now have all three sources. We don't know
     // about has_platform_csv here without reading the existing row, but
