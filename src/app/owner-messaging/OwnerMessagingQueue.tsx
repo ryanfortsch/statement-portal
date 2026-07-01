@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { memo, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { OwnerApproval } from '@/lib/stay-concierge';
@@ -47,7 +47,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
 
 type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
 
-function OwnerApprovalCard({
+const OwnerApprovalCard = memo(function OwnerApprovalCard({
   approval,
   onResolved,
 }: {
@@ -59,14 +59,18 @@ function OwnerApprovalCard({
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // The draft is a live editable field. draftText is what actually sends;
+  // `edited` flags that the operator changed it from the AI's original.
+  const [draftText, setDraftText] = useState(approval.draft ?? '');
+  const [edited, setEdited] = useState(false);
+  const coachRef = useRef<HTMLTextAreaElement>(null);
 
   const ownerLabel = approval.owner_name || approval.owner_contact || 'Owner';
   const propertyLabel =
-    approval.property_name ||
-    prettifySlug(approval.property_id) ||
-    '(no property tag)';
+    approval.property_name || prettifySlug(approval.property_id) || '(no property tag)';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
   const channelLabel = approval.channel === 'email_gmail' ? 'email' : 'SMS';
+  const isStale = ageToneColor(approval.age_minutes) === 'var(--signal)';
 
   const ageLabel =
     approval.age_minutes == null
@@ -91,26 +95,92 @@ function OwnerApprovalCard({
     });
   };
 
-  // Split the stacked owner_text into its individual messages and drop any
-  // that are pure tapbacks (reactions to our earlier replies, not new asks).
-  // If every segment is a reaction, this card should never have been minted;
-  // collapse it to a one-line notice + a single Dismiss.
+  // Split the stacked owner_text into individual messages; drop pure tapbacks
+  // (reactions to our earlier replies, not new asks). If every segment is a
+  // reaction, the card collapses to a one-line notice + a single Dismiss.
   const segments = splitOwnerText(approval.owner_text || '');
+  const reactions = segments.map((s) => parseTapback(s)).filter(Boolean) as {
+    glyph: string;
+    verb: string;
+    quoted: string;
+  }[];
   const realSegments = segments.filter((s) => !parseTapback(s));
   const allReactions = segments.length > 0 && realSegments.length === 0;
   const ownerSaid = realSegments.length > 0 ? realSegments : [approval.owner_text || '(empty)'];
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
-  const reactionGlyphs = segments
-    .map((s) => parseTapback(s)?.glyph)
-    .filter(Boolean)
-    .join(' ');
+
+  const canApprove = draftText.trim().length > 0 && !isPending;
+
+  const doApprove = () => {
+    if (!canApprove) return;
+    run('approve', () => approveOwnerDraft(approval.id, edited ? draftText : undefined));
+  };
+  const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
+  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id));
+  const doCoach = () =>
+    run('coach', async () => {
+      const res = await coachOwnerDraft(approval.id, feedback, edited ? draftText : undefined);
+      if (res.ok) {
+        setFeedback('');
+        setShowCoach(false);
+      }
+      return res;
+    });
+  const toggleCoach = () => {
+    setShowCoach((v) => {
+      const next = !v;
+      if (next) setTimeout(() => coachRef.current?.focus(), 0);
+      return next;
+    });
+  };
+
+  // Card-scoped keyboard shortcuts. Typing inside a textarea never fires an
+  // action, with one exception: Cmd/Ctrl+Enter from the draft field is the
+  // "done editing, send it" gesture.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    const inTextarea = (e.target as HTMLElement)?.tagName === 'TEXTAREA';
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      doApprove();
+      return;
+    }
+    if (inTextarea || isPending) return;
+    const k = e.key.toLowerCase();
+    if (k === 'a') {
+      e.preventDefault();
+      doApprove();
+    } else if (k === 'c') {
+      e.preventDefault();
+      toggleCoach();
+    } else if (k === 'h') {
+      e.preventDefault();
+      doHandled();
+    } else if (k === 'r') {
+      e.preventDefault();
+      doReject();
+    } else if (e.key === 'Escape') {
+      if (showCoach) {
+        setShowCoach(false);
+        setFeedback('');
+      } else {
+        (e.currentTarget as HTMLElement).blur();
+      }
+    }
+  };
 
   return (
     <article
+      tabIndex={0}
+      onKeyDown={onKeyDown}
       style={{
         border: '1px solid var(--rule)',
+        borderLeft: isStale ? '3px solid var(--signal)' : '1px solid var(--rule)',
         background: 'var(--paper-2)',
         padding: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+        outline: 'none',
       }}
     >
       <header
@@ -119,7 +189,6 @@ function OwnerApprovalCard({
           alignItems: 'baseline',
           justifyContent: 'space-between',
           gap: 12,
-          marginBottom: 14,
           flexWrap: 'wrap',
         }}
       >
@@ -136,7 +205,7 @@ function OwnerApprovalCard({
           <span
             style={{
               color: ageToneColor(approval.age_minutes),
-              fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
+              fontWeight: isStale ? 700 : 500,
             }}
           >
             {ageLabel}
@@ -149,16 +218,17 @@ function OwnerApprovalCard({
       {allReactions ? (
         <>
           <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            {firstName} reacted {reactionGlyphs || '👍'} to your message. Nothing to reply to.
+            {firstName} reacted {reactions.map((r) => r.glyph).join(' ') || '👍'} to your message.
+            Nothing to reply to.
           </div>
           {error && (
-            <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+            <p style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
               {error}
             </p>
           )}
-          <footer style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+          <footer style={{ display: 'flex', gap: 10 }}>
             <SecondaryButton
-              onClick={() => run('reject', () => rejectOwnerDraft(approval.id))}
+              onClick={doReject}
               disabled={isPending}
               title="A reaction, not a message. Clears it from the queue."
             >
@@ -168,171 +238,252 @@ function OwnerApprovalCard({
         </>
       ) : (
         <>
-          <div className="rt-msg-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-            <FieldBlock
-              label={ownerSaid.length > 1 ? `Owner said · ${ownerSaid.length} messages` : 'Owner said'}
-              sub={relativeTimeShort(approval.created_at) ? `sent ${relativeTimeShort(approval.created_at)}` : ''}
-              subTitle={approval.created_at}
+          {/* OWNER SAID - the ask, read first */}
+          <div>
+            <div
+              className="eyebrow"
+              style={{ marginBottom: 6, color: 'var(--ink-4)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}
             >
-              <OwnerSaidRun segments={ownerSaid} />
-            </FieldBlock>
-            <FieldBlock label="Proposed reply">
-              <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
-            </FieldBlock>
+              <span>{ownerSaid.length > 1 ? `Owner said · ${ownerSaid.length} messages` : 'Owner said'}</span>
+              {relativeTimeShort(approval.created_at) && (
+                <span
+                  style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }}
+                  title={approval.created_at}
+                >
+                  sent {relativeTimeShort(approval.created_at)}
+                </span>
+              )}
+            </div>
+            {/* subject slot: OwnerApproval has no email subject yet; add here when it lands */}
+            <OwnerSaidRun segments={ownerSaid} />
+            {reactions.length > 0 && <ReactionChips reactions={reactions} />}
           </div>
 
+          {/* PROPOSED REPLY - the hero, editable in place */}
+          <DraftHero
+            key={approval.draft}
+            initial={approval.draft ?? ''}
+            edited={edited}
+            onChange={(v, changed) => {
+              setDraftText(v);
+              if (changed) setEdited(true);
+            }}
+            onApprove={doApprove}
+          />
+
           {error && (
-            <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+            <p style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
               {error}
             </p>
           )}
 
-          <footer
-            style={{
-              marginTop: 18,
-              display: 'flex',
-              gap: 10,
-              flexWrap: 'wrap',
-              alignItems: 'center',
-            }}
-          >
-            <PrimaryButton
-              onClick={() => run('approve', () => approveOwnerDraft(approval.id))}
-              disabled={isPending}
-            >
-              {pendingAction === 'approve' ? 'Sending…' : 'Approve & send'}
+          <footer style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <PrimaryButton onClick={doApprove} disabled={!canApprove}>
+              {pendingAction === 'approve'
+                ? 'Sending…'
+                : edited
+                  ? 'Approve edited & send'
+                  : 'Approve & send'}
             </PrimaryButton>
-            <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+            <SecondaryButton onClick={toggleCoach} disabled={isPending}>
               {showCoach ? 'Cancel coaching' : 'Coach the AI'}
             </SecondaryButton>
             <SecondaryButton
-              onClick={() => run('mark-handled', () => markOwnerHandled(approval.id))}
+              onClick={doHandled}
               disabled={isPending}
               title="Already replied to the owner directly. Clears the queue without sending."
             >
               {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
             </SecondaryButton>
             <SecondaryButton
-              onClick={() => run('reject', () => rejectOwnerDraft(approval.id))}
+              onClick={doReject}
               disabled={isPending}
               title="This owner message doesn't need a reply. Drops the draft."
             >
               {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
             </SecondaryButton>
+            <span
+              className="eyebrow"
+              style={{ marginLeft: 'auto', color: 'var(--ink-4)', fontSize: 9 }}
+              aria-hidden="true"
+            >
+              A approve · C coach · H handled · R reject
+            </span>
           </footer>
-        </>
-      )}
 
-      {!allReactions && showCoach && (
-        <div style={{ marginTop: 14 }}>
-          <label
-            htmlFor={`owner-coach-${approval.id}`}
-            className="eyebrow"
-            style={{ display: 'block', marginBottom: 6, color: 'var(--ink-3)' }}
-          >
-            Coaching note
-          </label>
-          <textarea
-            id={`owner-coach-${approval.id}`}
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            placeholder="Say what's wrong with the draft. The AI will rewrite using your guidance."
-            rows={3}
-            style={{
-              width: '100%',
-              padding: 10,
-              border: '1px solid var(--rule)',
-              background: 'var(--paper)',
-              fontFamily: 'inherit',
-              fontSize: 14,
-              color: 'var(--ink)',
-              resize: 'vertical',
-            }}
-          />
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <PrimaryButton
-              onClick={() =>
-                run('coach', async () => {
-                  const res = await coachOwnerDraft(approval.id, feedback);
-                  if (res.ok) {
-                    setFeedback('');
+          {showCoach && (
+            <div>
+              <label
+                htmlFor={`owner-coach-${approval.id}`}
+                className="eyebrow"
+                style={{ display: 'block', marginBottom: 6, color: 'var(--ink-3)' }}
+              >
+                Coaching note
+              </label>
+              <textarea
+                id={`owner-coach-${approval.id}`}
+                ref={coachRef}
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="Say what's wrong with the draft. The AI will rewrite using your guidance (and keep any edits you made above)."
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  border: '1px solid var(--rule)',
+                  background: 'var(--paper)',
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  color: 'var(--ink)',
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <PrimaryButton onClick={doCoach} disabled={isPending || !feedback.trim()}>
+                  {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
+                </PrimaryButton>
+                <SecondaryButton
+                  onClick={() => {
                     setShowCoach(false);
-                  }
-                  return res;
-                })
-              }
-              disabled={isPending || !feedback.trim()}
-            >
-              {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
-            </PrimaryButton>
-            <SecondaryButton
-              onClick={() => {
-                setShowCoach(false);
-                setFeedback('');
-              }}
-              disabled={isPending}
-            >
-              Cancel
-            </SecondaryButton>
-          </div>
-        </div>
+                    setFeedback('');
+                  }}
+                  disabled={isPending}
+                >
+                  Cancel
+                </SecondaryButton>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </article>
   );
-}
+});
 
-function FieldBlock({
-  label,
-  sub,
-  subTitle,
-  children,
+/**
+ * The proposed reply, presented as the hero: a raised surface with a
+ * borderless textarea that reads as typeset prose. Editing it here sends the
+ * edited text on approve (no coach round-trip for a one-word fix). Remounted
+ * (via key) whenever the AI draft changes, which reseeds the field and clears
+ * the edited flag.
+ */
+function DraftHero({
+  initial,
+  edited,
+  onChange,
+  onApprove,
 }: {
-  label: string;
-  sub?: string;
-  subTitle?: string;
-  children: React.ReactNode;
+  initial: string;
+  edited: boolean;
+  onChange: (value: string, changed: boolean) => void;
+  onApprove: () => void;
 }) {
+  const [value, setValue] = useState(initial);
+  const [focused, setFocused] = useState(false);
   return (
-    <div>
+    <div style={{ background: 'var(--paper-3)', border: '1px solid var(--rule)', padding: '18px 20px' }}>
       <div
-        className="eyebrow"
         style={{
-          marginBottom: 6,
-          color: 'var(--ink-4)',
           display: 'flex',
           alignItems: 'baseline',
+          justifyContent: 'space-between',
           gap: 8,
-          flexWrap: 'wrap',
+          marginBottom: 8,
         }}
       >
-        <span>{label}</span>
-        {sub && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 400,
-              letterSpacing: '0.10em',
-              color: 'var(--ink-3)',
-              textTransform: 'none',
-            }}
-            title={subTitle}
-          >
-            {sub}
+        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+          Proposed reply
+        </span>
+        {edited && (
+          <span className="eyebrow" style={{ color: 'var(--signal)' }}>
+            edited
           </span>
         )}
       </div>
-      {children}
+      <textarea
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          onChange(e.target.value, e.target.value !== initial);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="No draft was generated. Coach the AI, or write a reply here."
+        style={{
+          width: '100%',
+          border: 'none',
+          background: 'transparent',
+          resize: 'vertical',
+          fontFamily: 'inherit',
+          fontSize: 15,
+          lineHeight: 1.65,
+          color: 'var(--ink)',
+          fontWeight: 500,
+          minHeight: 76,
+          padding: 0,
+          outline: 'none',
+          boxShadow: focused ? 'inset 0 -1px 0 var(--ink-3)' : 'none',
+          whiteSpace: 'pre-wrap',
+        }}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            onApprove();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/** Owner tapbacks that accompanied a real message, shown as compact chips
+ *  under the owner note instead of a wall of quoted text. */
+function ReactionChips({ reactions }: { reactions: { glyph: string; verb: string }[] }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+      {reactions.map((r, i) => (
+        <span
+          key={i}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            background: 'var(--paper)',
+            border: '1px solid var(--rule)',
+            padding: '3px 8px',
+            borderRadius: 999,
+          }}
+        >
+          <span aria-hidden="true">{r.glyph}</span>
+          {r.verb}
+        </span>
+      ))}
     </div>
   );
 }
 
 /** The owner's message(s) as a clustered run. A single message reads as one
  *  line; a stacked burst becomes a keylined block, one line per message, so
- *  the operator drafts against a real exchange instead of a wall. */
+ *  the operator reads a real exchange instead of a wall. Owner words render at
+ *  full --ink weight so they read as the primary context. */
 function OwnerSaidRun({ segments }: { segments: string[] }) {
-  if (segments.length <= 1) {
-    return <BodyText>{segments[0] || '(empty)'}</BodyText>;
-  }
+  const line = (s: string, key: number) => (
+    <p
+      key={key}
+      style={{
+        margin: 0,
+        fontSize: 14,
+        lineHeight: 1.55,
+        color: 'var(--ink)',
+        whiteSpace: 'pre-wrap',
+      }}
+    >
+      {s || '(empty)'}
+    </p>
+  );
+  if (segments.length <= 1) return line(segments[0] || '', 0);
   return (
     <div
       style={{
@@ -343,38 +494,8 @@ function OwnerSaidRun({ segments }: { segments: string[] }) {
         gap: 6,
       }}
     >
-      {segments.map((s, i) => (
-        <p
-          key={i}
-          style={{
-            margin: 0,
-            fontSize: 14,
-            lineHeight: 1.55,
-            color: 'var(--ink-2)',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {s}
-        </p>
-      ))}
+      {segments.map((s, i) => line(s, i))}
     </div>
-  );
-}
-
-function BodyText({ children, emphasis = false }: { children: React.ReactNode; emphasis?: boolean }) {
-  return (
-    <p
-      style={{
-        margin: 0,
-        fontSize: 14,
-        lineHeight: 1.55,
-        color: emphasis ? 'var(--ink)' : 'var(--ink-2)',
-        whiteSpace: 'pre-wrap',
-        fontWeight: emphasis ? 500 : 400,
-      }}
-    >
-      {children}
-    </p>
   );
 }
 

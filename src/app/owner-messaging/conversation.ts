@@ -59,10 +59,12 @@ export type Session = {
 };
 
 // Anchored: only fires when the WHOLE body is a tapback (so `Loved "Gatsby"`
-// mid-sentence never matches). `s` flag: tapbacks quote the entire original,
-// which is often multi-line. Accepts straight + curly quotes (Apple vs RCS).
+// mid-sentence never matches). [\s\S]+? matches across the newlines a
+// multi-line tapback quotes (avoids the `s` flag, which needs an es2018 tsc
+// target); no `u` flag either, so it compiles under the project's target.
+// Accepts straight + curly quotes (Apple vs RCS bridges).
 const TAPBACK_RE =
-  /^(?:(Liked|Loved|Laughed at|Emphasized|Questioned|Disliked)|Reacted\s+(\S+)\s+to)\s+["“”](.+?)["”“]\s*$/su;
+  /^(?:(Liked|Loved|Laughed at|Emphasized|Questioned|Disliked)|Reacted\s+(\S+)\s+to)\s+["“”]([\s\S]+?)["”“]\s*$/;
 
 const GLYPH: Record<string, string> = {
   Liked: '\u{1F44D}',
