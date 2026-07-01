@@ -813,7 +813,7 @@ function FinRow({ label, value, negative }: { label: string; value: string; nega
  * editorial PDF. Persists via PATCH /api/property-statements/[id]/reserve.
  * Survives re-ingest (preserved in /api/ingest's SELECT-before-delete).
  */
-function ReserveHoldbackRow({ prop }: { prop: PropertyStatement }) {
+function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSaved: () => void }) {
   const initial = Number(prop.reserve_holdback || 0);
   const [enabled, setEnabled] = useState(initial > 0);
   const [amount, setAmount] = useState<string>(initial > 0 ? initial.toFixed(2) : '2000.00');
@@ -830,10 +830,12 @@ function ReserveHoldbackRow({ prop }: { prop: PropertyStatement }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'save failed');
-      // Reflect the recomputed owner_payout locally so the total updates
-      // without a full page reload. Mutating in place is intentional here.
-      prop.owner_payout = Number(data.owner_payout);
-      prop.reserve_holdback = Number(data.reserve_holdback);
+      // Trigger the parent to reload period data. That refreshes every
+      // owner_payout display on the card (top strip, Financials Net,
+      // Owner Payout total) in one shot rather than mutating prop in
+      // place -- React can't see prop mutations, so a reload is the
+      // only way the totals visibly update.
+      onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1249,7 +1251,7 @@ function PropertyCard({
                   <FinRow label={`Mgmt Fee (${prop.management_fee_pct}%)`} value={`−${fmt(prop.management_fee)}`} negative />
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
                   {prop.repairs_total > 0 && <FinRow label="Repairs" value={`−${fmt(prop.repairs_total)}`} negative />}
-                  <ReserveHoldbackRow prop={prop} />
+                  <ReserveHoldbackRow prop={prop} onSaved={onRefresh} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       Owner Payout
