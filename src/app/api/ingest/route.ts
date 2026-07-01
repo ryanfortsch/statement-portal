@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
-import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
 
@@ -592,6 +592,7 @@ export async function POST(request: NextRequest) {
     // before May 2026; folding them back in keeps owner payouts correct).
     const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const laundryCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     // Unmatched in-month DEBITS (negative amounts that didn't classify as
@@ -624,6 +625,10 @@ export async function POST(request: NextRequest) {
         linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
+      if (cls?.kind === 'laundry' && isInMonth(date, month) && amount < 0) {
+        laundryCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
+        continue;
+      }
       if (cls?.kind === 'repair' && isInMonth(date, month) && amount < 0) {
         repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
@@ -647,7 +652,8 @@ export async function POST(request: NextRequest) {
     // so no payout-formula change is needed.
     const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
     const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal) * 100) / 100;
+    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
     const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Process reservations with channel logic.
@@ -1210,6 +1216,40 @@ export async function POST(request: NextRequest) {
         amount: c.amount,
         source: 'bank-linen',
         vendor: LINEN_VENDOR_NAME,
+      });
+    }
+    // Laundry Plus charges. Additive to cleaning_total (owner-facing single
+    // "Cleaning" line stays folded). Attribute each charge to the nearest
+    // Cape Ann Elite cleaning by bank_charge_date if one is within 7 days,
+    // so the dashboard groups the laundry row next to the associated
+    // turnover. If nothing is within range (all-direct property, or laundry
+    // billed with no cleaning that month), leave checkout_date + guest_name
+    // null -- displays as a standalone "Laundry service" row like linens.
+    for (const c of laundryCharges) {
+      const cIsoStr = toISO(c.date);
+      const cMs = cIsoStr ? new Date(cIsoStr + 'T00:00:00Z').getTime() : null;
+      let nearest: { guest: string | null; checkout: string | null; deltaMs: number } | null = null;
+      if (cMs !== null) {
+        for (const ins of cleaningInserts) {
+          if (ins.source !== 'matched' && ins.source !== 'bank') continue;
+          if (!ins.bank_charge_date) continue;
+          const insMs = new Date(ins.bank_charge_date + 'T00:00:00Z').getTime();
+          const deltaMs = Math.abs(insMs - cMs);
+          if (!nearest || deltaMs < nearest.deltaMs) {
+            nearest = { guest: ins.guest_name, checkout: ins.checkout_date, deltaMs };
+          }
+        }
+      }
+      const withinWindow = nearest && nearest.deltaMs <= 7 * 24 * 60 * 60 * 1000;
+      cleaningInserts.push({
+        property_statement_id: stmt.id,
+        guest_name: withinWindow ? nearest!.guest : null,
+        checkout_date: withinWindow ? nearest!.checkout : null,
+        bank_charge_amount: c.amount,
+        bank_charge_date: cIsoStr || null,
+        amount: c.amount,
+        source: 'bank-laundry',
+        vendor: LAUNDRY_VENDOR_NAME,
       });
     }
     await insertCleaningEvents(supabase, cleaningInserts);

@@ -28,7 +28,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
+import { LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME } from '@/lib/bank-charges';
 import { canonicalVendor } from '@/lib/overhead-categories';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -41,14 +41,16 @@ export type CostCell = {
   turnovers: number;
   cleaning: number; // Cape Ann Elite
   linens: number; // Nor'East
+  laundry: number; // Laundry Plus
   repairs: number; // repairs_total
-  operating: number; // cleaning + linens + repairs
+  operating: number; // cleaning + linens + laundry + repairs
   operatingPerTurn: number | null;
 };
 
 export type MonthTotal = {
   cleaning: number;
   linens: number;
+  laundry: number;
   repairs: number;
   operating: number;
   turnovers: number;
@@ -92,6 +94,7 @@ export async function getCostAnalysis(): Promise<CostAnalysis> {
   // Cleaning events: select('*') so a missing vendor column never errors.
   const stmtIds = stmts.map(s => s.id as string);
   const linenByStmt = new Map<string, number>();
+  const laundryByStmt = new Map<string, number>();
   let hasLinenData = false;
   if (stmtIds.length > 0) {
     const { data: events } = await supabase
@@ -99,12 +102,16 @@ export async function getCostAnalysis(): Promise<CostAnalysis> {
       .select('*')
       .in('property_statement_id', stmtIds);
     for (const e of (events || []) as Record<string, unknown>[]) {
-      const isLinen = e.vendor === LINEN_VENDOR_NAME || e.source === 'bank-linen';
-      if (!isLinen) continue;
       const sid = e.property_statement_id as string;
       const amt = Number(e.amount) || 0;
-      linenByStmt.set(sid, (linenByStmt.get(sid) || 0) + amt);
-      if (amt > 0) hasLinenData = true;
+      const isLinen = e.vendor === LINEN_VENDOR_NAME || e.source === 'bank-linen';
+      const isLaundry = e.vendor === LAUNDRY_VENDOR_NAME || e.source === 'bank-laundry';
+      if (isLinen) {
+        linenByStmt.set(sid, (linenByStmt.get(sid) || 0) + amt);
+        if (amt > 0) hasLinenData = true;
+      } else if (isLaundry) {
+        laundryByStmt.set(sid, (laundryByStmt.get(sid) || 0) + amt);
+      }
     }
   }
 
@@ -118,10 +125,11 @@ export async function getCostAnalysis(): Promise<CostAnalysis> {
     const propertyId = s.property_id as string;
     const propertyName = (s.property_name as string) || propertyId;
     const turnovers = Number(s.num_stays) || 0;
-    const cleaningTotal = round2(Number(s.cleaning_total) || 0); // cleaning + linens
+    const cleaningTotal = round2(Number(s.cleaning_total) || 0); // cleaning + linens + laundry
     const repairs = round2(Number(s.repairs_total) || 0);
     const linens = round2(linenByStmt.get(s.id as string) || 0);
-    const cleaning = round2(cleaningTotal - linens);
+    const laundry = round2(laundryByStmt.get(s.id as string) || 0);
+    const cleaning = round2(cleaningTotal - linens - laundry);
     const operating = round2(cleaningTotal + repairs);
     cells.push({
       propertyId,
@@ -130,6 +138,7 @@ export async function getCostAnalysis(): Promise<CostAnalysis> {
       turnovers,
       cleaning,
       linens,
+      laundry,
       repairs,
       operating,
       operatingPerTurn: turnovers > 0 ? round2(operating / turnovers) : null,
@@ -143,12 +152,14 @@ export async function getCostAnalysis(): Promise<CostAnalysis> {
     const mc = cells.filter(c => c.month === m);
     const cleaning = round2(mc.reduce((s, c) => s + c.cleaning, 0));
     const linens = round2(mc.reduce((s, c) => s + c.linens, 0));
+    const laundry = round2(mc.reduce((s, c) => s + c.laundry, 0));
     const repairs = round2(mc.reduce((s, c) => s + c.repairs, 0));
     const operating = round2(mc.reduce((s, c) => s + c.operating, 0));
     const turnovers = mc.reduce((s, c) => s + c.turnovers, 0);
     byMonth[m] = {
       cleaning,
       linens,
+      laundry,
       repairs,
       operating,
       turnovers,

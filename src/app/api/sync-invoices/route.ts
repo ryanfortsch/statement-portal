@@ -230,12 +230,18 @@ async function processInvoices(month: string, invoices: ParsedInvoice[]) {
       continue;
     }
 
-    // Try to match to an existing bank-sourced cleaning_event by amount (within $2)
+    // Try to match to an existing Cape Ann Elite bank cleaning_event by
+    // amount (within $2). CRITICAL: restrict the candidate pool to
+    // cleaning-source rows only. If we didn't, a Cape Ann Elite invoice
+    // could false-match to a Laundry Plus row (or Nor'East linen row) that
+    // happens to have a similar amount -- overwriting its source and
+    // stamping the wrong invoice number onto laundry/linen accounting.
     const { data: unmatchedEvents } = await supabase
       .from('cleaning_events')
-      .select('id, bank_charge_amount, bank_charge_date')
+      .select('id, bank_charge_amount, bank_charge_date, source')
       .eq('property_statement_id', stmt.id)
-      .is('invoice_no', null);
+      .is('invoice_no', null)
+      .in('source', ['matched', 'bank']);
 
     let matchedEvent = null;
     if (unmatchedEvents && unmatchedEvents.length > 0) {
