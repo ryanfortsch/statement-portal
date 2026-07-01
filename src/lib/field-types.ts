@@ -115,6 +115,15 @@ export type PacketStopRow = {
   work_slip_id: string | null;
   instructions: string | null; // per-stop free-form note from the office, shown to the inspector
   status: StopStatus;
+  // Live-route arrival signals (migration 20260701). started_at = Start tap;
+  // arrived_verified_at = the Seam lock recorded their packet code at the door
+  // (physical proof); arrival_source self|lock|both -> verified iff lock|both.
+  started_at: string | null;
+  arrived_verified_at: string | null;
+  completed_at: string | null;
+  arrival_source: 'self' | 'lock' | 'both' | null;
+  verified_device_id: string | null;
+  verified_access_code_id: string | null;
   created_at: string;
 };
 

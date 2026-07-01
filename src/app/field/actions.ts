@@ -285,7 +285,14 @@ export async function startStopInspection(formData: FormData) {
 
   await fieldDb()
     .from('packet_stops')
-    .update({ inspection_id: inspectionId, status: 'in_progress' })
+    .update({
+      inspection_id: inspectionId,
+      status: 'in_progress',
+      // Start tap = intent. 'both' if the lock already recorded their code first
+      // (rare); otherwise 'self'. The Seam recorder upgrades 'self' -> 'both'.
+      started_at: new Date().toISOString(),
+      arrival_source: stop.arrived_verified_at ? 'both' : 'self',
+    })
     .eq('id', stopId);
   if (packet.status === 'claimed') {
     await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
@@ -351,7 +358,7 @@ export async function completeMaintenanceStop(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', stop.work_slip_id);
-  await fieldDb().from('packet_stops').update({ status: 'complete' }).eq('id', stopId);
+  await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
   if (packet.status === 'claimed') {
     await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
   }

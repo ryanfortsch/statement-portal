@@ -271,17 +271,34 @@ export default async function PacketPage({
   // grab. It owns pin 1 on the map (order below every home) and the homes
   // renumber to 2..N+1 behind it.
   const showSupplyStop = working && (supplyRun.bins.length > 0 || supplyRun.jobs.length > 0);
-  const routeStops = [
+  // Live route coloring: done stops (tide), the current stop (signal), upcoming
+  // (hollow), plus a per-stop "verified at the door" flag from the Seam lock.
+  // Only colored while actively working; browsing keeps the plain signal pins.
+  const anyStarted = packet.stops.some(
+    (s) => s.started_at || s.status === 'in_progress' || s.status === 'complete' || s.status === 'skipped',
+  );
+  const rawRoute = [
     ...(showSupplyStop
-      ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1 }]
+      ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1, done: anyStarted, verified: false }]
       : []),
     ...packet.stops.map((s, i) => ({
       label: stopLabel(s, i),
       lat: s.property.latitude ?? NaN,
       lng: s.property.longitude ?? NaN,
       order: s.walk_order,
+      done: s.status === 'complete' || s.status === 'skipped',
+      verified: !!s.arrived_verified_at,
     })),
-  ];
+  ].sort((a, b) => a.order - b.order);
+  let currentAssigned = false;
+  const routeStops = rawRoute.map((r) => {
+    const state: 'done' | 'current' | 'next' = r.done
+      ? 'done'
+      : !currentAssigned
+        ? ((currentAssigned = true), 'current')
+        : 'next';
+    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, state: working ? state : undefined, verified: r.verified };
+  });
 
   return (
     <FieldShell contractorName={contractor.full_name}>
