@@ -26,6 +26,13 @@ export async function createWorkSlip(args: {
   inspection_id?: string;
   inspection_item_id?: string;
   assigned_to_email?: string | null;
+  /**
+   * Optional photos to attach at create time. Uploaded through
+   * PhotoUploader (which stores in Blob and hands us the public URLs);
+   * we just persist the array. Same shape as the inspection-driven
+   * createWorkSlipFromInspection so the two paths write the same column.
+   */
+  photo_urls?: string[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -36,6 +43,7 @@ export async function createWorkSlip(args: {
   // If we have an assignee, mark the slip as team-claimed; otherwise stay
   // unassigned. Owner-action assignment is handled separately.
   const assignedType = assignedEmail ? 'team' : 'unassigned';
+  const photos = (args.photo_urls ?? []).filter((u) => typeof u === 'string' && u.length > 0);
 
   const { data, error } = await supabase
     .from('work_slips')
@@ -52,6 +60,7 @@ export async function createWorkSlip(args: {
       created_by_email: session.user.email,
       assigned_to_email: assignedEmail,
       assigned_to_type: assignedType,
+      photo_urls: photos,
     })
     .select('id')
     .single();
