@@ -279,7 +279,13 @@ export function packetHeadline(p: PacketDetail): string {
     return `${label} · ${homes} homes`;
   }
   // Inspections: one stop per home, so a shared street/town is accurate.
-  if (p.stop_count === 1) return p.stops[0]?.property.name ?? '1 inspection';
+  if (p.stop_count === 1) {
+    const nm = p.stops[0]?.property.name;
+    if (nm) return nm;
+    // Masked (pre-claim) payload has no name — fall back to the town.
+    const c = cityShort(p.stops[0]?.property.city ?? null);
+    return c ? `1 inspection in ${c}` : '1 inspection';
+  }
   const area = sharedArea(p);
   if (area) return `${p.stop_count} inspections on ${area}`;
   const city = cityShort(p.stops[0]?.property.city ?? null);

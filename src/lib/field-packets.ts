@@ -432,9 +432,17 @@ export async function loadPackets(statuses?: string[]): Promise<PacketRow[]> {
   return (data ?? []) as PacketRow[];
 }
 
+/** Strip a property's identifying fields for a pre-claim contractor payload:
+ *  no name/address/title/coordinates ride along until the inspector claims the
+ *  job. Town (city) is kept so the card can still say "in Gloucester". */
+function maskIdentity(p: FieldProperty): FieldProperty {
+  return { ...p, name: '', title: null, address: '', latitude: null, longitude: null };
+}
+
 async function stopsWithProperties(
   stops: PacketStopRow[],
   revealAccess: boolean,
+  revealIdentity: boolean,
 ): Promise<PacketStopDetail[]> {
   if (stops.length === 0) return [];
   const ids = [...new Set(stops.map((s) => s.property_id))];
@@ -485,7 +493,7 @@ async function stopsWithProperties(
       const property = propById.get(s.property_id)!;
       return {
         ...s,
-        property,
+        property: revealIdentity ? property : maskIdentity(property),
         access: revealAccess && property ? accessBundle(property) : null,
         workSlip: s.work_slip_id ? slipById.get(s.work_slip_id) ?? null : null,
         attachedSlips: attachedByStop.get(s.id) ?? [],
@@ -505,7 +513,7 @@ type AttachmentRow = {
 
 export async function loadPacketDetail(
   packetId: string,
-  opts: { revealAccess?: boolean } = {},
+  opts: { revealAccess?: boolean; revealIdentity?: boolean } = {},
 ): Promise<PacketDetail | null> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
@@ -515,7 +523,13 @@ export async function loadPacketDetail(
   const packet = (pData as PacketRow | null) ?? null;
   if (!packet) return null;
   const { data: sData } = await fieldDb().from('packet_stops').select('*').eq('packet_id', packetId);
-  const stops = await stopsWithProperties((sData ?? []) as PacketStopRow[], !!opts.revealAccess);
+  // Identity is revealed by default (office/internal views); contractor
+  // marketplace + pre-claim views pass revealIdentity:false to mask addresses.
+  const stops = await stopsWithProperties(
+    (sData ?? []) as PacketStopRow[],
+    !!opts.revealAccess,
+    opts.revealIdentity !== false,
+  );
   let contractor: ContractorRow | null = null;
   if (packet.awarded_contractor_id) {
     const { data: cData } = await fieldDb()
@@ -550,8 +564,10 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
     .in('status', ['claimed', 'in_progress', 'submitted', 'approved'])
     .order('visit_date', { ascending: true });
 
+  // Browsing, not-yet-claimed packets: mask property identity (no addresses /
+  // names / coords) until the inspector actually claims the job.
   const availableRaw = (
-    await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id)))
+    await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id, { revealIdentity: false })))
   ).filter(Boolean) as PacketDetail[];
   // Access codes are never loaded into the marketplace payload — the cards
   // don't render them, and the detail page reveals them gated on active status.
