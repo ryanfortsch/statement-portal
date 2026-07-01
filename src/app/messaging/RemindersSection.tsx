@@ -24,6 +24,14 @@ const WEEKDAYS = [
 
 type Mode = 'recurring' | 'once';
 
+/** Today's local date as YYYY-MM-DD, for the one-time date floor. */
+function todayLocalISO(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 function cadenceLabel(r: RecurringMessage): string {
   if ((r.kind || 'recurring') === 'once') {
     return r.fire_date ? `Once · ${r.fire_date}` : 'One-time';
@@ -358,7 +366,13 @@ function CreateForm({
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setMode(m)}
+                onClick={() => {
+                  setMode(m);
+                  // Drop any leftover validation error/notice from the other
+                  // mode so it doesn't read as an error on this tab.
+                  setError(null);
+                  setDone(false);
+                }}
                 style={{
                   fontSize: 10,
                   letterSpacing: '0.14em',
@@ -484,11 +498,14 @@ function CreateForm({
             <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
               Date
             </span>
+            {/* Floor at today (a past date would fire never / close as missed),
+                but do NOT clamp to the stay window: a one-time note like a
+                pre-arrival gate-code heads-up legitimately sends before the
+                guest checks in. */}
             <input
               type="date"
               value={fireDate}
-              min={picked?.check_in || undefined}
-              max={picked?.check_out || undefined}
+              min={todayLocalISO()}
               onChange={(e) => setFireDate(e.target.value)}
               style={{ ...inputStyle, width: 160 }}
             />
