@@ -11,6 +11,7 @@ import {
   coachOwnerDraft,
 } from './actions';
 import { prettifySlug, prettifyTopic, ageToneColor, relativeTimeShort } from '@/app/messaging/format';
+import { splitOwnerText, parseTapback } from './conversation';
 
 type Props = { initialPending: OwnerApproval[] };
 
@@ -90,6 +91,20 @@ function OwnerApprovalCard({
     });
   };
 
+  // Split the stacked owner_text into its individual messages and drop any
+  // that are pure tapbacks (reactions to our earlier replies, not new asks).
+  // If every segment is a reaction, this card should never have been minted;
+  // collapse it to a one-line notice + a single Dismiss.
+  const segments = splitOwnerText(approval.owner_text || '');
+  const realSegments = segments.filter((s) => !parseTapback(s));
+  const allReactions = segments.length > 0 && realSegments.length === 0;
+  const ownerSaid = realSegments.length > 0 ? realSegments : [approval.owner_text || '(empty)'];
+  const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
+  const reactionGlyphs = segments
+    .map((s) => parseTapback(s)?.glyph)
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <article
       style={{
@@ -131,60 +146,84 @@ function OwnerApprovalCard({
         </span>
       </header>
 
-      <div className="rt-msg-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-        <FieldBlock
-          label="Owner said"
-          sub={relativeTimeShort(approval.created_at) ? `sent ${relativeTimeShort(approval.created_at)}` : ''}
-          subTitle={approval.created_at}
-        >
-          <BodyText>{approval.owner_text || '(empty)'}</BodyText>
-        </FieldBlock>
-        <FieldBlock label="Proposed reply">
-          <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
-        </FieldBlock>
-      </div>
+      {allReactions ? (
+        <>
+          <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            {firstName} reacted {reactionGlyphs || '👍'} to your message. Nothing to reply to.
+          </div>
+          {error && (
+            <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+              {error}
+            </p>
+          )}
+          <footer style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+            <SecondaryButton
+              onClick={() => run('reject', () => rejectOwnerDraft(approval.id))}
+              disabled={isPending}
+              title="A reaction, not a message. Clears it from the queue."
+            >
+              {pendingAction === 'reject' ? 'Dismissing…' : 'Dismiss'}
+            </SecondaryButton>
+          </footer>
+        </>
+      ) : (
+        <>
+          <div className="rt-msg-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+            <FieldBlock
+              label={ownerSaid.length > 1 ? `Owner said · ${ownerSaid.length} messages` : 'Owner said'}
+              sub={relativeTimeShort(approval.created_at) ? `sent ${relativeTimeShort(approval.created_at)}` : ''}
+              subTitle={approval.created_at}
+            >
+              <OwnerSaidRun segments={ownerSaid} />
+            </FieldBlock>
+            <FieldBlock label="Proposed reply">
+              <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
+            </FieldBlock>
+          </div>
 
-      {error && (
-        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-          {error}
-        </p>
+          {error && (
+            <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+              {error}
+            </p>
+          )}
+
+          <footer
+            style={{
+              marginTop: 18,
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <PrimaryButton
+              onClick={() => run('approve', () => approveOwnerDraft(approval.id))}
+              disabled={isPending}
+            >
+              {pendingAction === 'approve' ? 'Sending…' : 'Approve & send'}
+            </PrimaryButton>
+            <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+              {showCoach ? 'Cancel coaching' : 'Coach the AI'}
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={() => run('mark-handled', () => markOwnerHandled(approval.id))}
+              disabled={isPending}
+              title="Already replied to the owner directly. Clears the queue without sending."
+            >
+              {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={() => run('reject', () => rejectOwnerDraft(approval.id))}
+              disabled={isPending}
+              title="This owner message doesn't need a reply. Drops the draft."
+            >
+              {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
+            </SecondaryButton>
+          </footer>
+        </>
       )}
 
-      <footer
-        style={{
-          marginTop: 18,
-          display: 'flex',
-          gap: 10,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
-        <PrimaryButton
-          onClick={() => run('approve', () => approveOwnerDraft(approval.id))}
-          disabled={isPending}
-        >
-          {pendingAction === 'approve' ? 'Sending…' : 'Approve & send'}
-        </PrimaryButton>
-        <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
-          {showCoach ? 'Cancel coaching' : 'Coach the AI'}
-        </SecondaryButton>
-        <SecondaryButton
-          onClick={() => run('mark-handled', () => markOwnerHandled(approval.id))}
-          disabled={isPending}
-          title="Already replied to the owner directly. Clears the queue without sending."
-        >
-          {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
-        </SecondaryButton>
-        <SecondaryButton
-          onClick={() => run('reject', () => rejectOwnerDraft(approval.id))}
-          disabled={isPending}
-          title="This owner message doesn't need a reply. Drops the draft."
-        >
-          {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
-        </SecondaryButton>
-      </footer>
-
-      {showCoach && (
+      {!allReactions && showCoach && (
         <div style={{ marginTop: 14 }}>
           <label
             htmlFor={`owner-coach-${approval.id}`}
@@ -283,6 +322,41 @@ function FieldBlock({
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+/** The owner's message(s) as a clustered run. A single message reads as one
+ *  line; a stacked burst becomes a keylined block, one line per message, so
+ *  the operator drafts against a real exchange instead of a wall. */
+function OwnerSaidRun({ segments }: { segments: string[] }) {
+  if (segments.length <= 1) {
+    return <BodyText>{segments[0] || '(empty)'}</BodyText>;
+  }
+  return (
+    <div
+      style={{
+        borderLeft: '2px solid var(--rule)',
+        paddingLeft: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      {segments.map((s, i) => (
+        <p
+          key={i}
+          style={{
+            margin: 0,
+            fontSize: 14,
+            lineHeight: 1.55,
+            color: 'var(--ink-2)',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {s}
+        </p>
+      ))}
     </div>
   );
 }
