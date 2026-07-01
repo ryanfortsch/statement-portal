@@ -159,8 +159,21 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
             <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px', marginLeft: 8 }}>{a.trade}</span>
           )}
           <RecChip rec={a.ai_recommendation} score={a.ai_score} />
-          <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
-            {a.email}{a.phone ? ` · ${a.phone}` : ''}{a.area ? ` · ${a.area}` : ''}
+          <div style={{ fontSize: 12.5, marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <a href={`mailto:${a.email}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>{a.email}</a>
+            {a.phone && (
+              <>
+                <span style={{ color: 'var(--rule)' }}>·</span>
+                <a href={`tel:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>{a.phone}</a>
+                <a href={`sms:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontSize: 11, fontWeight: 600 }}>Text</a>
+              </>
+            )}
+            {a.area && (
+              <>
+                <span style={{ color: 'var(--rule)' }}>·</span>
+                <span style={{ color: 'var(--ink-4)' }}>{a.area}</span>
+              </>
+            )}
           </div>
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right' }}>
@@ -216,7 +229,7 @@ function Closed({ title, apps }: { title: string; apps: ContractorApplication[] 
       <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>{title}</h2>
       {apps.map((a) => (
         <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--rule)', opacity: 0.7, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14 }}>{a.full_name} <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>· {a.email}</span></span>
+          <span style={{ fontSize: 14 }}>{a.full_name} <a href={`mailto:${a.email}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.email}</a>{a.phone ? <> <a href={`tel:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.phone}</a></> : null}</span>
           <form action={reopenApplicant} style={{ margin: 0 }}>
             <input type="hidden" name="application_id" value={a.id} />
             <button type="submit" style={{ ...btnGhost, padding: '4px 10px' }}>Reopen</button>
