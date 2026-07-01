@@ -42,23 +42,9 @@ function fmtDate(d: string): string {
   }
 }
 
-function windowLabel(s: PacketStopDetail, visitDate: string): string {
-  // The window is driven by the cleaning: the inspector goes in AFTER the
-  // cleaner. Cleaning happens the day a guest checks out (~11am checkout,
-  // cleaners wrap roughly 12–3pm). If the home was cleaned on an earlier day
-  // it's been sitting vacant, so anytime works and earlier is better (more
-  // runway to fix anything before the next guest).
-  const checkinToday = !!s.next_checkin && s.next_checkin === visitDate;
-  if (s.window_basis === 'checkout_day') {
-    return checkinToday
-      ? 'Same-day turnover · go in after the cleaner, before the 4pm check-in'
-      : "In after today's cleaning · cleaners usually wrap by ~3pm";
-  }
-  if (s.window_basis === 'pre_checkin' || checkinToday) {
-    return 'Guest checks in at 4pm · inspect in the morning, well before then';
-  }
-  return 'Already cleaned · anytime, mornings are best';
-}
+// One fixed inspection window for every stop: after the morning checkout +
+// cleaning, before the afternoon check-in. Consistent, not a per-stop guess.
+const INSPECTION_WINDOW = 'Inspection window · 12:00–2:45 PM';
 
 const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
   {
@@ -252,6 +238,13 @@ export default async function PacketPage({
 
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
+  // One consistent label per stop — never the guest-facing listing title.
+  // Full address once it's theirs; otherwise the real property name if they're
+  // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
+  // browser can't read off which specific homes sit empty on which days.
+  const vetted = canClaim(contractor);
+  const stopLabel = (s: PacketStopDetail, i: number): string =>
+    isMine ? s.property.address : vetted ? s.property.name : `Home ${i + 1}`;
   // A contractor only sees another's packet if it's published AND their trade.
   if (!isMine && (packet.status !== 'published' || packet.trade !== contractor.trade)) redirect('/field');
   // Reveal door/access codes only while the contractor is actively engaged
@@ -282,8 +275,8 @@ export default async function PacketPage({
     ...(showSupplyStop
       ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1 }]
       : []),
-    ...packet.stops.map((s) => ({
-      label: isMine ? s.property.address : s.property.title || s.property.name,
+    ...packet.stops.map((s, i) => ({
+      label: stopLabel(s, i),
       lat: s.property.latitude ?? NaN,
       lng: s.property.longitude ?? NaN,
       order: s.walk_order,
@@ -415,7 +408,7 @@ export default async function PacketPage({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="font-serif" style={{ fontSize: 17 }}>
-                {isMine ? s.property.address : `Home ${i + 1}`}
+                {stopLabel(s, i)}
               </div>
               {isMine && s.instructions && (
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px' }}>
@@ -459,7 +452,7 @@ export default async function PacketPage({
                   {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{windowLabel(s, packet.visit_date)}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{INSPECTION_WINDOW}</div>
               )}
               {isMine && (() => {
                 const href = mapsUrl(s);
