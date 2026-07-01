@@ -50,7 +50,13 @@ export async function createReminderAction(
   if (!sess.ok) return sess;
   if (!input.conversation_id) return { ok: false, error: 'Pick a guest/reservation' };
   if (!input.body.trim()) return { ok: false, error: 'Write the reminder message' };
-  if (!input.weekdays) return { ok: false, error: 'Pick at least one day of the week' };
+  // A one-time message needs a fire date, not weekdays; only the recurring
+  // cadence needs a weekday set. (Mirrors the backend's create_reminder check.)
+  if (input.kind === 'once') {
+    if (!input.fire_date) return { ok: false, error: 'Pick a date to send' };
+  } else if (!input.weekdays) {
+    return { ok: false, error: 'Pick at least one day of the week' };
+  }
   const res = await createRecurring(input);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/messaging');
