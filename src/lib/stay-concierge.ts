@@ -342,8 +342,11 @@ export async function listRecentOwnerApprovals(hours = 24) {
   return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
 }
 
-export async function approveOwnerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, { method: 'POST' });
+export async function approveOwnerApproval(id: string, finalText?: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, {
+    method: 'POST',
+    ...(finalText !== undefined ? { body: { final_text: finalText } } : {}),
+  });
 }
 
 export async function rejectOwnerApproval(id: string) {
@@ -354,10 +357,10 @@ export async function markHandledOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
 }
 
-export async function coachOwnerApproval(id: string, feedback: string) {
+export async function coachOwnerApproval(id: string, feedback: string, base?: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/coach`, {
     method: 'POST',
-    body: { feedback },
+    body: { feedback, ...(base !== undefined ? { base } : {}) },
     timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
   });
 }
