@@ -9,8 +9,9 @@
  *               → bookings.external_booking_id  (the Guesty reservation)
  *               → reviews.reservation_id → overall_rating
  *
- * Tiers run off a CONSECUTIVE 5-star streak (most recent reviews backward):
- *   25 in a row → Bronze, 50 → Silver, 100 → Gold. Any sub-5 review resets it.
+ * Tiers run off CUMULATIVE 5-star review totals:
+ *   25 → Bronze, 50 → Silver, 100 → Gold.
+ *   (fiveStreak is a separate "in a row" flourish, not what drives the tier.)
  *   Unrated until MIN_RATED reviews exist.
  */
 import 'server-only';
