@@ -115,6 +115,86 @@ export function ageToneColor(ageMinutes: number | null | undefined): string {
  * "5h 12m ago", "1d ago". Used in the Recent strip so each row carries a
  * sense of when it landed.
  */
+const ET = 'America/New_York';
+
+function etDayKey(d: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: ET,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/**
+ * Editorial date label for a conversation session header. "Today",
+ * "Yesterday", else "Thu, Jun 26" (Eastern), adding the year only when it
+ * differs from now. Used by the owner-messaging transcript.
+ */
+export function formatSessionDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const now = new Date();
+    const key = etDayKey(d);
+    if (key === etDayKey(now)) return 'Today';
+    if (key === etDayKey(new Date(now.getTime() - 86_400_000))) return 'Yesterday';
+    const yearOf = (x: Date) =>
+      new Intl.DateTimeFormat('en-US', { timeZone: ET, year: 'numeric' }).format(x);
+    const sameYear = yearOf(d) === yearOf(now);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: ET,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      ...(sameYear ? {} : { year: 'numeric' }),
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Clock label for a run's meta line: a single time ("2:14 PM") or a range
+ * ("2:14 - 2:31 PM") when a burst spans minutes. Eastern. The meridiem is
+ * dropped from the start when both ends share it.
+ */
+export function formatClockRange(a: string | null | undefined, b?: string | null): string {
+  if (!a) return '';
+  try {
+    const da = new Date(a);
+    if (Number.isNaN(da.getTime())) return '';
+    const parts = (iso: string) =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: ET,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).formatToParts(new Date(iso));
+    const pick = (iso: string, withMer: boolean) => {
+      let h = '';
+      let m = '';
+      let mer = '';
+      for (const p of parts(iso)) {
+        if (p.type === 'hour') h = p.value;
+        else if (p.type === 'minute') m = p.value;
+        else if (p.type === 'dayPeriod') mer = p.value;
+      }
+      return withMer ? `${h}:${m} ${mer}` : `${h}:${m}`;
+    };
+    const merOf = (iso: string) =>
+      parts(iso).find((p) => p.type === 'dayPeriod')?.value ?? '';
+    if (!b || b === a || Math.abs(new Date(b).getTime() - da.getTime()) < 60_000) {
+      return pick(a, true);
+    }
+    const sameMer = merOf(a) === merOf(b);
+    return `${pick(a, !sameMer)} - ${pick(b, true)}`;
+  } catch {
+    return '';
+  }
+}
+
 export function relativeTimeShort(iso: string | null | undefined): string {
   if (!iso) return '';
   try {
