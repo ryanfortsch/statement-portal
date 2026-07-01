@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       //    reservation numbers. Cleaning + repairs stay as they were.
       const { data: stmt } = await supabase
         .from('property_statements')
-        .select('management_fee_pct, cleaning_total, repairs_total')
+        .select('management_fee_pct, cleaning_total, repairs_total, reserve_holdback')
         .eq('id', gap.property_statement_id)
         .single();
       if (!stmt) {
@@ -116,7 +116,8 @@ export async function POST(request: NextRequest) {
         .eq('property_statement_id', gap.property_statement_id);
       const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
       const newMgmtFee = round2(newRentalRev * (stmt.management_fee_pct / 100));
-      const newOwnerPayout = round2(newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+      const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
+      const newOwnerPayout = round2(newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
       await supabase
         .from('property_statements')
         .update({ rental_revenue: newRentalRev, management_fee: newMgmtFee, owner_payout: newOwnerPayout })

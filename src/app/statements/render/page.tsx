@@ -632,6 +632,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairsCombined > 0 ? 'amt neg' : 'amt'} style={repairsCombined > 0 ? {} : { color: 'var(--ink-4)' }}>{repairsCombined > 0 ? `\u2212$${fmt(repairsCombined)}` : '\u2014'}</td></tr>
                     );
                   })()}
+                  {Number(prop.reserve_holdback || 0) > 0 && (
+                    <tr><td><span className="cat">Owner Reserve</span></td><td className="amt neg">&minus;${fmt(Number(prop.reserve_holdback))}</td></tr>
+                  )}
                   <tr className="total"><td><span className="cat">Owner Payout</span></td><td className="amt">${fmt(prop.owner_payout)}</td></tr>
                 </tbody></table>
 

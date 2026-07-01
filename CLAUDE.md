@@ -112,8 +112,10 @@ Rising Tide's own direct-booking site, **staycapeann.com**, is built so the paym
 ```
 adjusted_revenue = guesty_rental_income - stripe_fee (if VRBO or Manual/non-zero)
 management_fee = adjusted_revenue * fee_pct
-owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - repairs_total
+owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - repairs_total - reserve_holdback
 ```
+
+`reserve_holdback` is the per-statement Owner Reserve withhold — a $0 default, operator opt-in per statement via the "Withhold Owner Reserve" checkbox on the statement card. Default $2,000 when enabled, editable. Rising Tide's policy: new owners give a $2,000 check on onboarding as a minimum account balance; for owners who haven't paid (or are delinquent), the operator ticks the box on their next statement to hold the $2,000 from that payout instead. Appears as an "Owner Reserve" line item on the editorial PDF between Cleaning and Owner Payout. Preserved across re-ingest via SELECT-before-delete in `/api/ingest`.
 
 ## Cleaning Logic
 

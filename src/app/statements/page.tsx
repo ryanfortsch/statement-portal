@@ -84,6 +84,7 @@ type PropertyStatement = {
   cleaning_total: number;
   repairs_total: number;
   tax_remittance: number;
+  reserve_holdback?: number;
   owner_payout: number;
   num_stays: number;
   nights_booked: number;
@@ -805,6 +806,103 @@ function FinRow({ label, value, negative }: { label: string; value: string; nega
   );
 }
 
+/**
+ * Owner Reserve row. Renders as a checkbox + inline dollar input; ticking
+ * defaults to $2,000, editable to any non-negative amount. Amount subtracts
+ * from owner_payout and appears as a "Owner Reserve" line item on the
+ * editorial PDF. Persists via PATCH /api/property-statements/[id]/reserve.
+ * Survives re-ingest (preserved in /api/ingest's SELECT-before-delete).
+ */
+function ReserveHoldbackRow({ prop }: { prop: PropertyStatement }) {
+  const initial = Number(prop.reserve_holdback || 0);
+  const [enabled, setEnabled] = useState(initial > 0);
+  const [amount, setAmount] = useState<string>(initial > 0 ? initial.toFixed(2) : '2000.00');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function persist(nextAmount: number) {
+    setSaving(true); setErr(null);
+    try {
+      const res = await fetch(`/api/property-statements/${prop.id}/reserve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: nextAmount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'save failed');
+      // Reflect the recomputed owner_payout locally so the total updates
+      // without a full page reload. Mutating in place is intentional here.
+      prop.owner_payout = Number(data.owner_payout);
+      prop.reserve_holdback = Number(data.reserve_holdback);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <tr>
+      <td style={{ padding: '10px 0 9px', borderBottom: '1px dotted var(--rule)', color: 'var(--ink-2)' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={e => {
+              const next = e.target.checked;
+              setEnabled(next);
+              if (next) {
+                const amt = Number(amount) || 2000;
+                if (amt !== initial) void persist(amt);
+                else if (initial === 0) void persist(2000);
+              } else {
+                void persist(0);
+              }
+            }}
+            disabled={saving}
+            style={{ transform: 'translateY(-1px)' }}
+          />
+          <span>Withhold Owner Reserve</span>
+          {enabled && (
+            <>
+              <span style={{ color: 'var(--ink-3)' }}>$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                onBlur={() => {
+                  const amt = Number(amount);
+                  if (!Number.isFinite(amt) || amt < 0) return;
+                  if (amt !== initial) void persist(amt);
+                }}
+                disabled={saving}
+                style={{
+                  width: 80, padding: '2px 6px', fontSize: 12,
+                  fontFamily: 'var(--font-jetbrains, monospace)',
+                  border: '1px solid var(--rule)',
+                  textAlign: 'right',
+                }}
+              />
+            </>
+          )}
+          {err && <span style={{ fontSize: 10, color: 'var(--negative)' }}>{err}</span>}
+        </label>
+      </td>
+      <td style={{
+        padding: '10px 0 9px', borderBottom: '1px dotted var(--rule)',
+        textAlign: 'right',
+        fontFamily: 'var(--font-fraunces)',
+        fontSize: 13,
+        color: enabled && Number(amount) > 0 ? 'var(--negative)' : 'var(--ink-4)',
+      }}>
+        {enabled && Number(amount) > 0 ? `−${fmt(Number(amount))}` : '—'}
+      </td>
+    </tr>
+  );
+}
+
 function DataSourceChip({ active, label }: { active: boolean; label: string }) {
   return (
     <span style={{
@@ -1151,6 +1249,7 @@ function PropertyCard({
                   <FinRow label={`Mgmt Fee (${prop.management_fee_pct}%)`} value={`−${fmt(prop.management_fee)}`} negative />
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
                   {prop.repairs_total > 0 && <FinRow label="Repairs" value={`−${fmt(prop.repairs_total)}`} negative />}
+                  <ReserveHoldbackRow prop={prop} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       Owner Payout

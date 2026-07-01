@@ -66,7 +66,7 @@ export async function PATCH(
   const stmtId = event.property_statement_id as string;
   const { data: stmt } = await supabase
     .from('property_statements')
-    .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total, attributed_debits_total')
+    .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total, attributed_debits_total, reserve_holdback')
     .eq('id', stmtId)
     .maybeSingle();
   if (stmt) {
@@ -82,7 +82,8 @@ export async function PATCH(
     const mgmt = Number(stmt.management_fee) || 0;
     const repairs = Number(stmt.repairs_total) || 0;
     const attributedDebits = Number(stmt.attributed_debits_total) || 0;
-    const ownerPayout = round2(rental + addOns - mgmt - cleaningTotal - repairs - attributedDebits);
+    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback) || 0;
+    const ownerPayout = round2(rental + addOns - mgmt - cleaningTotal - repairs - attributedDebits - reserveHoldback);
     await supabase
       .from('property_statements')
       .update({ cleaning_total: cleaningTotal, owner_payout: ownerPayout })

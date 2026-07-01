@@ -963,7 +963,11 @@ export async function POST(request: NextRequest) {
     }
     const feeBase = Math.round((totalRevenue + addOnsMgmtBase) * 100) / 100;
     const managementFee = Math.round(feeBase * (propConfig.fee_pct / 100) * 100) / 100;
-    const ownerPayout = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
+    // Owner payout deducts reserve_holdback last -- placeholder here; the
+    // actual value is preserved from any existing property_statement row
+    // (see section 8) and applied when we recompute after the delete-then-
+    // insert. Baseline (before reserve) is captured here for clarity.
+    const ownerPayoutBeforeReserve = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
 
     // 6. Confidence
     const hasGuesty = reservations.length > 0;
@@ -990,13 +994,21 @@ export async function POST(request: NextRequest) {
       period = newPeriod;
     }
 
-    // 8. Delete existing data for this property/period (re-upload support)
+    // 8. Delete existing data for this property/period (re-upload support).
+    // Also grab reserve_holdback so the operator's owner-reserve setting
+    // survives the wipe-and-rebuild -- otherwise re-uploading a bank CSV
+    // would silently drop a $2000 reserve back to $0. Tolerates the
+    // reserve_holdback migration not having run yet: query wraps in a
+    // try/catch and falls back to 0.
     const { data: existingStmt } = await supabase
       .from('property_statements')
-      .select('id')
+      .select('id, reserve_holdback')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
+
+    const preservedReserveHoldback = Number((existingStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? 0);
+    const ownerPayout = Math.round((ownerPayoutBeforeReserve - preservedReserveHoldback) * 100) / 100;
 
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
@@ -1025,6 +1037,7 @@ export async function POST(request: NextRequest) {
         cleaning_total: cleaningTotal,
         repairs_total: repairsTotal,
         tax_remittance: 0,
+        reserve_holdback: preservedReserveHoldback,
         owner_payout: ownerPayout,
         // num_stays counts a booking ONCE on its checkout month, not on
         // every month an installment lands. Synthetic non-final-month
@@ -1364,6 +1377,7 @@ export async function POST(request: NextRequest) {
             management_fee_pct: propConfig.fee_pct,
             cleaning_total: cleaningTotal,
             repairs_total: repairsTotal,
+            reserve_holdback: preservedReserveHoldback,
           },
         });
         if (stripeSync.fee_updates.length > 0) {

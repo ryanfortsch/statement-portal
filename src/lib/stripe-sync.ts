@@ -154,6 +154,7 @@ export async function syncPropertyStripe(opts: {
     management_fee_pct: number;
     cleaning_total: number;
     repairs_total: number;
+    reserve_holdback?: number;
   };
 }): Promise<StripeSyncResult> {
   const { supabase, propertyId, restrictedKey, month, stmt } = opts;
@@ -397,7 +398,8 @@ export async function syncPropertyStripe(opts: {
         .eq('property_statement_id', stmt.id);
       const newRentalRevenue = round2((freshRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
       const newMgmtFee = round2(newRentalRevenue * (stmt.management_fee_pct / 100));
-      const newOwnerPayout = round2(newRentalRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+      const reserveHoldback = Number(stmt.reserve_holdback ?? 0);
+      const newOwnerPayout = round2(newRentalRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
       await supabase
         .from('property_statements')
         .update({ rental_revenue: newRentalRevenue, management_fee: newMgmtFee, owner_payout: newOwnerPayout })
