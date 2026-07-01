@@ -2,7 +2,7 @@ import React from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
-import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
+import { NON_TURNOVER_VENDORS } from '@/lib/bank-charges';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
@@ -298,10 +298,11 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
-  // "N turns" counts cleaning turnovers only -- exclude Nor'East linen rows,
-  // which are additive cost folded into cleaning_total but aren't turnovers.
+  // "N turns" counts cleaning turnovers only -- exclude Nor'East linen and
+  // Laundry Plus rows, which are additive cost folded into cleaning_total
+  // but aren't turnovers.
   const cleans = (cleaningEvents?.filter(e =>
-    e.vendor !== LINEN_VENDOR_NAME
+    !NON_TURNOVER_VENDORS.includes(e.vendor || '')
     && (Number(e.credit_amount) || 0) < (Number(e.amount) || 0)
   ).length || 0) || numStays;
 

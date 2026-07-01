@@ -94,7 +94,13 @@ export async function getVendor1099Report(year?: number): Promise<Vendor1099Repo
     .lt('bank_charge_date', `${y + 1}-01-01`);
   for (const r of (cleanRows || []) as { vendor: string | null; amount: number | string | null; bank_charge_date: string | null; source: string | null }[]) {
     if (!inYear(r.bank_charge_date, y)) continue;
-    const vendor = r.vendor || (r.source === 'bank-linen' ? "Nor'East Cleaners" : 'Cape Ann Elite');
+    // vendor column fallback by source discriminator, for rows written
+    // before the vendor migration ran. Order matters: laundry + linen
+    // sources must precede the Cape Ann Elite default.
+    const vendor = r.vendor
+      || (r.source === 'bank-laundry' ? 'Laundry Plus' : null)
+      || (r.source === 'bank-linen' ? "Nor'East Cleaners" : null)
+      || 'Cape Ann Elite';
     const amt = Math.abs(Number(r.amount) || 0);
     if (amt > 0) add(vendor, amt, 'cleaning');
   }

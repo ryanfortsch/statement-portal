@@ -117,9 +117,16 @@ owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - 
 
 ## Cleaning Logic
 
-**Bank statement is source of truth for total cleaning cost.** All "CAPE ANN ELITE" ACH charges on the property's Chase account in the statement month = total cleaning.
+**Bank statement is source of truth for total cleaning cost.** In the statement month, on the property's Chase account:
+- **"CAPE ANN ELITE"** ACH charges = housekeeping (matched 1:1 to a checkout as a turnover)
+- **"NOREAST"** debit card charges = linen service (additive, not a turnover)
+- **"LAUNDRY PLUS"** debit card charges = laundry service (additive, not a turnover)
 
-Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total.
+All three roll into a single `cleaning_total` on the property statement — owner sees one "Cleaning" line. The turns count on the editorial statement (`(N turns)`) filters non-turnover vendors via `NON_TURNOVER_VENDORS` in `src/lib/bank-charges.ts` — extend that list if a new additive vendor is added.
+
+Laundry rows attribute to the nearest Cape Ann Elite cleaning by bank_charge_date within 7 days for display grouping on the dashboard; outside that window they render as standalone "Laundry service" rows like linens.
+
+Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total. The matcher restricts to `source IN ('matched', 'bank')` so a Cape Ann Elite invoice cannot false-match a Laundry Plus or Nor'East row that happens to share an amount.
 
 ## Property Naming Convention
 
