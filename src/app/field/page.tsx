@@ -140,12 +140,15 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
           <div className="font-serif" style={{ fontSize: 20, fontWeight: 400, lineHeight: 1.15 }}>
             {packetHeadline(p)}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
-            {(() => {
-              const homes = [...new Set(p.stops.map((s) => s.property.name).filter(Boolean))];
-              return homes.length > 0 ? homes.join(' · ') : 'Homes and addresses shared when you claim';
-            })()}
-          </div>
+          {(() => {
+            const homes = [...new Set(p.stops.map((s) => s.property.name).filter(Boolean))];
+            if (homes.length === 0) return null;
+            return (
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+                {homes.join(' · ')}
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
             {away}
             {spread}
@@ -305,7 +308,7 @@ export default async function FieldHome({
             Who we are
           </div>
           <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,32px)', fontWeight: 300, lineHeight: 1.18, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 20px' }}>
-            Rising Tide keeps a small book of the best homes on Cape Ann. You keep them <span style={{ color: 'var(--signal-soft)' }}>guest-ready</span>.
+            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to help keep them <span style={{ color: 'var(--signal-soft)' }}>guest-ready</span>.
           </h2>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 14px', maxWidth: '60ch' }}>
             We are a boutique manager, local by design. We do not run a sprawling region. We hold a curated portfolio
@@ -321,10 +324,6 @@ export default async function FieldHome({
         <div style={{ marginBottom: 40 }}>
           <SectionHeader n="01" title="The standard" />
           <FieldPillars />
-          <p style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.6, marginTop: 16, maxWidth: '60ch' }}>
-            None of this is a checklist. Work a step ahead and look around corners, catching the thing a guest would
-            notice before they do. The guest rates the stay, and that rating is tied to you.
-          </p>
         </div>
 
         {/* How a visit works */}
@@ -334,7 +333,7 @@ export default async function FieldHome({
             [
               ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
               ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
-              ['Walk each home', 'Inspect against the standard above, snap a few photos, and flag anything off.'],
+              ['Make it guest-ready', 'Walk every room the way a guest will. Set it right, restock what is thin, and get every detail to flawless. Photos document your work.'],
               ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
             ],
             'var(--tide)',
@@ -349,9 +348,6 @@ export default async function FieldHome({
               {preview.map((p, i) => (
                 <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
               ))}
-              <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>
-                Browse all you like. Claiming unlocks the second your check clears.
-              </p>
             </>
           ) : (
             <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
