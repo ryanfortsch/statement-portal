@@ -389,6 +389,7 @@ export default async function TodayPage() {
               <span className="text-xs" style={{ color: 'var(--ink-4)' }}>
                 {i.completedAt
                   ? new Date(i.completedAt).toLocaleTimeString('en-US', {
+                      timeZone: 'America/New_York',
                       hour: 'numeric',
                       minute: '2-digit',
                     })
