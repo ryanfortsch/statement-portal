@@ -97,13 +97,7 @@ export const metadata: Metadata = {
 
 function windowSummary(p: PacketDetail): string {
   if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
-  const bases = p.stops.map((s) => s.window_basis);
-  if (bases.every((b) => b === 'vacant')) return 'already cleaned · flexible timing';
-  const parts: string[] = [];
-  if (bases.includes('checkout_day')) parts.push('after the cleaning');
-  if (bases.includes('vacant')) parts.push('flexible');
-  if (bases.includes('pre_checkin')) parts.push('before check-in');
-  return parts.join(', then ');
+  return '12:00–2:45 PM window';
 }
 
 function eyebrowDate(d: string): string {
