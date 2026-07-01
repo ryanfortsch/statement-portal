@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadContractorMarketplace, getContractorPayStats, SUPPLY_CLOSET } from '@/lib/field-packets';
+import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
@@ -313,8 +313,7 @@ export default async function FieldHome({
           </p>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: 0, maxWidth: '60ch' }}>
             You are the on-site hands for it. Inspect and stage each home to the standard, restock it, and catch
-            issues before a guest does. The turnover runs on you being the last set of eyes before check-in. Pay is{' '}
-            <strong style={{ color: 'var(--paper)' }}>$40/hr</strong> for the time on the work.
+            issues before a guest does. The turnover runs on you being the last set of eyes before check-in.
           </p>
         </div>
 
@@ -322,6 +321,10 @@ export default async function FieldHome({
         <div style={{ marginBottom: 40 }}>
           <SectionHeader n="01" title="The standard" />
           <FieldPillars />
+          <p style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.6, marginTop: 16, maxWidth: '60ch' }}>
+            None of this is a checklist. Work a step ahead and look around corners, catching the thing a guest would
+            notice before they do. The guest rates the stay, and that rating is tied to you.
+          </p>
         </div>
 
         {/* How a visit works */}
@@ -330,7 +333,7 @@ export default async function FieldHome({
           {numbered(
             [
               ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
-              ['Grab your bins', `Swing by the closet at ${SUPPLY_CLOSET} and grab each home's labeled bin on your way out.`],
+              ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
               ['Walk each home', 'Inspect against the standard above, snap a few photos, and flag anything off.'],
               ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
             ],
@@ -338,29 +341,9 @@ export default async function FieldHome({
           )}
         </div>
 
-        {/* The role grows */}
-        <div style={{ margin: '48px 0' }}>
-          <SectionHeader n="03" title="The role grows" />
-          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 20 }}>
-            Start on visits. As you prove out, the work opens up.
-          </p>
-          {numbered(
-            [
-              ['Maintenance', 'A real second lane: claim work-slip packets and fix what you flagged.'],
-              ['More on-site work', 'Staging, stocking, and guest-experience jobs beyond inspections.'],
-              ['Earlier looks', 'Proven, on-time crew get pinged first when packets post.'],
-            ],
-            'var(--tide)',
-          )}
-          <p style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.55, marginTop: 16 }}>
-            Tiers are reputation and an earlier look at first-come packets, not a higher rate. Every packet pays the
-            same posted price.
-          </p>
-        </div>
-
         {/* A preview of the work */}
         <div>
-          <SectionHeader n="04" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
+          <SectionHeader n="03" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
           {preview.length > 0 ? (
             <>
               {preview.map((p, i) => (
