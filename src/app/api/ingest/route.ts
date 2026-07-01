@@ -29,6 +29,7 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
 
   // Match date range blocks: "(Mar 30 - Apr 3, 2026) - 4 nights"
   const dateRangeRegex = /\((\w+ \d+)\s*-\s*(\w+ \d+),?\s*(\d{4})\)\s*-\s*(\d+)\s*nights?/g;
+  const nextDateRangeRegex = /\(\w+ \d+\s*-\s*\w+ \d+,?\s*\d{4}\)\s*-\s*\d+\s*nights?/;
   let match;
 
   while ((match = dateRangeRegex.exec(text)) !== null) {
@@ -40,12 +41,21 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
     const checkIn = parseShortDate(startStr, year);
     const checkOut = parseShortDate(endStr, year);
 
-    // Get text after this date range match to find the rental payment line
-    const afterMatch = text.substring(match.index);
+    // Bound the rental-line search to just this section. When a reservation
+    // is cancelled and reprocessed in Guesty, Guesty still writes its date-
+    // range header on the owner statement PDF but with $0.00 and no rental
+    // line. Without a bound, the empty section would slurp the NEXT
+    // reservation's rental line and duplicate that reservation into this
+    // empty slot -- the exact symptom that produced a phantom Nicholas Mount
+    // on Bethany's June 36 Granite statement after James Cox's cancellation
+    // was reprocessed (2026-07-01). Empty sections now correctly no-op.
+    const remainder = text.substring(match.index + match[0].length);
+    const nextStart = remainder.search(nextDateRangeRegex);
+    const searchWindow = nextStart >= 0 ? remainder.substring(0, nextStart) : remainder;
 
     // pdf-parse concatenates: "HM33A9MBBRRental Income$1,338.48"
     // So we match the code as everything before "Rental Income"
-    const rentalMatch = afterMatch.match(/Rental payment for\s*(\S+?)Rental Income\$?([\d,]+\.?\d*)/);
+    const rentalMatch = searchWindow.match(/Rental payment for\s*(\S+?)Rental Income\$?([\d,]+\.?\d*)/);
 
     if (rentalMatch) {
       const confirmationCode = rentalMatch[1];
