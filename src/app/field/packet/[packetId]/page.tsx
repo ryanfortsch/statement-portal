@@ -246,7 +246,8 @@ export default async function PacketPage({
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  let packet = await loadPacketDetail(packetId);
+  // Load masked first (no addresses) to determine ownership safely.
+  let packet = await loadPacketDetail(packetId, { revealIdentity: false });
   if (!packet) redirect('/field');
 
   const isMine = packet.awarded_contractor_id === contractor.id;
@@ -257,8 +258,10 @@ export default async function PacketPage({
   // (claimed or in progress) — never after they submit/approve/cancel, so a
   // departed or cancelled inspector can't keep live codes for an owner's home.
   const canSeeAccess = isMine && (packet.status === 'claimed' || packet.status === 'in_progress');
-  if (canSeeAccess) {
-    packet = (await loadPacketDetail(packetId, { revealAccess: true }))!;
+  // Addresses reveal the moment the job is theirs (any awarded status); codes are
+  // the tighter gate above. Non-mine (browsing) packets stay masked.
+  if (isMine) {
+    packet = (await loadPacketDetail(packetId, { revealAccess: canSeeAccess, revealIdentity: true }))!;
   }
 
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
@@ -380,7 +383,13 @@ export default async function PacketPage({
       )}
       {!isMaint && <InspectionScope />}
 
-      <PacketRouteMap stops={routeStops} />
+      {isMine ? (
+        <PacketRouteMap stops={routeStops} />
+      ) : (
+        <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, margin: '4px 0 20px' }}>
+          The route and exact addresses are shared the moment you claim.
+        </p>
+      )}
 
       <section>
         {packet.stops.map((s, i) => (
@@ -406,7 +415,7 @@ export default async function PacketPage({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="font-serif" style={{ fontSize: 17 }}>
-                {isMine ? s.property.address : s.property.title || s.property.name}
+                {isMine ? s.property.address : `Home ${i + 1}`}
               </div>
               {isMine && s.instructions && (
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px' }}>
