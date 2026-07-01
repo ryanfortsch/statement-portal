@@ -55,7 +55,7 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
       </div>
       {count === 0 ? (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-          No guest reviews yet. The guests who stay in the homes you prep rate their stay — earn{' '}
+          No guest reviews yet. The guests who stay in the homes you prep rate their stay. Earn{' '}
           <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews</strong> for Bronze, 50 for Silver, 100
           for Gold.
         </p>
@@ -302,6 +302,38 @@ export default async function FieldHome({
           )}
         </div>
 
+        {/* The role: leading why + what callout */}
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 10 }}>
+            The role
+          </div>
+          <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,34px)', fontWeight: 300, lineHeight: 1.15, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 22px' }}>
+            A guest opens a door. What they feel in the <span style={{ color: 'var(--signal-soft)' }}>first thirty seconds</span>, you decided.
+          </h2>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.80)', lineHeight: 1.6, margin: '0 0 18px', maxWidth: '62ch' }}>
+            You are the last person in the home before a guest walks in. The job is plain. You claim a route of
+            nearby homes, pick up each home&apos;s labeled bin from the closet at {SUPPLY_CLOSET}, walk every room
+            against our standard, restock what is thin, snap a few photos, and flag anything a guest would notice. You
+            are not cleaning the home and you are not fixing it. You are the one who stands in the doorway and decides
+            it is right.
+          </p>
+          <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ flexShrink: 0 }}>
+              <div className="font-serif" style={{ fontSize: 46, fontWeight: 300, color: 'var(--signal-soft)', lineHeight: 1 }}>3rd</div>
+              <div style={{ fontSize: 11, color: 'rgba(245,239,226,0.6)', maxWidth: 130, marginTop: 5, lineHeight: 1.35 }}>
+                biggest factor in a booking, after location and price
+              </div>
+            </div>
+            <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.80)', lineHeight: 1.6, flex: 1, minWidth: 220, margin: 0 }}>
+              It is real, flexible work, and it pays like it matters. Guest reviews are the third biggest reason
+              someone books a Rising Tide home, after location and price, and a review starts the moment a door swings
+              open. Pay is time on site at a <strong style={{ color: 'var(--paper)' }}>$40 an hour</strong> basis,
+              baked into a whole-dollar price posted on every packet before you claim it. No bidding, no guessing. You
+              see the number, you decide, you go.
+            </p>
+          </div>
+        </div>
+
         {/* The standard: three flip cards */}
         <div style={{ marginBottom: 40 }}>
           <SectionHeader n="01" title="The standard" />
@@ -314,7 +346,7 @@ export default async function FieldHome({
           {numbered(
             [
               ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
-              ['Grab your bins', `Swing by the supply closet at ${SUPPLY_CLOSET} for each home's labeled bin before you head out.`],
+              ['Grab your bins', `Swing by the closet at ${SUPPLY_CLOSET} and grab each home's labeled bin on your way out.`],
               ['Walk each home', 'Inspect against the standard above, snap a few photos, and flag anything off.'],
               ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
             ],
@@ -326,25 +358,13 @@ export default async function FieldHome({
         <div style={{ margin: '48px 0' }}>
           <SectionHeader n="03" title="Why it matters" />
           <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(24px,5vw,30px)' }}>
-            <p className="font-serif" style={{ fontSize: 22, fontWeight: 300, lineHeight: 1.3, margin: '0 0 18px', color: 'var(--paper)' }}>
+            <p className="font-serif" style={{ fontSize: 22, fontWeight: 300, lineHeight: 1.3, margin: '0 0 16px', color: 'var(--paper)' }}>
               Our whole business is the guest experience.
             </p>
-            <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap' }}>
-              <div style={{ flexShrink: 0 }}>
-                <div className="font-serif" style={{ fontSize: 46, fontWeight: 300, color: 'var(--signal-soft)', lineHeight: 1 }}>3rd</div>
-                <div style={{ fontSize: 11, color: 'rgba(245,239,226,0.6)', maxWidth: 120, marginTop: 5, lineHeight: 1.35 }}>
-                  biggest factor in a booking, after location and price
-                </div>
-              </div>
-              <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, flex: 1, minWidth: 220, margin: 0 }}>
-                That factor is <strong style={{ color: 'var(--paper)' }}>guest reviews</strong>. They&apos;re the
-                lifeblood of Rising Tide, and they start with the home being perfect the moment a guest walks in.
-              </p>
-            </div>
             <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 16px' }}>
               You&apos;re the last set of eyes before that door opens. What a guest feels stepping inside, and what
-              they write afterward, runs through your visit. Those reviews are tied to you: the more five-star stays
-              you help create, the higher your tier climbs (Bronze, Silver, Gold) and the more you earn.
+              they write afterward, runs through your visit. Those reviews are tied to your name, and they build a
+              track record you carry.
             </p>
             <p className="font-serif" style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--paper-2)', lineHeight: 1.5, margin: 0, borderTop: '1px solid var(--tide)', paddingTop: 16 }}>
               This isn&apos;t checkbox work. It&apos;s looking around corners, catching the thing a guest would notice
@@ -353,9 +373,41 @@ export default async function FieldHome({
           </div>
         </div>
 
+        {/* Ways to earn: the role grows over time */}
+        <div style={{ margin: '48px 0' }}>
+          <SectionHeader n="04" title="Ways to earn" />
+          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: '64ch', marginBottom: 20 }}>
+            Once you are cleared and claiming, a single inspection is the floor, not the ceiling. The same walk can
+            pay more, and there is a second lane of work beyond inspection entirely. Here is what is real today, in
+            plain numbers.
+          </p>
+          {numbered(
+            [
+              ['Bigger homes pay more', 'Pay follows the work. A four-bed walk is budgeted at more on-site time than a studio, so it pays more, right inside the same packet.'],
+              ['Up to five homes in one trip', 'Packets bundle nearby homes, up to five within a few miles. Every stop adds its own on-site pay, so a tight cluster is more paid work off one drive.'],
+              ['Paid drive past the core', 'The Cape Ann core near base is an unpaid commute, like any job. Past the first five miles, your round trip and the hops between stops are paid at the same hourly rate.'],
+              ['A bump for short notice', 'A visit landing within two days carries a modest rush bump, about 15 percent, for the short notice. Not a tier, just fair pay for little notice.'],
+              ['Maintenance as a second lane', 'Beyond inspection, the office bundles real fix-it work into its own priced packets, off open work slips. It is a genuine second kind of packet the office can set you up to claim, so ask them if you want it.'],
+            ],
+            'var(--tide)',
+          )}
+          <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(24px,5vw,30px)', marginTop: 24 }}>
+            <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.80)', lineHeight: 1.6, margin: 0 }}>
+              A word on reputation, so it is clear. Reliability moves you up the notify order, so proven inspectors
+              hear about a new packet first on a first-come claim, and new inspectors start mid-pack, not last. The
+              stays you prep earn a track record too: cumulative five-star guest reviews carry you to Bronze at 25,
+              Silver at 50, Gold at 100. To be straight with you, those tiers are reputation, not a pay dial. No badge
+              multiplies your hourly rate. What a strong record buys you is <strong style={{ color: 'var(--signal-soft)' }}>the head start</strong>,
+              hearing about work first and building trust that keeps it coming. None of it starts until your
+              background check clears. The moment it does, the first packet is yours to claim. Thanks in advance for
+              the great work.
+            </p>
+          </div>
+        </div>
+
         {/* A preview of the work */}
         <div>
-          <SectionHeader n="04" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
+          <SectionHeader n="05" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
           {preview.length > 0 ? (
             <>
               {preview.map((p, i) => (
