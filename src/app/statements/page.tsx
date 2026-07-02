@@ -318,6 +318,77 @@ function buildTransferList(args: {
   return lines.join('\n');
 }
 
+/**
+ * Booking.com deposit routing checklist.
+ *
+ * Booking.com pays the FULL guest gross (rental + tax + Booking's own
+ * commission) as one ACH into the central *5623 Booking.com deposits
+ * account. That cash has to be swept to the individual property account so
+ * the owner payout can be funded from the right place. After the sweep, two
+ * things come OUT of the property account and are handled elsewhere:
+ *   - Booking.com auto-debits its 15% commission next month (shown FYI on
+ *     the Remittance Instructions).
+ *   - The occupancy tax is remitted to *9928 (also on the Remittance list).
+ *
+ * So this list is only the missing first hop: *5623 -> property account,
+ * one line per Booking.com booking, amount = the gross Booking deposited
+ * (guesty_reservations.total_paid). The tax + commission are shown as a
+ * sub-line for reconciliation, NOT as separate transfers here.
+ */
+function buildBookingRoutingList(args: {
+  monthName: string;
+  rows: Array<{
+    propertyShort: string;
+    bankLast4: string | null;
+    guest: string;
+    code: string;
+    stay: string;
+    gross: number | null;
+    tax: number;
+    commission: number;
+  }>;
+}): string {
+  const { monthName, rows } = args;
+  const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  const lines: string[] = [];
+  lines.push(`${monthName} BOOKING.COM DEPOSIT ROUTING`);
+  lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  lines.push('');
+  lines.push('Booking.com pays the full guest gross into the *5623 deposits account.');
+  lines.push('Sweep each deposit below to its property account. Booking.com then');
+  lines.push('auto-debits its commission from the property account next month, and');
+  lines.push('the tax portion is remitted to *9928 (see Remittance Instructions).');
+  lines.push('-'.repeat(72));
+  if (rows.length === 0) {
+    lines.push('  (no Booking.com bookings this month)');
+    return lines.join('\n');
+  }
+
+  let totalSweep = 0;
+  let anyUnknown = false;
+  rows.forEach(r => {
+    const dest = r.bankLast4 ? `-> *${r.bankLast4}` : '-> (no account on file)';
+    if (r.gross != null) {
+      totalSweep += r.gross;
+      lines.push(`  ${(`${r.propertyShort} ${dest}`).padEnd(34)} ${dollars(r.gross).padStart(12)}`);
+    } else {
+      anyUnknown = true;
+      lines.push(`  ${(`${r.propertyShort} ${dest}`).padEnd(34)} ${'amount unknown'.padStart(12)}`);
+    }
+    lines.push(`     ${r.guest}  ${r.code}  ${r.stay}`);
+    lines.push(`     tax ${dollars(r.tax)} -> *9928   Booking commission ${dollars(r.commission)} (auto-debit)`);
+  });
+  lines.push('-'.repeat(72));
+  lines.push(`  ${'TOTAL TO SWEEP FROM *5623'.padEnd(34)} ${dollars(totalSweep).padStart(12)}`);
+  if (anyUnknown) {
+    lines.push('');
+    lines.push('  NOTE: a booking is missing its gross in Guesty -- re-sync bookings');
+    lines.push('  or check the Booking.com deposit against the *5623 statement.');
+  }
+  return lines.join('\n');
+}
+
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   const secs = Math.round((Date.now() - then) / 1000);
@@ -1708,6 +1779,20 @@ function DashboardContent() {
   >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
+  // Booking.com deposit routing (sweep *5623 -> property accounts). Loaded
+  // lazily on button click, same pattern as remittanceRows.
+  const [bookingRoutingOpen, setBookingRoutingOpen] = useState(false);
+  const [loadingBookingRouting, setLoadingBookingRouting] = useState(false);
+  const [bookingRoutingRows, setBookingRoutingRows] = useState<Array<{
+    propertyShort: string;
+    bankLast4: string | null;
+    guest: string;
+    code: string;
+    stay: string;
+    gross: number | null;
+    tax: number;
+    commission: number;
+  }> | null>(null);
   const [addNoteOpen, setAddNoteOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -2140,6 +2225,52 @@ function DashboardContent() {
       setRemittanceRows(rows);
     } finally {
       setLoadingRemittance(false);
+    }
+  }
+
+  /**
+   * Build the Booking.com deposit-routing rows for the current month: one
+   * per Booking.com reservation on this month's statements. amount = the
+   * gross Booking deposited (guesty_reservations.total_paid), which is the
+   * cash to sweep from *5623 to the property account. tax + commission are
+   * carried through for the reconciliation sub-line only. Read-only; touches
+   * no statement totals. Lazy on button click, mirrors loadRemittance.
+   */
+  async function loadBookingRouting() {
+    setLoadingBookingRouting(true);
+    try {
+      const allCodes: string[] = [];
+      props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
+      const { data: guestyRows } = allCodes.length
+        ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, channel_commission').in('confirmation_code', allCodes)
+        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null }> };
+      const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
+      (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
+
+      const stayFmt = (ci: string, co: string) =>
+        `${fmtDate(ci)} → ${fmtDate(co)}`;
+
+      const rows: NonNullable<typeof bookingRoutingRows> = [];
+      for (const p of props) {
+        for (const r of p.reservations || []) {
+          if (!(r.platform || '').toUpperCase().includes('BOOKING')) continue;
+          const g = byCode.get(r.confirmation_code);
+          const grossRaw = g?.total_paid;
+          rows.push({
+            propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
+            bankLast4: PROPERTIES[p.property_id]?.bank_last4 ?? null,
+            guest: r.guest_name || 'Guest',
+            code: r.confirmation_code || '—',
+            stay: stayFmt(r.check_in, r.check_out),
+            gross: grossRaw != null ? Math.round(Number(grossRaw) * 100) / 100 : null,
+            tax: Math.round(Number(g?.total_taxes || 0) * 100) / 100,
+            commission: Math.round(Number(g?.channel_commission || 0) * 100) / 100,
+          });
+        }
+      }
+      setBookingRoutingRows(rows);
+    } finally {
+      setLoadingBookingRouting(false);
     }
   }
 
@@ -2889,6 +3020,17 @@ function DashboardContent() {
                 >
                   Transfer List
                 </button>
+                <button
+                  onClick={() => { setBookingRoutingOpen(true); if (!bookingRoutingRows) loadBookingRouting(); }}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Booking.com
+                </button>
               </div>
             </div>
 
@@ -3180,6 +3322,76 @@ function DashboardContent() {
                     }}
                   >
                     Print
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </PreviewModal>
+      )}
+
+      {/* Booking.com deposit routing modal -- sweep *5623 -> property accounts */}
+      {bookingRoutingOpen && (
+        <PreviewModal onClose={() => setBookingRoutingOpen(false)}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Booking.com deposit routing</div>
+          <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>
+            {monthLabel(selectedMonth)} &middot; sweep <em style={{ color: 'var(--tide-deep)' }}>*5623</em> to property accounts
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+            Booking.com pays the full guest gross into the *5623 deposits account. Move each deposit to its property account. Booking.com auto-debits its commission from the property account next month, and the tax portion is remitted to *9928 (both on the Remittance list).
+          </p>
+          {loadingBookingRouting || !bookingRoutingRows ? (
+            <div style={{ marginTop: 18, padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>Loading…</div>
+          ) : (() => {
+            const text = buildBookingRoutingList({
+              monthName: monthLabel(selectedMonth).toUpperCase(),
+              rows: bookingRoutingRows,
+            });
+            return (
+              <>
+                <pre className="font-mono" style={{
+                  marginTop: 18,
+                  whiteSpace: 'pre',
+                  fontSize: 11, lineHeight: 1.55,
+                  color: 'var(--ink-2)',
+                  background: 'var(--paper-2)',
+                  padding: '16px 18px',
+                  borderLeft: '3px solid var(--tide)',
+                  overflowX: 'auto',
+                }}>{text}</pre>
+                <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={async () => { try { await navigator.clipboard.writeText(text); } catch {} }}
+                    style={{
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Booking.com Deposit Routing`, text)}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: 'pointer',
+                    }}
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={() => { setBookingRoutingRows(null); loadBookingRouting(); }}
+                    disabled={loadingBookingRouting}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: loadingBookingRouting ? 'wait' : 'pointer',
+                    }}
+                  >
+                    Refresh
                   </button>
                 </div>
               </>
