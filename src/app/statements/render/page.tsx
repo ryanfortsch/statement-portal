@@ -2,7 +2,6 @@ import React from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
-import { NON_TURNOVER_VENDORS } from '@/lib/bank-charges';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
@@ -157,7 +156,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .single();
 
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
-  const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
   // Add-on charges attributed to specific reservations in the deposit-review
   // queue (e.g. a post-booking Airbnb pet fee). Keyed by the reservation's
@@ -298,13 +296,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
-  // "N turns" counts cleaning turnovers only -- exclude Nor'East linen and
-  // Laundry Plus rows, which are additive cost folded into cleaning_total
-  // but aren't turnovers.
-  const cleans = (cleaningEvents?.filter(e =>
-    !NON_TURNOVER_VENDORS.includes(e.vendor || '')
-    && (Number(e.credit_amount) || 0) < (Number(e.amount) || 0)
-  ).length || 0) || numStays;
 
   // Guest Rating: month-scoped only. Historical averages are misleading on a
   // monthly statement (we don't want a January review padding April's numbers).
@@ -622,7 +613,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <table className="fin-table"><tbody>
                   <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(Number(prop.rental_revenue) + Number(prop.add_ons_revenue || 0))}</td></tr>
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
-                  <tr><td><span className="cat">Cleaning<small>({cleans} turns)</small></span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
+                  <tr><td><span className="cat">Cleaning</span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
                   {(() => {
                     // Repairs & Maint = vendor-classified repairs +
                     // operator-attributed bank-debit reimbursements (e.g.
