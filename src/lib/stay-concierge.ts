@@ -188,6 +188,12 @@ export type ReservationPick = {
   guest_first: string;
   check_in: string;
   check_out: string;
+  /** True when the guest is currently in-house (checked in on/before today and
+   * not yet checked out). The picker lists these first. */
+  in_house: boolean;
+  /** Earliest date this guest can be scheduled from: today if they're already
+   * here (check-in in the past), otherwise their check-in. */
+  effective_start: string;
   module: string;
   channel: string;
 };
