@@ -557,7 +557,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">01</span>
                   <h2 className="sec-title">Reservations</h2>
-                  <span className="sec-meta">{numStays} stays</span>
                 </div>
                 <table className="res-table">
                   <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Net Rev</th></tr></thead>
@@ -608,7 +607,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">02</span>
                   <h2 className="sec-title">Financials</h2>
-                  <span className="sec-meta">Net ${fmt(prop.owner_payout)}</span>
                 </div>
                 <table className="fin-table"><tbody>
                   <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(Number(prop.rental_revenue) + Number(prop.add_ons_revenue || 0))}</td></tr>
