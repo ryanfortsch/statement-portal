@@ -559,7 +559,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <h2 className="sec-title">Reservations</h2>
                 </div>
                 <table className="res-table">
-                  <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Net Rev</th></tr></thead>
+                  <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Rental Rev</th></tr></thead>
                   <tbody>
                     {rows.map((r, i) => {
                       const addOns = r.confirmation_code ? (addOnsByCode.get(r.confirmation_code) || []) : [];
