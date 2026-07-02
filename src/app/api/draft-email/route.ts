@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
 import { renderEmail, type EmailTemplate } from '@/lib/email-templates';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
@@ -206,13 +206,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'property_id and month are required' }, { status: 400 });
     }
 
-    const prop = PROPERTIES[propertyId];
+    // DB-first: read owner name / email / greeting from the live properties
+    // table (getActivePropertyForStatements falls back to the static map
+    // only when the DB row is missing). An owner-profile edit on the
+    // property page therefore flows straight into the drafted email.
+    const prop = await getActivePropertyForStatements(propertyId);
     if (!prop) {
       return NextResponse.json({ error: `Unknown property: ${propertyId}` }, { status: 400 });
     }
     if (prop.owner_emails.length === 0) {
       return NextResponse.json({
-        error: `No owner email on file for ${prop.name}. Add it to src/lib/properties.ts.`,
+        error: `No owner email on file for ${prop.name}. Add it on the property's page in Helm.`,
       }, { status: 400 });
     }
 

@@ -1622,6 +1622,46 @@ function DashboardContent() {
   // alongside period data, so the per-card badge stays in sync after a
   // bulk-action or owner-email send.
   const [ownerActionCounts, setOwnerActionCounts] = useState<Record<string, number>>({});
+  // Owner name / email config, hydrated live from the `properties` table.
+  // The static PROPERTIES map in lib/properties.ts is only a fallback for
+  // properties not yet in the DB -- the DB is the source of truth, so an
+  // owner-profile edit (name, email) on the property page shows up here
+  // without a code change. Keyed by property_id.
+  const [ownerCfg, setOwnerCfg] = useState<Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }>>({});
+  const loadOwnerCfg = useCallback(async () => {
+    const { data } = await supabase
+      .from('properties')
+      .select('id, name, owner_greeting, owner_full, owner_emails');
+    const map: Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }> = {};
+    (data || []).forEach((r: { id: string; name: string | null; owner_greeting: string | null; owner_full: string | null; owner_emails: string[] | null }) => {
+      map[r.id] = {
+        name: r.name || '',
+        owner_greeting: r.owner_greeting || '',
+        owner_full: r.owner_full || '',
+        owner_emails: Array.isArray(r.owner_emails) ? r.owner_emails : [],
+      };
+    });
+    setOwnerCfg(map);
+  }, []);
+  // DB-first owner config for a property. When the DB row exists it wins
+  // (fields it leaves blank fall back to the static map); otherwise the
+  // static map is used. Returns null only when the property is in neither.
+  const resolveCfg = useCallback((propertyId: string) => {
+    const db = ownerCfg[propertyId];
+    const stat = PROPERTIES[propertyId];
+    if (db) {
+      return {
+        name: db.name || stat?.name || propertyId,
+        owner_greeting: db.owner_greeting || stat?.owner_greeting || '',
+        owner_full: db.owner_full || stat?.owner_full || '',
+        owner_emails: db.owner_emails.length > 0 ? db.owner_emails : (stat?.owner_emails || []),
+      };
+    }
+    if (stat) {
+      return { name: stat.name, owner_greeting: stat.owner_greeting, owner_full: stat.owner_full, owner_emails: stat.owner_emails };
+    }
+    return null;
+  }, [ownerCfg]);
   // Auth is now handled by Google SSO via middleware. By the time this
   // component renders, the user is signed in. Default authenticated=true
   // so the legacy access-code login screen (further down) never shows;
@@ -1996,13 +2036,14 @@ function DashboardContent() {
         setPeriods(data);
         await loadPeriod(selectedMonth || data[0].month);
         await loadLastSync();
+        await loadOwnerCfg();
       } catch (err) {
         setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [authenticated, loadLastSync]);
+  }, [authenticated, loadLastSync, loadOwnerCfg]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -2854,7 +2895,7 @@ function DashboardContent() {
             {/* Per-property rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {props.map((p) => {
-                const cfg = PROPERTIES[p.property_id];
+                const cfg = resolveCfg(p.property_id);
                 const task = closeTasks[p.property_id];
                 const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
                 const emailsMissing = !cfg || cfg.owner_emails.length === 0;
@@ -2972,7 +3013,7 @@ function DashboardContent() {
       {/* Email preview modal */}
       {previewPropertyId && (() => {
         const prop = props.find(p => p.property_id === previewPropertyId);
-        const cfg = PROPERTIES[previewPropertyId];
+        const cfg = resolveCfg(previewPropertyId);
         if (!prop || !cfg) return null;
         const task = closeTasks[previewPropertyId];
         const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
@@ -3089,7 +3130,7 @@ function DashboardContent() {
               .filter(p => p.owner_payout > 0)
               .map(p => ({
                 property: p.property_name,
-                owner: PROPERTIES[p.property_id]?.owner_full || p.owner_name,
+                owner: resolveCfg(p.property_id)?.owner_full || p.owner_name,
                 payout: p.owner_payout,
                 mgmtFee: p.management_fee,
               }));

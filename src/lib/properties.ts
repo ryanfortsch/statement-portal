@@ -112,8 +112,9 @@ export const PROPERTIES: Record<string, Property> = {
   },
   '17_beach_rd': {
     id: '17_beach_rd', name: '17 Beach', address: '17 Beach Road', city: 'Gloucester, MA',
-    owner_last: 'Nolan', owner_full: 'Susan & London Nolan', owner_greeting: 'Susan and London',
-    // London's email still pending; using Susan's until we have both.
+    // Sole owner is Susan Nolan (London removed 2026-07). The DB properties
+    // row is the source of truth; this static fallback is kept in sync.
+    owner_last: 'Nolan', owner_full: 'Susan Nolan', owner_greeting: 'Susan',
     owner_emails: ['jupitersusan153@gmail.com'],
     fee_pct: 22, bank_last4: '5621', listing_match: '17 beach',
     // MassTaxConnect cert added 2026-05-29. Airbnb collects + remits its own
