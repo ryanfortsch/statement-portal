@@ -306,7 +306,9 @@ function CreateForm({
         weekdays: mode === 'recurring' ? Array.from(days).sort().join(',') : '',
         fire_date: mode === 'once' ? fireDate : '',
         at_local: atLocal,
-        start_date: picked.check_in,
+        // For a guest already in-house, start from today (their check-in is in
+        // the past); for an upcoming guest, start at check-in.
+        start_date: picked.effective_start || picked.check_in,
         end_date: picked.check_out,
         send_mode: sendMode,
       });
@@ -405,12 +407,30 @@ function CreateForm({
             style={inputStyle}
           >
             <option value="">{reservationsLoaded ? 'Select…' : 'Loading guests…'}</option>
-            {reservations.map((r) => (
-              <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
-                {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · {r.check_in}→{r.check_out}
-                {r.conversation_id ? '' : ' (no thread)'}
-              </option>
-            ))}
+            {reservations.some((r) => r.in_house) && (
+              <optgroup label="Staying now">
+                {reservations
+                  .filter((r) => r.in_house)
+                  .map((r) => (
+                    <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
+                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · here until {r.check_out}
+                      {r.conversation_id ? '' : ' (no thread)'}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
+            {reservations.some((r) => !r.in_house) && (
+              <optgroup label="Upcoming">
+                {reservations
+                  .filter((r) => !r.in_house)
+                  .map((r) => (
+                    <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
+                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · {r.check_in}→{r.check_out}
+                      {r.conversation_id ? '' : ' (no thread)'}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
           </select>
         </label>
         <label style={{ display: 'block' }}>
@@ -531,7 +551,7 @@ function CreateForm({
       {picked && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 12 }}>
           {mode === 'recurring'
-            ? `Runs ${picked.check_in} → ${picked.check_out} (the stay window)`
+            ? `Runs ${picked.effective_start || picked.check_in} → ${picked.check_out}${picked.in_house ? ' (from today through checkout)' : ' (the stay window)'}`
             : 'Fires once on the chosen date'}
           {picked.channel ? ` · sends via ${picked.channel}` : ''}.
         </div>
