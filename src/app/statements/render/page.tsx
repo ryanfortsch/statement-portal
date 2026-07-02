@@ -546,7 +546,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 </div>
                 <div className="mini">
                   <div className="mini-label">Avg Daily Rate</div>
-                  <div className="mini-value">${Math.round(adr)}<span className="u">.{fmt(adr).split('.')[1]}</span></div>
+                  <div className="mini-value">${fmt(adr).split('.')[0]}<span className="u">.{fmt(adr).split('.')[1]}</span></div>
                 </div>
               </div>
             </section>
@@ -568,7 +568,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                           <tr>
                             <td>
                               <div className="guest">{titleCase(r.guest_name)}</div>
-                              <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
                               {r.note && (
                                 <div className="guest-note">
                                   {r.note}
@@ -669,7 +668,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               </div>
               <div className="insight">
                 <div className="insight-label">ADR</div>
-                <div className="insight-value">${Math.round(adr)}</div>
+                <div className="insight-value">${fmt(adr).split('.')[0]}</div>
                 <div className="insight-sub">avg. daily rate</div>
               </div>
               <div className="insight">
