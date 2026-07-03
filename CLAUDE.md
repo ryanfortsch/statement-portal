@@ -108,6 +108,18 @@ Rising Tide's own direct-booking site, **staycapeann.com**, is built so the paym
 - Are matched to their real Stripe charge in `lib/stripe-sync.ts` via the **amount-based fallback** (expected gross = `guesty_rental_income + total_taxes`). The matcher runs per-property (each property's own Stripe key); the description-token matcher tries first, the amount fallback kicks in for the SCA-style descriptions. Ambiguity (multiple orphan charges with the same amount on one property) falls through to the existing missing-charge gap.
 - Volume here is expected to **grow** -- design choices in the ingest / Stripe sync should treat this as the standard path for Direct stays, not an edge case.
 
+### Legacy "Stay Collections" (Guesty Payments) charges -- a shrinking back-catalog
+Before SCA moved to RT's own per-property Stripe, some Direct bookings were paid through **Guesty Payments** (Guesty's Stripe Connect), branded "Stay Collections". These charges are different from current SCA:
+- The guest's total was often **split into multiple Stripe charges** (e.g. one $32,000 stay = two $16,000 charges), so a single-charge amount match misses them.
+- Each charge carries a **Guesty application fee** (~1% of the charge, the `application_fee_amount` field) on TOP of a higher ~4.4% Stripe processing rate. Effective fee is ~5.4% of gross, not the 3.9% + $0.40 estimate the ingest uses.
+- Net example (Hancock GY-fCdhbUYC, 3 South): $32,000 gross - $1,408.60 Stripe - $320 Guesty = **$30,271.40 net**, vs the 3.9% estimate's $30,751.60. Installments split on the estimate over-recognize revenue by the fee gap.
+
+**Identification:** the tell is `application_fee_amount != null` on the Stripe charge -- current RT-direct charges have none. Helm stores no field that distinguishes them.
+
+**Handling (per PR):** `/api/installments/verify-source` now expands `balance_transaction` and sums ALL charges carrying the confirmation code, reporting the **actual net after real fees** (Stripe processing + Guesty application) so the installment editor guides the operator to split on the true net. It does NOT auto-change `calcStripeFee` in ingest (that would retroactively shift already-sent statements). For an installment legacy booking the operator still sets the split by hand, but the cross-check now shows the right number.
+
+**Reachability caveat:** verify-source reads fees only if the property's `STRIPE_KEYS_JSON` restricted key can see the charge's account. If a legacy charge lives in a Guesty Connect account RT's key can't reach, the cross-check degrades to gross-only. Legacy is shrinking (SCA no longer routes through Guesty), so this is deliberately a light-touch guide, not a permanent multi-account subsystem.
+
 ### The formula
 ```
 adjusted_revenue = guesty_rental_income - stripe_fee (if VRBO or Manual/non-zero)

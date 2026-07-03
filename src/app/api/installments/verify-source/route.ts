@@ -55,6 +55,8 @@ function getSupabase() {
   );
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 type StripeCharge = {
   id: string;
   amount: number;
@@ -63,7 +65,49 @@ type StripeCharge = {
   paid: boolean;
   description: string | null;
   created: number;
+  // application_fee_amount is non-null on legacy Stay Collections charges
+  // (Guesty Payments / Guesty's Stripe Connect took a ~1% platform fee).
+  // Current RT-direct SCA charges have no application fee. balance_transaction
+  // (expanded) carries the actual Stripe processing fee.
+  application_fee_amount?: number | null;
+  balance_transaction?: { fee?: number; net?: number } | string | null;
 };
+
+/** Stripe processing fee + Guesty application fee for one charge, in cents.
+ *  balance_transaction is only an object when we expanded it; otherwise 0. */
+function chargeFeesCents(c: StripeCharge): { processing: number; application: number } {
+  const bt = c.balance_transaction;
+  const processing = bt && typeof bt === 'object' && typeof bt.fee === 'number' ? bt.fee : 0;
+  const application = typeof c.application_fee_amount === 'number' ? c.application_fee_amount : 0;
+  return { processing, application };
+}
+
+/**
+ * Sum EVERY succeeded charge whose description carries this confirmation code.
+ * Legacy Stay Collections bookings were split into multiple Stripe charges
+ * (e.g. one $32k stay = two $16k charges), so a single-charge amount match
+ * misses them. This reconstructs the booking's true gross + actual fees
+ * (Stripe processing + Guesty application fee) so the editor can show the
+ * real net to split on -- not "total_paid minus a 3.9% estimate".
+ */
+function aggregateByCode(charges: StripeCharge[], code: string): {
+  count: number; grossCents: number; procCents: number; appCents: number; ids: string[];
+} | null {
+  const codeUpper = code.toUpperCase();
+  const matched = charges.filter(c =>
+    (c.status === 'succeeded' || c.paid) && c.amount_refunded < c.amount
+    && (c.description || '').toUpperCase().includes(codeUpper),
+  );
+  if (matched.length === 0) return null;
+  let grossCents = 0, procCents = 0, appCents = 0;
+  for (const c of matched) {
+    grossCents += c.amount;
+    const f = chargeFeesCents(c);
+    procCents += f.processing;
+    appCents += f.application;
+  }
+  return { count: matched.length, grossCents, procCents, appCents, ids: matched.map(c => c.id) };
+}
 
 async function stripeGet<T>(key: string, path: string, params: Record<string, string | string[]>): Promise<T> {
   const q = new URLSearchParams();
@@ -92,6 +136,10 @@ async function listChargesAroundCheckIn(key: string, checkInIso: string): Promis
       'created[gte]': String(start),
       'created[lt]': String(end),
       limit: '100',
+      // Expand the balance_transaction so we can read the ACTUAL Stripe
+      // processing fee (not a 3.9% estimate). application_fee_amount rides
+      // along on the charge object for legacy Guesty Payments charges.
+      'expand[]': 'data.balance_transaction',
     };
     if (startingAfter) params.starting_after = startingAfter;
     const page = await stripeGet<{ data: StripeCharge[]; has_more: boolean }>(key, 'charges', params);
@@ -229,27 +277,66 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const charges = await listChargesAroundCheckIn(restrictedKey, booking.check_in as string);
+
+    // First try to reconstruct the booking from ALL charges carrying the
+    // confirmation code -- this sums split charges (legacy Stay Collections)
+    // and reads their actual fees. Falls back to the single-charge date/amount
+    // matcher when the code isn't in any description (older SCA Payment Links).
+    const agg = aggregateByCode(charges, code);
     const match = pickMatchingCharge(charges, booking.check_in as string, booking.check_out as string, target.amount);
-    if (!match) {
+
+    if (!agg && !match) {
       return NextResponse.json({
         guesty,
         stripe: null,
         stripe_status: 'no_match',
-        stripe_note: `Searched ${charges.length} Stripe charges around ${booking.check_in}; no charge matched the booking's dates or target amount ($${target.amount.toFixed(2)} via ${target.source}).`,
+        stripe_note: `Searched ${charges.length} Stripe charges around ${booking.check_in}; no charge matched the booking's code, dates, or target amount ($${target.amount.toFixed(2)} via ${target.source}).`,
         target,
       });
     }
-    const stripeTotal = match.charge.amount / 100;
+
+    // Prefer the code aggregation (handles split charges + real fees). If only
+    // the single-charge matcher hit, use its charge alone with whatever fee
+    // fields expanded.
+    const grossCents = agg ? agg.grossCents : match!.charge.amount;
+    const fees = agg
+      ? { procCents: agg.procCents, appCents: agg.appCents }
+      : (() => { const f = chargeFeesCents(match!.charge); return { procCents: f.processing, appCents: f.application }; })();
+    const gross = round2(grossCents / 100);
+    const processingFee = round2(fees.procCents / 100);
+    const applicationFee = round2(fees.appCents / 100);
+    const feesKnown = agg ? (agg.procCents > 0 || agg.appCents > 0) : (fees.procCents > 0 || fees.appCents > 0);
+    // The real net RT keeps = gross - Stripe processing - Guesty app fee. This
+    // is the number an installment split should be built on. When fees didn't
+    // expand (older account, or the fee isn't returned) net falls back to gross.
+    const net = feesKnown ? round2(gross - processingFee - applicationFee) : gross;
+
+    // A non-zero Guesty application fee is the legacy Stay Collections tell.
+    const isLegacyGuestyPayments = applicationFee > 0;
+    const chargeCount = agg ? agg.count : 1;
+    let note: string | null = null;
+    if (isLegacyGuestyPayments) {
+      note = `Legacy Stay Collections (Guesty Payments): ${chargeCount} charge${chargeCount > 1 ? 's' : ''} totaling $${gross.toFixed(2)}, less $${processingFee.toFixed(2)} Stripe + $${applicationFee.toFixed(2)} Guesty fee = net $${net.toFixed(2)}. Split on the net.`;
+    } else if (feesKnown && chargeCount > 1) {
+      note = `${chargeCount} Stripe charges totaling $${gross.toFixed(2)}, less $${processingFee.toFixed(2)} fees = net $${net.toFixed(2)}.`;
+    }
+
     return NextResponse.json({
       guesty,
       stripe: {
-        total: stripeTotal,
-        charge_id: match.charge.id,
-        description: match.charge.description,
-        match_method: match.method,
+        total: gross,                    // gross the guest paid (sum of charges)
+        net,                             // actual net after ALL fees -- split on this
+        processing_fee: processingFee,
+        application_fee: applicationFee, // > 0 => legacy Guesty Payments
+        fees_known: feesKnown,
+        charge_count: chargeCount,
+        legacy_guesty_payments: isLegacyGuestyPayments,
+        charge_id: agg ? agg.ids[0] : match!.charge.id,
+        description: agg ? null : match!.charge.description,
+        match_method: agg ? 'code-aggregate' : match!.method,
       },
       stripe_status: 'matched',
-      stripe_note: null,
+      stripe_note: note,
       target,
     });
   } catch (err) {
