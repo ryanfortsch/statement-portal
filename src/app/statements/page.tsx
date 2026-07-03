@@ -3164,6 +3164,7 @@ function DashboardContent() {
           monthName: monthLabel(selectedMonth),
           propertyShort: cfg.name,
           fundsSentIso: fundsSentDate,
+          ownerPayout: prop.owner_payout,
           template: tmpl,
         });
         return (

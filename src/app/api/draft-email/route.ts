@@ -107,12 +107,13 @@ function plainToHtml(body: string): string {
   // the operator opened the draft to edit it. Paragraphs get just enough
   // bottom margin to separate them; everything else inherits.
   //
-  // Dollar amounts of the form $X,XXX.XX get wrapped in <strong> so the
+  // Dollar amounts ($X,XXX or $X,XXX.XX) get wrapped in <strong> so the
   // owner payout line in the body reads as bolded in mobile Gmail (the
-  // only meaningful $ figure in the template is the payout). Plain-text
-  // fallback stays clean -- no asterisks or markdown clutter.
+  // only meaningful $ figure in the template is the payout, now rounded to
+  // whole dollars). Plain-text fallback stays clean -- no asterisks or
+  // markdown clutter.
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const boldMoney = (html: string) => html.replace(/\$[0-9][0-9,]*\.[0-9]{2}/g, m => `<strong>${m}</strong>`);
+  const boldMoney = (html: string) => html.replace(/\$[0-9][0-9,]*(?:\.[0-9]{2})?/g, m => `<strong>${m}</strong>`);
   const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
   const htmlParas = paragraphs
     .filter(p => p.length > 0)
