@@ -6,6 +6,7 @@ import { loadContractorProfile, type ContractorReview, type ContractorHistoryIte
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { FieldShell } from '../FieldShell';
 import { ProfilePhoto } from '../ProfilePhoto';
+import { SmsToggle } from '../SmsToggle';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -122,6 +123,20 @@ export default async function FieldProfilePage() {
           ))}
         </Section>
       )}
+
+      {/* Notifications */}
+      <section style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>Notifications</h2>
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>Text me when new work is posted</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
+              We text your phone the moment a packet opens near you. Turn it off anytime.
+            </div>
+          </div>
+          <SmsToggle initial={contractor.sms_opt_in} />
+        </div>
+      </section>
 
       {/* Account */}
       <AccountCard contractor={contractor} />

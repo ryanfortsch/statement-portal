@@ -202,6 +202,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     .eq('trade', packet.trade)
     .eq('w9_on_file', true)
     .eq('background_check_status', 'cleared')
+    .eq('sms_opt_in', true) // respect the profile opt-out
     .not('agreement_signed_at', 'is', null)
     .not('phone', 'is', null);
   const contractors = (data ?? []) as Array<
@@ -244,7 +245,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     }
     const link = `${fieldBaseUrl()}/field/${c.portal_token}`;
     const to = c.phone.startsWith('+') ? c.phone : `+1${normalizePhone(c.phone)}`;
-    const content = `Rising Tide Field: new work near you — ${headline}, ${date} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
+    const content = `Rising Tide Field: new work near you. ${headline}, ${date} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
     try {
       await sendMessage({ from, to, content });
       sent++;

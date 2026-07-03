@@ -228,6 +228,19 @@ export async function saveProfilePhoto(url: string): Promise<void> {
   revalidatePath('/field');
 }
 
+/** Toggle the "text me when new work is posted" preference (opt-out; default on).
+ *  notifyContractorsOfPacket gates the blast on this. */
+export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false };
+  await fieldDb()
+    .from('contractors')
+    .update({ sms_opt_in: optIn, updated_at: new Date().toISOString() })
+    .eq('id', contractor.id);
+  revalidatePath('/field/profile');
+  return { ok: true };
+}
+
 /** Start (or resume) the inspection for one stop, then drop the contractor
  *  into the existing Stepper. */
 export async function startStopInspection(formData: FormData) {
