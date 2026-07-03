@@ -46,6 +46,7 @@ export type ContractorRow = {
   photo_url: string | null;
   payment_method: string | null;
   payment_hint: string | null;
+  sms_opt_in: boolean; // texts on new work; opt-out (default true), toggled on the profile
   vendor_key: string | null;
   invited_by_email: string | null;
   last_seen_at: string | null;
