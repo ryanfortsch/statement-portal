@@ -556,9 +556,6 @@ export default async function PacketPage({
                 padding: '16px 34px',
               }}
             />
-            <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
-              First inspector to claim gets it. You&apos;ll get the addresses and entry details right away.
-            </p>
           </form>
         )}
         {!isMine && packet.status === 'published' && !canClaim(contractor) && (
