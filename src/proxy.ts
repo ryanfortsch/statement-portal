@@ -48,8 +48,9 @@ const PUBLIC_PATH_PREFIXES = [
  *                            (lets a prospect download their signed contract)
  *   /api/archive-onboarding  fired by the public onboarding thank-you page
  *   /api/owner-outbound-quo  } the stay-concierge service authenticates to these
- *   /api/owners-sync         } three with the STAY_CONCIERGE_KEY shared secret;
- *   /api/backfill-owner-phones } it has no Helm session
+ *   /api/owners-sync         } with the STAY_CONCIERGE_KEY shared secret;
+ *   /api/kb-facts            } it has no Helm session (kb-facts feeds property
+ *   /api/backfill-owner-phones } wifi/parking/notes into the guest AI's KB)
  *
  * Everything else under /api requires a valid session.
  */
@@ -65,6 +66,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/archive-onboarding",
   "/api/owner-outbound-quo",
   "/api/owners-sync",
+  "/api/kb-facts",
   "/api/backfill-owner-phones",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
