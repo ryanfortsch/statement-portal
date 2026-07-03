@@ -36,7 +36,18 @@ export type CrossMonthBooking = {
 
 type VerifyResponse = {
   guesty: { total_paid: number; total_taxes: number; channel_commission: number; owner_net_revenue_guesty: number; host_payout?: number; channel: string | null };
-  stripe: { total: number; charge_id: string; description: string | null; match_method: string } | null;
+  stripe: {
+    total: number;
+    net?: number;
+    processing_fee?: number;
+    application_fee?: number;
+    fees_known?: boolean;
+    charge_count?: number;
+    legacy_guesty_payments?: boolean;
+    charge_id: string | null;
+    description: string | null;
+    match_method: string;
+  } | null;
   stripe_status: 'matched' | 'no_key' | 'wrong_channel' | 'no_match' | 'no_target' | 'error';
   stripe_note: string | null;
   target?: { amount: number; source: 'total_paid' | 'host_payout' | 'none' };
@@ -157,14 +168,22 @@ export function InstallmentEditor({
     }));
   }
   function applyTargetFromStripe() {
-    // Pull Stripe's actual amount into the target field, then re-pro-rate
-    // a Stripe fee on it to get the post-fee net the operator should split.
     if (!verify?.stripe) return;
-    const stripeGross = verify.stripe.total;
-    const stripeFeeEst = Math.round((stripeGross * 0.039 + 0.40) * 100) / 100;
-    const taxes = verify.guesty.total_taxes;
-    const commission = verify.guesty.channel_commission;
-    const net = Math.round((stripeGross - taxes - commission - stripeFeeEst) * 100) / 100;
+    // Prefer Stripe's ACTUAL net (gross minus the real processing + Guesty
+    // application fees, summed across split charges) -- this is exact and
+    // handles legacy Stay Collections. Only fall back to the 3.9%+$0.40
+    // estimate when Stripe didn't return the fee breakdown.
+    let net: number;
+    if (verify.stripe.fees_known && typeof verify.stripe.net === 'number') {
+      const taxes = verify.guesty.total_taxes;
+      net = Math.round((verify.stripe.net - taxes) * 100) / 100;
+    } else {
+      const stripeGross = verify.stripe.total;
+      const stripeFeeEst = Math.round((stripeGross * 0.039 + 0.40) * 100) / 100;
+      const taxes = verify.guesty.total_taxes;
+      const commission = verify.guesty.channel_commission;
+      net = Math.round((stripeGross - taxes - commission - stripeFeeEst) * 100) / 100;
+    }
     setTargetRev(net);
     setDrafts(computeNightsInMonthSplit({
       checkInIso: booking.check_in,
@@ -382,6 +401,26 @@ export function InstallmentEditor({
                   {targetSource === 'host_payout' && (
                     <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--ink-4)' }}>
                       Verified against host_payout because Guesty&apos;s total_paid is empty (typical for SCA Direct bookings).
+                    </div>
+                  )}
+                  {verify.stripe!.fees_known && typeof verify.stripe!.net === 'number' && (
+                    <div style={{
+                      marginTop: 6, padding: '6px 8px',
+                      background: verify.stripe!.legacy_guesty_payments ? 'var(--paper-2, #f5f1e8)' : 'transparent',
+                      border: verify.stripe!.legacy_guesty_payments ? '1px solid var(--rule)' : 'none',
+                      color: 'var(--ink-3)', fontStyle: 'normal',
+                    }}>
+                      {verify.stripe!.legacy_guesty_payments && (
+                        <div style={{ fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', fontSize: 9, color: 'var(--signal)', marginBottom: 2 }}>
+                          Legacy Stay Collections
+                        </div>
+                      )}
+                      Actual net after fees: <strong className="tabular-nums">${fmt(verify.stripe!.net!)}</strong>
+                      {' '}(${fmt(verify.stripe!.total)} gross
+                      {verify.stripe!.charge_count && verify.stripe!.charge_count > 1 ? ` over ${verify.stripe!.charge_count} charges` : ''}
+                      {' '}&minus; ${fmt(verify.stripe!.processing_fee || 0)} Stripe
+                      {verify.stripe!.application_fee ? ` &minus; $${fmt(verify.stripe!.application_fee)} Guesty` : ''})
+                      . <strong>Split on the net.</strong>
                     </div>
                   )}
                 </div>
