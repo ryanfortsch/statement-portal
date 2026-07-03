@@ -1563,6 +1563,43 @@ function PropertyCard({
                             {resolvingGapId === gap.id ? 'Working…' : 'Paid Off-Stripe'}
                           </button>
                         )}
+                        {gap.gap_type === 'cancelled_reservation' && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim();
+                              if (!code) { alert('No confirmation code on this gap.'); return; }
+                              if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/reservations/remove', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ confirmation_code: code, property_statement_id: prop.id }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--negative)',
+                              background: 'var(--negative)',
+                              color: 'var(--paper)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Removing…' : 'Remove from statement'}
+                          </button>
+                        )}
                         {fillable && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}

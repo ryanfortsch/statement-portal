@@ -5,6 +5,7 @@ import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
+import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -1318,6 +1319,37 @@ export async function POST(request: NextRequest) {
         severity: isPending ? 'info' : 'warning',
         expected_data: `Bank deposit ~$${r.adjusted_revenue}`,
       });
+    }
+
+    // Cancellation guard. Airbnb / Booking.com ALWAYS pay a bank deposit, so
+    // an unmatched-bank reservation on one of those channels is a strong
+    // cancel tell (the leak that put a cancelled Christina Gagnon on 3 South's
+    // June statement -- Guesty's PDF still listed her, our status cache was
+    // frozen at "confirmed"). Live-check ONLY these bounded suspects against
+    // Guesty (never per-reservation over the month) and raise a LOUD gap for
+    // any that actually cancelled. Flag-only: the operator removes it with one
+    // click. Wrapped so a Guesty outage/429 never breaks the ingest.
+    try {
+      const cancelSuspects = unmatched.filter(r => {
+        const p = (r.platform || '').toUpperCase();
+        return p === 'AIRBNB' || p.includes('BOOKING');
+      });
+      if (cancelSuspects.length > 0) {
+        const liveStatus = await checkLiveGuestyStatus(cancelSuspects.map(r => r.confirmation_code));
+        for (const r of cancelSuspects) {
+          if (isCancelledStatus(liveStatus.get(r.confirmation_code))) {
+            gaps.push({
+              gap_type: 'cancelled_reservation',
+              description: `${r.guest_name} CANCELLED in Guesty but is still on this statement at $${r.adjusted_revenue}. Remove it -- this booking never paid.`,
+              severity: 'critical',
+              // Carries the code so the Remove action can find the exact row.
+              expected_data: `reservation:${r.confirmation_code}`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('cancel-check skipped:', err instanceof Error ? err.message : err);
     }
 
     // Revenue reconstruction gaps:
