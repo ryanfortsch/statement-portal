@@ -44,6 +44,7 @@ export type ContractorRow = {
   home_lng: number | null;
   service_radius_miles: number;
   photo_url: string | null;
+  sms_opt_in: boolean; // receives "new work posted" texts (opt-out; default true)
   payment_method: string | null;
   payment_hint: string | null;
   vendor_key: string | null;
