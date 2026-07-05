@@ -191,8 +191,10 @@ function AccessLines({ a }: { a: AccessBundle }) {
   );
   if (present.length === 0) {
     return (
-      <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-        No entry details on file. <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>Call the office</a> when you arrive and we&apos;ll get you in.
+      <div style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+        No smart lock here. Use your trip code above, then{' '}
+        <a href={`sms:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>text</a> or{' '}
+        <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>call the office</a> when you arrive so we can confirm you&apos;re in.
       </div>
     );
   }
