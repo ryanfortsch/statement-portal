@@ -46,7 +46,6 @@ export type ContractorRow = {
   photo_url: string | null;
   payment_method: string | null;
   payment_hint: string | null;
-  sms_opt_in: boolean; // texts on new work; opt-out (default true), toggled on the profile
   vendor_key: string | null;
   invited_by_email: string | null;
   last_seen_at: string | null;
@@ -60,12 +59,15 @@ export function onboardingComplete(c: Pick<ContractorRow, 'status' | 'agreement_
   return c.status === 'active' && !!c.agreement_signed_at && c.w9_on_file;
 }
 
-/** True once the contractor may claim paid work: onboarding done AND a cleared
- *  background check (they enter owners' homes). */
+/** True once the contractor may claim paid work: onboarding done AND a
+ *  background check that is at least underway. The office marking the check
+ *  'pending' (running) unlocks claiming so a contractor can start while it
+ *  completes; 'cleared' keeps them unlocked; 'not_started' and 'failed' do not.
+ *  (They enter owners' homes, so a not-yet-started or failed check still gates.) */
 export function canClaim(
   c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>,
 ): boolean {
-  return onboardingComplete(c) && c.background_check_status === 'cleared';
+  return onboardingComplete(c) && (c.background_check_status === 'cleared' || c.background_check_status === 'pending');
 }
 
 export type PacketRow = {

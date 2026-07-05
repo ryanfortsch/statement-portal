@@ -288,9 +288,9 @@ export default async function FieldHome({
             {failed ? (
               <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2387 and we&apos;ll get it sorted.</>
             ) : setupDone ? (
-              <>Your setup is done. We&apos;re running the background check now (standard, since you&apos;ll have keys to owners&apos; homes). The moment it clears we&apos;ll text and email you, and your first packets open up right here.</>
+              <>Your setup is done. We&apos;re getting your background check underway (standard, since you&apos;ll have keys to owners&apos; homes). As soon as it&apos;s running we&apos;ll text and email you, and your first packets open up right here.</>
             ) : (
-              <>You&apos;re invited. Finish your quick setup (W-9, a short agreement, and how you want to be paid) and we&apos;ll start your background check. As soon as it clears, you can claim paid work near you.</>
+              <>You&apos;re invited. Finish your quick setup (W-9, a short agreement, and how you want to be paid) and we&apos;ll get your background check going. Once it&apos;s underway, you can start claiming paid work near you.</>
             )}
           </p>
 
