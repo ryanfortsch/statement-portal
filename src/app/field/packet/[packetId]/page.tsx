@@ -556,12 +556,15 @@ export default async function PacketPage({
                 padding: '16px 34px',
               }}
             />
+            <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
+              First inspector to claim gets it. You&apos;ll get the addresses and entry details right away.
+            </p>
           </form>
         )}
         {!isMine && packet.status === 'published' && !canClaim(contractor) && (
           onboardingComplete(contractor) ? (
             <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
-              Your background check is in review. You&apos;ll be able to claim as soon as it clears.
+              Your background check hasn&apos;t started yet. You&apos;ll be able to claim as soon as the office kicks it off.
             </p>
           ) : (
             <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
