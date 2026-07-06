@@ -28,7 +28,18 @@ import {
  * the line wraps cleanly on phones (the old grid-with-180px-indent rail was
  * the mobile breakage).
  */
-export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: string }) {
+export function CompactTurnoverRow({
+  t,
+  myEmail,
+  hideDate = false,
+}: {
+  t: Turnover;
+  myEmail: string;
+  /** Under a datebook day divider the check-in date is already printed by
+   *  the divider, so the row drops its leading serif date and keeps only
+   *  the mono "→ checkout · nights" trailer. */
+  hideDate?: boolean;
+}) {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   const haloRef = useRef<HTMLSpanElement | null>(null);
@@ -116,12 +127,17 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
     >
       <div className="rt-tn-main">
         <div className="rt-tn-date">
-          <span className="font-serif" style={{ fontSize: 13.5, color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>
-            {formatDateShort(t.checkIn)}
-          </span>
+          {!hideDate && (
+            <span className="font-serif" style={{ fontSize: 13.5, color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>
+              {formatDateShort(t.checkIn)}
+            </span>
+          )}
           {!isDone && (
-            <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10, color: 'var(--ink-4)' }}>
-              {' '}
+            // Class-targeted (not positional) so the mobile "shed the
+            // checkout trailer" rule still hits it when hideDate removes
+            // the serif date span and this becomes the first child.
+            <span className="rt-tn-co" style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10, color: 'var(--ink-4)' }}>
+              {hideDate ? '' : ' '}
               → {formatDateShort(t.checkOut)}
               {t.nights ? ` · ${t.nights}n` : ''}
             </span>

@@ -21,14 +21,27 @@ import type { CalendarData } from '@/lib/operations';
  * two surfaces frame it differently.
  */
 
-// Only channels that actually render in the turnover/calendar views
-// (blocks are filtered out upstream, so they're omitted).
+// Channels that render as solid stay bars. Owner/maintenance holds render
+// too (hatched grey, see blockFill) and get their own legend entry below.
 const CHANNEL_LEGEND: { label: string; channel: string }[] = [
   { label: 'Airbnb', channel: 'airbnb' },
   { label: 'VRBO', channel: 'vrbo' },
   { label: 'Booking.com', channel: 'booking' },
   { label: 'Direct', channel: 'direct' },
 ];
+
+/** An owner / maintenance hold (bookings.status = 'block'). Rendered as a
+ *  hatched grey bar so held dates stop reading as bookable vacancy, while
+ *  staying visually junior to real guest stays. */
+function isBlockRes(r: { status: string | null } | null): boolean {
+  return r?.status === 'block';
+}
+
+/** Hatched fill for hold bars: thin 135° grey stripes over paper. Distinct
+ *  at a glance from every solid channel tint, and quiet enough to recede. */
+function blockFill(): string {
+  return `repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-4) 34%, var(--paper)) 0 3px, transparent 3px 7px)`;
+}
 
 export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
   return (
@@ -55,6 +68,23 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
             {c.label}
           </span>
         ))}
+        <span
+          className="flex items-center"
+          style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
+        >
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 14,
+              height: 8,
+              borderRadius: 3,
+              background: blockFill(),
+              boxShadow: 'inset 0 0 0 1px var(--rule)',
+            }}
+          />
+          Owner / hold
+        </span>
       </div>
       {/* One-line read of the bar grammar so checkouts aren't a guessing game. */}
       <p style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', marginBottom: 12 }}>
@@ -128,6 +158,11 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
             height: headerHeight,
             borderBottom: '1px solid var(--rule)',
             background: 'var(--paper)',
+            // Frozen corner over the sticky property-name column below.
+            position: 'sticky',
+            left: 0,
+            zIndex: 3,
+            boxShadow: '1px 0 0 var(--rule)',
           }}
         />
         {days.map((d, i) => {
@@ -143,7 +178,9 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
                 boxSizing: 'border-box',
                 height: headerHeight,
                 borderBottom: '1px solid var(--rule)',
-                borderLeft: '1px solid var(--rule-soft)',
+                // The today column's left edge starts the full-height "now"
+                // line that the body cells continue below.
+                borderLeft: isToday ? '1px solid var(--signal)' : '1px solid var(--rule-soft)',
                 background: isToday ? 'var(--paper-2)' : 'var(--paper)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -248,6 +285,14 @@ function PropertyCalendarRow({
           whiteSpace: 'nowrap',
           textOverflow: 'ellipsis',
           textDecoration: 'none',
+          // Frozen pane: the name column stays put while the day grid
+          // scrolls sideways, so 30-day rows never become anonymous bars.
+          // The opaque paper background + soft right rule hide bars
+          // passing underneath.
+          position: 'sticky',
+          left: 0,
+          zIndex: 2,
+          boxShadow: '1px 0 0 var(--rule)',
         }}
       >
         {row.property.name}
@@ -288,12 +333,30 @@ function PropertyCalendarRow({
 
         // Channel-tinted fill so the bar's color reads at a glance; deepen it
         // under the today column. color-mix keeps the tint soft against paper.
+        // Owner/maintenance holds swap the solid tint for a hatched grey.
         const tint = (accent: string) =>
           `color-mix(in srgb, ${accent} ${isToday ? 38 : 26}%, var(--paper))`;
+        const fillFor = (r: NonNullable<typeof am>) =>
+          isBlockRes(r) ? blockFill() : tint(channelAccent(r.channel));
         const BAR_INSET = 8; // vertical breathing room → bar floats in the row
         const RADIUS = 5;
 
         const primary = pm ?? am; // the reservation the hover tooltip describes
+        // A turnover-day cell carries two different stays (departing am,
+        // arriving pm): surface BOTH in the tooltip so the outgoing guest's
+        // details stop hiding behind a hover on the previous day. Gated on a
+        // GENUINE flip (am checks out this date AND pm checks in this date):
+        // a bare id mismatch also happens where an owner block overlaps its
+        // padded $0 direct-booking twin, and those boundary cells would
+        // otherwise claim an "Out / In" that contradicts the stays' dates.
+        const departing =
+          am &&
+          pm &&
+          am.guesty_reservation_id !== pm.guesty_reservation_id &&
+          cell.isCheckOut &&
+          cell.isCheckIn
+            ? am
+            : null;
         const cellInner = (
           <div
             style={{
@@ -301,7 +364,14 @@ function PropertyCalendarRow({
               boxSizing: 'border-box',
               height: rowHeight,
               borderBottom: rowBorder,
-              borderLeft: continuousLeft ? 'none' : '1px solid var(--rule-soft)',
+              // The signal-colored left edge continues the header's "now"
+              // line down every row, cutting through mid-flight bars too —
+              // that is the point: the line marks this instant on the bar.
+              borderLeft: isToday
+                ? '1px solid var(--signal)'
+                : continuousLeft
+                  ? 'none'
+                  : '1px solid var(--rule-soft)',
               background: isToday ? 'rgba(232, 184, 165, 0.12)' : 'transparent',
               minWidth: 0,
               cursor: primary ? 'help' : 'default',
@@ -323,7 +393,7 @@ function PropertyCalendarRow({
                   bottom: BAR_INSET,
                   left: 0,
                   width: '50%',
-                  background: tint(channelAccent(am.channel)),
+                  background: fillFor(am),
                   borderTopRightRadius: cell.isCheckOut ? RADIUS : 0,
                   borderBottomRightRadius: cell.isCheckOut ? RADIUS : 0,
                   boxShadow: cell.isCheckOut
@@ -343,7 +413,7 @@ function PropertyCalendarRow({
                   bottom: BAR_INSET,
                   right: 0,
                   width: '50%',
-                  background: tint(channelAccent(pm.channel)),
+                  background: fillFor(pm),
                   borderTopLeftRadius: cell.isCheckIn ? RADIUS : 0,
                   borderBottomLeftRadius: cell.isCheckIn ? RADIUS : 0,
                   boxShadow: cell.isCheckIn
@@ -353,7 +423,7 @@ function PropertyCalendarRow({
               />
             )}
             {startsVisually && pm && (() => {
-              const label = displayLabel(pm.guest_name);
+              const label = isBlockRes(pm) ? 'Hold' : displayLabel(pm.guest_name);
               const isHold = label === 'Hold';
               // Guest is in residence: they physically keyed in on a guest code
               // during this (current) stay. Only the active stay ever carries
@@ -420,19 +490,24 @@ function PropertyCalendarRow({
           return <div key={cell.date}>{cellInner}</div>;
         }
 
+        const toTooltipData = (r: NonNullable<typeof primary>) => ({
+          guestName: r.guest_name,
+          channel: r.channel,
+          checkIn: r.check_in,
+          checkOut: r.check_out,
+          nights: r.nights,
+          hostPayout: r.host_payout,
+          confirmationCode: r.confirmation_code,
+          guestArrivedAt: r.guestArrivedAt,
+          isBlock: isBlockRes(r),
+        });
+
         return (
           <CalendarCellTooltip
             key={cell.date}
-            data={{
-              guestName: primary.guest_name,
-              channel: primary.channel,
-              checkIn: primary.check_in,
-              checkOut: primary.check_out,
-              nights: primary.nights,
-              hostPayout: primary.host_payout,
-              confirmationCode: primary.confirmation_code,
-              guestArrivedAt: primary.guestArrivedAt,
-            }}
+            data={toTooltipData(primary)}
+            departing={departing ? toTooltipData(departing) : undefined}
+            cellIsToday={isToday}
           >
             {cellInner}
           </CalendarCellTooltip>

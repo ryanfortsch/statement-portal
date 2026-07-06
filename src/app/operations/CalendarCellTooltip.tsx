@@ -34,13 +34,27 @@ export type CalendarCellTooltipData = {
   /** ISO time the guest physically keyed in (guest code) for a current stay,
    *  or null. Drives the "In residence" line + the calendar home glyph. */
   guestArrivedAt: string | null;
+  /** Owner / maintenance hold (bookings.status = 'block'): titled "Owner
+   *  hold" and stripped of guest-specific rows (channel, payout, code). */
+  isBlock?: boolean;
 };
 
 export function CalendarCellTooltip({
   data,
+  departing,
+  cellIsToday = false,
   children,
 }: {
   data: CalendarCellTooltipData;
+  /** On a turnover-day cell the morning belongs to a DIFFERENT stay than the
+   *  night. Pass the departing stay here and the card stacks both: the
+   *  departure above, the arrival (`data`) below — so the outgoing guest's
+   *  details stop hiding behind a hover on the previous day. */
+  departing?: CalendarCellTooltipData;
+  /** True only for the today column. Turnover cells on other dates keep the
+   *  date-neutral "Departing / Arriving" eyebrows — a Jul 12 flip hovered on
+   *  Jul 6 must not claim anything is happening "today". */
+  cellIsToday?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -83,82 +97,116 @@ export function CalendarCellTooltip({
           boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
         }}
       >
-        <div
-          className="font-serif"
-          style={{
-            fontSize: 16,
-            fontWeight: 400,
-            letterSpacing: '-0.01em',
-            color: 'var(--ink)',
-            marginBottom: 2,
-          }}
-        >
-          {data.guestName || 'Unnamed guest'}
-        </div>
-        {data.channel && (
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--tide-deep)',
-              fontWeight: 600,
-              marginBottom: 10,
-            }}
-          >
-            {data.channel}
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr', rowGap: 4, columnGap: 12 }}>
-          <span style={{ color: 'var(--ink-4)' }}>Stay</span>
-          <span style={{ color: 'var(--ink)' }}>
-            {formatShort(data.checkIn)} → {formatShort(data.checkOut)}
-            {data.nights ? ` · ${data.nights} nt${data.nights === 1 ? '' : 's'}` : ''}
-          </span>
-          {data.hostPayout != null && (
-            <>
-              <span style={{ color: 'var(--ink-4)' }}>Payout</span>
-              <span className="tabular-nums" style={{ color: 'var(--ink)', fontWeight: 500 }}>
-                {formatCurrency(data.hostPayout)}
-              </span>
-            </>
-          )}
-          {data.confirmationCode && (
-            <>
-              <span style={{ color: 'var(--ink-4)' }}>Code</span>
-              <span
-                className="font-mono"
-                style={{ color: 'var(--ink-3)', fontSize: 11, letterSpacing: '0.03em' }}
-              >
-                {data.confirmationCode}
-              </span>
-            </>
-          )}
-        </div>
-        {/* Guest-presence: a green "in residence" line when the guest has
-            physically keyed in on a guest code during this current stay. */}
-        {data.guestArrivedAt && (
-          <div
-            style={{
-              marginTop: 10,
-              paddingTop: 8,
-              borderTop: '1px solid var(--rule-soft)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11.5,
-              color: 'var(--positive)',
-              fontWeight: 500,
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M12 3 2 11h2.2v9H10v-5.5h4V20h5.8v-9H22z" />
-            </svg>
-            In residence · keyed in {formatArrival(data.guestArrivedAt)}
-          </div>
+        {departing ? (
+          <>
+            <StayBlock data={departing} eyebrow={cellIsToday ? 'Out today' : 'Departing'} />
+            <div style={{ borderTop: '1px solid var(--rule)', margin: '12px 0' }} />
+            <StayBlock data={data} eyebrow={cellIsToday ? 'In today' : 'Arriving'} />
+          </>
+        ) : (
+          <StayBlock data={data} />
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** One stay's detail rows: name, channel, dates/payout/code grid, presence.
+ *  Rendered once for a normal cell, twice (stacked, with Out/In eyebrows)
+ *  for a turnover-day cell. Block holds get a stripped variant. */
+function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?: string }) {
+  return (
+    <div>
+      {eyebrow && (
+        <div
+          style={{
+            fontSize: 9,
+            letterSpacing: '0.2em',
+            textTransform: 'uppercase',
+            color: 'var(--signal)',
+            fontWeight: 600,
+            marginBottom: 3,
+          }}
+        >
+          {eyebrow}
+        </div>
+      )}
+      <div
+        className="font-serif"
+        style={{
+          fontSize: 16,
+          fontWeight: 400,
+          letterSpacing: '-0.01em',
+          color: 'var(--ink)',
+          marginBottom: 2,
+          fontStyle: data.isBlock ? 'italic' : 'normal',
+        }}
+      >
+        {data.isBlock ? 'Owner hold' : data.guestName || 'Unnamed guest'}
+      </div>
+      {!data.isBlock && data.channel && (
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--tide-deep)',
+            fontWeight: 600,
+            marginBottom: 10,
+          }}
+        >
+          {data.channel}
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '74px 1fr', rowGap: 4, columnGap: 12 }}>
+        <span style={{ color: 'var(--ink-4)' }}>{data.isBlock ? 'Held' : 'Stay'}</span>
+        <span style={{ color: 'var(--ink)' }}>
+          {formatShort(data.checkIn)} → {formatShort(data.checkOut)}
+          {data.nights ? ` · ${data.nights} nt${data.nights === 1 ? '' : 's'}` : ''}
+        </span>
+        {!data.isBlock && data.hostPayout != null && (
+          <>
+            <span style={{ color: 'var(--ink-4)' }}>Payout</span>
+            <span className="tabular-nums" style={{ color: 'var(--ink)', fontWeight: 500 }}>
+              {formatCurrency(data.hostPayout)}
+            </span>
+          </>
+        )}
+        {!data.isBlock && data.confirmationCode && (
+          <>
+            <span style={{ color: 'var(--ink-4)' }}>Code</span>
+            <span
+              className="font-mono"
+              style={{ color: 'var(--ink-3)', fontSize: 11, letterSpacing: '0.03em' }}
+            >
+              {data.confirmationCode}
+            </span>
+          </>
+        )}
+      </div>
+      {/* Guest-presence: a green "in residence" line when the guest has
+          physically keyed in on a guest code during this current stay. */}
+      {data.guestArrivedAt && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 8,
+            borderTop: '1px solid var(--rule-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 11.5,
+            color: 'var(--positive)',
+            fontWeight: 500,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M12 3 2 11h2.2v9H10v-5.5h4V20h5.8v-9H22z" />
+          </svg>
+          In residence · keyed in {formatArrival(data.guestArrivedAt)}
+        </div>
+      )}
+    </div>
   );
 }
 

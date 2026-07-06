@@ -495,7 +495,10 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-tn-main {
     flex: 1 1 100% !important;
   }
-  .rt-tn-date > span:nth-child(2) {
+  /* Class-targeted, not span:nth-child(2): datebook-grouped rows omit the
+     leading serif date span, which would shift the trailer to first
+     position and let it escape a positional selector. */
+  .rt-tn-date .rt-tn-co {
     display: none !important;
   }
   .rt-tn-state {
