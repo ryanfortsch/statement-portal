@@ -165,6 +165,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
         {/* ── Access & notes ── */}
         <Group eyebrow="05" title="Property access & notes">
           <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
+          <Field name="supply_closet_location" label="Supply closet location" defaultValue={p.supply_closet_location} hint="Where cleaning supplies, linens, and paper goods are kept — e.g. basement utility room, second-floor hall closet" />
           <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
           <Row>
             <Field name="garage_code" label="Garage code" defaultValue={p.garage_code} hint="Numeric keypad code" />

@@ -1761,6 +1761,7 @@ function operationalGroups(p: HelmPropertyRow) {
   ];
   const access: OpRow[] = [
     { label: 'Key / code location', value: p.key_code_location },
+    { label: 'Supply closet', value: p.supply_closet_location },
     { label: 'Alarm system', value: p.alarm_system },
     { label: 'Garage code', value: p.garage_code, mono: true },
     { label: 'Gate code', value: p.gate_code, mono: true },
