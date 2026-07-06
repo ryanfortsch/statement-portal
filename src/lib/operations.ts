@@ -201,6 +201,15 @@ export type LockBattery = {
   isLow: boolean;
 };
 
+/** A work slip pinned to a specific reservation (guesty_reservation_id),
+ *  e.g. an approved guest gear request. Surfaced on the turnover row so the
+ *  prepper sees "set up pack-n-play" against the exact check-in. */
+export type PrepSlip = {
+  id: string;
+  title: string;
+  actionSummary: string | null;
+};
+
 export type Turnover = {
   reservationId: string;
   propertyId: string;
@@ -239,6 +248,11 @@ export type Turnover = {
    *  surface a "N work slips · Print" affordance on the turnover row so
    *  the operator can grab the checklist on their way out the door. */
   openWorkSlipsCount: number;
+  /** Active slips pinned to THIS reservation (work_slips.guesty_reservation_id),
+   *  e.g. an approved guest gear request ("set up pack-n-play + high chair").
+   *  Unlike openWorkSlipsCount these are stay-scoped, so the row can say
+   *  "prep for this check-in", not just "this property has slips". */
+  prepSlips: PrepSlip[];
   /** Lowest low-battery lock reading on this property (via Seam), or
    *  null when every lock is healthy or unmonitored. Drives the "bring
    *  batteries" chip so the team member packs spares before they drive. */
@@ -526,7 +540,7 @@ export async function loadOperationsData(
       .order('completed_at', { ascending: false }),
     supabase
       .from('work_slips')
-      .select('property_id, snoozed_until')
+      .select('id, property_id, snoozed_until, title, action_summary, guesty_reservation_id')
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
       .in('property_id', propertyIdList),
     supabase
@@ -689,9 +703,34 @@ export async function loadOperationsData(
   }
 
   const openWorkSlipsByProperty = new Map<string, number>();
-  for (const row of (openSlipsData ?? []) as Array<{ property_id: string; snoozed_until: string | null }>) {
+  // Stay-scoped prep slips (e.g. approved guest gear requests), keyed by the
+  // reservation they prep for. Same active + unsnoozed universe as the count.
+  const prepSlipsByReservation = new Map<string, PrepSlip[]>();
+  for (const row of (openSlipsData ?? []) as Array<{
+    id: string;
+    property_id: string;
+    snoozed_until: string | null;
+    title: string | null;
+    action_summary: string | null;
+    guesty_reservation_id: string | null;
+  }>) {
     if (row.snoozed_until && row.snoozed_until > todayIso) continue;
     openWorkSlipsByProperty.set(row.property_id, (openWorkSlipsByProperty.get(row.property_id) ?? 0) + 1);
+    if (row.guesty_reservation_id) {
+      // stay-concierge stores the GUESTY reservation _id on the slip; the
+      // turnover rows key on bookings.id. planKeyToBookingId maps both id
+      // spaces to the canonical booking id (same split as inspection
+      // plans above) — without the remap this lookup never matches.
+      const bookingId =
+        planKeyToBookingId.get(row.guesty_reservation_id) ?? row.guesty_reservation_id;
+      const list = prepSlipsByReservation.get(bookingId) ?? [];
+      list.push({
+        id: row.id,
+        title: row.title ?? 'Prep',
+        actionSummary: row.action_summary,
+      });
+      prepSlipsByReservation.set(bookingId, list);
+    }
   }
 
   // Lowest low-battery lock per property. A property can have more than
@@ -860,6 +899,7 @@ export async function loadOperationsData(
       cleaning,
       cleaningSession,
       openWorkSlipsCount: openWorkSlipsByProperty.get(r.property_id) ?? 0,
+      prepSlips: prepSlipsByReservation.get(r.guesty_reservation_id) ?? [],
       lockBattery: lowBatteryByProperty.get(r.property_id) ?? null,
       lockMonitored: monitoredPropertyIds.has(r.property_id),
       manuallyCompleted: completion !== null,

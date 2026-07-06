@@ -131,6 +131,14 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
               ⚠ battery
             </span>
           )}
+          {t.prepSlips.length > 0 && !isDone && (
+            <span
+              title={t.prepSlips.map((s) => s.actionSummary || s.title).join(' · ')}
+              style={{ color: 'var(--signal)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}
+            >
+              ✧ guest prep
+            </span>
+          )}
         </div>
       </div>
 
@@ -184,6 +192,19 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
                   Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
                 </span>
               )}
+              {t.prepSlips.map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/work/${s.id}`}
+                  // whiteSpace normal (unlike chipLink's nowrap): the summary
+                  // runs ~70 chars and an unshrinkable nowrap chip would
+                  // reintroduce the horizontal page scroll the compact-row
+                  // redesign eliminated on phones.
+                  style={{ ...chipLink, whiteSpace: 'normal', color: 'var(--signal)', fontWeight: 600 }}
+                >
+                  {truncate(s.actionSummary || s.title, 90)} →
+                </Link>
+              ))}
               {t.openWorkSlipsCount > 0 && (
                 <Link href={`/properties/${t.propertyId}/work-slips/print`} style={chipLink}>
                   {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
@@ -294,6 +315,11 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
 }
 
 const chipLink: React.CSSProperties = { fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', whiteSpace: 'nowrap' };
+
+/** Keep prep-slip chip labels short enough to scan at a glance. */
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
 
 function elapsed(sinceIso: string, now: number): string {
   const s = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 1000));
