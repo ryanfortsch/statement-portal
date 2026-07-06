@@ -456,6 +456,8 @@ export type HelmPropertyRow = {
   garage_code: string | null;
   known_issues: string | null;
   upcoming_maintenance: string | null;
+  /** Where cleaning supplies / linens / paper goods are kept in the home. */
+  supply_closet_location: string | null;
   // NOTE: the legacy `property_notes` single-text column was migrated to
   // the public.property_notes table (one row per discrete note) in
   // migration 20260528. See src/lib/property-notes.ts for the helpers.

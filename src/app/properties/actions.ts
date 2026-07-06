@@ -207,6 +207,7 @@ async function performPropertyUpdate(
     // Property access & notes
     known_issues: strOrNull(formData, 'known_issues'),
     upcoming_maintenance: strOrNull(formData, 'upcoming_maintenance'),
+    supply_closet_location: strOrNull(formData, 'supply_closet_location'),
     // property_notes is no longer a column — it lives in
     // public.property_notes as one row per discrete note. See the
     // createPropertyNote / updatePropertyNote actions below.

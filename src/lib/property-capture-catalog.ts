@@ -44,6 +44,7 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
   { key: 'gate_code', label: 'Gate code', section: 'Access & codes', type: 'text', hints: 'driveway/community gate code' },
   { key: 'garage_code', label: 'Garage code', section: 'Access & codes', type: 'text', hints: 'garage keypad code' },
   { key: 'key_code_location', label: 'Key / code location', section: 'Access & codes', type: 'text', hints: 'where the spare key/lockbox is' },
+  { key: 'supply_closet_location', label: 'Supply closet', section: 'Access & codes', type: 'text', hints: 'where cleaning supplies / linens / paper goods are kept' },
   { key: 'alarm_system', label: 'Alarm system', section: 'Access & codes', type: 'text', hints: 'ADT / SimpliSafe / none' },
   { key: 'guest_access_method', label: 'Guest access method', section: 'Access & codes', type: 'text', hints: 'how guests get in' },
   { key: 'security_cameras', label: 'Security cameras', section: 'Access & codes', type: 'text', hints: 'Ring / Wyze + locations' },
