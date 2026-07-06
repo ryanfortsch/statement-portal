@@ -282,6 +282,8 @@ export type Turnover = {
     packetId: string;
     status: string;
     contractorName: string | null;
+    /** The packet's scheduled walk date (YYYY-MM-DD), for tooltips. */
+    visitDate?: string | null;
   } | null;
 };
 

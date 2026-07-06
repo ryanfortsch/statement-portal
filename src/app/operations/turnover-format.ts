@@ -36,6 +36,22 @@ export function fieldChipColor(status: string): string {
   }
 }
 
+/** Display form of a guest name for the ledger row. Real names pass through;
+ *  Guesty's hold placeholders ('Reservation HMYZR2RYJD', 'TBD', 'Guest',
+ *  'n/a') normalize to 'Hold' so a confirmation code never reads like a
+ *  surname. Mirrors displayLabel() on the occupancy calendar; callers style
+ *  'Hold' italic + dim so it reads as status, not a person. */
+export function guestDisplay(name: string | null): string {
+  const first = (name ?? '').trim().split(/\s+/)[0] || 'Guest';
+  return /^(reservation|tbd|guest|n\/a)$/i.test(first) ? 'Hold' : (name ?? 'Guest').trim();
+}
+
+/** Dark-legible variant of the inspection stage hue, for 11-12px TEXT and the
+ *  header stage-strip dots. STAGE_HUES[4] (#d6a51e) is tuned for pip FILLS;
+ *  as small text on warm paper it washes out, so text/dots share this deeper
+ *  gold. One constant so the row readout and the header dot never drift. */
+export const INSPECTING_TEXT_HUE = '#b8901a';
+
 export function formatDateLong(value: string): string {
   if (!value) return '—';
   try {

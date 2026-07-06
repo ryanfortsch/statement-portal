@@ -98,20 +98,6 @@ export function TurnoverRail(p: Props) {
     return () => clearInterval(id);
   }, []);
 
-  // Slow breathe on the active node's halo, via the Web Animations API (no
-  // global CSS), disabled under reduced-motion.
-  useEffect(() => {
-    const el = haloRef.current;
-    if (!el) return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const anim = el.animate([{ opacity: 0.5 }, { opacity: 0.05 }, { opacity: 0.5 }], {
-      duration: 2000,
-      iterations: Infinity,
-      easing: 'ease-in-out',
-    });
-    return () => anim.cancel();
-  });
-
   const monitored = p.lockMonitored;
   const checkedOut = p.expected;
   // "Cleaner in" is a lock-only fact; never claim it on a lockless home.
@@ -192,10 +178,41 @@ export function TurnoverRail(p: Props) {
   ];
 
   const overdue = active !== null && Date.parse(`${p.checkIn.slice(0, 10)}T16:00:00`) < now;
+
+  // Slow breathe on the active node's halo, via the Web Animations API (no
+  // global CSS), disabled under reduced-motion. Re-arm ONLY when the active
+  // node (or its overdue hue) changes — with no dep array, the 1s `now` tick
+  // cancelled and restarted the 2s animation every render, which read as a
+  // 1Hz blink instead of a calm breathe. Lives below the state derivation so
+  // the deps are in scope; hook order stays stable (unconditional).
+  useEffect(() => {
+    const el = haloRef.current;
+    if (!el) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const anim = el.animate([{ opacity: 0.5 }, { opacity: 0.05 }, { opacity: 0.5 }], {
+      duration: 2000,
+      iterations: Infinity,
+      easing: 'ease-in-out',
+    });
+    return () => anim.cancel();
+  }, [active, overdue]);
+
   const cdColor = overdue || cd.urgency === 'now' ? 'var(--negative)' : cd.urgency === 'soon' ? 'var(--signal)' : 'var(--ink-4)';
-  const cdTint = overdue || cd.urgency === 'now' ? 'rgba(200,90,58,.12)' : cd.urgency === 'soon' ? 'rgba(200,90,58,.09)' : 'transparent';
+  // Tints derive from the same tokens as the text they back (the old
+  // rgba(200,90,58,…) baked in the statement page's coral, which exists
+  // nowhere in Helm's palette).
+  const cdTint =
+    overdue || cd.urgency === 'now'
+      ? 'color-mix(in srgb, var(--negative) 12%, transparent)'
+      : cd.urgency === 'soon'
+        ? 'color-mix(in srgb, var(--signal) 10%, transparent)'
+        : 'transparent';
   const railHot = active !== null && (cd.urgency !== 'far' || p.sameDay);
-  const baseColor = overdue ? 'rgba(200,90,58,.5)' : railHot ? 'rgba(200,90,58,.26)' : 'var(--rule)';
+  const baseColor = overdue
+    ? 'color-mix(in srgb, var(--negative) 50%, transparent)'
+    : railHot
+      ? 'color-mix(in srgb, var(--signal) 30%, transparent)'
+      : 'var(--rule)';
   const showEstConfirm = cleaned && p.cleanedEstimated && !justConfirmed;
   // Operator override: mark the clean done by hand. Always available once the
   // home is checked out and not yet cleaned (the only path to "Cleaned" on a
