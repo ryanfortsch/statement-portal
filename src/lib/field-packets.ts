@@ -1036,7 +1036,61 @@ export async function createPacketFromProperties(args: {
         };
       }),
     );
+  // Restock slips ride along automatically — see autoAttachInventorySlips.
+  await autoAttachInventorySlips(packetId);
   return packetId;
+}
+
+/**
+ * Auto-assign restocking: attach every open inventory-category work slip
+ * ("Restock toilet paper" etc.) to its property's stop on this packet, so the
+ * inspector gets an explicit mark-done task (and the slip actually closes)
+ * instead of the restock only riding along as supply-run text. Idempotent via
+ * the unique (stop_id, work_slip_id) upsert; manual attach/detach still works
+ * on top. Inspection packets only — a maintenance stop IS its slip.
+ *
+ * Called at packet creation and again at publish (catching slips created in
+ * between). Never throws; a failure just means the office attaches by hand.
+ */
+export async function autoAttachInventorySlips(packetId: string): Promise<number> {
+  const { data: pkt } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, trade')
+    .eq('id', packetId)
+    .maybeSingle();
+  const trade = (pkt as { id: string; trade?: string | null } | null)?.trade ?? 'inspection';
+  if (!pkt || trade !== 'inspection') return 0;
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id, work_slip_id')
+    .eq('packet_id', packetId);
+  const stops = (sData ?? []) as { id: string; property_id: string; work_slip_id: string | null }[];
+  if (stops.length === 0) return 0;
+
+  const { data: wData } = await fieldDb()
+    .from('work_slips')
+    .select('id, property_id')
+    .in('property_id', [...new Set(stops.map((s) => s.property_id))])
+    .eq('category', 'inventory')
+    .in('status', ['open', 'in_progress', 'scheduled']);
+  const slips = (wData ?? []) as { id: string; property_id: string }[];
+  if (slips.length === 0) return 0;
+
+  const byProp = new Map<string, string[]>();
+  for (const w of slips) byProp.set(w.property_id, [...(byProp.get(w.property_id) ?? []), w.id]);
+
+  const rows = stops.flatMap((s) =>
+    (byProp.get(s.property_id) ?? [])
+      .filter((slipId) => slipId !== s.work_slip_id)
+      .map((slipId) => ({ stop_id: s.id, work_slip_id: slipId, created_by_email: 'helm-auto' })),
+  );
+  if (rows.length === 0) return 0;
+
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .upsert(rows, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
+  return error ? 0 : rows.length;
 }
 
 // ── Supply run (inspection prep) ──────────────────────────────────────
