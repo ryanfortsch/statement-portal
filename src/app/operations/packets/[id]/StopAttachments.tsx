@@ -232,12 +232,24 @@ export function StopAttachments({
 export function PacketInstructions({ packetId, instructions, editable }: { packetId: string; instructions: string | null; editable: boolean }) {
   const [pending, start] = useTransition();
   const [text, setText] = useState(instructions ?? '');
+  // Same tuck-away as the per-slip notes: no empty textarea squatting on the
+  // page — a quiet link until there's actually a note to write.
+  const [show, setShow] = useState(!!instructions);
 
   if (!editable) {
     if (!instructions) return null;
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 16 }}>
         <span style={{ color: 'var(--ink-4)' }}>Packet note: </span>{instructions}
+      </div>
+    );
+  }
+  if (!show) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <button type="button" onClick={() => setShow(true)} style={quietBtn}>
+          + add a note for the whole trip
+        </button>
       </div>
     );
   }
