@@ -216,7 +216,37 @@ export type RecurringMessage = {
   send_mode: string;
   status: string;
   last_sent_date: string;
+  /** Who this proactive message targets: 'guest' (default) | 'cleaner' |
+   * 'owner'. Absent on older guest rows. */
+  audience?: string;
+  /** For cleaner/owner rows: the E.164 phone the message goes to. */
+  target_contact?: string;
+  /** For cleaner/owner rows: the recipient's display name. */
+  target_name?: string;
 };
+
+/** A person the operator can send a proactive (self-initiated) message to.
+ * Cleaner targets are the cleaner managers (Rosa/Nina, language 'pt'); owner
+ * targets are phone-reachable owners (property fields populated for owners,
+ * empty for cleaners). */
+export type ProactiveTarget = {
+  /** E.164 phone the message goes to. */
+  contact: string;
+  name: string;
+  /** Delivery channel; currently always 'sms_quo'. */
+  channel: string;
+  /** Populated for owner targets; empty for cleaner managers. */
+  property_id: string;
+  property_name: string;
+  /** Language the recipient reads ('pt' for the cleaner managers). */
+  language: string;
+};
+
+export async function listProactiveTargets(audience: 'cleaner' | 'owner') {
+  return request<{ targets: ProactiveTarget[]; count: number }>(
+    `/api/proactive-targets?audience=${audience}`,
+  );
+}
 
 export async function listReservationsForPicker() {
   return request<{ reservations: ReservationPick[]; count: number }>(
@@ -224,8 +254,11 @@ export async function listReservationsForPicker() {
   );
 }
 
-export async function listRecurring() {
-  return request<{ recurring: RecurringMessage[]; count: number }>('/api/recurring');
+/** Without `audience`, returns guest rows only (the existing guest panel is
+ * untouched). With it, rows filtered to that audience. */
+export async function listRecurring(audience?: 'cleaner' | 'owner') {
+  const q = audience ? `?audience=${audience}` : '';
+  return request<{ recurring: RecurringMessage[]; count: number }>(`/api/recurring${q}`);
 }
 
 export type CreateRecurringInput = {
@@ -243,6 +276,12 @@ export type CreateRecurringInput = {
   start_date: string;
   end_date: string;
   send_mode: string;
+  /** 'guest' (default when omitted) | 'cleaner' | 'owner'. For cleaner/owner:
+   * conversation_id/listing_id are '', module is 'sms_quo', and
+   * target_contact is required. */
+  audience?: string;
+  target_contact?: string;
+  target_name?: string;
 };
 
 export async function createRecurring(input: CreateRecurringInput) {
@@ -258,6 +297,24 @@ export async function polishProactive(reservationId: string, roughText: string) 
     {
       method: 'POST',
       body: { reservation_id: reservationId, rough_text: roughText },
+      timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
+    },
+  );
+}
+
+/** Polish a rough proactive note for a cleaner or owner. For 'cleaner' the
+ * response `polished` is Portuguese (what sends) and `english` carries the EN
+ * translation for the operator; for 'owner' `english` is ''. */
+export async function polishProactiveFor(
+  audience: 'cleaner' | 'owner',
+  targetName: string,
+  roughText: string,
+) {
+  return request<{ polished: string; english: string; guest_first: string }>(
+    '/api/proactive/polish',
+    {
+      method: 'POST',
+      body: { audience, target_name: targetName, rough_text: roughText, reservation_id: '' },
       timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
     },
   );
@@ -446,8 +503,11 @@ export type ProposedPropertyUpdatesResponse = {
   count: number;
 };
 
-export async function listProposedPropertyUpdates() {
-  return request<ProposedPropertyUpdatesResponse>('/api/proposed-property-updates');
+/** Without `audience`, only NON-cleaner (owner) candidates, which keeps the
+ * existing owner card unchanged. With 'cleaner', only cleaner-sourced ones. */
+export async function listProposedPropertyUpdates(audience?: 'cleaner') {
+  const q = audience ? `?audience=${audience}` : '';
+  return request<ProposedPropertyUpdatesResponse>(`/api/proposed-property-updates${q}`);
 }
 
 export async function dismissProposedPropertyUpdate(id: string) {
@@ -465,6 +525,16 @@ export async function markProposedPropertyUpdateApplied(id: string) {
 }
 
 // ── Cleaner-messaging surface (bilingual; Portuguese drafts) ───────────
+
+/** An AI-mined work-slip proposal extracted from the cleaner's message
+ * ("the dryer is broken at Rocky Neck" → a maintenance slip). The operator
+ * confirms or unticks it on the approval card; nothing files until approve. */
+export type ProposedWorkSlip = {
+  title: string;
+  category: 'maintenance' | 'inventory';
+  priority: 'normal' | 'high';
+  note: string;
+};
 
 export type CleanerApproval = {
   id: string;
@@ -487,6 +557,9 @@ export type CleanerApproval = {
   created_at: string;
   resolved_at: string | null;
   age_minutes: number | null;
+  /** Work-slip proposal mined from the message; null when there is none.
+   * property_id/property_name above may be non-empty (inferred) for these. */
+  proposed_slip: ProposedWorkSlip | null;
 };
 
 export type CleanerApprovalsResponse = {
@@ -502,8 +575,23 @@ export async function listRecentCleanerApprovals(hours = 24) {
   return request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`);
 }
 
-export async function approveCleanerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/approve`, { method: 'POST' });
+/** Approve a cleaner draft. `opts` carries the operator's decision on the
+ * card's proposed work slip; when omitted the backend uses the inferred
+ * defaults. JSON.stringify drops undefined keys, so only the fields the
+ * operator actually decided travel. */
+export async function approveCleanerApproval(
+  id: string,
+  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+) {
+  return request<{ status: string; id: string; slip?: { id: string; deduped: boolean } | null }>(
+    `/api/cleaner-approvals/${id}/approve`,
+    {
+      method: 'POST',
+      ...(opts !== undefined
+        ? { body: { file_slip: opts.fileSlip, slip_property_id: opts.slipPropertyId } }
+        : {}),
+    },
+  );
 }
 
 export async function rejectCleanerApproval(id: string) {

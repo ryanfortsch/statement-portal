@@ -26,9 +26,12 @@ type Props = {
   initial: ProposedPropertyUpdate[];
   initialError: string | null;
   properties: { id: string; name: string }[];
+  /** Who shared these facts; drives the card copy only. The owner page
+   * omits it (default 'owner'); the cleaner page passes 'cleaner'. */
+  source?: 'owner' | 'cleaner';
 };
 
-export function ProposedPropertyUpdatesCard({ initial, initialError, properties }: Props) {
+export function ProposedPropertyUpdatesCard({ initial, initialError, properties, source = 'owner' }: Props) {
   const items = initial ?? [];
   const right =
     items.length > 0 ? (
@@ -40,7 +43,7 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties 
   return (
     <Section
       title="Proposed property updates"
-      eyebrow="Facts owners shared, ready to file to the property"
+      eyebrow={`Facts ${source}s shared, ready to file to the property`}
       paddingTop={36}
       right={right}
     >
@@ -66,9 +69,9 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties 
             lineHeight: 1.6,
           }}
         >
-          Nothing to review. When an owner texts or emails a durable property
-          fact (a wifi change, a code, a trash day), it shows up here to file in
-          one tap.
+          Nothing to review. When {source === 'cleaner' ? 'a cleaner texts' : 'an owner texts or emails'} a
+          durable property fact (a wifi change, a code, a trash day), it shows
+          up here to file in one tap.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
@@ -78,7 +81,7 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties 
             </div>
           )}
           {items.map((u) => (
-            <CandidateCard key={u.id} candidate={u} properties={properties} />
+            <CandidateCard key={u.id} candidate={u} properties={properties} source={source} />
           ))}
         </div>
       )}
@@ -92,9 +95,11 @@ type Phase = 'idle' | 'review' | 'done';
 function CandidateCard({
   candidate,
   properties,
+  source,
 }: {
   candidate: ProposedPropertyUpdate;
   properties: { id: string; name: string }[];
+  source: 'owner' | 'cleaner';
 }) {
   const router = useRouter();
   const known = properties.some((p) => p.id === candidate.property_id);
@@ -223,7 +228,7 @@ function CandidateCard({
           {candidate.category.replace(/_/g, ' ')}
         </span>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {candidate.owner_name || 'An owner'}
+          {candidate.owner_name || (source === 'cleaner' ? 'A cleaner' : 'An owner')}
           {candidate.property_name ? ` · ${candidate.property_name}` : ''}
         </span>
       </div>

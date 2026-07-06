@@ -19,10 +19,16 @@ async function requireSession(): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function approveCleanerDraft(id: string): Promise<ActionResult> {
+/** `opts` carries the card's proposed-work-slip decision (file it or not,
+ * and to which property). Omitted for cards without a proposal, in which
+ * case the backend applies its inferred defaults. */
+export async function approveCleanerDraft(
+  id: string,
+  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await approveCleanerApproval(id);
+  const res = await approveCleanerApproval(id, opts);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/cleaner-messaging');
   return { ok: true };

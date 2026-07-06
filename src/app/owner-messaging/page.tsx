@@ -15,11 +15,19 @@ import {
   explainError,
 } from '@/lib/stay-concierge';
 import { supabase } from '@/lib/supabase';
+import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
 import { OwnerFactsEditor } from './OwnerFactsEditor';
 import { ProposedPropertyUpdatesCard } from './ProposedPropertyUpdatesCard';
+import {
+  fetchProactiveReminders,
+  fetchProactiveTargets,
+  createProactiveReminder,
+  endProactiveReminder,
+  polishProactiveForAction,
+} from './reminders-actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -73,6 +81,16 @@ async function OwnerQueueSection() {
     <>
       <OwnerMessagingQueue initialPending={pending.data.approvals} />
       <OwnerRecentStrip initialRecent={recent.ok ? recent.data.approvals : []} />
+      <ProactiveRemindersPanel
+        audience="owner"
+        actions={{
+          fetchReminders: fetchProactiveReminders,
+          fetchTargets: fetchProactiveTargets,
+          create: createProactiveReminder,
+          end: endProactiveReminder,
+          polish: polishProactiveForAction,
+        }}
+      />
     </>
   );
 }

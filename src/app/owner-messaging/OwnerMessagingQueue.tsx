@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useRef, useState, useTransition } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { OwnerApproval } from '@/lib/stay-concierge';
@@ -19,16 +19,28 @@ const REFRESH_MS = 15_000;
 
 export function OwnerMessagingQueue({ initialPending }: Props) {
   const router = useRouter();
+  // Refresh inside a transition. A bare router.refresh() re-suspends the
+  // queue's Suspense boundary, which swaps in the skeleton and UNMOUNTS
+  // everything below it -- including the proactive-message form, erasing
+  // whatever the operator was mid-typing (the exact bug the guest queue
+  // shipped and fixed). A transition keeps the current UI mounted while the
+  // new payload streams, so client state survives.
+  const [, startTransition] = useTransition();
+  const softRefresh = useCallback(
+    () => startTransition(() => router.refresh()),
+    [router],
+  );
 
   useEffect(() => {
-    const t = setInterval(() => router.refresh(), REFRESH_MS);
+    const t = setInterval(softRefresh, REFRESH_MS);
     return () => clearInterval(t);
-  }, [router]);
+  }, [softRefresh]);
 
   return (
     <Section
       title={initialPending.length === 0 ? 'Inbox zero' : `Pending (${initialPending.length})`}
       eyebrow={`refreshes every ${REFRESH_MS / 1000}s`}
+      right={<RefreshChip onClick={softRefresh} />}
       empty={initialPending.length === 0}
       emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
     >
@@ -42,6 +54,43 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
         ))}
       </div>
     </Section>
+  );
+}
+
+function RefreshChip({ onClick }: { onClick: () => void }) {
+  // Track elapsed seconds since mount, rather than a Date snapshot. Keeps
+  // render pure. setInterval ticks every second; the ref is set during the
+  // effect (never read during render) so the chip resets when the parent
+  // remounts after a router.refresh.
+  const mountedAt = useRef<number>(0);
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    mountedAt.current = Date.now();
+    const t = setInterval(() => {
+      setSeconds(Math.max(0, Math.round((Date.now() - mountedAt.current) / 1000)));
+    }, 1_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const label = seconds < 60 ? `${seconds}s ago` : `${Math.round(seconds / 60)} min ago`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        fontSize: 10,
+        letterSpacing: '0.16em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
+        color: 'var(--ink-3)',
+        background: 'transparent',
+        border: '1px solid var(--rule)',
+        padding: '6px 10px',
+        cursor: 'pointer',
+      }}
+    >
+      Refresh · {label}
+    </button>
   );
 }
 
