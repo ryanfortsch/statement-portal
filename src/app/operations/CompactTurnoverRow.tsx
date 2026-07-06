@@ -391,8 +391,11 @@ function FieldCredit({ fp }: { fp: NonNullable<Turnover['fieldPacket']> }) {
       : `Field packet · submitted for review`;
   return (
     <Link href={`/operations/packets/${fp.packetId}`} className="rt-tn-field" title={title}>
-      <span className="rt-tn-field-k" style={fp.status === 'in_progress' ? { color: 'var(--signal)' } : undefined}>
-        {fp.status === 'in_progress' ? 'On site' : 'Field'}
+      {/* "On site" only when the contractor is actually AT this house — the
+          packet going in_progress means they're somewhere on the route, and
+          printing "On site" on every covered row (even walks days out) misled. */}
+      <span className="rt-tn-field-k" style={fp.stopActive ? { color: 'var(--signal)' } : undefined}>
+        {fp.stopActive ? 'On site' : 'Field'}
       </span>
       <span className="rt-tn-field-p" style={{ color, fontWeight: fp.status === 'submitted' ? 500 : 400 }}>
         {payload}

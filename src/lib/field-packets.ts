@@ -711,6 +711,10 @@ export type PacketStatusForBooking = {
   status: string;
   contractorName: string | null;
   visitDate: string;
+  /** THIS booking's stop is actively being worked (started, not finished).
+   *  Drives the turnover rail's "On site" kicker — packet-level in_progress
+   *  means the contractor is somewhere on the route, not at this house. */
+  stopActive: boolean;
 };
 
 /** Map a set of booking ids to the live (non-cancelled) packet that preps
@@ -723,10 +727,12 @@ export async function loadPacketStatusByBooking(
   if (ids.length === 0) return map;
   const { data } = await fieldDb()
     .from('packet_stops')
-    .select('booking_id, inspection_packets!inner(id, status, awarded_contractor_id, visit_date)')
+    .select('booking_id, status, started_at, inspection_packets!inner(id, status, awarded_contractor_id, visit_date)')
     .in('booking_id', ids);
   type Row = {
     booking_id: string | null;
+    status: string;
+    started_at: string | null;
     inspection_packets: { id: string; status: string; awarded_contractor_id: string | null; visit_date: string };
   };
   const rows = ((data ?? []) as unknown as Row[]).filter(
@@ -748,6 +754,7 @@ export async function loadPacketStatusByBooking(
       status: ip.status,
       contractorName: ip.awarded_contractor_id ? names.get(ip.awarded_contractor_id) ?? null : null,
       visitDate: ip.visit_date,
+      stopActive: !!r.started_at && r.status === 'in_progress',
     });
   }
   return map;

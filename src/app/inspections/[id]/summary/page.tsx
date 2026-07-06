@@ -7,6 +7,8 @@ import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { ArchiveTrigger } from './ArchiveTrigger';
 import { supabase } from '@/lib/supabase';
+import { fieldDb, isFieldConfigured } from '@/lib/field-db';
+import { auth } from '@/auth';
 import { suppliesLabel } from '@/lib/inspection-supplies';
 import type {
   InspectionRow,
@@ -43,9 +45,63 @@ type SummaryWorkSlip = {
   category: string;
   priority: string;
   location: string | null;
+  status: string;
   created_at: string;
   photo_urls: string[] | null;
 };
+
+/** The Field visit behind this inspection, when a contractor ran it from a
+ *  packet stop: on-site timing + door-verified arrival + the packet itself. */
+type FieldVisit = {
+  packetId: string;
+  packetTitle: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  departedAt: string | null;
+  arrivedVerifiedAt: string | null;
+};
+
+async function loadFieldVisit(inspectionId: string): Promise<FieldVisit | null> {
+  if (!isFieldConfigured) return null;
+  const { data } = await fieldDb()
+    .from('packet_stops')
+    .select('started_at, completed_at, departed_at, arrived_verified_at, inspection_packets!inner(id, title)')
+    .eq('inspection_id', inspectionId)
+    .maybeSingle();
+  const row = data as {
+    started_at: string | null;
+    completed_at: string | null;
+    departed_at: string | null;
+    arrived_verified_at: string | null;
+    inspection_packets: { id: string; title: string };
+  } | null;
+  if (!row) return null;
+  return {
+    packetId: row.inspection_packets.id,
+    packetTitle: row.inspection_packets.title,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    departedAt: row.departed_at,
+    arrivedVerifiedAt: row.arrived_verified_at,
+  };
+}
+
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
+function durationLabel(fromIso: string, toIso: string): string | null {
+  const ms = Date.parse(toIso) - Date.parse(fromIso);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const m = Math.round(ms / 60000);
+  if (m < 1) return '<1 min';
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 
 async function getInspection(id: string): Promise<{
   inspection: InspectionRow;
@@ -85,7 +141,7 @@ async function getInspection(id: string): Promise<{
       .order('created_at', { ascending: true }),
     supabase
       .from('work_slips')
-      .select('id, inspection_item_id, title, description, category, priority, location, created_at, photo_urls')
+      .select('id, inspection_item_id, title, description, category, priority, location, status, created_at, photo_urls')
       .eq('inspection_id', id)
       .order('created_at', { ascending: true }),
     supabase
@@ -143,10 +199,19 @@ export default async function InspectionSummaryPage({
   params: Promise<Params>;
 }) {
   const { id } = await params;
-  const data = await getInspection(id);
+  const [data, visit, session] = await Promise.all([getInspection(id), loadFieldVisit(id), auth()]);
   if (!data) notFound();
+  // Contractors land here after completing a run; office-only links (packet,
+  // work board) render only for a signed-in staffer.
+  const isStaff = !!session?.user?.email;
 
   const { inspection, property, results, notes, workSlips, itemMap } = data;
+
+  // Time on site: the Field stop's clock when a contractor ran it (Start tap →
+  // done/departed), else the inspection's own started/completed stamps.
+  const clockStart = visit?.startedAt ?? inspection.started_at;
+  const clockEnd = visit?.departedAt ?? visit?.completedAt ?? inspection.completed_at;
+  const onSite = clockStart && clockEnd ? durationLabel(clockStart, clockEnd) : null;
   const issues = results.filter((r) => r.result.status === 'issue');
   const passes = results.filter((r) => r.result.status === 'pass');
   const nas = results.filter((r) => r.result.status === 'na');
@@ -220,6 +285,29 @@ export default async function InspectionSummaryPage({
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
           {property.city} &middot; {inspection.inspector_name} &middot; Completed {formatDateTime(inspection.completed_at)}
         </p>
+        {(onSite || visit) && (
+          <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 13, color: 'var(--ink-3)' }}>
+            {clockStart && <span>Started {fmtTime(clockStart)}</span>}
+            {clockStart && clockEnd && <span style={{ color: 'var(--ink-4)' }}>·</span>}
+            {clockEnd && <span>Finished {fmtTime(clockEnd)}</span>}
+            {onSite && (
+              <>
+                <span style={{ color: 'var(--ink-4)' }}>·</span>
+                <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{onSite} on site</span>
+              </>
+            )}
+            {visit?.arrivedVerifiedAt && (
+              <span title={`Smart lock recorded their code at ${fmtTime(visit.arrivedVerifiedAt)}`} style={{ color: 'var(--positive)', fontWeight: 600 }}>
+                ✓ arrival verified at the door
+              </span>
+            )}
+            {visit && isStaff && (
+              <Link href={`/operations/packets/${visit.packetId}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}>
+                {visit.packetTitle} →
+              </Link>
+            )}
+          </div>
+        )}
         {/* Drive archive — fires on mount if this completed inspection
             isn't archived yet, then shows the link to the Drive copy. */}
         <div style={{ marginTop: 10 }}>
@@ -347,7 +435,13 @@ export default async function InspectionSummaryPage({
                     {ws.category.replaceAll('_', ' ')}
                   </span>
                   <div>
-                    <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{ws.title}</div>
+                    {isStaff ? (
+                      <Link href={`/work/${ws.id}`} style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500, textDecoration: 'underline', textDecorationColor: 'var(--rule)', textUnderlineOffset: 3 }}>
+                        {ws.title}
+                      </Link>
+                    ) : (
+                      <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{ws.title}</div>
+                    )}
                     {item && (
                       <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
                         From: {item.title}
@@ -367,15 +461,30 @@ export default async function InspectionSummaryPage({
                       <PhotoThumbs urls={ws.photo_urls} size={72} />
                     )}
                   </div>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: '.18em',
-                      textTransform: 'uppercase',
-                      color: ws.priority === 'high' ? 'var(--negative)' : 'var(--ink-3)',
-                    }}
-                  >
-                    {ws.priority}
+                  <span style={{ textAlign: 'right' }}>
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 10,
+                        letterSpacing: '.18em',
+                        textTransform: 'uppercase',
+                        color: ws.priority === 'high' ? 'var(--negative)' : 'var(--ink-3)',
+                      }}
+                    >
+                      {ws.priority}
+                    </span>
+                    <span
+                      style={{
+                        display: 'block',
+                        marginTop: 4,
+                        fontSize: 10,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        color: ws.status === 'done' ? 'var(--positive)' : ws.status === 'in_progress' ? 'var(--tide-deep)' : 'var(--ink-4)',
+                      }}
+                    >
+                      {ws.status.replaceAll('_', ' ')}
+                    </span>
                   </span>
                 </div>
               );

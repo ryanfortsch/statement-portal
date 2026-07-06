@@ -284,6 +284,8 @@ export type Turnover = {
     contractorName: string | null;
     /** The packet's scheduled walk date (YYYY-MM-DD), for tooltips. */
     visitDate?: string | null;
+    /** True only while THIS turnover's stop is actively being worked. */
+    stopActive?: boolean;
   } | null;
 };
 
