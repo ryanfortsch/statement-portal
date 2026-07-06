@@ -131,7 +131,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
         marginBottom: 14,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+      <div className="rt-packet-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
             {eyebrowDate(p.visit_date)}
@@ -154,7 +154,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
             {windowSummary(p)}
           </div>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div className="rt-packet-price" style={{ textAlign: 'right', flexShrink: 0 }}>
           <div className="font-mono" style={{ fontSize: 24, lineHeight: 1 }}>
             {dollars(p.posted_price_cents)}
           </div>
@@ -172,7 +172,15 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
  *  hero plate. The fill (tide, or negative when failed) runs to the live stage;
  *  labels carry the state. No dots, no pulse. */
 function JourneyRail({ activeIndex, failed }: { activeIndex: number; failed?: boolean }) {
-  const steps = ['Applied', 'Account set up', 'Background check', 'Ready to claim'];
+  // Long labels wrap raggedly in a 4-way split at ~340px — the first thing a
+  // new contractor sees. Under 400px (rt-jr-* in globals.css) the short forms
+  // swap in so every label stays on one line.
+  const steps = [
+    { long: 'Applied', short: 'Applied' },
+    { long: 'Account set up', short: 'Set up' },
+    { long: 'Background check', short: 'Check' },
+    { long: 'Ready to claim', short: 'Ready' },
+  ];
   const pct = (activeIndex / (steps.length - 1)) * 100;
   const fill = failed ? 'var(--negative)' : 'var(--tide)';
   return (
@@ -182,16 +190,17 @@ function JourneyRail({ activeIndex, failed }: { activeIndex: number; failed?: bo
         <span style={{ position: 'absolute', top: -1, left: `calc(${pct}% - 2px)`, width: 4, height: 4, background: fill }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-        {steps.map((label, i) => {
+        {steps.map((s, i) => {
           const done = i < activeIndex;
           const active = i === activeIndex;
           const color = done ? 'var(--paper)' : active ? (failed ? 'var(--negative)' : 'var(--signal-soft)') : 'rgba(245,239,226,0.4)';
           return (
             <span
-              key={label}
-              style={{ flex: 1, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', lineHeight: 1.3, color, fontWeight: active ? 600 : 400, textAlign: i === 0 ? 'left' : i === steps.length - 1 ? 'right' : 'center' }}
+              key={s.long}
+              style={{ flex: 1, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', lineHeight: 1.3, color, fontWeight: active ? 600 : 400, textAlign: i === 0 ? 'left' : i === steps.length - 1 ? 'right' : 'center', whiteSpace: 'nowrap' }}
             >
-              {label}
+              <span className="rt-jr-long">{s.long}</span>
+              <span className="rt-jr-short">{s.short}</span>
             </span>
           );
         })}

@@ -944,3 +944,25 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     width: 100%;
   }
 }
+
+/* Field home — narrow-phone fitting. The JourneyRail's long stage labels wrap
+   raggedly in a 4-way split under ~400px, so short forms swap in; the
+   PacketCard's price column stops fighting the details column and drops to
+   its own full-width row. */
+.rt-jr-short { display: none; }
+@media (max-width: 400px) {
+  .rt-jr-long { display: none; }
+  .rt-jr-short { display: inline; }
+  .rt-packet-row { flex-wrap: wrap; }
+  .rt-packet-price {
+    flex-basis: 100%;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    text-align: left;
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+  }
+  .rt-packet-price > * { margin-top: 0 !important; }
+  .rt-packet-price > :last-child { margin-left: auto; }
+}
