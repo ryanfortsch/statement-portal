@@ -55,7 +55,7 @@ export function FieldShell({
             <Link
               href="/field/profile"
               title="Your profile"
-              style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}
+              style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3, padding: '10px 4px', display: 'inline-flex', alignItems: 'center' }}
             >
               {contractorName}
             </Link>
@@ -72,6 +72,8 @@ export function FieldShell({
                   letterSpacing: '0.14em',
                   textTransform: 'uppercase',
                   color: 'var(--ink-4)',
+                  padding: '12px 8px',
+                  margin: '-12px -8px',
                 }}
               >
                 Sign out
