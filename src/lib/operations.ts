@@ -356,13 +356,17 @@ export async function loadOperationsData(
   // overlaps [fetchStart, fetchEnd] iff check_in <= fetchEnd AND
   // check_out >= fetchStart. Catches stays already in progress when the
   // window opens, which the calendar needs for day-0 occupancy. Only
-  // canonical (non-duplicate) confirmed/completed stays count.
+  // canonical (non-duplicate) rows count. Blocks (owner / maintenance
+  // holds) are fetched too, but ONLY for the occupancy calendar — they
+  // are split out below and never become turnovers, so the pipeline and
+  // stage counts stay guest-stays-only while the calendar stops rendering
+  // an owner-held week as bookable vacancy.
   const { data: resData, error: resErr } = await supabase
     .from('bookings')
     .select(
       'id, property_id, guest_name, channel, check_in, check_out, nights, status, payout, external_confirmation_code, external_booking_id'
     )
-    .in('status', TURNOVER_STATUSES)
+    .in('status', [...TURNOVER_STATUSES, 'block'])
     .is('duplicate_of', null)
     .lte('check_in', fetchEnd)
     .gte('check_out', fetchStart)
@@ -393,29 +397,41 @@ export async function loadOperationsData(
   // `bookings` is reconciled at the source now (lib/ical-sync dedup collapses
   // each stay to one canonical row and a trusted cancellation wins), so the
   // read path just trusts duplicate_of + status from the query above.
+  const toReservationRow = (b: BookingRaw): ReservationRow => ({
+    guesty_reservation_id: b.id,
+    property_id: b.property_id,
+    guest_name: b.guest_name,
+    channel: b.channel,
+    guesty_channel_id: null,
+    check_in: b.check_in,
+    check_out: b.check_out,
+    nights: b.nights,
+    status: b.status,
+    host_payout: b.payout,
+    confirmation_code: b.external_confirmation_code,
+    guestArrivedAt: null,
+  });
+  const keepRow = (r: ReservationRow): boolean =>
+    !!r.property_id &&
+    !!r.check_in &&
+    !!r.check_out &&
+    !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
+    (!propertyId || r.property_id === propertyId);
+
+  // Guest stays: everything downstream (turnovers, cleaning lifecycle,
+  // presence, stage counts) works off this list, exactly as before.
   const reservations: ReservationRow[] = rawBookings
-    .map((b) => ({
-      guesty_reservation_id: b.id,
-      property_id: b.property_id,
-      guest_name: b.guest_name,
-      channel: b.channel,
-      guesty_channel_id: null,
-      check_in: b.check_in,
-      check_out: b.check_out,
-      nights: b.nights,
-      status: b.status,
-      host_payout: b.payout,
-      confirmation_code: b.external_confirmation_code,
-      guestArrivedAt: null,
-    }))
-    .filter(
-      (r) =>
-        r.property_id &&
-        r.check_in &&
-        r.check_out &&
-        !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
-        (!propertyId || r.property_id === propertyId)
-    );
+    .filter((b) => b.status !== 'block')
+    .map(toReservationRow)
+    .filter(keepRow);
+
+  // Owner / maintenance holds: calendar-only. Kept in a separate list so
+  // no turnover, same-day, previous-checkout, or presence logic ever sees
+  // them; merged into the calendar cells at the bottom of this loader.
+  const blockReservations: ReservationRow[] = rawBookings
+    .filter((b) => b.status === 'block')
+    .map(toReservationRow)
+    .filter(keepRow);
 
   // Pull inspections in the same window for matching.
   const { data: inspData, error: inspErr } = await supabase
@@ -954,6 +970,16 @@ export async function loadOperationsData(
     arr.push(r);
     reservationsByProperty.set(r.property_id, arr);
   }
+  // Blocks join the calendar feed AFTER the real stays so the cell
+  // occupant lookup (a linear find) always prefers a guest booking when
+  // both cover the same night — the same owner stay sometimes exists as
+  // both a $0 direct booking and a calendar block, and the guest row is
+  // the one with a name and a tooltip worth showing.
+  for (const r of blockReservations) {
+    const arr = reservationsByProperty.get(r.property_id) ?? [];
+    arr.push(r);
+    reservationsByProperty.set(r.property_id, arr);
+  }
 
   const calendarRows: CalendarRow[] = properties.map((property) => {
     const propertyReservations = reservationsByProperty.get(property.id) ?? [];
@@ -978,6 +1004,36 @@ export async function loadOperationsData(
       };
     });
     return { property, cells };
+  });
+
+  // Order calendar rows by the next thing that happens on each property
+  // (soonest upcoming check-in or check-out among guest stays), so the
+  // top-left of the grid is the hot zone instead of an alphabetical
+  // accident. Among properties whose next event is today, a same-day flip
+  // outranks a plain check-in or check-out; name is the final tiebreak.
+  // Properties with nothing on the horizon sink to the bottom.
+  const FAR_FUTURE = '9999-12-31';
+  const nextEventByProperty = new Map<string, string>();
+  for (const r of reservations) {
+    for (const d of [r.check_in, r.check_out]) {
+      if (d < rangeStart) continue;
+      const cur = nextEventByProperty.get(r.property_id);
+      if (!cur || d < cur) nextEventByProperty.set(r.property_id, d);
+    }
+  }
+  const sameDayFlipToday = new Set(
+    dedupedTurnovers
+      .filter((t) => t.isSameDayTurnover && t.checkIn.slice(0, 10) === rangeStart)
+      .map((t) => t.propertyId),
+  );
+  calendarRows.sort((a, b) => {
+    const an = nextEventByProperty.get(a.property.id) ?? FAR_FUTURE;
+    const bn = nextEventByProperty.get(b.property.id) ?? FAR_FUTURE;
+    if (an !== bn) return an < bn ? -1 : 1;
+    const aFlip = sameDayFlipToday.has(a.property.id) ? 0 : 1;
+    const bFlip = sameDayFlipToday.has(b.property.id) ? 0 : 1;
+    if (aFlip !== bFlip) return aFlip - bFlip;
+    return a.property.name.localeCompare(b.property.name);
   });
 
   return {

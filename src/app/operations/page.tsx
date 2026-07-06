@@ -6,10 +6,11 @@ import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
-import { lifecycleOf, INSPECTING_TEXT_HUE, STAGE_HUES } from './turnover-format';
+import { lifecycleOf, STAGE_HUES } from './turnover-format';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
+  todayStr,
   RANGE_LABEL,
   VALID_RANGES,
   CALENDAR_RANGE_LABEL,
@@ -129,11 +130,13 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   // time (the clock read lives in the helper to keep the component body pure);
   // AutoRefresh keeps it current. Same lifecycleOf the rows use, so the strip
   // and the rails never disagree.
-  const { cleaningNow, awaitingCleaner, needsInspection, inspectingNow } = computeStageCounts(pendingTurnovers);
+  const { counts, firsts } = computeStageCounts(pendingTurnovers);
+  const { cleaningNow, awaitingCleaner, needsInspection, inspectingNow } = counts;
   const doneCount = data.totalCount - inspectionsLeft;
+  const firstDone = data.turnovers.find(isTurnoverDone) ?? null;
   const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection + inspectingNow > 0;
 
-  // Where "N inspections pending" should jump to when tapped:
+  // Where "N still need attention" should jump to when tapped:
   //   - exactly 1 pending AND it has an inspection row already (the operator
   //     started but didn't finish): resume URL straight into the runner.
   //   - otherwise: anchor link to the first pending turnover's card, so the
@@ -142,11 +145,21 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   // (the existing button on the row), which a plain <Link> can't do, so
   // the anchor path keeps the click on a real CTA instead of doing it for
   // the operator without confirmation.
+  // The anchor target uses the SAME flightRank order TurnoverList renders in,
+  // so the jump always lands on the first row on screen (previously it used
+  // the chronological order and could scroll past an in-flight row that had
+  // floated above it). Rank is computed once per row before sorting —
+  // flightRank reads the clock internally, and a fresh read per comparator
+  // call could go inconsistent across a stage boundary mid-sort.
+  const orderedPending = pendingTurnovers
+    .map((t) => ({ t, rank: flightRank(t) }))
+    .sort((a, b) => a.rank - b.rank)
+    .map((x) => x.t);
   let pendingHref: string | null = null;
-  if (pendingTurnovers.length === 1 && pendingTurnovers[0].inspection?.id) {
-    pendingHref = `/inspections/${pendingTurnovers[0].inspection.id}`;
-  } else if (pendingTurnovers.length > 0) {
-    const t = pendingTurnovers[0];
+  if (orderedPending.length === 1 && orderedPending[0].inspection?.id) {
+    pendingHref = `/inspections/${orderedPending[0].inspection.id}`;
+  } else if (orderedPending.length > 0) {
+    const t = orderedPending[0];
     pendingHref = `#turnover-${t.propertyId}-${t.reservationId}`;
   }
 
@@ -210,64 +223,65 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             flexWrap: 'wrap',
           }}
         >
+          {/* Attention-first summary: the ACTIONABLE count is the headline
+              ("3 still need attention" in 30px serif) and the total becomes
+              the small qualifier — the old layout set the decoration big
+              ("7 check-ins") and the work small. */}
           <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
             {data.totalCount === 0 ? (
               <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
+            ) : inspectionsLeft > 0 ? (
+              <>
+                {(() => {
+                  const phrase = (
+                    <>
+                      <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--signal)' }}>
+                        {inspectionsLeft}
+                      </strong>{' '}
+                      still need{inspectionsLeft === 1 ? 's' : ''} attention
+                    </>
+                  );
+                  const linkStyle = {
+                    color: 'var(--ink)',
+                    textDecoration: 'none',
+                    borderBottom: '1px dashed var(--signal)',
+                    paddingBottom: 2,
+                  } as const;
+                  // For real route navigation (/inspections/{id} resume URL)
+                  // we want Next's Link with prefetch + client routing. For
+                  // a same-page hash anchor we use a plain <a> instead: the
+                  // App Router's Link intercepts the click and (in some
+                  // configurations) suppresses the browser's native
+                  // fragment-scroll. A regular <a href="#..."> lets the
+                  // browser do the scroll natively.
+                  if (pendingHref?.startsWith('#')) {
+                    return (
+                      <a href={pendingHref} style={linkStyle} title="Jump to the first turnover that still needs an inspection">
+                        {phrase}
+                      </a>
+                    );
+                  }
+                  if (pendingHref) {
+                    return (
+                      <Link href={pendingHref} style={linkStyle} title="Resume the inspection in progress">
+                        {phrase}
+                      </Link>
+                    );
+                  }
+                  return <span>{phrase}</span>;
+                })()}
+                <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
+                  of {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
+                  {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                </span>
+              </>
             ) : (
               <>
-                <strong style={{ color: 'var(--ink)' }}>{data.totalCount}</strong>{' '}
-                check-in{data.totalCount === 1 ? '' : 's'}
-                {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
-                {inspectionsLeft > 0 ? (
-                  pendingHref ? (
-                    // For real route navigation (/inspections/{id} resume URL)
-                    // we want Next's Link with prefetch + client routing. For
-                    // a same-page hash anchor we use a plain <a> instead: the
-                    // App Router's Link intercepts the click and (in some
-                    // configurations) suppresses the browser's native
-                    // fragment-scroll, leaving "1 inspection pending" looking
-                    // like a dead link. A regular <a href="#..."> just lets
-                    // the browser do the scroll natively, which is what we
-                    // want here.
-                    pendingHref.startsWith('#') ? (
-                      <a
-                        href={pendingHref}
-                        style={{
-                          color: 'var(--signal)',
-                          fontSize: 14,
-                          marginLeft: 12,
-                          textDecoration: 'none',
-                          borderBottom: '1px dashed currentColor',
-                        }}
-                        title="Jump to the first turnover that still needs an inspection"
-                      >
-                        · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
-                      </a>
-                    ) : (
-                      <Link
-                        href={pendingHref}
-                        style={{
-                          color: 'var(--signal)',
-                          fontSize: 14,
-                          marginLeft: 12,
-                          textDecoration: 'none',
-                          borderBottom: '1px dashed currentColor',
-                        }}
-                        title="Resume the inspection in progress"
-                      >
-                        · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending →
-                      </Link>
-                    )
-                  ) : (
-                    <span style={{ color: 'var(--signal)', fontSize: 14, marginLeft: 12 }}>
-                      · {inspectionsLeft} inspection{inspectionsLeft === 1 ? '' : 's'} pending
-                    </span>
-                  )
-                ) : (
-                  <span style={{ color: 'var(--positive)', fontSize: 14, marginLeft: 12 }}>
-                    · all prepped
-                  </span>
-                )}
+                <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All prepped</span>
+                <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
+                  {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
+                  {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                </span>
               </>
             )}
           </div>
@@ -315,17 +329,27 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               fontSize: 12,
             }}
           >
-            {/* Dot hues mirror the row readout colors for the same states, so
-                an operator can scan from a header count straight to the rows
-                it's counting. cleaning = the pip rail's cleaning identity;
-                needs-inspection matches its signal-gold row readout (it was
-                tide-deep navy — the checked-out stage color — so scanning for
-                a navy-dotted state found only orange rows). */}
-            {cleaningNow > 0 && <StageCount dot={STAGE_HUES[2]} label="cleaning now" n={cleaningNow} />}
-            {awaitingCleaner > 0 && <StageCount dot="var(--signal)" label="awaiting cleaner" n={awaitingCleaner} />}
-            {inspectingNow > 0 && <StageCount dot={INSPECTING_TEXT_HUE} label="inspecting now" n={inspectingNow} />}
-            {needsInspection > 0 && <StageCount dot="var(--signal)" label="clean · needs inspection" n={needsInspection} />}
-            {doneCount > 0 && <StageCount dot="var(--positive)" label="done" n={doneCount} />}
+            {/* Each entry renders the SAME pip treatment the micro-rails use
+                (STAGE_HUES identity color; ring = a stage in motion, solid
+                fill = done), so reading the strip once decodes every rail
+                below — it doubles as the legend. Each count is an anchor to
+                the first row in that stage (plain <a> for native fragment
+                scroll, same reason as the header link). */}
+            {cleaningNow > 0 && (
+              <StageCount hue={STAGE_HUES[2]} label="cleaning now" n={cleaningNow} target={firsts.cleaning} />
+            )}
+            {awaitingCleaner > 0 && (
+              <StageCount hue={STAGE_HUES[1]} label="awaiting cleaner" n={awaitingCleaner} target={firsts.awaiting} />
+            )}
+            {inspectingNow > 0 && (
+              <StageCount hue={STAGE_HUES[4]} label="inspecting now" n={inspectingNow} target={firsts.inspecting} />
+            )}
+            {needsInspection > 0 && (
+              <StageCount hue={STAGE_HUES[4]} label="clean · needs inspection" n={needsInspection} target={firsts.needsInspection} />
+            )}
+            {doneCount > 0 && (
+              <StageCount hue="var(--positive)" done label="done" n={doneCount} target={firstDone} />
+            )}
           </div>
         )}
 
@@ -390,7 +414,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             Pick a wider range to see upcoming check-ins.
           </div>
         ) : (
-          <TurnoverList turnovers={data.turnovers} myEmail={myEmail} />
+          <TurnoverList turnovers={data.turnovers} myEmail={myEmail} grouped={range !== 'today'} />
         )}
       </section>
 
@@ -477,15 +501,26 @@ function flightRank(t: Turnover): number {
   return 2;
 }
 
-// Tally the active stage of each pending turnover for the header strip. The
-// clock read (Date.now) lives here, not in the component body, so the page
-// component stays pure under react-hooks/purity (same reason flightRank and
-// formatRelative wrap their date reads).
+// Tally the active stage of each pending turnover for the header strip, and
+// remember the FIRST turnover in each stage so each strip count can anchor-
+// link straight to a row it's counting. The clock read (Date.now) lives here,
+// not in the component body, so the page component stays pure under
+// react-hooks/purity (same reason flightRank and formatRelative wrap their
+// date reads).
+type StageFirsts = {
+  cleaning: Turnover | null;
+  awaiting: Turnover | null;
+  needsInspection: Turnover | null;
+  inspecting: Turnover | null;
+};
 function computeStageCounts(pending: Turnover[]): {
-  cleaningNow: number;
-  awaitingCleaner: number;
-  needsInspection: number;
-  inspectingNow: number;
+  counts: {
+    cleaningNow: number;
+    awaitingCleaner: number;
+    needsInspection: number;
+    inspectingNow: number;
+  };
+  firsts: StageFirsts;
 } {
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
@@ -493,35 +528,121 @@ function computeStageCounts(pending: Turnover[]): {
   let awaitingCleaner = 0;
   let needsInspection = 0;
   let inspectingNow = 0;
+  const firsts: StageFirsts = { cleaning: null, awaiting: null, needsInspection: null, inspecting: null };
   for (const t of pending) {
     const lc = lifecycleOf(t, now, today);
-    if (lc.active === 'cleaning') cleaningNow += 1;
+    if (lc.active === 'cleaning') {
+      cleaningNow += 1;
+      firsts.cleaning ??= t;
+    }
     // 'in' = monitored home awaiting a cleaner; 'clean' = lockless home that
     // needs cleaning. Both are "awaiting a clean" for the header tally.
-    else if (lc.active === 'in' || lc.active === 'clean') awaitingCleaner += 1;
+    else if (lc.active === 'in' || lc.active === 'clean') {
+      awaitingCleaner += 1;
+      firsts.awaiting ??= t;
+    }
     // The inspected stage splits: an inspection genuinely underway vs cleaned
     // and waiting for one to start.
     else if (lc.active === 'inspected') {
-      if (lc.inspecting) inspectingNow += 1;
-      else needsInspection += 1;
+      if (lc.inspecting) {
+        inspectingNow += 1;
+        firsts.inspecting ??= t;
+      } else {
+        needsInspection += 1;
+        firsts.needsInspection ??= t;
+      }
     }
   }
-  return { cleaningNow, awaitingCleaner, needsInspection, inspectingNow };
+  return { counts: { cleaningNow, awaitingCleaner, needsInspection, inspectingNow }, firsts };
 }
 
-function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+/** The day divider's eyebrow text: "Today", or "Tue · Jul 8". */
+function dividerLabel(date: string, today: string): string {
+  if (date === today) return 'Today';
+  const d = new Date(`${date}T00:00:00`);
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${dow} · ${md}`;
+}
+
+function TurnoverList({
+  turnovers,
+  myEmail,
+  grouped,
+}: {
+  turnovers: Turnover[];
+  myEmail: string;
+  /** Multi-day ranges group rows under editorial day dividers; the Today
+   *  range stays a flat list (one divider for one date is just noise). */
+  grouped: boolean;
+}) {
   // In-flight first among pending (a cleaner physically in the house floats
   // up), then the server's chronological order; done turnovers sink to the
   // bottom, dimmed. Every line is the same dense CompactTurnoverRow — tap any
   // one to expand its full lifecycle rail + secondary affordances in place.
-  const pending = turnovers
+  // Rank is computed ONCE per row (flightRank reads the clock internally, so
+  // re-calling it during the sort and again during the partition could flip a
+  // row across a stage boundary mid-render and land it in both groups).
+  const ranked = turnovers
     .filter((t) => !isTurnoverDone(t))
-    .sort((a, b) => flightRank(a) - flightRank(b));
+    .map((t) => ({ t, rank: flightRank(t) }))
+    .sort((a, b) => a.rank - b.rank);
+  const pending = ranked.map((x) => x.t);
   const done = turnovers.filter((t) => isTurnoverDone(t));
+
+  if (!grouped) {
+    return (
+      <div style={{ borderTop: '1px solid var(--ink)' }}>
+        {pending.map((t) => (
+          <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
+        ))}
+        {done.map((t) => (
+          <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
+        ))}
+      </div>
+    );
+  }
+
+  // Datebook layout for multi-day ranges: anything live (a cleaner in the
+  // house, or due-and-awaiting) stays in a single "In motion" band up top —
+  // that's today's action regardless of printed date — and everything else
+  // groups under a day divider. Rows under a divider drop their repeated
+  // check-in date (the divider already says it), keeping just the mono
+  // "→ checkout · nights" trailer. Done rows sink to the bottom as before,
+  // dates intact since they sit outside the day groups.
+  const inMotion = ranked.filter((x) => x.rank < 2).map((x) => x.t);
+  const upcoming = ranked.filter((x) => x.rank >= 2).map((x) => x.t);
+  const groups: { date: string; rows: Turnover[] }[] = [];
+  for (const t of upcoming) {
+    const d = t.checkIn.slice(0, 10);
+    const last = groups[groups.length - 1];
+    if (last && last.date === d) last.rows.push(t);
+    else groups.push({ date: d, rows: [t] });
+  }
+  const today = todayStr();
+
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
-      {pending.map((t) => (
-        <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
+      {inMotion.length > 0 && (
+        <>
+          <DayDivider label="In motion" accent />
+          {inMotion.map((t) => (
+            <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
+          ))}
+        </>
+      )}
+      {groups.map((g) => (
+        <div key={g.date}>
+          <DayDivider label={dividerLabel(g.date, today)} accent={g.date === today} />
+          {g.rows.map((t) => (
+            <CompactTurnoverRow
+              key={`${t.propertyId}-${t.reservationId}`}
+              t={t}
+              myEmail={myEmail}
+              hideDate
+            />
+          ))}
+        </div>
       ))}
       {done.map((t) => (
         <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
@@ -530,14 +651,87 @@ function TurnoverList({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: 
   );
 }
 
-// One entry in the live stage strip: a colored dot, a tabular count, a label.
-function StageCount({ dot, label, n }: { dot: string; label: string; n: number }) {
+/** Editorial day divider for the datebook list: a small letterspaced eyebrow
+ *  ("TUE · JUL 8", or "TODAY" / "IN MOTION" in signal) above its rows. */
+function DayDivider({ label, accent = false }: { label: string; accent?: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flex: '0 0 auto' }} />
+    <div
+      style={{
+        padding: '16px 6px 6px',
+        fontSize: 9,
+        letterSpacing: '0.2em',
+        textTransform: 'uppercase',
+        fontWeight: 600,
+        color: accent ? 'var(--signal)' : 'var(--ink-4)',
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+// One entry in the live stage strip: a rail-style pip, a tabular count, a
+// label. The pip reuses the micro-rail's exact visual grammar (identity hue;
+// ring = in motion, solid = done) so the strip doubles as the rail legend.
+// With a target, the whole entry is a plain <a> to that row's anchor (native
+// fragment scroll — Next's Link suppresses it, see the header comment).
+function StageCount({
+  hue,
+  done = false,
+  label,
+  n,
+  target,
+}: {
+  hue: string;
+  done?: boolean;
+  label: string;
+  n: number;
+  target: Turnover | null;
+}) {
+  const pip = done ? (
+    <span
+      aria-hidden
+      style={{ width: 9, height: 9, borderRadius: '50%', background: hue, flex: '0 0 auto' }}
+    />
+  ) : (
+    <span
+      aria-hidden
+      style={{
+        width: 11,
+        height: 11,
+        borderRadius: '50%',
+        background: 'var(--paper)',
+        border: `2.5px solid ${hue}`,
+        boxSizing: 'border-box',
+        flex: '0 0 auto',
+      }}
+    />
+  );
+  const inner = (
+    <>
+      {pip}
       <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: 'var(--ink)' }}>{n}</span>
       <span style={{ color: 'var(--ink-3)' }}>{label}</span>
-    </span>
+    </>
   );
+  const style = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    whiteSpace: 'nowrap',
+    textDecoration: 'none',
+  } as const;
+  if (target) {
+    return (
+      <a
+        href={`#turnover-${target.propertyId}-${target.reservationId}`}
+        style={style}
+        title={`Jump to ${target.propertyName}`}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <span style={style}>{inner}</span>;
 }
 
