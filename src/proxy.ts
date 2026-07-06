@@ -143,6 +143,11 @@ export default auth((req) => {
   // Anonymous callers get a 401 JSON (not an HTML sign-in redirect, which a
   // fetch/integration caller can't follow).
   if (pathname.startsWith("/api/")) {
+    // Photo uploads self-authenticate BOTH planes in the route (staff SSO or
+    // contractor portal cookie) — a contractor attaching inspection photos
+    // has no SSO session, so the gate must let the request reach the route.
+    // Exact match on purpose: a prefix would also open /api/upload-platform-csv.
+    if (pathname === "/api/upload") return;
     if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) return;
     if (req.auth) return;
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
