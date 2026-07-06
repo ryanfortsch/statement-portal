@@ -980,10 +980,31 @@ export async function createPacketFromProperties(args: {
   if (usable.length === 0) return null;
 
   const pts = usable.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
-  // Order the route by real drive time (OSRM trip), falling back to
-  // straight-line nearest-neighbor if the public router is unavailable.
-  const order = await osrmOptimalOrder(pts);
-  const orderedProps = order.map((i) => usable[i]);
+  // Walk order = readiness first, drive time second. An already-cleaned home
+  // is open from the 11 AM checkout; a same-day checkout belongs to the
+  // cleaner until mid-afternoon (Delaney walked into a dirty 19 Rackliffe at
+  // 10:40 because drive time alone ordered the route). Within each readiness
+  // group, homes with a 4 PM check-in lead. Drive-time ordering (OSRM, with
+  // nearest-neighbor fallback) applies inside each group.
+  const rank = (p: FieldProperty): number => {
+    const c = candByProp.get(p.id);
+    const turnover = c?.basis === 'checkout_day';
+    const deadline = !!c?.nextCheckin && c.nextCheckin === args.visitDate;
+    return turnover ? (deadline ? 2 : 3) : deadline ? 0 : 1;
+  };
+  const buckets: Record<number, FieldProperty[]> = { 0: [], 1: [], 2: [], 3: [] };
+  for (const p of usable) buckets[rank(p)].push(p);
+  const orderedProps: FieldProperty[] = [];
+  for (const r of [0, 1, 2, 3]) {
+    const group = buckets[r];
+    if (group.length <= 1) {
+      orderedProps.push(...group);
+      continue;
+    }
+    const gpts = group.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
+    const gorder = await osrmOptimalOrder(gpts);
+    orderedProps.push(...gorder.map((i) => group[i]));
+  }
   const spread = maxPairwiseMiles(pts);
   const cen = centroid(pts);
   const basePrices = orderedProps.map((p) => p.inspection_base_price_cents ?? DEFAULT_BASE_CENTS);

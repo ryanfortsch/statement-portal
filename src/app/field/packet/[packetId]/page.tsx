@@ -46,9 +46,65 @@ function fmtDate(d: string): string {
   }
 }
 
-// One fixed inspection window for every stop: after the morning checkout +
-// cleaning, before the afternoon check-in. Consistent, not a per-stop guess.
-const INSPECTION_WINDOW = 'Inspection window · 12:00–2:45 PM';
+function fmtShortDate(d: string): string {
+  try {
+    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
+/** Per-stop timing truth, driven by the bookings — not a fixed window. The day
+ *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
+ *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
+ *  the inspector goes after. Already-cleaned homes are open from 11. */
+function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean } {
+  const checkinToday = !!s.next_checkin && s.next_checkin === visitDate;
+  const turnoverToday = s.window_basis === 'checkout_day';
+  if (turnoverToday && checkinToday) {
+    return { label: 'Same-day turnover · in after the cleaner, done before the 4 PM check-in', urgent: true };
+  }
+  if (turnoverToday) {
+    return { label: 'Checkout today · cleaner has it midday — go after, no check-in deadline', urgent: false };
+  }
+  if (checkinToday) {
+    return { label: 'Already cleaned · guest arrives 4 PM — do this one early', urgent: true };
+  }
+  const next = s.next_checkin ? ` · next guest ${fmtShortDate(s.next_checkin)}` : '';
+  return { label: `Already cleaned · anytime from 11 AM${next}`, urgent: false };
+}
+
+/** The one question an inspector has before anything else: "do I have a hard
+ *  finish time today?" Answered up front instead of leaving her to guess
+ *  (Delaney had no way to know there were no check-ins on her visit day). */
+function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: string }) {
+  if (stops.length === 0) return null;
+  const arriving = stops.filter((s) => s.next_checkin === visitDate).length;
+  const turnovers = stops.filter((s) => s.window_basis === 'checkout_day').length;
+  const cleanedFirst =
+    turnovers > 0 && turnovers < stops.length
+      ? ' Do the already-cleaned homes first, then swing back to the turnover after the cleaner wraps.'
+      : '';
+  if (arriving === 0) {
+    return (
+      <div style={{ borderLeft: '3px solid var(--positive, #2e7d4f)', background: 'rgba(46,125,79,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+        <strong style={{ color: 'var(--ink)' }}>No guest check-ins this day — no hard finish time.</strong> Start
+        anytime from 11 AM.{cleanedFirst}
+      </div>
+    );
+  }
+  return (
+    <div style={{ borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+      <strong style={{ color: 'var(--signal)' }}>
+        {arriving === stops.length
+          ? `Guests check in at 4 PM at ${stops.length === 1 ? 'this home' : `all ${stops.length} homes`}.`
+          : `${arriving} of ${stops.length} homes ${arriving === 1 ? 'gets a guest' : 'get guests'} at 4 PM.`}
+      </strong>{' '}
+      {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then — the rest are flexible.'}
+      {cleanedFirst}
+    </div>
+  );
+}
 
 const INSPECTION_PILLARS: Array<{ n: number; title: string; desc: string }> = [
   {
@@ -475,6 +531,8 @@ export default async function PacketPage({
         </div>
       )}
 
+      {!isMaint && <DayPlan stops={packet.stops} visitDate={packet.visit_date} />}
+
       {working && <SupplyRunCard run={supplyRun} />}
 
       {sp.taken && (
@@ -618,16 +676,26 @@ export default async function PacketPage({
                   )}
                   {/* Keep the timing visible while working — a same-day check-in
                       and a vacant home look identical exactly when it matters. */}
-                  {s.status !== 'complete' && s.next_checkin === packet.visit_date && (
-                    <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · guest checks in at 4 PM today — do this one early</span>
-                  )}
+                  {s.status !== 'complete' && (() => {
+                    const t = stopTiming(s, packet.visit_date);
+                    return (
+                      <span style={{ color: t.urgent ? 'var(--signal)' : 'var(--ink-4)', fontWeight: t.urgent ? 600 : 400 }}>
+                        {' · '}{t.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
-                  {/* The town is the drive-time signal a browser needs before
-                      claiming — even masked stops say where they are. */}
-                  {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{INSPECTION_WINDOW}
-                </div>
+                (() => {
+                  const t = stopTiming(s, packet.visit_date);
+                  return (
+                    <div style={{ fontSize: 13, marginTop: 2, color: t.urgent ? 'var(--signal)' : 'var(--ink-3)', fontWeight: t.urgent ? 600 : 400 }}>
+                      {/* The town is the drive-time signal a browser needs before
+                          claiming — even masked stops say where they are. */}
+                      {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{t.label}
+                    </div>
+                  );
+                })()
               )}
               {isMine && (() => {
                 const href = mapsUrl(s);
