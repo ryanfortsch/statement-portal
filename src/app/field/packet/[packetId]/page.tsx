@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, cityShort, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -120,6 +120,19 @@ function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: 
   );
 }
 
+/** The supply-closet entry code, tap-to-copy. Renders only when the code is
+ *  configured (env var). Lives inside the supply cards, which only show to the
+ *  assigned inspector who's on the job. */
+function SupplyClosetCode() {
+  if (!SUPPLY_CLOSET_CODE) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, marginBottom: 14 }}>
+      <span style={{ color: 'var(--ink-4)' }}>Door code</span>
+      <CopyCode value={SUPPLY_CLOSET_CODE} />
+    </div>
+  );
+}
+
 /** Stop 1 of every route: the supply closet at 85 Eastern Ave. The inspector
  *  grabs ONE bag, packed for the whole trip — the routine refills for every home
  *  on the route plus the parts each work slip needs. Helm names the trip the bag
@@ -143,6 +156,8 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
           Directions →
         </a>
       </div>
+
+      <SupplyClosetCode />
 
       {homes.length > 0 && (
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: restock.length > 0 || run.jobs.length > 0 ? 12 : 0 }}>
@@ -192,6 +207,9 @@ function KitReturnCard() {
         <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
           Directions →
         </a>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <SupplyClosetCode />
       </div>
     </div>
   );

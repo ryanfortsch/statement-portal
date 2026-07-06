@@ -356,7 +356,8 @@ export async function completeMaintenanceStop(formData: FormData) {
     .maybeSingle();
   const stop = sData as PacketStopRow | null;
   if (!stop || !stop.work_slip_id) redirect(`/field/packet/${packetId}`);
-  if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
+  // A completion note is optional now — a restock or a quick fix shouldn't be
+  // gated on writing a paragraph. resolution_notes just stores whatever's there.
 
   const photos = (() => {
     try {
@@ -424,7 +425,8 @@ export async function completeAttachedSlip(formData: FormData) {
     .maybeSingle();
   const att = aData as { id: string; work_slip_id: string; packet_stops: { packet_id: string; property_id: string } } | null;
   if (!att || att.packet_stops.packet_id !== packetId) redirect(`/field/packet/${packetId}`);
-  if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
+  // A completion note is optional now — a restock or a quick fix shouldn't be
+  // gated on writing a paragraph. resolution_notes just stores whatever's there.
 
   const photos = (() => {
     try {
