@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { fieldDb } from '@/lib/field-db';
 import { geocodeAddress } from '@/lib/geocode';
+import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
@@ -104,13 +105,28 @@ export async function completeOnboarding(
 
   // Geocode their home base so the marketplace can rank packets "near you".
   // Best-effort: a failed lookup just leaves coords null (no ranking).
+  // A bare town like "Gloucester" can geocode to another state's Gloucester
+  // (one real inspector landed 472 mi away), so bias to the service area:
+  // try as typed, retry with ", MA" if the hit is far, keep whichever is
+  // closer to HQ, and store nothing rather than an absurd mis-geocode.
+  const HQ = { lat: 42.6209, lng: -70.645 };
+  const PLAUSIBLE_COMMUTE_MILES = 150;
   let homeLat = contractor.home_lat;
   let homeLng = contractor.home_lng;
   if (homeAddress) {
-    const coords = await geocodeAddress(homeAddress);
-    if (coords) {
-      homeLat = coords.lat;
-      homeLng = coords.lng;
+    let best = await geocodeAddress(homeAddress);
+    let bestMiles = best ? haversineMiles(HQ, best) : Infinity;
+    if (bestMiles > PLAUSIBLE_COMMUTE_MILES && !/,|\d{5}/.test(homeAddress)) {
+      const retry = await geocodeAddress(`${homeAddress}, MA`);
+      const retryMiles = retry ? haversineMiles(HQ, retry) : Infinity;
+      if (retryMiles < bestMiles) {
+        best = retry;
+        bestMiles = retryMiles;
+      }
+    }
+    if (best && bestMiles <= PLAUSIBLE_COMMUTE_MILES) {
+      homeLat = best.lat;
+      homeLng = best.lng;
     }
   }
 
