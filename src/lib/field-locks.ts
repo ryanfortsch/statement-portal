@@ -2,15 +2,23 @@
  * Field × Seam door codes. When an inspector claims a packet, program their
  * rotating PIN onto every stop's Schlage lock for the claim→submit window;
  * revoke on submit/release/cancel. Stays dark (no-op) until Seam is configured
- * AND a stop's property has a mapped, active lock — same posture as the battery
+ * AND a stop's property has a mapped, active lock; same posture as the battery
  * integration, so it never blocks the flow when locks aren't connected.
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
 import { seamConfigured, createAccessCode, deleteAccessCode } from '@/lib/seam';
+import { CLEANER_CODE } from '@/lib/cleaning-sessions';
+import { INSPECTION_CODE } from '@/lib/inspection-sessions';
 
 function randomPin(): string {
-  return String(1000 + Math.floor(Math.random() * 9000)); // 4-digit, no leading zero
+  // 4-digit, no leading zero. Never the cleaner code or the master inspection
+  // code: a collision would make the lock's unlock events ambiguous between
+  // the field contractor and the cleaner / master, corrupting both signals.
+  for (;;) {
+    const pin = String(1000 + Math.floor(Math.random() * 9000));
+    if (pin !== CLEANER_CODE && pin !== INSPECTION_CODE) return pin;
+  }
 }
 
 export async function programPacketCodes(packetId: string): Promise<string | null> {
@@ -78,6 +86,24 @@ export async function programPacketCodes(packetId: string): Promise<string | nul
         seam_access_code_id: ac?.access_code_id ?? null,
         code: pin,
       });
+      // Register the code as role 'inspector' immediately (don't wait for the
+      // daily sync): the guest-presence read positive-lists role='guest', so
+      // this keeps a contractor's keypad entry from ever reading as a guest in
+      // residence. No PIN digits stored, only the Seam id + display name.
+      if (ac?.access_code_id) {
+        await db
+          .from('lock_access_codes')
+          .upsert(
+            {
+              device_id: lock.device_id,
+              access_code_id: ac.access_code_id,
+              name: `Field · ${label}`,
+              role: 'inspector',
+              resolved_at: new Date().toISOString(),
+            },
+            { onConflict: 'device_id,access_code_id' },
+          );
+      }
     } catch {
       // One lock refusing the code shouldn't block the others.
     }
@@ -95,15 +121,24 @@ export async function revokePacketCodes(packetId: string): Promise<void> {
   const db = fieldDb();
   const { data: codes } = await db
     .from('packet_access_codes')
-    .select('id, seam_access_code_id')
+    .select('id, device_id, seam_access_code_id')
     .eq('packet_id', packetId)
     .is('removed_at', null);
-  for (const r of (codes ?? []) as { id: string; seam_access_code_id: string | null }[]) {
+  for (const r of (codes ?? []) as { id: string; device_id: string | null; seam_access_code_id: string | null }[]) {
     if (r.seam_access_code_id) {
       try {
         await deleteAccessCode(r.seam_access_code_id);
       } catch {
-        // Already removed or expired upstream — still mark it removed locally.
+        // Already removed or expired upstream; still mark it removed locally.
+      }
+      // Drop the registry row too: the id never fires again once the code is
+      // deleted, but a stale inspector row is clutter for the presence read.
+      if (r.device_id) {
+        await db
+          .from('lock_access_codes')
+          .delete()
+          .eq('device_id', r.device_id)
+          .eq('access_code_id', r.seam_access_code_id);
       }
     }
     await db.from('packet_access_codes').update({ removed_at: new Date().toISOString() }).eq('id', r.id);

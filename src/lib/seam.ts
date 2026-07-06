@@ -347,6 +347,11 @@ export type AccessCodeRole =
 export function classifyCodeRole(name: string | null | undefined): AccessCodeRole {
   const n = (name ?? '').toLowerCase().trim();
   if (!n) return 'unknown';
+  // Field packet entry codes are programmed by Helm itself with a "Field ·
+  // <contractor>" name (field-locks.ts). Match them first: without this they
+  // would fall through to the guest fallback and a contractor's arrival could
+  // read as a guest in residence.
+  if (/^field\b/.test(n)) return 'inspector';
   if (/clean/.test(n)) return 'cleaner';
   if (/owner/.test(n)) return 'owner';
   if (/inspect/.test(n)) return 'inspector';

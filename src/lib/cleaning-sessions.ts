@@ -106,6 +106,26 @@ export function isKeypadEntry(method?: string | null): boolean {
   return !/manual|mobile|card|thumbturn|auto|tap|fob/.test(m);
 }
 
+/** Is this access code a LIVE field packet entry code on this device? Field
+ *  contractor codes are Seam managed codes tracked in packet_access_codes for
+ *  the claim→submit window (removed_at null while live). They route to the
+ *  inspection lifecycle, never cleaning. */
+export async function isLiveFieldCode(
+  sb: SupabaseClient,
+  deviceId: string,
+  accessCodeId: string,
+): Promise<boolean> {
+  const { data } = await sb
+    .from('packet_access_codes')
+    .select('id')
+    .eq('device_id', deviceId)
+    .eq('seam_access_code_id', accessCodeId)
+    .is('removed_at', null)
+    .limit(1)
+    .maybeSingle();
+  return data != null;
+}
+
 /**
  * lock.unlocked → record the cleaner's arrival. Cleaner match: the unlock's
  * access_code_id equals the lock's resolved cleaner code. Fallback (Schlage
@@ -126,6 +146,12 @@ export async function recordCleanerEntry(sb: SupabaseClient, ev: LockEventInput)
   }
   if (lock.cleanerCodeId && ev.accessCodeId && ev.accessCodeId !== lock.cleanerCodeId) {
     return { ok: false, reason: 'keypad code is not the cleaner code (guest/other)' };
+  }
+  // With the cleaner code unresolved, the any-keypad fallback below would
+  // swallow a FIELD contractor's packet-code entry as a cleaner arrival. Check
+  // only in that gap (a resolved lock already rejected any mismatch above).
+  if (!lock.cleanerCodeId && ev.accessCodeId && (await isLiveFieldCode(sb, ev.deviceId, ev.accessCodeId))) {
+    return { ok: false, reason: 'field inspector code, not cleaner' };
   }
 
   const checkoutDate = await mostRecentCheckoutForProperty(sb, lock.propertyId, ev.occurredAt);
