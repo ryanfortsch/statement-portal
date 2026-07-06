@@ -96,7 +96,12 @@ export const metadata: Metadata = {
 
 function windowSummary(p: PacketDetail): string {
   if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
-  return '12:00–2:45 PM window';
+  // The claim decision hinges on whether the day has a hard finish time — say
+  // so on the card, not a made-up fixed window.
+  const arriving = p.stops.filter((s) => s.next_checkin === p.visit_date).length;
+  if (arriving === 0) return 'no check-ins that day · flexible';
+  if (arriving === p.stops.length) return 'guests arrive 4 PM · finish by then';
+  return `${arriving} of ${p.stops.length} with a 4 PM check-in`;
 }
 
 function eyebrowDate(d: string): string {
