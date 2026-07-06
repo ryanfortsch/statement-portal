@@ -100,6 +100,36 @@ export async function loadInstallmentsForCode(
 }
 
 /**
+ * Batch loader: every installment row for a set of confirmation codes, in
+ * ONE query, grouped by code. Used by the revenue snapshot to allocate
+ * cross-month bookings to their split months. Codes without installment
+ * rows simply aren't in the map. Tolerates the table not existing.
+ */
+export async function loadInstallmentsForCodes(
+  supabase: SupabaseClient,
+  confirmationCodes: string[],
+): Promise<Map<string, Installment[]>> {
+  const out = new Map<string, Installment[]>();
+  const codes = [...new Set(confirmationCodes.filter(Boolean))];
+  if (codes.length === 0) return out;
+  const { data, error } = await supabase
+    .from('reservation_installments')
+    .select(COLS)
+    .in('confirmation_code', codes)
+    .order('month', { ascending: true });
+  if (error) {
+    if (!isMissingTableError(error)) console.warn('loadInstallmentsForCodes failed:', error.message);
+    return out;
+  }
+  for (const row of (data || []) as Installment[]) {
+    const list = out.get(row.confirmation_code);
+    if (list) list.push(row);
+    else out.set(row.confirmation_code, [row]);
+  }
+  return out;
+}
+
+/**
  * Pull every installment for a property in a specific month -- across
  * any confirmation code. /api/ingest uses this to (a) fork the per-stay
  * revenue when a parsed PDF reservation has an installment row, and (b)
