@@ -339,7 +339,15 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     .in('status', ['published', 'claimed', 'in_progress', 'submitted']);
   const rows = (data ?? []) as { status: string; visit_date: string }[];
   const outToday = rows.filter((p) => (p.status === 'claimed' || p.status === 'in_progress') && p.visit_date === today).length;
-  const atRisk = rows.filter((p) => p.status === 'claimed' && p.visit_date <= today).length;
+  // Same time-aware rule as the board: a claimed same-day packet only reads
+  // "at risk" after 1 PM ET (an hour into the 12:00–2:45 window); before that
+  // it's just today's upcoming work. Fully past days always count.
+  const hourEt = Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date()),
+  );
+  const atRisk = rows.filter(
+    (p) => p.status === 'claimed' && (p.visit_date < today || (p.visit_date === today && hourEt >= 13)),
+  ).length;
   const unclaimedSoon = rows.filter((p) => p.status === 'published' && p.visit_date >= today && p.visit_date <= soonStr).length;
   const submitted = rows.filter((p) => p.status === 'submitted').length;
   if (outToday + atRisk + unclaimedSoon + submitted === 0) return false;
