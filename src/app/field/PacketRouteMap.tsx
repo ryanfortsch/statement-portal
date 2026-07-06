@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Compact live route map for a packet: numbered pins in walk order joined by a
@@ -15,7 +15,10 @@ import { useEffect, useRef } from 'react';
  * original signal-orange numbered pins (browsing / pre-claim).
  */
 type StopState = 'done' | 'current' | 'next';
-type Stop = { label: string; lat: number; lng: number; order: number; state?: StopState; verified?: boolean };
+/** `num` is the number shown on the pin. Pass the stop's LIST position so the
+ *  map always agrees with the stop list — without it, a coordinate-less stop
+ *  gets filtered out and every pin after it silently shifts down by one. */
+type Stop = { label: string; lat: number; lng: number; order: number; num?: number; state?: StopState; verified?: boolean };
 
 const SIGNAL = '#c85a3a';
 const TIDE = '#3a6b8a';
@@ -39,6 +42,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
   const mapRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inst = useRef<any>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   useEffect(() => {
     const valid = stops
@@ -68,7 +72,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
       valid.forEach((p, i) => {
         const icon = L.divIcon({
           className: '',
-          html: pinHtml(i + 1, p),
+          html: pinHtml(p.num ?? i + 1, p),
           iconSize: [26, 26],
           iconAnchor: [13, 13],
         });
@@ -91,6 +95,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
       }
       map.fitBounds(L.latLngBounds(latlngs), { padding: [28, 28], maxZoom: 15 });
       inst.current = map;
+      setStatus('ready');
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +105,9 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
       script.onload = init;
+      // Flaky signal in the field: say the map failed instead of leaving a
+      // permanently blank box that reads as a bug.
+      script.onerror = () => setStatus('failed');
       document.head.appendChild(script);
     }
 
@@ -114,10 +122,24 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
 
   const hasCoords = stops.some((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
   if (!hasCoords) return null;
+  if (status === 'failed') {
+    return (
+      <div style={{ border: '1px solid var(--rule)', marginBottom: 22, padding: '14px 16px', fontSize: 13, color: 'var(--ink-4)', background: 'var(--paper-2, #fff)' }}>
+        Map unavailable right now — tap a stop&apos;s address below for directions.
+      </div>
+    );
+  }
   return (
-    <div
-      ref={mapRef}
-      style={{ width: '100%', height: 220, border: '1px solid var(--rule)', marginBottom: 22, background: 'var(--paper-2, #fff)' }}
-    />
+    <div style={{ position: 'relative', marginBottom: 22 }}>
+      <div
+        ref={mapRef}
+        style={{ width: '100%', height: 220, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)' }}
+      />
+      {status === 'loading' && (
+        <div style={{ position: 'absolute', inset: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', pointerEvents: 'none' }}>
+          Loading route…
+        </div>
+      )}
+    </div>
   );
 }
