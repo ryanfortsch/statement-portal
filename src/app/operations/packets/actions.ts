@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, autoAttachInventorySlips } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -323,6 +323,8 @@ export async function publishPacket(formData: FormData): Promise<void> {
     actor_email: email,
     event_type: 'published',
   });
+  // Restock slips created since the draft attach themselves at publish.
+  await autoAttachInventorySlips(packetId).catch(() => {});
   // Text active inspectors near the cluster — fire-and-forget so a Quo hiccup
   // never blocks the publish. No-op when Quo isn't configured or the packet
   // didn't actually go live (revalidation may have emptied it).
