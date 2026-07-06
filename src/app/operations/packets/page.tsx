@@ -19,6 +19,19 @@ function todayET(): string {
 function daysUntilET(d: string): number {
   return Math.round((Date.parse(`${d}T00:00:00`) - Date.parse(`${todayET()}T00:00:00`)) / 86_400_000);
 }
+function hourET(): number {
+  return Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date()),
+  );
+}
+/** A claimed packet is "at risk" only once the inspector is genuinely late:
+ *  the visit day passed entirely, or it's visit day and we're past 1 PM ET
+ *  (an hour into the 12:00–2:45 window) with nothing started. At 9 AM a
+ *  claimed job for today is simply upcoming, not a no-show. */
+function packetAtRiskET(visitDate: string): boolean {
+  const days = daysUntilET(visitDate);
+  return days < 0 || (days === 0 && hourET() >= 13);
+}
 
 function statusChip(status: string): { label: string; bg: string; color: string } {
   switch (status) {
@@ -102,9 +115,9 @@ export default async function PacketsBoard({
   const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
   const awaitingApproval = packets.filter((p) => p.status === 'submitted');
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
-  // At risk: claimed but never started, and the visit day has arrived/passed —
+  // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
-  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && daysUntilET(p.visit_date) <= 0);
+  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && packetAtRiskET(p.visit_date));
   const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
@@ -276,7 +289,7 @@ function DraftRow({ p }: { p: PacketRow }) {
 
 function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
-  const atRisk = p.status === 'claimed' && daysUntilET(p.visit_date) <= 0;
+  const atRisk = p.status === 'claimed' && packetAtRiskET(p.visit_date);
   const tracking = p.status === 'claimed' || p.status === 'in_progress';
   return (
     <div
