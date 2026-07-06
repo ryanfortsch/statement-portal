@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
@@ -9,6 +10,7 @@ import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
+import { CopyCode } from '@/app/field/CopyCode';
 import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
 import {
@@ -22,10 +24,10 @@ import {
 } from '../packets/actions';
 
 const BG_LABEL: Record<string, string> = {
-  not_started: 'not started',
-  pending: 'pending',
-  cleared: 'cleared ✓',
-  failed: 'failed',
+  not_started: 'Not started',
+  pending: 'Pending',
+  cleared: 'Cleared',
+  failed: 'Failed',
 };
 const BG_TINT: Record<string, string> = {
   not_started: 'var(--ink-4)',
@@ -34,18 +36,15 @@ const BG_TINT: Record<string, string> = {
   failed: '#c0392b',
 };
 
-const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-
-export const dynamic = 'force-dynamic';
-
 const STATUS_TINT: Record<string, string> = {
   invited: 'var(--ink-4)',
   onboarding: 'var(--signal)',
   active: 'var(--positive)',
-  paused: 'var(--ink-4)',
+  paused: '#7a5512',
   archived: 'var(--ink-4)',
 };
 
+// Reliability tiers (completion / on-time / low-rework).
 const TIER_LABEL: Record<string, string> = { new: 'New', watch: 'Watch', steady: 'Steady', top: 'Top rated' };
 const TIER_TINT: Record<string, string> = {
   new: 'var(--ink-4)',
@@ -57,7 +56,20 @@ const TIER_TINT: Record<string, string> = {
 // Guest-review reputation tiers (consecutive 5-star streaks).
 const RATING_TIER_LABEL: Record<RatingTier, string> = { unrated: 'Unrated', bronze: 'Bronze', silver: 'Silver', gold: 'Gold' };
 const RATING_TIER_TINT: Record<RatingTier, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
-const NEXT_TIER_NAME: Record<string, string> = { unrated: 'Bronze', bronze: 'Silver', silver: 'Gold' };
+
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+export const dynamic = 'force-dynamic';
+
+// Exact value shapes from the loaders, so the card props stay in sync without
+// re-declaring them.
+type MapValue<M> = M extends Map<unknown, infer V> ? V : never;
+type RatingVal = MapValue<Awaited<ReturnType<typeof getContractorRatings>>>;
+type RelVal = MapValue<Awaited<ReturnType<typeof getContractorReliability>>>;
+type PayStatVal = MapValue<Awaited<ReturnType<typeof getContractorPayStats>>>;
+type W9Val = MapValue<Awaited<ReturnType<typeof loadW9Summaries>>>;
+type PayMethodVal = MapValue<Awaited<ReturnType<typeof loadPaymentSummaries>>>;
+type BooksVal = { ytd: number; w9: boolean; over: boolean };
 
 export default async function ContractorsPage() {
   if (!isFieldConfigured) {
@@ -80,7 +92,7 @@ export default async function ContractorsPage() {
 
   // Field's own payout ledger + the books/1099 rollup for reconciliation. The
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
-  // set) — it's the actual bank payment, kept separate from Field's agreed
+  // set) -- it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
   const [payStats, report, reliability, w9s, ratings, payMethods, applications] = await Promise.all([
     getContractorPayStats(),
@@ -92,7 +104,7 @@ export default async function ContractorsPage() {
     loadApplications().catch(() => []),
   ]);
   const newApplicants = applications.filter((a) => a.status === 'new' || a.status === 'reviewing').length;
-  const booksByKey = new Map<string, { ytd: number; w9: boolean; over: boolean }>();
+  const booksByKey = new Map<string, BooksVal>();
   if (report) {
     for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
   }
@@ -119,20 +131,21 @@ export default async function ContractorsPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
+      <FieldTabs current="contractors" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Field packets</Link>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
           <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Contractors</div>
           <Link href="/operations/contractors/applicants" style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
             Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
           </Link>
         </div>
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 24 }}>
+        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20 }}>
           Invite an inspector and we email them a personal portal link. They set up their account (W-9 +
           agreement) before they can claim paid work.
         </p>
 
-        <form action={inviteContractor} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', borderBottom: '1px solid var(--rule)', paddingBottom: 22, marginBottom: 22 }}>
+        {/* Invite form */}
+        <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 26 }}>
           <label style={lbl}>
             Name
             <input name="full_name" required placeholder="Marcus Reed" style={inp} />
@@ -159,220 +172,236 @@ export default async function ContractorsPage() {
         {contractors.length === 0 ? (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No contractors yet.</p>
         ) : (
-          <div style={{ borderTop: '1px solid var(--rule)' }}>
-            {ordered.map((c) => (
-              <div key={c.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 200, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <span style={{ width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {c.photo_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-                        {c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
-                      </span>
-                    )}
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                  <div className="font-serif" style={{ fontSize: 16 }}>
-                    {c.full_name}
-                    {c.trade && c.trade !== 'inspection' && (
-                      <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px', marginLeft: 8, verticalAlign: 'middle' }}>
-                        {c.trade}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
-                  {(() => {
-                    const r = ratings.get(c.id);
-                    const rank = rankMap.get(c.id);
-                    if (!r || r.count === 0) {
-                      return <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>Unrated · no guest reviews yet</div>;
-                    }
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
-                        {rank && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>#{rank}</span>}
-                        <span style={{ fontSize: 13, color: 'var(--ink)' }}>
-                          ★ {r.rated && r.avg != null ? r.avg.toFixed(2) : '—'}
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{r.count} {r.count === 1 ? 'review' : 'reviews'}</span>
-                        <span
-                          title={r.toNextTier != null ? `${r.toNextTier} more 5★ in a row → ${NEXT_TIER_NAME[r.tier]}` : 'Top tier'}
-                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: RATING_TIER_TINT[r.tier], border: `1px solid ${RATING_TIER_TINT[r.tier]}`, borderRadius: 999, padding: '1px 7px' }}
-                        >
-                          {RATING_TIER_LABEL[r.tier]}
-                        </span>
-                        {r.tier !== 'gold' && r.toNextTier != null && r.toNextTier > 0 && (
-                          <span style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
-                            {r.fiveStarTotal} five-star · {r.toNextTier} to {NEXT_TIER_NAME[r.tier]}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: STATUS_TINT[c.status] ?? 'var(--ink-4)' }}>
-                  {c.status}
-                </div>
-                {(() => {
-                  const rel = reliability.get(c.id);
-                  if (!rel) return null;
-                  const parts: string[] = [`${rel.completed} done`];
-                  if (rel.onTime + rel.late > 0) parts.push(`${Math.round((rel.onTime / (rel.onTime + rel.late)) * 100)}% on-time`);
-                  if (rel.reworked) parts.push(`${rel.reworked} redo`);
-                  if (rel.flaked) parts.push(`${rel.flaked} flaked`);
-                  return (
-                    <div style={{ textAlign: 'right', minWidth: 120 }}>
-                      <span
-                        title="Reliability: completion 50% + on-time 30% + low-rework 20%"
-                        style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[rel.tier], border: `1px solid ${TIER_TINT[rel.tier]}`, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}
-                      >
-                        {TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}
-                      </span>
-                      <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 3 }}>{parts.join(' · ')}</div>
-                    </div>
-                  );
-                })()}
-                {(() => {
-                  const ps = payStats.get(c.id);
-                  const books = booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name));
-                  return (
-                    <div style={{ fontSize: 11, textAlign: 'right', minWidth: 150 }}>
-                      <div>
-                        {ps && ps.owedCents > 0 && <span style={{ color: 'var(--signal)' }}>{dollars(ps.owedCents)} owed</span>}
-                        {ps && ps.owedCents > 0 && ps.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
-                        {ps && ps.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps.paidCents)} paid</span>}
-                        {(!ps || (ps.owedCents === 0 && ps.paidCents === 0)) && <span style={{ color: 'var(--ink-4)' }}>no approved work</span>}
-                      </div>
-                      {ps && ps.owedCents > 0 && (
-                        <form action={markContractorPaid} style={{ marginTop: 3, display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
-                          <input type="hidden" name="contractor_id" value={c.id} />
-                          <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 10, width: 64, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '2px 4px', color: 'var(--ink)' }} />
-                          <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--positive)', fontSize: 11, textDecoration: 'underline', padding: 0 }}>
-                            mark {dollars(ps.owedCents)} paid
-                          </button>
-                        </form>
-                      )}
-                      <div style={{ color: 'var(--ink-4)', marginTop: 2 }}>
-                        books YTD {books ? dollars(Math.round(books.ytd * 100)) : '$0'}
-                        {books?.over ? ' · 1099' : ''} ·{' '}
-                        <span style={{ color: books?.w9 ? 'var(--positive)' : 'var(--signal)' }}>{books?.w9 ? 'W-9 on file' : 'no W-9'}</span>
-                      </div>
-                      {(() => {
-                        // Reconciliation: Field-recorded payouts vs the bank/books YTD.
-                        if (!ps || ps.paidCents === 0 || !books) return null;
-                        const booksCents = Math.round(books.ytd * 100);
-                        const gap = ps.paidCents - booksCents;
-                        if (Math.abs(gap) <= 5000) return null; // within $50, call it matched
-                        return (
-                          <div style={{ color: 'var(--signal)', marginTop: 2 }}>
-                            Field {dollars(ps.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
-                          </div>
-                        );
-                      })()}
-                      {(() => {
-                        const w9 = w9s.get(c.id);
-                        if (w9) {
-                          return (
-                            <div style={{ color: 'var(--ink-4)', marginTop: 4, lineHeight: 1.5 }}>
-                              <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
-                              {' · '}{w9.legalName}
-                              {w9.businessName ? ` (${w9.businessName})` : ''}
-                              <div>
-                                {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'} ·{' '}
-                                <RevealW9 contractorId={c.id} />
-                              </div>
-                              <div>{w9.address}</div>
-                            </div>
-                          );
-                        }
-                        // No in-app W-9 yet — keep the manual books flag toggle.
-                        return (
-                          <form action={setContractorW9} style={{ marginTop: 4 }}>
-                            <input type="hidden" name="contractor_id" value={c.id} />
-                            <input type="hidden" name="on_file" value={books?.w9 ? 'false' : 'true'} />
-                            <button
-                              type="submit"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline', padding: 0 }}
-                            >
-                              {books?.w9 ? 'clear W-9' : 'mark W-9 on file'}
-                            </button>
-                          </form>
-                        );
-                      })()}
-                      {(() => {
-                        const pm = payMethods.get(c.id);
-                        if (!pm) return null;
-                        return (
-                          <div style={{ color: 'var(--ink-4)', marginTop: 4 }}>
-                            Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
-                            {pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? (
-                              <> · <RevealPay contractorId={c.id} /></>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  );
-                })()}
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--font-mono-dash), monospace', wordBreak: 'break-all', maxWidth: 240 }}>
-                  {base}/field/{c.portal_token}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', width: '100%', marginTop: 2 }}>
-                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                    Background:{' '}
-                    <span style={{ color: BG_TINT[c.background_check_status] ?? 'var(--ink-4)', fontWeight: 600 }}>
-                      {BG_LABEL[c.background_check_status] ?? c.background_check_status}
-                    </span>
-                  </span>
-                  {(['pending', 'cleared', 'failed'] as const)
-                    .filter((s) => s !== c.background_check_status)
-                    .map((s) => (
-                      <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }}>
-                        <input type="hidden" name="contractor_id" value={c.id} />
-                        <input type="hidden" name="bg_status" value={s} />
-                        <button type="submit" style={ctlBtn} title={`Mark background check ${s}`}>mark {s}</button>
-                      </form>
-                    ))}
-                </div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', width: '100%', marginTop: 2 }}>
-                  {c.status === 'active' && (
-                    <form action={setContractorStatus} style={{ margin: 0 }}>
-                      <input type="hidden" name="contractor_id" value={c.id} />
-                      <input type="hidden" name="status" value="paused" />
-                      <button type="submit" style={ctlBtn}>pause</button>
-                    </form>
-                  )}
-                  {(c.status === 'paused' || c.status === 'archived') && (
-                    <form action={setContractorStatus} style={{ margin: 0 }}>
-                      <input type="hidden" name="contractor_id" value={c.id} />
-                      <input type="hidden" name="status" value="active" />
-                      <button type="submit" style={ctlBtn}>reactivate</button>
-                    </form>
-                  )}
-                  <form action={resendInvite} style={{ margin: 0 }}>
-                    <input type="hidden" name="contractor_id" value={c.id} />
-                    <button type="submit" style={ctlBtn}>resend invite</button>
-                  </form>
-                  <form action={rotateContractorToken} style={{ margin: 0 }}>
-                    <input type="hidden" name="contractor_id" value={c.id} />
-                    <button type="submit" style={ctlBtn} title="Kill the old link + all sessions and email a fresh one">rotate link</button>
-                  </form>
-                  {c.status !== 'archived' && (
-                    <form action={setContractorStatus} style={{ margin: 0 }}>
-                      <input type="hidden" name="contractor_id" value={c.id} />
-                      <input type="hidden" name="status" value="archived" />
-                      <button type="submit" style={{ ...ctlBtn, color: 'var(--signal)' }}>archive</button>
-                    </form>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          ordered.map((c) => (
+            <ContractorCard
+              key={c.id}
+              c={c}
+              base={base}
+              rating={ratings.get(c.id)}
+              rank={rankMap.get(c.id)}
+              rel={reliability.get(c.id)}
+              ps={payStats.get(c.id)}
+              w9={w9s.get(c.id)}
+              pm={payMethods.get(c.id)}
+              books={booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))}
+            />
+          ))
         )}
       </section>
       <HelmFooter module="Field" right="Contractor roster" />
+    </div>
+  );
+}
+
+function Pill({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color, border: `1px solid ${color}`, borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+      {label}
+    </span>
+  );
+}
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: 'var(--paper)', borderRadius: 8, padding: '9px 12px', minWidth: 0 }}>
+      <div style={{ fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.45 }}>{children}</div>
+    </div>
+  );
+}
+
+function ContractorCard({
+  c, base, rating, rank, rel, ps, w9, pm, books,
+}: {
+  c: ContractorRow;
+  base: string;
+  rating?: RatingVal;
+  rank?: number;
+  rel?: RelVal;
+  ps?: PayStatVal;
+  w9?: W9Val;
+  pm?: PayMethodVal;
+  books?: BooksVal;
+}) {
+  const initials = c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  const earned = ps && (ps.paidCents > 0 || ps.owedCents > 0);
+  const onTimePct = rel && rel.onTime + rel.late > 0 ? Math.round((rel.onTime / (rel.onTime + rel.late)) * 100) : null;
+  const booksCents = books ? Math.round(books.ytd * 100) : 0;
+  const gap = ps && ps.paidCents > 0 && books ? ps.paidCents - booksCents : 0;
+  const w9OnFile = !!w9 || !!books?.w9;
+
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '16px 18px', marginBottom: 14 }}>
+      {/* Header: identity + state */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
+          <span style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--paper)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {c.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={c.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>{initials}</span>
+            )}
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div className="font-serif" style={{ fontSize: 17, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {c.full_name}
+              {c.trade && c.trade !== 'inspection' && (
+                <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{c.trade}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Pill label={c.status} color={STATUS_TINT[c.status] ?? 'var(--ink-4)'} />
+          <Pill label={`Check: ${BG_LABEL[c.background_check_status] ?? c.background_check_status}`} color={BG_TINT[c.background_check_status] ?? 'var(--ink-4)'} />
+        </div>
+      </div>
+
+      {/* Metric ribbon */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 14 }}>
+        <Stat label="Earnings">
+          {earned ? (
+            <>
+              {ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
+              {ps!.owedCents > 0 && ps!.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+              {ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
+              {ps!.owedCents > 0 && (
+                <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <input type="hidden" name="contractor_id" value={c.id} />
+                  <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
+                  <button type="submit" style={payBtn}>Mark {dollars(ps!.owedCents)} paid</button>
+                </form>
+              )}
+            </>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>No approved work</span>
+          )}
+        </Stat>
+
+        <Stat label="Guest reviews">
+          {rating && rating.count > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              {rank && <span style={{ fontWeight: 700 }}>#{rank}</span>}
+              <span>★ {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '—'}</span>
+              <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>{rating.count}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: RATING_TIER_TINT[rating.tier] }}>{RATING_TIER_LABEL[rating.tier]}</span>
+            </div>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>None yet</span>
+          )}
+        </Stat>
+
+        <Stat label="Reliability">
+          {rel ? (
+            <>
+              <span style={{ color: TIER_TINT[rel.tier], fontWeight: 600 }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}</span>
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
+                {[`${rel.completed} done`, onTimePct != null ? `${onTimePct}% on-time` : '', rel.reworked ? `${rel.reworked} redo` : '', rel.flaked ? `${rel.flaked} flaked` : ''].filter(Boolean).join(' · ')}
+              </div>
+            </>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>No work yet</span>
+          )}
+        </Stat>
+
+        <Stat label="Books YTD">
+          <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>
+          <div style={{ fontSize: 11, marginTop: 2 }}>
+            {w9OnFile ? (
+              <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
+            ) : (
+              <form action={setContractorW9} style={{ display: 'inline' }}>
+                <input type="hidden" name="contractor_id" value={c.id} />
+                <input type="hidden" name="on_file" value="true" />
+                <button type="submit" style={linkBtn}>Mark W-9 on file</button>
+              </form>
+            )}
+          </div>
+        </Stat>
+      </div>
+
+      {/* Quiet compliance + access strip */}
+      <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--rule)', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.7 }}>
+        {w9 && (
+          <div>
+            <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'} · <RevealW9 contractorId={c.id} /> · {w9.address}
+          </div>
+        )}
+        {pm && (
+          <div>
+            Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
+            {pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
+          </div>
+        )}
+        {Math.abs(gap) > 5000 && (
+          <div style={{ color: 'var(--signal)' }}>
+            Field {dollars(ps!.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
+          </div>
+        )}
+        <div>
+          BG authorization:{' '}
+          {c.bg_authorized_at ? (
+            <span style={{ color: 'var(--positive)' }}>
+              signed{c.bg_authorized_name ? ` by ${c.bg_authorized_name}` : ''} · {new Date(c.bg_authorized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--signal)' }}>not on file</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+          <span>Portal link</span>
+          <CopyCode value={`${base}/field/${c.portal_token}`} mono />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>
+          {(['pending', 'cleared', 'failed'] as const)
+            .filter((s) => s !== c.background_check_status)
+            .map((s) => (
+              <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }}>
+                <input type="hidden" name="contractor_id" value={c.id} />
+                <input type="hidden" name="bg_status" value={s} />
+                <button type="submit" style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} title={`Mark background check ${s}`}>{s}</button>
+              </form>
+            ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {c.status === 'active' && (
+            <form action={setContractorStatus} style={{ margin: 0 }}>
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="status" value="paused" />
+              <button type="submit" style={actBtn}>Pause</button>
+            </form>
+          )}
+          {(c.status === 'paused' || c.status === 'archived') && (
+            <form action={setContractorStatus} style={{ margin: 0 }}>
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="status" value="active" />
+              <button type="submit" style={actBtn}>Reactivate</button>
+            </form>
+          )}
+          <form action={resendInvite} style={{ margin: 0 }}>
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <button type="submit" style={actBtn}>Resend invite</button>
+          </form>
+          <form action={rotateContractorToken} style={{ margin: 0 }}>
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <button type="submit" style={actBtn} title="Kill the old link + all sessions and email a fresh one">Rotate link</button>
+          </form>
+          {c.status !== 'archived' && (
+            <form action={setContractorStatus} style={{ margin: 0 }}>
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="status" value="archived" />
+              <button type="submit" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }}>Archive</button>
+            </form>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -385,7 +414,8 @@ const inp: React.CSSProperties = {
   background: 'var(--paper)',
   border: '1px solid var(--rule)',
   padding: '8px 10px',
-  minWidth: 180,
+  minWidth: 170,
+  borderRadius: 6,
 };
 const btnDark: React.CSSProperties = {
   background: 'var(--ink)',
@@ -397,12 +427,34 @@ const btnDark: React.CSSProperties = {
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
   padding: '10px 18px',
+  borderRadius: 6,
 };
-const ctlBtn: React.CSSProperties = {
+const actBtn: React.CSSProperties = {
+  background: 'var(--paper)',
+  border: '1px solid var(--rule)',
+  borderRadius: 999,
+  cursor: 'pointer',
+  color: 'var(--ink-3)',
+  fontSize: 11,
+  fontWeight: 500,
+  padding: '4px 12px',
+};
+const payBtn: React.CSSProperties = {
+  background: 'var(--positive)',
+  color: 'var(--paper)',
+  border: 'none',
+  borderRadius: 5,
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 600,
+  padding: '4px 10px',
+  whiteSpace: 'nowrap',
+};
+const linkBtn: React.CSSProperties = {
   background: 'none',
   border: 'none',
   cursor: 'pointer',
-  color: 'var(--ink-4)',
+  color: 'var(--signal)',
   fontSize: 11,
   textDecoration: 'underline',
   padding: 0,

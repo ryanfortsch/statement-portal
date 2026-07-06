@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listApprovals, listOwnerApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
+import { listApprovals, listOwnerApprovals, listCleanerApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
 
 /**
  * Lightweight count endpoint for the Messaging nav badge.
@@ -22,9 +22,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ count: 0, guests: 0, owners: 0 });
+    return NextResponse.json({ count: 0, guests: 0, owners: 0, cleaners: 0 });
   }
-  const [guestRes, ownerRes] = await Promise.all([listApprovals(), listOwnerApprovals()]);
+  const [guestRes, ownerRes, cleanerRes] = await Promise.all([
+    listApprovals(),
+    listOwnerApprovals(),
+    listCleanerApprovals(),
+  ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
   // match because stay-concierge's array contents drift from what either
@@ -37,6 +41,11 @@ export async function GET() {
   // Owners (OwnerMessagingQueue): everything in approvals (no filter).
   //   pending = approvals
   //
+  // Proactive cleaner/owner messages (ProactiveRemindersPanel) need no
+  // handling here: when one fires in approve mode it arrives as a normal
+  // pending approval in its queue's list, and neither page filters, so the
+  // counts below already include them.
+  //
   // If the badge says N, open the corresponding tab and you will see N
   // cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
@@ -44,5 +53,6 @@ export async function GET() {
     ? guestRes.data.approvals.filter((a) => a.status !== 'scheduled').length
     : 0;
   const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
-  return NextResponse.json({ count: guests + owners, guests, owners });
+  const cleaners = cleanerRes.ok ? cleanerRes.data.approvals.length : 0;
+  return NextResponse.json({ count: guests + owners + cleaners, guests, owners, cleaners });
 }

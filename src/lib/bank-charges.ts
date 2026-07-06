@@ -38,6 +38,15 @@ export const LINEN_VENDORS: CleaningVendor[] = [
   { name: "Nor'East Cleaners", matches: ['NOREAST', "NOR'EAST", 'NOR EAST'] },
 ];
 
+/** Laundry vendors. Same semantics as linens: ADDITIVE to cleaning_total,
+ *  never consume a reservation match slot. Bank descriptor reads
+ *  "LAUNDRY PLUS DELIVERED 781-8732000 MA" on debit card, and
+ *  "POS DEBIT LAUNDRY PLUS DELIVERED 7818732000 MA" on POS debit -- both
+ *  contain "LAUNDRY PLUS" so the substring match catches both. */
+export const LAUNDRY_VENDORS: CleaningVendor[] = [
+  { name: 'Laundry Plus', matches: ['LAUNDRY PLUS'] },
+];
+
 /**
  * Recurring maintenance / repair vendors. Bank ingest scans descriptions
  * for any of these and tags them with the canonical name. New vendors
@@ -60,19 +69,23 @@ function firstMatch(descUpper: string, vendors: CleaningVendor[]): string | null
 export type BankRowClass =
   | { kind: 'cleaning'; vendor: string }
   | { kind: 'linen'; vendor: string }
+  | { kind: 'laundry'; vendor: string }
   | { kind: 'repair'; vendor: string }
   | null;
 
 /**
  * Classify a bank row by its (already upper-cased) description. Order
  * matters only in that a description won't realistically match more than
- * one category; cleaning is checked first, then linen, then repair.
+ * one category; cleaning is checked first, then linen, then laundry, then
+ * repair.
  */
 export function classifyBankRow(descUpper: string): BankRowClass {
   const cleaning = firstMatch(descUpper, CLEANING_VENDORS);
   if (cleaning) return { kind: 'cleaning', vendor: cleaning };
   const linen = firstMatch(descUpper, LINEN_VENDORS);
   if (linen) return { kind: 'linen', vendor: linen };
+  const laundry = firstMatch(descUpper, LAUNDRY_VENDORS);
+  if (laundry) return { kind: 'laundry', vendor: laundry };
   const repair = firstMatch(descUpper, MAINTENANCE_VENDORS);
   if (repair) return { kind: 'repair', vendor: repair };
   return null;
@@ -86,7 +99,23 @@ export function matchMaintenanceVendor(descUpper: string): string | null {
 /** The canonical linen vendor name, for callers that need to filter
  *  cleaning_events into cleaning-vs-linen (e.g. the "turns" count). */
 export const LINEN_VENDOR_NAME = "Nor'East Cleaners";
+export const LAUNDRY_VENDOR_NAME = 'Laundry Plus';
 export const CLEANING_VENDOR_DEFAULT = 'Cape Ann Elite';
+
+/** Vendors whose cleaning_events rows are additive-cost but NOT turnovers.
+ *  UI surfaces that count "N turns" (e.g. the editorial statement's Cleaning
+ *  line and cost-analysis's per-turn metric) must exclude these. */
+export const NON_TURNOVER_VENDORS: string[] = [LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME];
+
+/** Cleaning_events.source discriminators. Kept as a union so the
+ *  bank-<vendor> taxonomy stays discoverable across consumers. */
+export type CleaningEventSource =
+  | 'matched'        // Cape Ann Elite bank charge matched 1:1 to a checkout
+  | 'bank'           // Cape Ann Elite bank charge with no matched checkout
+  | 'bank-linen'     // Nor'East linen charge (additive, no turnover slot)
+  | 'bank-laundry'   // Laundry Plus charge (additive, no turnover slot)
+  | 'corroborated'   // matched bank charge with a Gmail invoice attached
+  | 'invoice';       // invoice-only row (no matching bank charge yet)
 
 /**
  * Insert cleaning_events rows, tolerating the `vendor` column not existing

@@ -40,7 +40,7 @@ async function recomputeStatementTotals(
   if (!period) return null;
   const { data: stmt } = await supabase
     .from('property_statements')
-    .select('id, rental_revenue, cleaning_total, repairs_total, management_fee_pct')
+    .select('id, rental_revenue, cleaning_total, repairs_total, management_fee_pct, reserve_holdback')
     .eq('period_id', period.id)
     .eq('property_id', propertyId)
     .maybeSingle();
@@ -78,7 +78,8 @@ async function recomputeStatementTotals(
   const feePct = (Number(stmt.management_fee_pct) || 0) / 100;
   const feeBase = round2(rentalRevenue + addOnsMgmtBase);
   const managementFee = round2(feeBase * feePct);
-  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - attributedDebits);
+  const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback) || 0;
+  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - attributedDebits - reserveHoldback);
 
   await supabase
     .from('property_statements')

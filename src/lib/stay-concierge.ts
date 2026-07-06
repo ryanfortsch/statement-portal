@@ -188,6 +188,12 @@ export type ReservationPick = {
   guest_first: string;
   check_in: string;
   check_out: string;
+  /** True when the guest is currently in-house (checked in on/before today and
+   * not yet checked out). The picker lists these first. */
+  in_house: boolean;
+  /** Earliest date this guest can be scheduled from: today if they're already
+   * here (check-in in the past), otherwise their check-in. */
+  effective_start: string;
   module: string;
   channel: string;
 };
@@ -210,7 +216,37 @@ export type RecurringMessage = {
   send_mode: string;
   status: string;
   last_sent_date: string;
+  /** Who this proactive message targets: 'guest' (default) | 'cleaner' |
+   * 'owner'. Absent on older guest rows. */
+  audience?: string;
+  /** For cleaner/owner rows: the E.164 phone the message goes to. */
+  target_contact?: string;
+  /** For cleaner/owner rows: the recipient's display name. */
+  target_name?: string;
 };
+
+/** A person the operator can send a proactive (self-initiated) message to.
+ * Cleaner targets are the cleaner managers (Rosa/Nina, language 'pt'); owner
+ * targets are phone-reachable owners (property fields populated for owners,
+ * empty for cleaners). */
+export type ProactiveTarget = {
+  /** E.164 phone the message goes to. */
+  contact: string;
+  name: string;
+  /** Delivery channel; currently always 'sms_quo'. */
+  channel: string;
+  /** Populated for owner targets; empty for cleaner managers. */
+  property_id: string;
+  property_name: string;
+  /** Language the recipient reads ('pt' for the cleaner managers). */
+  language: string;
+};
+
+export async function listProactiveTargets(audience: 'cleaner' | 'owner') {
+  return request<{ targets: ProactiveTarget[]; count: number }>(
+    `/api/proactive-targets?audience=${audience}`,
+  );
+}
 
 export async function listReservationsForPicker() {
   return request<{ reservations: ReservationPick[]; count: number }>(
@@ -218,8 +254,11 @@ export async function listReservationsForPicker() {
   );
 }
 
-export async function listRecurring() {
-  return request<{ recurring: RecurringMessage[]; count: number }>('/api/recurring');
+/** Without `audience`, returns guest rows only (the existing guest panel is
+ * untouched). With it, rows filtered to that audience. */
+export async function listRecurring(audience?: 'cleaner' | 'owner') {
+  const q = audience ? `?audience=${audience}` : '';
+  return request<{ recurring: RecurringMessage[]; count: number }>(`/api/recurring${q}`);
 }
 
 export type CreateRecurringInput = {
@@ -237,6 +276,12 @@ export type CreateRecurringInput = {
   start_date: string;
   end_date: string;
   send_mode: string;
+  /** 'guest' (default when omitted) | 'cleaner' | 'owner'. For cleaner/owner:
+   * conversation_id/listing_id are '', module is 'sms_quo', and
+   * target_contact is required. */
+  audience?: string;
+  target_contact?: string;
+  target_name?: string;
 };
 
 export async function createRecurring(input: CreateRecurringInput) {
@@ -252,6 +297,24 @@ export async function polishProactive(reservationId: string, roughText: string) 
     {
       method: 'POST',
       body: { reservation_id: reservationId, rough_text: roughText },
+      timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
+    },
+  );
+}
+
+/** Polish a rough proactive note for a cleaner or owner. For 'cleaner' the
+ * response `polished` is Portuguese (what sends) and `english` carries the EN
+ * translation for the operator; for 'owner' `english` is ''. */
+export async function polishProactiveFor(
+  audience: 'cleaner' | 'owner',
+  targetName: string,
+  roughText: string,
+) {
+  return request<{ polished: string; english: string; guest_first: string }>(
+    '/api/proactive/polish',
+    {
+      method: 'POST',
+      body: { audience, target_name: targetName, rough_text: roughText, reservation_id: '' },
       timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
     },
   );
@@ -342,8 +405,11 @@ export async function listRecentOwnerApprovals(hours = 24) {
   return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
 }
 
-export async function approveOwnerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, { method: 'POST' });
+export async function approveOwnerApproval(id: string, finalText?: string) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, {
+    method: 'POST',
+    ...(finalText !== undefined ? { body: { final_text: finalText } } : {}),
+  });
 }
 
 export async function rejectOwnerApproval(id: string) {
@@ -354,10 +420,10 @@ export async function markHandledOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
 }
 
-export async function coachOwnerApproval(id: string, feedback: string) {
+export async function coachOwnerApproval(id: string, feedback: string, base?: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/coach`, {
     method: 'POST',
-    body: { feedback },
+    body: { feedback, ...(base !== undefined ? { base } : {}) },
     timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
   });
 }
@@ -396,6 +462,8 @@ export type OwnerCuratedFacts = {
   content: string;
   path: string;
   bytes: number;
+  // Loop-owned facts auto-distilled from owner-draft coaching (read-only).
+  learned?: string;
 };
 
 export async function getOwnerCuratedFacts() {
@@ -404,6 +472,155 @@ export async function getOwnerCuratedFacts() {
 
 export async function saveOwnerCuratedFacts(content: string) {
   return request<{ ok: true; bytes: number }>('/api/owner-curated-facts', {
+    method: 'PUT',
+    body: { content },
+  });
+}
+
+// ── Proposed property updates ──────────────────────────────────────────
+// Durable property facts an owner shared in a message (wifi, a code, trash
+// day), detected by the stay-concierge owner-property extractor. Helm lists
+// them, applies the chosen ones through its OWN safe routing (properties /
+// property_access / property_notes), then marks them applied so they stop
+// surfacing. The extractor never writes to Helm's DB.
+
+export type ProposedPropertyUpdate = {
+  id: string;
+  property_id: string;
+  property_name: string;
+  owner_name: string;
+  category: string;
+  fact_text: string;
+  raw_quote: string;
+  confidence: 'high' | 'medium' | 'low' | string;
+  source: string;
+  created_at: string;
+  status: 'pending' | 'applied' | 'dismissed' | string;
+};
+
+export type ProposedPropertyUpdatesResponse = {
+  updates: ProposedPropertyUpdate[];
+  count: number;
+};
+
+/** Without `audience`, only NON-cleaner (owner) candidates, which keeps the
+ * existing owner card unchanged. With 'cleaner', only cleaner-sourced ones. */
+export async function listProposedPropertyUpdates(audience?: 'cleaner') {
+  const q = audience ? `?audience=${audience}` : '';
+  return request<ProposedPropertyUpdatesResponse>(`/api/proposed-property-updates${q}`);
+}
+
+export async function dismissProposedPropertyUpdate(id: string) {
+  return request<{ ok: true; id: string; status: string }>(
+    `/api/proposed-property-updates/${id}/dismiss`,
+    { method: 'POST' },
+  );
+}
+
+export async function markProposedPropertyUpdateApplied(id: string) {
+  return request<{ ok: true; id: string; status: string }>(
+    `/api/proposed-property-updates/${id}/applied`,
+    { method: 'POST' },
+  );
+}
+
+// ── Cleaner-messaging surface (bilingual; Portuguese drafts) ───────────
+
+/** An AI-mined work-slip proposal extracted from the cleaner's message
+ * ("the dryer is broken at Rocky Neck" → a maintenance slip). The operator
+ * confirms or unticks it on the approval card; nothing files until approve. */
+export type ProposedWorkSlip = {
+  title: string;
+  category: 'maintenance' | 'inventory';
+  priority: 'normal' | 'high';
+  note: string;
+};
+
+export type CleanerApproval = {
+  id: string;
+  short_id: string;
+  channel: string;                  // 'sms_quo'
+  cleaner_contact: string;          // E.164 phone
+  cleaner_name: string;
+  property_id: string;
+  property_name: string;
+  external_thread_id: string;
+  external_message_id: string;
+  cleaner_text: string;             // verbatim — usually Portuguese
+  cleaner_text_english: string;     // LLM translation; empty if input was already EN
+  inbound_language: 'pt' | 'en' | 'mixed' | string;
+  draft: string;                    // Portuguese — what gets sent on approve
+  draft_english: string;            // English translation for operator audit
+  topic: string;
+  status: string;
+  final_response: string;
+  created_at: string;
+  resolved_at: string | null;
+  age_minutes: number | null;
+  /** Work-slip proposal mined from the message; null when there is none.
+   * property_id/property_name above may be non-empty (inferred) for these. */
+  proposed_slip: ProposedWorkSlip | null;
+};
+
+export type CleanerApprovalsResponse = {
+  approvals: CleanerApproval[];
+  count: number;
+};
+
+export async function listCleanerApprovals() {
+  return request<CleanerApprovalsResponse>('/api/cleaner-approvals');
+}
+
+export async function listRecentCleanerApprovals(hours = 24) {
+  return request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`);
+}
+
+/** Approve a cleaner draft. `opts` carries the operator's decision on the
+ * card's proposed work slip; when omitted the backend uses the inferred
+ * defaults. JSON.stringify drops undefined keys, so only the fields the
+ * operator actually decided travel. */
+export async function approveCleanerApproval(
+  id: string,
+  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+) {
+  return request<{ status: string; id: string; slip?: { id: string; deduped: boolean } | null }>(
+    `/api/cleaner-approvals/${id}/approve`,
+    {
+      method: 'POST',
+      ...(opts !== undefined
+        ? { body: { file_slip: opts.fileSlip, slip_property_id: opts.slipPropertyId } }
+        : {}),
+    },
+  );
+}
+
+export async function rejectCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/reject`, { method: 'POST' });
+}
+
+export async function markHandledCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+export async function coachCleanerApproval(id: string, feedback: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/coach`, {
+    method: 'POST',
+    body: { feedback },
+  });
+}
+
+export type CleanerCuratedFacts = {
+  content: string;
+  path: string;
+  bytes: number;
+};
+
+export async function getCleanerCuratedFacts() {
+  return request<CleanerCuratedFacts>('/api/cleaner-curated-facts');
+}
+
+export async function saveCleanerCuratedFacts(content: string) {
+  return request<{ ok: true; bytes: number }>('/api/cleaner-curated-facts', {
     method: 'PUT',
     body: { content },
   });

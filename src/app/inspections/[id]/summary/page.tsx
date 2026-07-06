@@ -582,6 +582,7 @@ function formatDateTime(value: string | null): string {
   try {
     const d = new Date(value);
     return d.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
       month: 'short',
       day: 'numeric',
       year: 'numeric',

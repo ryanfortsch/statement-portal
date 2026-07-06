@@ -6,6 +6,7 @@ import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings
 import { canClaim, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
+import { FieldPillars } from './FieldPillars';
 
 const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
 const NEXT_TIER: Record<string, { name: string; at: number }> = {
@@ -14,23 +15,35 @@ const NEXT_TIER: Record<string, { name: string; at: number }> = {
   silver: { name: 'Gold', at: 100 },
 };
 
+/** The one repeatable editorial section header: a tide index numeral, a serif
+ *  title, and a hairline rule running to the edge. The page's spine. */
+function SectionHeader({ n, title }: { n?: string; title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
+      {n && <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide)', flexShrink: 0 }}>{n}</span>}
+      <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)', flexShrink: 0 }}>{title}</span>
+      <span style={{ flex: 1, height: 0, borderTop: '1px solid var(--rule)', alignSelf: 'center', marginLeft: 4 }} />
+    </div>
+  );
+}
+
 /** The contractor's own reputation: a ladder toward Bronze (25) / Silver (50) /
  *  Gold (100) cumulative 5-star reviews, with the current "in a row" run as a
  *  flourish. */
 function StreakLadder({ rating }: { rating?: ContractorRating }) {
   const streak = rating?.fiveStreak ?? 0;
-  const total = rating?.fiveStarTotal ?? 0;
   const count = rating?.count ?? 0;
   const tier = rating?.tier ?? 'unrated';
   const next = NEXT_TIER[tier]; // undefined at gold
-  const pct = next ? Math.min(100, Math.round((total / next.at) * 100)) : 100;
+  const pct = next ? Math.min(100, Math.round((streak / next.at) * 100)) : 100;
+  const toNext = rating?.toNextTier ?? (next ? Math.max(0, next.at - streak) : 0);
   const milestones = [
     { n: 25, label: 'Bronze' },
     { n: 50, label: 'Silver' },
     { n: 100, label: 'Gold' },
   ];
   return (
-    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
+    <div style={{ borderRadius: 0, padding: '18px 20px', marginBottom: 36, background: 'var(--paper-2)', boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Your rating</div>
         {count > 0 && (
@@ -42,9 +55,9 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
       </div>
       {count === 0 ? (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-          No guest reviews yet. The guests who stay in the homes you prep rate their stay — earn{' '}
-          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews</strong> for Bronze, 50 for Silver, 100
-          for Gold.
+          No guest reviews yet. The guests who stay in the homes you prep rate their stay. Earn{' '}
+          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews in a row</strong> for Bronze, 50 in a
+          row for Silver, 100 for Gold.
         </p>
       ) : (
         <>
@@ -52,21 +65,20 @@ function StreakLadder({ rating }: { rating?: ContractorRating }) {
             <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
               {tier === 'unrated' ? 'Unrated' : tier}
             </span>
-            <span style={{ fontSize: 14, color: 'var(--ink)' }}>{total} five-star</span>
-            {streak >= 3 && <span style={{ fontSize: 13, color: 'var(--signal)' }}>🔥 {streak} in a row</span>}
+            <span style={{ fontSize: 14, color: 'var(--ink)' }}>{streak} in a row</span>
             {next ? (
-              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rating?.toNextTier ?? Math.max(0, next.at - total)} more → {next.name}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{toNext} more in a row to {next.name}</span>
             ) : (
-              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>
+              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier</span>
             )}
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--paper-3)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: TIER_TINT[tier === 'unrated' ? 'bronze' : tier], transition: 'width .3s ease' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
             {milestones.map((m) => (
-              <span key={m.n} style={{ fontSize: 10.5, fontWeight: total >= m.n ? 700 : 400, color: total >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
-                {total >= m.n ? '✓ ' : ''}{m.label} {m.n}
+              <span key={m.n} style={{ fontSize: 10.5, fontWeight: streak >= m.n ? 700 : 400, color: streak >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
+                {m.label} {m.n}
               </span>
             ))}
           </div>
@@ -84,13 +96,7 @@ export const metadata: Metadata = {
 
 function windowSummary(p: PacketDetail): string {
   if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
-  const bases = p.stops.map((s) => s.window_basis);
-  if (bases.every((b) => b === 'vacant')) return 'already cleaned · flexible timing';
-  const parts: string[] = [];
-  if (bases.includes('checkout_day')) parts.push('after the cleaning');
-  if (bases.includes('vacant')) parts.push('flexible');
-  if (bases.includes('pre_checkin')) parts.push('before check-in');
-  return parts.join(', then ');
+  return '12:00–2:45 PM window';
 }
 
 function eyebrowDate(d: string): string {
@@ -109,7 +115,11 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
       ? `${p.max_pairwise_miles < 1 ? '<1' : Math.round(p.max_pairwise_miles)} mi apart · `
       : '';
   const away =
-    p.distanceMiles != null ? `${p.distanceMiles < 1 ? '<1' : Math.round(p.distanceMiles)} mi away · ` : '';
+    // An implausible distance is a mis-geocoded home, not information — hide
+    // it rather than print "472 mi away" on a Gloucester packet.
+    p.distanceMiles != null && p.distanceMiles <= 120
+      ? `${p.distanceMiles < 1 ? '<1' : Math.round(p.distanceMiles)} mi away · `
+      : '';
   return (
     <Link
       href={href}
@@ -117,13 +127,15 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
         display: 'block',
         textDecoration: 'none',
         color: 'var(--ink)',
-        border: featured ? '2px solid var(--signal)' : '1px solid var(--rule)',
-        background: 'var(--paper-2, #fff)',
+        border: 'none',
+        borderLeft: featured ? '3px solid var(--signal)' : undefined,
+        background: 'var(--paper-2)',
+        boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)',
         padding: '18px 20px',
         marginBottom: 14,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+      <div className="rt-packet-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
             {eyebrowDate(p.visit_date)}
@@ -131,16 +143,22 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
           <div className="font-serif" style={{ fontSize: 20, fontWeight: 400, lineHeight: 1.15 }}>
             {packetHeadline(p)}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
-            {[...new Set(p.stops.map((s) => s.property.name))].join(' · ')}
-          </div>
+          {(() => {
+            const homes = [...new Set(p.stops.map((s) => s.property.name).filter(Boolean))];
+            if (homes.length === 0) return null;
+            return (
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+                {homes.join(' · ')}
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
             {away}
             {spread}
             {windowSummary(p)}
           </div>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div className="rt-packet-price" style={{ textAlign: 'right', flexShrink: 0 }}>
           <div className="font-mono" style={{ fontSize: 24, lineHeight: 1 }}>
             {dollars(p.posted_price_cents)}
           </div>
@@ -151,6 +169,47 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
         </div>
       </div>
     </Link>
+  );
+}
+
+/** The onboarding journey as a flat progress track reversed out of the navy
+ *  hero plate. The fill (tide, or negative when failed) runs to the live stage;
+ *  labels carry the state. No dots, no pulse. */
+function JourneyRail({ activeIndex, failed }: { activeIndex: number; failed?: boolean }) {
+  // Long labels wrap raggedly in a 4-way split at ~340px — the first thing a
+  // new contractor sees. Under 400px (rt-jr-* in globals.css) the short forms
+  // swap in so every label stays on one line.
+  const steps = [
+    { long: 'Applied', short: 'Applied' },
+    { long: 'Account set up', short: 'Set up' },
+    { long: 'Background check', short: 'Check' },
+    { long: 'Ready to claim', short: 'Ready' },
+  ];
+  const pct = (activeIndex / (steps.length - 1)) * 100;
+  const fill = failed ? 'var(--negative)' : 'var(--tide)';
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ position: 'relative', height: 2, background: 'rgba(245,239,226,0.18)' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, height: 2, width: `${pct}%`, background: fill }} />
+        <span style={{ position: 'absolute', top: -1, left: `calc(${pct}% - 2px)`, width: 4, height: 4, background: fill }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+        {steps.map((s, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          const color = done ? 'var(--paper)' : active ? (failed ? 'var(--negative)' : 'var(--signal-soft)') : 'rgba(245,239,226,0.4)';
+          return (
+            <span
+              key={s.long}
+              style={{ flex: 1, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', lineHeight: 1.3, color, fontWeight: active ? 600 : 400, textAlign: i === 0 ? 'left' : i === steps.length - 1 ? 'right' : 'center', whiteSpace: 'nowrap' }}
+            >
+              <span className="rt-jr-long">{s.long}</span>
+              <span className="rt-jr-short">{s.short}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -195,52 +254,119 @@ export default async function FieldHome({
 
   const setupDone = onboardingComplete(contractor);
   const claimable = canClaim(contractor);
-  // Awaiting our background check: they finished setup but can't claim yet.
-  const awaitingCheck = setupDone && !claimable;
 
   if (!claimable) {
     // Read-only marketplace: invitees (and people awaiting their check) can see
-    // the work/pay; only the banner + CTA differ.
+    // the work/pay; the welcome treatment + CTA differ by sub-state.
     const { available } = await loadContractorMarketplace(contractor);
+    const first = contractor.full_name.split(' ')[0];
+    const failed = contractor.background_check_status === 'failed';
+    const activeIndex = setupDone ? 2 : 1;
+    const preview = available.slice(0, 3);
+
+    const numbered = (rows: Array<[string, string]>, accent: string) => (
+      <div>
+        {rows.map(([t, d], i) => (
+          <div key={t} style={{ display: 'flex', gap: 14, paddingTop: i === 0 ? 0 : 16, marginTop: i === 0 ? 0 : 16, borderTop: i === 0 ? 'none' : '1px solid var(--rule-soft)' }}>
+            <span className="font-mono" style={{ fontSize: 13, color: accent, fontWeight: 600, flexShrink: 0, width: 18 }}>{i + 1}</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{t}</div>
+              <div style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55 }}>{d}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+
     return (
       <FieldShell contractorName={contractor.full_name}>
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', borderRadius: 10, padding: '16px 20px', marginBottom: 28 }}>
-          <h1 className="font-serif" style={{ fontSize: 24, fontWeight: 300, marginBottom: 8 }}>
-            {awaitingCheck ? "You're almost in" : 'Finish setup to claim work'}
-          </h1>
-          {awaitingCheck ? (
-            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, margin: 0 }}>
-              Setup&apos;s done. We&apos;re running a quick background check (we send people into owners&apos; homes,
-              so this is standard). You&apos;ll be able to claim as soon as it clears — have a look at what&apos;s open
-              below in the meantime.
-            </p>
-          ) : (
-            <>
-              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 14, maxWidth: 480 }}>
-                Have a look at what&apos;s open below. To claim a packet we need your W-9, a quick agreement, and a
-                background check (we send people into owners&apos; homes).
-              </p>
-              <Link
-                href="/field/onboarding"
-                style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}
-              >
-                Finish setup
-              </Link>
-            </>
+        {/* Hero plate: the page's one navy ground, the welcome moment */}
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 4 }}>
+            <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} onDark />
+            <div style={{ minWidth: 0 }}>
+              <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: failed ? 'var(--negative)' : 'var(--signal-soft)', fontWeight: 600, marginBottom: 6 }}>
+                {failed ? 'Action needed' : setupDone ? 'Welcome aboard' : 'One step left'}
+              </div>
+              <h1 className="font-serif" style={{ fontSize: 'clamp(28px,7vw,36px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-0.01em', margin: 0, color: 'var(--paper)' }}>
+                {failed ? "Let's clear this up, " : setupDone ? 'You made the crew, ' : 'Almost there, '}
+                <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
+              </h1>
+            </div>
+          </div>
+
+          <JourneyRail activeIndex={activeIndex} failed={failed} />
+
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
+            {failed ? (
+              <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2387 and we&apos;ll get it sorted.</>
+            ) : setupDone ? (
+              <>Your setup is done. We&apos;re getting your background check underway (standard, since you&apos;ll have keys to owners&apos; homes). As soon as it&apos;s running we&apos;ll text and email you, and your first packets open up right here.</>
+            ) : (
+              <>You&apos;re invited. Finish your quick setup (W-9, a short agreement, and how you want to be paid) and we&apos;ll get your background check going. Once it&apos;s underway, you can start claiming paid work near you.</>
+            )}
+          </p>
+
+          {!setupDone && !failed && (
+            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 20, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+              Finish setup
+            </Link>
           )}
         </div>
-        {available.length > 0 ? (
-          <>
-            <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>
-              Open near you
-            </h2>
-            {available.map((p, i) => (
-              <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
-            ))}
-          </>
-        ) : (
-          <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No open packets right now. Check back soon.</p>
-        )}
+
+        {/* Who we are: the lead */}
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 12 }}>
+            Who we are
+          </div>
+          <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,32px)', fontWeight: 300, lineHeight: 1.18, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 20px' }}>
+            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to help keep them <span style={{ color: 'var(--signal-soft)' }}>guest-ready</span>.
+          </h2>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 14px', maxWidth: '60ch' }}>
+            We are a boutique manager, local by design. We do not run a sprawling region. We hold a curated portfolio
+            to a standard larger operators cannot, and our whole edge is the guest experience.
+          </p>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: 0, maxWidth: '60ch' }}>
+            You are the on-site hands for it. Inspect and stage each home to the standard, restock it, and catch
+            issues before a guest does. The turnover runs on you being the last set of eyes before check-in.
+          </p>
+        </div>
+
+        {/* The standard: three flip cards */}
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="01" title="The standard" />
+          <FieldPillars />
+        </div>
+
+        {/* How a visit works */}
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="02" title="How a visit works" />
+          {numbered(
+            [
+              ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
+              ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
+              ['Make it guest-ready', 'Walk every room the way a guest will. Set it right, restock what is thin, and get every detail to flawless. Photos document your work.'],
+              ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
+            ],
+            'var(--tide)',
+          )}
+        </div>
+
+        {/* A preview of the work */}
+        <div>
+          <SectionHeader n="03" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
+          {preview.length > 0 ? (
+            <>
+              {preview.map((p, i) => (
+                <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
+              ))}
+            </>
+          ) : (
+            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
+              No routes are open this minute, but new ones post all the time. We&apos;ll text you the moment a packet near you goes up.
+            </p>
+          )}
+        </div>
       </FieldShell>
     );
   }
@@ -259,13 +385,16 @@ export default async function FieldHome({
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} />
           <div>
-            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4 }}>
-              Hi {contractor.full_name.split(' ')[0]}
+            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span>Hi {contractor.full_name.split(' ')[0]}</span>
+              {rating?.rated && rating.avg != null && (
+                <span style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink-3)' }}>★ {rating.avg.toFixed(1)}</span>
+              )}
             </h1>
             <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>
               {available.length > 0
                 ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
-                : 'No open packets right now. Check back soon.'}
+                : 'All quiet right now. We’ll text you when a packet near you posts.'}
             </p>
           </div>
         </div>
@@ -285,18 +414,8 @@ export default async function FieldHome({
       <StreakLadder rating={rating} />
 
       {mine.length > 0 && (
-        <section style={{ marginBottom: 36 }}>
-          <h2
-            style={{
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-4)',
-              marginBottom: 12,
-            }}
-          >
-            Your packets
-          </h2>
+        <section style={{ marginBottom: 40 }}>
+          <SectionHeader title="Your packets" />
           {mine.map((p) => (
             <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
           ))}
@@ -305,17 +424,7 @@ export default async function FieldHome({
 
       {available.length > 0 && (
         <section>
-          <h2
-            style={{
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-4)',
-              marginBottom: 12,
-            }}
-          >
-            Available now
-          </h2>
+          <SectionHeader title="Available now" />
           {available.map((p, i) => (
             <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
           ))}

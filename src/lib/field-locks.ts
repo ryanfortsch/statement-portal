@@ -22,7 +22,6 @@ function randomPin(): string {
 }
 
 export async function programPacketCodes(packetId: string): Promise<string | null> {
-  if (!seamConfigured()) return null;
   const db = fieldDb();
 
   const { data: pkt } = await db
@@ -35,9 +34,20 @@ export async function programPacketCodes(packetId: string): Promise<string | nul
     | null;
   if (!packet) return null;
 
+  // Always give the packet ONE trip code the moment it's claimed, even when Seam
+  // is dark or no lock is mapped -- the inspector needs a code to show at every
+  // stop regardless. Programming that PIN into real locks (below) is the only
+  // part that needs Seam + a mapped device.
+  const pin = packet.entry_code ?? randomPin();
+  if (!packet.entry_code) {
+    await db.from('inspection_packets').update({ entry_code: pin, updated_at: new Date().toISOString() }).eq('id', packetId);
+  }
+
+  if (!seamConfigured()) return pin;
+
   const { data: stops } = await db.from('packet_stops').select('property_id').eq('packet_id', packetId);
   const propIds = [...new Set(((stops ?? []) as { property_id: string }[]).map((s) => s.property_id))];
-  if (propIds.length === 0) return packet.entry_code;
+  if (propIds.length === 0) return pin;
 
   const { data: locks } = await db
     .from('lock_devices')
@@ -47,10 +57,7 @@ export async function programPacketCodes(packetId: string): Promise<string | nul
   const lockRows = ((locks ?? []) as { device_id: string; property_id: string | null }[]).filter(
     (l) => l.device_id && l.property_id,
   );
-  if (lockRows.length === 0) return packet.entry_code; // dark until locks are mapped
-
-  // Reuse the packet's PIN on a re-run; otherwise rotate a fresh one.
-  const pin = packet.entry_code ?? randomPin();
+  if (lockRows.length === 0) return pin; // no mapped locks: the code still shows, it just isn't programmed into a door
 
   let label = 'Rising Tide inspector';
   if (packet.awarded_contractor_id) {
@@ -109,9 +116,6 @@ export async function programPacketCodes(packetId: string): Promise<string | nul
     }
   }
 
-  if (!packet.entry_code) {
-    await db.from('inspection_packets').update({ entry_code: pin, updated_at: new Date().toISOString() }).eq('id', packetId);
-  }
   return pin;
 }
 

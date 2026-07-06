@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketReview } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
+import { StopAttachments, PacketInstructions } from './StopAttachments';
+import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
@@ -22,6 +24,25 @@ function windowLabel(s: PacketStopDetail): string {
   if (s.window_basis === 'checkout_day') return `after ${s.prior_checkout ?? 'morning'} checkout`;
   if (s.window_basis === 'pre_checkin') return `before ${s.next_checkin ?? ''} check-in`;
   return 'vacant all day';
+}
+
+const TIER_LABEL: Record<ReliabilityTier, string> = { top: 'top', steady: 'steady', new: 'new', watch: 'watch' };
+
+function ageDays(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
+function ageLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = ageDays(iso);
+  return d === 0 ? 'published today' : d === 1 ? 'published yesterday' : `published ${d} days ago`;
+}
+function deadlineLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return `claim by ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  } catch {
+    return null;
+  }
 }
 
 export default async function PacketDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -43,19 +64,52 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
 
-  // Eligible contractors for direct assign/reassign (active, onboarded, same
-  // trade), excluding whoever already holds it.
-  let assignable: Array<Pick<ContractorRow, 'id' | 'full_name'>> = [];
+  // Attaching work slips + instructions is allowed any time the packet is still
+  // live (incl. after a contractor claims it); locked once submitted/closed.
+  const attachEditable = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
+  const attachableByStop = attachEditable
+    ? await Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
+    : packet.stops.map(() => []);
+
+  // The claimable pool for this packet (active, onboarded, cleared, same trade),
+  // ranked the way the SMS blast ranks it — reliability first, then distance —
+  // and tagged with each inspector's tier + miles to the cluster. Drives both
+  // the coverage strip ("will this get claimed?") and the assign dropdown.
+  type CRow = Pick<ContractorRow, 'id' | 'full_name' | 'status' | 'w9_on_file' | 'agreement_signed_at' | 'background_check_status'> & {
+    home_lat: number | null; home_lng: number | null; service_radius_miles: number | null; phone: string | null;
+  };
+  type PoolMember = { id: string; full_name: string; tier: ReliabilityTier; score: number | null; miles: number | null; inRadius: boolean; hasPhone: boolean };
+  let assignable: PoolMember[] = [];
   if (packet.status === 'published' || packet.status === 'claimed') {
-    const { data: cData } = await fieldDb()
-      .from('contractors')
-      .select('id, full_name, trade, status, w9_on_file, agreement_signed_at')
-      .eq('trade', packet.trade)
-      .eq('status', 'active');
-    assignable = ((cData ?? []) as ContractorRow[])
+    const [{ data: cData }, reliability] = await Promise.all([
+      fieldDb()
+        .from('contractors')
+        .select('id, full_name, status, w9_on_file, agreement_signed_at, background_check_status, home_lat, home_lng, service_radius_miles, phone')
+        .eq('trade', packet.trade)
+        .eq('status', 'active'),
+      getContractorReliability(),
+    ]);
+    assignable = ((cData ?? []) as CRow[])
       .filter((c) => canClaim(c) && c.id !== packet.awarded_contractor_id)
-      .map((c) => ({ id: c.id, full_name: c.full_name }));
+      .map((c) => {
+        const rel = reliability.get(c.id);
+        const miles =
+          c.home_lat != null && c.home_lng != null && packet.centroid_lat != null && packet.centroid_lng != null
+            ? haversineMiles({ lat: c.home_lat, lng: c.home_lng }, { lat: packet.centroid_lat, lng: packet.centroid_lng })
+            : null;
+        const inRadius = miles == null ? true : miles <= (c.service_radius_miles ?? 40);
+        return { id: c.id, full_name: c.full_name, tier: rel?.tier ?? 'new', score: rel?.score ?? null, miles, inRadius, hasPhone: !!c.phone };
+      })
+      .sort((a, b) => (b.score ?? 70) - (a.score ?? 70) || (a.miles ?? 9999) - (b.miles ?? 9999));
   }
+
+  // Coverage summary for a published, not-yet-claimed packet: who would actually
+  // get pinged (in radius + has a phone), their tier mix, and the nearest one.
+  const eligible = assignable.filter((p) => p.inRadius && p.hasPhone);
+  const tierCounts = { top: 0, steady: 0, new: 0, watch: 0 } as Record<ReliabilityTier, number>;
+  for (const e of eligible) tierCounts[e.tier]++;
+  const nearestMi = eligible.reduce<number | null>((m, e) => (e.miles == null ? m : m == null ? e.miles : Math.min(m, e.miles)), null);
+  const showCoverage = packet.status === 'published' && !packet.awarded_contractor_id;
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
@@ -83,8 +137,41 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{packet.status}</div>
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
+            {isLive && packet.entry_code && (
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
+                entry <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{packet.entry_code}</span>
+              </div>
+            )}
           </div>
         </div>
+
+        {showCoverage && (
+          <div style={{ marginTop: 18, border: `1px solid ${eligible.length === 0 ? 'var(--signal)' : 'var(--rule)'}`, borderRadius: 10, padding: '12px 16px', background: eligible.length === 0 ? 'rgba(200,90,58,0.06)' : 'var(--paper-2, #fff)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>Coverage</div>
+            {eligible.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: 'var(--signal)', lineHeight: 1.5 }}>
+                No inspectors are in range for this one{nearestMi == null && assignable.length > 0 ? ' with a location on file' : ''}. Assign someone below, widen a contractor&apos;s service area, or move the date.
+              </div>
+            ) : (
+              <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span><strong>{eligible.length}</strong> {eligible.length === 1 ? 'inspector' : 'inspectors'} in range</span>
+                <span style={{ color: 'var(--ink-4)' }}>
+                  ({[
+                    tierCounts.top ? `${tierCounts.top} top` : null,
+                    tierCounts.steady ? `${tierCounts.steady} steady` : null,
+                    tierCounts.new ? `${tierCounts.new} new` : null,
+                    tierCounts.watch ? `${tierCounts.watch} watch` : null,
+                  ].filter(Boolean).join(' · ')})
+                </span>
+                {nearestMi != null && <span style={{ color: 'var(--ink-3)' }}>· nearest {nearestMi < 1 ? '<1' : Math.round(nearestMi)} mi</span>}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {ageLabel(packet.published_at) && <span>{ageLabel(packet.published_at)}</span>}
+              {deadlineLabel(packet.claim_deadline) && <><span>·</span><span>{deadlineLabel(packet.claim_deadline)}</span></>}
+            </div>
+          </div>
+        )}
 
         {tracking && (
           <div style={{ marginTop: 18 }}>
@@ -150,94 +237,135 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         )}
 
-        {/* Price + lifecycle controls */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 18 }}>
-          {editable && (
-            <>
-              <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="hidden" name="packet_id" value={packet.id} />
-                <span style={{ color: 'var(--ink-4)' }}>$</span>
-                <input type="number" name="price_dollars" min={0} step={5} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
-                <button type="submit" style={btnGhost}>Update price</button>
-              </form>
-              <form action={publishPacket}>
-                <input type="hidden" name="packet_id" value={packet.id} />
-                <button type="submit" style={btnDark}>Publish to contractors</button>
-              </form>
-            </>
+        {/* See exactly what the inspector sees: the contractor page rendered
+            read-only through the same code path (?office=1 = staff preview).
+            Claimed → the awarded inspector's live view; else an eligible
+            browser's view. */}
+        <div style={{ marginTop: 14 }}>
+          <Link
+            href={`/field/packet/${packet.id}?office=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--rule)', borderRadius: 999, padding: '7px 14px', background: 'var(--paper-2, #fff)' }}
+          >
+            👁 Preview as inspector ↗
+          </Link>
+        </div>
+
+        {/* Lifecycle controls: ONE loud action per state; everything else is a
+            quiet utility link so the page doesn't shout five buttons at once. */}
+        <div style={{ marginTop: 18 }}>
+          {(editable || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {editable && (
+                <>
+                  <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <span style={{ color: 'var(--ink-4)' }}>$</span>
+                    <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
+                    <button type="submit" style={btnGhost}>Update price</button>
+                  </form>
+                  <form action={publishPacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <button type="submit" style={btnDark}>Publish to contractors</button>
+                  </form>
+                </>
+              )}
+              {packet.status === 'submitted' && (
+                <>
+                  <form action={approvePacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <button type="submit" style={btnDark}>Approve packet</button>
+                  </form>
+                  <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+                    <button type="submit" style={btnGhost}>Request changes</button>
+                  </form>
+                </>
+              )}
+              {packet.status === 'approved' && !packet.paid_at && (
+                <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
+                  <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
+                </form>
+              )}
+            </div>
           )}
-          {(editable || packet.status === 'published') && (
-            <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input type="date" name="visit_date" defaultValue={packet.visit_date} style={priceInput} />
-              <button type="submit" style={btnGhost}>Move date</button>
-            </form>
-          )}
-          {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
-            <form action={assignPacket} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <select name="contractor_id" required defaultValue="" style={priceInput}>
-                <option value="" disabled>{packet.status === 'claimed' ? 'Reassign to…' : 'Assign to…'}</option>
-                {assignable.map((c) => (
-                  <option key={c.id} value={c.id}>{c.full_name}</option>
-                ))}
-              </select>
-              <button type="submit" style={btnGhost}>{packet.status === 'claimed' ? 'Reassign' : 'Assign'}</button>
-            </form>
-          )}
-          {packet.status === 'published' && (
-            <form action={unpublishPacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost}>Unpublish</button>
-            </form>
-          )}
-          {packet.status === 'claimed' && (
-            <form action={releasePacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
-            </form>
-          )}
-          {packet.status === 'submitted' && (
-            <form action={approvePacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnDark}>Approve packet</button>
-            </form>
-          )}
-          {packet.status === 'submitted' && (
-            <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-              <button type="submit" style={btnGhost}>Request changes</button>
-            </form>
-          )}
-          {packet.status === 'approved' && !packet.paid_at && (
-            <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-              <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
-            </form>
-          )}
-          {packet.status === 'approved' && packet.paid_at && packet.paid_method && (
-            <span style={{ fontSize: 12, color: 'var(--ink-4)', alignSelf: 'center' }}>
-              via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}
-            </span>
-          )}
+
           {packet.status === 'approved' && packet.paid_at && (
-            <span style={{ fontSize: 12, color: 'var(--positive)', alignSelf: 'center' }}>
+            <div style={{ fontSize: 12, color: 'var(--positive)' }}>
               Paid {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {packet.contractor ? ` to ${packet.contractor.full_name}` : ''}
-            </span>
+              {packet.paid_method && (
+                <span style={{ color: 'var(--ink-4)' }}> · via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}</span>
+              )}
+            </div>
           )}
-          {isLive && packet.status !== 'submitted' && (
-            <form action={cancelPacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost}>Cancel</button>
-            </form>
+
+          {/* Quiet utilities — rarely used, so they whisper. */}
+          {isLive && (
+            <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 14 }}>
+              {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
+                  <div style={menuCard}>
+                    <div style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, padding: '2px 0 6px' }}>
+                      Hand this trip to
+                    </div>
+                    {assignable.map((c, i) => (
+                      <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <input type="hidden" name="contractor_id" value={c.id} />
+                        <button type="submit" style={menuRow}>
+                          <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
+                          <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                            {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
+                          </span>
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {(editable || packet.status === 'published') && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Move date ▾</summary>
+                  <div style={menuCard}>
+                    <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
+                      <button type="submit" style={btnGhost}>Set</button>
+                    </form>
+                  </div>
+                </details>
+              )}
+              {packet.status === 'published' && (
+                <form action={unpublishPacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={quietCtl}>Unpublish</button>
+                </form>
+              )}
+              {packet.status === 'claimed' && (
+                <form action={releasePacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={quietCtl} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
+                </form>
+              )}
+              {packet.status !== 'submitted' && (
+                <form action={cancelPacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={{ ...quietCtl, color: 'var(--signal)' }}>Cancel packet</button>
+                </form>
+              )}
+            </div>
           )}
         </div>
 
         {/* Stops */}
-        <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)' }}>
+        <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
+          <PacketInstructions packetId={packet.id} instructions={packet.instructions} editable={attachEditable} />
           {packet.stops.map((s, i) => (
             <div key={s.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 14, alignItems: 'baseline' }}>
               <span style={{ width: 22, color: 'var(--ink-4)', fontSize: 13 }}>{i + 1}</span>
@@ -246,6 +374,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                   {s.property.address} · {windowLabel(s)} · {dollars(s.base_price_cents)}
                 </div>
+                <StopAttachments
+                  packetId={packet.id}
+                  stopId={s.id}
+                  stopWorkSlipId={s.work_slip_id}
+                  attached={s.attachedSlips}
+                  attachable={attachableByStop[i]}
+                  instructions={s.instructions}
+                  editable={attachEditable}
+                />
               </div>
               <div style={{ textAlign: 'right', fontSize: 12 }}>
                 {s.inspection_id ? (
@@ -275,7 +412,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 {e.event_type.replace(/_/g, ' ')}
                 {e.actor_email ? ` · ${e.actor_email}` : ''}
                 {' · '}
-                {new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {new Date(e.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </div>
             ))}
           </div>
@@ -316,4 +453,43 @@ const btnGhost: React.CSSProperties = {
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   padding: '9px 16px',
+};
+
+// The whisper tier: rarely-used levers render as small underlined text, not
+// another bordered button competing with the primary action.
+const quietCtl: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ink-4)',
+  fontSize: 12,
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
+  padding: 0,
+};
+// display:flex on summary drops the native disclosure triangle cross-browser.
+const quietSummary: React.CSSProperties = { ...quietCtl, display: 'flex', listStyle: 'none', userSelect: 'none' };
+const menuCard: React.CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 8px)',
+  left: 0,
+  zIndex: 30,
+  minWidth: 280,
+  background: 'var(--paper-2, #fff)',
+  border: '1px solid var(--rule)',
+  borderRadius: 10,
+  boxShadow: '0 10px 28px rgba(11,37,69,0.14)',
+  padding: '10px 16px',
+};
+const menuRow: React.CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: 14,
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  textAlign: 'left',
+  padding: '9px 0',
 };

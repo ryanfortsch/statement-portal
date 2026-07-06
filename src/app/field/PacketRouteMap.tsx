@@ -1,19 +1,50 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
- * Compact route map for a packet: numbered pins in walk order joined by a
- * dashed line. Lazy-loads Leaflet 1.9 from a CDN (same approach as
- * PropertiesMap) so there's no runtime npm dep. Skips render when no stop has
- * coordinates.
+ * Compact live route map for a packet: numbered pins in walk order joined by a
+ * route line. Lazy-loads Leaflet 1.9 from a CDN (same approach as PropertiesMap)
+ * so there's no runtime npm dep. Skips render when no stop has coordinates.
+ *
+ * When a stop carries `state`, pins color by progress like a delivery app: done
+ * stops go tide-blue with a check, the current stop is signal-orange with a
+ * ring, upcoming stops are hollow navy, and the traveled leg of the line goes
+ * solid while the rest stays dashed. `verified` adds a small tide check when the
+ * Seam lock recorded their code at that door. With no `state` it renders the
+ * original signal-orange numbered pins (browsing / pre-claim).
  */
-type Stop = { label: string; lat: number; lng: number; order: number };
+type StopState = 'done' | 'current' | 'next';
+/** `num` is the number shown on the pin. Pass the stop's LIST position so the
+ *  map always agrees with the stop list — without it, a coordinate-less stop
+ *  gets filtered out and every pin after it silently shifts down by one.
+ *  `pin: false` joins the route line without drawing a marker — used for the
+ *  return-to-supply-closet leg, which ends where pin 1 already sits. */
+type Stop = { label: string; lat: number; lng: number; order: number; num?: number; state?: StopState; verified?: boolean; pin?: boolean };
+
+const SIGNAL = '#c85a3a';
+const TIDE = '#3a6b8a';
+const NAVY = '#1e2e34';
+const PAPER = '#faf7f1';
+
+function pinHtml(n: number, s: Stop): string {
+  const st = s.state;
+  const bg = !st ? SIGNAL : st === 'done' ? TIDE : st === 'current' ? SIGNAL : PAPER;
+  const fg = st === 'next' ? NAVY : '#fff';
+  const border = st === 'next' ? NAVY : '#fff';
+  const ring = st === 'current' ? '0 0 0 4px rgba(200,90,58,0.22),0 1px 3px rgba(0,0,0,0.35)' : '0 1px 3px rgba(0,0,0,0.35)';
+  const inner = st === 'done' ? '✓' : String(n);
+  const badge = s.verified
+    ? `<div style="position:absolute;bottom:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:${TIDE};border:1.5px solid #fff;color:#fff;font-size:8px;line-height:1;display:flex;align-items:center;justify-content:center">✓</div>`
+    : '';
+  return `<div style="position:relative;width:26px;height:26px;border-radius:50%;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;border:2px solid ${border};box-shadow:${ring}">${inner}${badge}</div>`;
+}
 
 export function PacketRouteMap({ stops }: { stops: Stop[] }) {
   const mapRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inst = useRef<any>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   useEffect(() => {
     const valid = stops
@@ -41,19 +72,33 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
 
       const latlngs = valid.map((p) => [p.lat, p.lng] as [number, number]);
       valid.forEach((p, i) => {
+        if (p.pin === false) return; // path-only point (return leg to the closet)
         const icon = L.divIcon({
           className: '',
-          html: `<div style="width:26px;height:26px;border-radius:50%;background:#c85a3a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.35)">${i + 1}</div>`,
+          html: pinHtml(p.num ?? i + 1, p),
           iconSize: [26, 26],
           iconAnchor: [13, 13],
         });
         L.marker([p.lat, p.lng], { icon }).addTo(map).bindTooltip(p.label, { direction: 'top', offset: [0, -12] });
       });
       if (latlngs.length > 1) {
-        L.polyline(latlngs, { color: '#c85a3a', weight: 2, opacity: 0.7, dashArray: '5 5' }).addTo(map);
+        const hasState = valid.some((p) => p.state);
+        if (!hasState) {
+          L.polyline(latlngs, { color: SIGNAL, weight: 2, opacity: 0.7, dashArray: '5 5' }).addTo(map);
+        } else {
+          // Traveled leg (up to and including the current stop) goes solid tide;
+          // the remaining route stays dashed signal.
+          let curIdx = valid.findIndex((p) => p.state === 'current');
+          if (curIdx < 0) curIdx = valid.every((p) => p.state === 'done') ? valid.length - 1 : 0;
+          const traveled = latlngs.slice(0, curIdx + 1);
+          const remaining = latlngs.slice(curIdx);
+          if (traveled.length > 1) L.polyline(traveled, { color: TIDE, weight: 3, opacity: 0.85 }).addTo(map);
+          if (remaining.length > 1) L.polyline(remaining, { color: SIGNAL, weight: 2, opacity: 0.6, dashArray: '5 5' }).addTo(map);
+        }
       }
       map.fitBounds(L.latLngBounds(latlngs), { padding: [28, 28], maxZoom: 15 });
       inst.current = map;
+      setStatus('ready');
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,6 +108,9 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
       script.onload = init;
+      // Flaky signal in the field: say the map failed instead of leaving a
+      // permanently blank box that reads as a bug.
+      script.onerror = () => setStatus('failed');
       document.head.appendChild(script);
     }
 
@@ -77,10 +125,24 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
 
   const hasCoords = stops.some((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
   if (!hasCoords) return null;
+  if (status === 'failed') {
+    return (
+      <div style={{ border: '1px solid var(--rule)', marginBottom: 22, padding: '14px 16px', fontSize: 13, color: 'var(--ink-4)', background: 'var(--paper-2, #fff)' }}>
+        Map unavailable right now — tap a stop&apos;s address below for directions.
+      </div>
+    );
+  }
   return (
-    <div
-      ref={mapRef}
-      style={{ width: '100%', height: 220, border: '1px solid var(--rule)', marginBottom: 22, background: 'var(--paper-2, #fff)' }}
-    />
+    <div style={{ position: 'relative', marginBottom: 22 }}>
+      <div
+        ref={mapRef}
+        style={{ width: '100%', height: 220, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)' }}
+      />
+      {status === 'loading' && (
+        <div style={{ position: 'absolute', inset: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', pointerEvents: 'none' }}>
+          Loading route…
+        </div>
+      )}
+    </div>
   );
 }

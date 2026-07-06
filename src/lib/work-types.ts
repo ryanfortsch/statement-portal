@@ -17,6 +17,9 @@ export type WorkSlipRow = {
   title: string;
   description: string | null;
   action_summary: string | null;
+  /** Operator-authored materials the inspector grabs to complete this job;
+   *  rolled into the packet's 85 Eastern supply-run pick list. */
+  bring_list: string | null;
   location: string | null;
   category: WorkSlipCategory;
   priority: WorkSlipPriority;
@@ -38,6 +41,13 @@ export type WorkSlipRow = {
   /** Supply key (e.g. paper_towels) when auto-created by the inspection
    *  Supplies Check — lets the Work board split inventory from work. */
   from_supply_key: string | null;
+  /** Idempotency key when auto-created from an approved guest request in
+   *  the messaging flow (e.g. "gear:<reservation_id>" for a pack-n-play /
+   *  high-chair ask). One slip per stay; retries merge instead of dupe. */
+  from_guest_request_key: string | null;
+  /** Stay linkage: the Guesty reservation this slip preps for, so the
+   *  Operations turnover rail can pin it to the exact check-in. */
+  guesty_reservation_id: string | null;
   snoozed_until: string | null;
   snoozed_by_email: string | null;
   snoozed_at: string | null;

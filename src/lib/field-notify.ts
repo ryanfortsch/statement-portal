@@ -57,6 +57,7 @@ export async function sendInviteEmail(contractor: ContractorRow): Promise<boolea
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You're invited to ${word} work with Rising Tide</h1>
     <p>Hi ${contractor.full_name.split(' ')[0]}, you've been invited to pick up ${word} work near Gloucester. Open your portal to set up your account, then browse and claim paid packets.</p>
     ${btn(link, 'Open my portal')}
+    <p style="font-size:12px;color:#7a8a90;margin:6px 0 0;">Or paste this link into your browser:<br><a href="${link}" style="color:#1e2e34;word-break:break-all;">${link}</a></p>
     <p style="font-size:12px;color:#7a8a90;">This link is personal to you. Please don't forward it.</p>
   `);
   return sendTransactionalViaResend({
@@ -200,7 +201,9 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     .eq('status', 'active')
     .eq('trade', packet.trade)
     .eq('w9_on_file', true)
-    .eq('background_check_status', 'cleared')
+    // Claim-eligible = check underway or cleared (matches canClaim), so a
+    // pending-check contractor is pinged for new packets too.
+    .in('background_check_status', ['cleared', 'pending'])
     .not('agreement_signed_at', 'is', null)
     .not('phone', 'is', null);
   const contractors = (data ?? []) as Array<
@@ -336,7 +339,15 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     .in('status', ['published', 'claimed', 'in_progress', 'submitted']);
   const rows = (data ?? []) as { status: string; visit_date: string }[];
   const outToday = rows.filter((p) => (p.status === 'claimed' || p.status === 'in_progress') && p.visit_date === today).length;
-  const atRisk = rows.filter((p) => p.status === 'claimed' && p.visit_date <= today).length;
+  // Same time-aware rule as the board: a claimed same-day packet only reads
+  // "at risk" after 1 PM ET (an hour into the 12:00–2:45 window); before that
+  // it's just today's upcoming work. Fully past days always count.
+  const hourEt = Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date()),
+  );
+  const atRisk = rows.filter(
+    (p) => p.status === 'claimed' && (p.visit_date < today || (p.visit_date === today && hourEt >= 13)),
+  ).length;
   const unclaimedSoon = rows.filter((p) => p.status === 'published' && p.visit_date >= today && p.visit_date <= soonStr).length;
   const submitted = rows.filter((p) => p.status === 'submitted').length;
   if (outToday + atRisk + unclaimedSoon + submitted === 0) return false;
@@ -358,6 +369,36 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     fromName: FROM_NAME,
     html,
     text: `Field today — at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, awaiting approval: ${submitted}.`,
+  });
+}
+
+/** A contractor tapped "Send a note" in the portal. Goes to Ryan (cc office),
+ *  with reply-to set to the contractor so Ryan can answer straight from his
+ *  inbox, and their phone surfaced for a quick text back. */
+export async function sendContractorQuestionEmail(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone'>,
+  message: string,
+): Promise<boolean> {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safe = esc(message.trim().slice(0, 2000));
+  const name = esc(contractor.full_name);
+  const email = esc(contractor.email);
+  const phone = contractor.phone ? esc(contractor.phone) : null;
+  const first = esc(contractor.full_name.split(' ')[0]);
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 6px;">Question from ${name}</h1>
+    <p style="font-size:12px;color:#7a8a90;margin:0 0 16px;">${email}${phone ? ` &middot; ${phone}` : ''}</p>
+    <p style="white-space:pre-wrap;font-size:15px;margin:0 0 18px;">${safe}</p>
+    <p style="font-size:13px;color:#7a8a90;border-top:1px solid #e6ded2;padding-top:14px;">Reply to this email to answer ${first} directly${phone ? `, or text ${phone}` : ''}.</p>
+  `);
+  return sendTransactionalViaResend({
+    to: 'ryan@risingtidestr.com',
+    cc: OFFICE_CC,
+    subject: `Field question from ${contractor.full_name}`,
+    fromName: FROM_NAME,
+    replyTo: contractor.email,
+    html,
+    text: `${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) asks:\n\n${message.trim()}`,
   });
 }
 

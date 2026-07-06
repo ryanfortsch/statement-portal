@@ -32,9 +32,10 @@ export function fmtFundsSentDate(iso: string): string {
 
 /** Format a number as "$X,XXX.XX". Used inline in the body so the
  *  draft-email route's plainToHtml can bold the amount in the HTML
- *  alternative (it regex-wraps anything matching $X,XXX.XX in <strong>). */
-function fmtMoney(n: number): string {
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+ *  alternative. Rounded to whole dollars -- the owner-facing payout line
+ *  reads cleaner as "Your June payout is $14,164." than "...$14,164.19". */
+function fmtMoneyRound(n: number): string {
+  return '$' + Math.round(n).toLocaleString('en-US');
 }
 
 export function renderEmail(args: RenderArgs): RenderedEmail {
@@ -48,7 +49,7 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
   // to open the PDF. Skipped if the caller didn't pass a payout (e.g. a
   // template render in a UI where the statement isn't on file yet).
   const payoutLine = ownerPayout != null && ownerPayout > 0
-    ? `Your ${shortMonth} payout is ${fmtMoney(ownerPayout)}.\n\n`
+    ? `Your ${shortMonth} payout is ${fmtMoneyRound(ownerPayout)}.\n\n`
     : '';
   const statementLine = `Please see the attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
 

@@ -176,8 +176,9 @@ export default async function FieldInspectPage({
       cards={stepperCards}
       initialResults={(results ?? []).map((r) => {
         const rr = r as InspectionResultRow;
-        return { item_id: rr.item_id, zone_id: rr.property_zone_id, status: rr.status, notes: rr.notes };
+        return { item_id: rr.item_id, zone_id: rr.property_zone_id, status: rr.status, notes: rr.notes, photo_urls: rr.photo_urls ?? [] };
       })}
+      exitHref={`/field/packet/${stop.packet_id}`}
     />
   );
 }

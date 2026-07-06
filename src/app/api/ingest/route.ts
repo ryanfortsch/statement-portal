@@ -2,9 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
-import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
+import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -29,6 +30,7 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
 
   // Match date range blocks: "(Mar 30 - Apr 3, 2026) - 4 nights"
   const dateRangeRegex = /\((\w+ \d+)\s*-\s*(\w+ \d+),?\s*(\d{4})\)\s*-\s*(\d+)\s*nights?/g;
+  const nextDateRangeRegex = /\(\w+ \d+\s*-\s*\w+ \d+,?\s*\d{4}\)\s*-\s*\d+\s*nights?/;
   let match;
 
   while ((match = dateRangeRegex.exec(text)) !== null) {
@@ -40,12 +42,21 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
     const checkIn = parseShortDate(startStr, year);
     const checkOut = parseShortDate(endStr, year);
 
-    // Get text after this date range match to find the rental payment line
-    const afterMatch = text.substring(match.index);
+    // Bound the rental-line search to just this section. When a reservation
+    // is cancelled and reprocessed in Guesty, Guesty still writes its date-
+    // range header on the owner statement PDF but with $0.00 and no rental
+    // line. Without a bound, the empty section would slurp the NEXT
+    // reservation's rental line and duplicate that reservation into this
+    // empty slot -- the exact symptom that produced a phantom Nicholas Mount
+    // on Bethany's June 36 Granite statement after James Cox's cancellation
+    // was reprocessed (2026-07-01). Empty sections now correctly no-op.
+    const remainder = text.substring(match.index + match[0].length);
+    const nextStart = remainder.search(nextDateRangeRegex);
+    const searchWindow = nextStart >= 0 ? remainder.substring(0, nextStart) : remainder;
 
     // pdf-parse concatenates: "HM33A9MBBRRental Income$1,338.48"
     // So we match the code as everything before "Rental Income"
-    const rentalMatch = afterMatch.match(/Rental payment for\s*(\S+?)Rental Income\$?([\d,]+\.?\d*)/);
+    const rentalMatch = searchWindow.match(/Rental payment for\s*(\S+?)Rental Income\$?([\d,]+\.?\d*)/);
 
     if (rentalMatch) {
       const confirmationCode = rentalMatch[1];
@@ -582,6 +593,7 @@ export async function POST(request: NextRequest) {
     // before May 2026; folding them back in keeps owner payouts correct).
     const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const laundryCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     // Unmatched in-month DEBITS (negative amounts that didn't classify as
@@ -614,6 +626,10 @@ export async function POST(request: NextRequest) {
         linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
+      if (cls?.kind === 'laundry' && isInMonth(date, month) && amount < 0) {
+        laundryCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
+        continue;
+      }
       if (cls?.kind === 'repair' && isInMonth(date, month) && amount < 0) {
         repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
@@ -637,7 +653,8 @@ export async function POST(request: NextRequest) {
     // so no payout-formula change is needed.
     const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
     const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal) * 100) / 100;
+    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
     const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Process reservations with channel logic.
@@ -947,7 +964,11 @@ export async function POST(request: NextRequest) {
     }
     const feeBase = Math.round((totalRevenue + addOnsMgmtBase) * 100) / 100;
     const managementFee = Math.round(feeBase * (propConfig.fee_pct / 100) * 100) / 100;
-    const ownerPayout = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
+    // Owner payout deducts reserve_holdback last -- placeholder here; the
+    // actual value is preserved from any existing property_statement row
+    // (see section 8) and applied when we recompute after the delete-then-
+    // insert. Baseline (before reserve) is captured here for clarity.
+    const ownerPayoutBeforeReserve = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
 
     // 6. Confidence
     const hasGuesty = reservations.length > 0;
@@ -974,13 +995,21 @@ export async function POST(request: NextRequest) {
       period = newPeriod;
     }
 
-    // 8. Delete existing data for this property/period (re-upload support)
+    // 8. Delete existing data for this property/period (re-upload support).
+    // Also grab reserve_holdback so the operator's owner-reserve setting
+    // survives the wipe-and-rebuild -- otherwise re-uploading a bank CSV
+    // would silently drop a $2000 reserve back to $0. Tolerates the
+    // reserve_holdback migration not having run yet: query wraps in a
+    // try/catch and falls back to 0.
     const { data: existingStmt } = await supabase
       .from('property_statements')
-      .select('id')
+      .select('id, reserve_holdback')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
+
+    const preservedReserveHoldback = Number((existingStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? 0);
+    const ownerPayout = Math.round((ownerPayoutBeforeReserve - preservedReserveHoldback) * 100) / 100;
 
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
@@ -1009,6 +1038,7 @@ export async function POST(request: NextRequest) {
         cleaning_total: cleaningTotal,
         repairs_total: repairsTotal,
         tax_remittance: 0,
+        reserve_holdback: preservedReserveHoldback,
         owner_payout: ownerPayout,
         // num_stays counts a booking ONCE on its checkout month, not on
         // every month an installment lands. Synthetic non-final-month
@@ -1202,6 +1232,40 @@ export async function POST(request: NextRequest) {
         vendor: LINEN_VENDOR_NAME,
       });
     }
+    // Laundry Plus charges. Additive to cleaning_total (owner-facing single
+    // "Cleaning" line stays folded). Attribute each charge to the nearest
+    // Cape Ann Elite cleaning by bank_charge_date if one is within 7 days,
+    // so the dashboard groups the laundry row next to the associated
+    // turnover. If nothing is within range (all-direct property, or laundry
+    // billed with no cleaning that month), leave checkout_date + guest_name
+    // null -- displays as a standalone "Laundry service" row like linens.
+    for (const c of laundryCharges) {
+      const cIsoStr = toISO(c.date);
+      const cMs = cIsoStr ? new Date(cIsoStr + 'T00:00:00Z').getTime() : null;
+      let nearest: { guest: string | null; checkout: string | null; deltaMs: number } | null = null;
+      if (cMs !== null) {
+        for (const ins of cleaningInserts) {
+          if (ins.source !== 'matched' && ins.source !== 'bank') continue;
+          if (!ins.bank_charge_date) continue;
+          const insMs = new Date(ins.bank_charge_date + 'T00:00:00Z').getTime();
+          const deltaMs = Math.abs(insMs - cMs);
+          if (!nearest || deltaMs < nearest.deltaMs) {
+            nearest = { guest: ins.guest_name, checkout: ins.checkout_date, deltaMs };
+          }
+        }
+      }
+      const withinWindow = nearest && nearest.deltaMs <= 7 * 24 * 60 * 60 * 1000;
+      cleaningInserts.push({
+        property_statement_id: stmt.id,
+        guest_name: withinWindow ? nearest!.guest : null,
+        checkout_date: withinWindow ? nearest!.checkout : null,
+        bank_charge_amount: c.amount,
+        bank_charge_date: cIsoStr || null,
+        amount: c.amount,
+        source: 'bank-laundry',
+        vendor: LAUNDRY_VENDOR_NAME,
+      });
+    }
     await insertCleaningEvents(supabase, cleaningInserts);
 
     // 11b. Insert repair events (handyman / vendor charges from the bank).
@@ -1255,6 +1319,37 @@ export async function POST(request: NextRequest) {
         severity: isPending ? 'info' : 'warning',
         expected_data: `Bank deposit ~$${r.adjusted_revenue}`,
       });
+    }
+
+    // Cancellation guard. Airbnb / Booking.com ALWAYS pay a bank deposit, so
+    // an unmatched-bank reservation on one of those channels is a strong
+    // cancel tell (the leak that put a cancelled Christina Gagnon on 3 South's
+    // June statement -- Guesty's PDF still listed her, our status cache was
+    // frozen at "confirmed"). Live-check ONLY these bounded suspects against
+    // Guesty (never per-reservation over the month) and raise a LOUD gap for
+    // any that actually cancelled. Flag-only: the operator removes it with one
+    // click. Wrapped so a Guesty outage/429 never breaks the ingest.
+    try {
+      const cancelSuspects = unmatched.filter(r => {
+        const p = (r.platform || '').toUpperCase();
+        return p === 'AIRBNB' || p.includes('BOOKING');
+      });
+      if (cancelSuspects.length > 0) {
+        const liveStatus = await checkLiveGuestyStatus(cancelSuspects.map(r => r.confirmation_code));
+        for (const r of cancelSuspects) {
+          if (isCancelledStatus(liveStatus.get(r.confirmation_code))) {
+            gaps.push({
+              gap_type: 'cancelled_reservation',
+              description: `${r.guest_name} CANCELLED in Guesty but is still on this statement at $${r.adjusted_revenue}. Remove it -- this booking never paid.`,
+              severity: 'critical',
+              // Carries the code so the Remove action can find the exact row.
+              expected_data: `reservation:${r.confirmation_code}`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('cancel-check skipped:', err instanceof Error ? err.message : err);
     }
 
     // Revenue reconstruction gaps:
@@ -1314,6 +1409,7 @@ export async function POST(request: NextRequest) {
             management_fee_pct: propConfig.fee_pct,
             cleaning_total: cleaningTotal,
             repairs_total: repairsTotal,
+            reserve_holdback: preservedReserveHoldback,
           },
         });
         if (stripeSync.fee_updates.length > 0) {

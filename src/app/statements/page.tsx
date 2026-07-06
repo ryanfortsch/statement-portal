@@ -84,6 +84,7 @@ type PropertyStatement = {
   cleaning_total: number;
   repairs_total: number;
   tax_remittance: number;
+  reserve_holdback?: number;
   owner_payout: number;
   num_stays: number;
   nights_booked: number;
@@ -314,6 +315,77 @@ function buildTransferList(args: {
   });
   lines.push('-'.repeat(72));
   lines.push(`  ${'TOTAL MGMT SWEEP'.padEnd(28)} ${dollars(totalMgmt).padStart(12)}`);
+  return lines.join('\n');
+}
+
+/**
+ * Booking.com deposit routing checklist.
+ *
+ * Booking.com pays the FULL guest gross (rental + tax + Booking's own
+ * commission) as one ACH into the central *5623 Booking.com deposits
+ * account. That cash has to be swept to the individual property account so
+ * the owner payout can be funded from the right place. After the sweep, two
+ * things come OUT of the property account and are handled elsewhere:
+ *   - Booking.com auto-debits its 15% commission next month (shown FYI on
+ *     the Remittance Instructions).
+ *   - The occupancy tax is remitted to *9928 (also on the Remittance list).
+ *
+ * So this list is only the missing first hop: *5623 -> property account,
+ * one line per Booking.com booking, amount = the gross Booking deposited
+ * (guesty_reservations.total_paid). The tax + commission are shown as a
+ * sub-line for reconciliation, NOT as separate transfers here.
+ */
+function buildBookingRoutingList(args: {
+  monthName: string;
+  rows: Array<{
+    propertyShort: string;
+    bankLast4: string | null;
+    guest: string;
+    code: string;
+    stay: string;
+    gross: number | null;
+    tax: number;
+    commission: number;
+  }>;
+}): string {
+  const { monthName, rows } = args;
+  const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  const lines: string[] = [];
+  lines.push(`${monthName} BOOKING.COM DEPOSIT ROUTING`);
+  lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  lines.push('');
+  lines.push('Booking.com pays the full guest gross into the *5623 deposits account.');
+  lines.push('Sweep each deposit below to its property account. Booking.com then');
+  lines.push('auto-debits its commission from the property account next month, and');
+  lines.push('the tax portion is remitted to *9928 (see Remittance Instructions).');
+  lines.push('-'.repeat(72));
+  if (rows.length === 0) {
+    lines.push('  (no Booking.com bookings this month)');
+    return lines.join('\n');
+  }
+
+  let totalSweep = 0;
+  let anyUnknown = false;
+  rows.forEach(r => {
+    const dest = r.bankLast4 ? `-> *${r.bankLast4}` : '-> (no account on file)';
+    if (r.gross != null) {
+      totalSweep += r.gross;
+      lines.push(`  ${(`${r.propertyShort} ${dest}`).padEnd(34)} ${dollars(r.gross).padStart(12)}`);
+    } else {
+      anyUnknown = true;
+      lines.push(`  ${(`${r.propertyShort} ${dest}`).padEnd(34)} ${'amount unknown'.padStart(12)}`);
+    }
+    lines.push(`     ${r.guest}  ${r.code}  ${r.stay}`);
+    lines.push(`     tax ${dollars(r.tax)} -> *9928   Booking commission ${dollars(r.commission)} (auto-debit)`);
+  });
+  lines.push('-'.repeat(72));
+  lines.push(`  ${'TOTAL TO SWEEP FROM *5623'.padEnd(34)} ${dollars(totalSweep).padStart(12)}`);
+  if (anyUnknown) {
+    lines.push('');
+    lines.push('  NOTE: a booking is missing its gross in Guesty -- re-sync bookings');
+    lines.push('  or check the Booking.com deposit against the *5623 statement.');
+  }
   return lines.join('\n');
 }
 
@@ -805,6 +877,105 @@ function FinRow({ label, value, negative }: { label: string; value: string; nega
   );
 }
 
+/**
+ * Owner Reserve row. Renders as a checkbox + inline dollar input; ticking
+ * defaults to $2,000, editable to any non-negative amount. Amount subtracts
+ * from owner_payout and appears as a "Owner Reserve" line item on the
+ * editorial PDF. Persists via PATCH /api/property-statements/[id]/reserve.
+ * Survives re-ingest (preserved in /api/ingest's SELECT-before-delete).
+ */
+function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSaved: () => void }) {
+  const initial = Number(prop.reserve_holdback || 0);
+  const [enabled, setEnabled] = useState(initial > 0);
+  const [amount, setAmount] = useState<string>(initial > 0 ? initial.toFixed(2) : '2000.00');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function persist(nextAmount: number) {
+    setSaving(true); setErr(null);
+    try {
+      const res = await fetch(`/api/property-statements/${prop.id}/reserve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: nextAmount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'save failed');
+      // Trigger the parent to reload period data. That refreshes every
+      // owner_payout display on the card (top strip, Financials Net,
+      // Owner Payout total) in one shot rather than mutating prop in
+      // place -- React can't see prop mutations, so a reload is the
+      // only way the totals visibly update.
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <tr>
+      <td style={{ padding: '10px 0 9px', borderBottom: '1px dotted var(--rule)', color: 'var(--ink-2)' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={e => {
+              const next = e.target.checked;
+              setEnabled(next);
+              if (next) {
+                const amt = Number(amount) || 2000;
+                if (amt !== initial) void persist(amt);
+                else if (initial === 0) void persist(2000);
+              } else {
+                void persist(0);
+              }
+            }}
+            disabled={saving}
+            style={{ transform: 'translateY(-1px)' }}
+          />
+          <span>Withhold Owner Reserve</span>
+          {enabled && (
+            <>
+              <span style={{ color: 'var(--ink-3)' }}>$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                onBlur={() => {
+                  const amt = Number(amount);
+                  if (!Number.isFinite(amt) || amt < 0) return;
+                  if (amt !== initial) void persist(amt);
+                }}
+                disabled={saving}
+                style={{
+                  width: 80, padding: '2px 6px', fontSize: 12,
+                  fontFamily: 'var(--font-jetbrains, monospace)',
+                  border: '1px solid var(--rule)',
+                  textAlign: 'right',
+                }}
+              />
+            </>
+          )}
+          {err && <span style={{ fontSize: 10, color: 'var(--negative)' }}>{err}</span>}
+        </label>
+      </td>
+      <td style={{
+        padding: '10px 0 9px', borderBottom: '1px dotted var(--rule)',
+        textAlign: 'right',
+        fontFamily: 'var(--font-fraunces)',
+        fontSize: 13,
+        color: enabled && Number(amount) > 0 ? 'var(--negative)' : 'var(--ink-4)',
+      }}>
+        {enabled && Number(amount) > 0 ? `−${fmt(Number(amount))}` : '—'}
+      </td>
+    </tr>
+  );
+}
+
 function DataSourceChip({ active, label }: { active: boolean; label: string }) {
   return (
     <span style={{
@@ -1151,6 +1322,7 @@ function PropertyCard({
                   <FinRow label={`Mgmt Fee (${prop.management_fee_pct}%)`} value={`−${fmt(prop.management_fee)}`} negative />
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
                   {prop.repairs_total > 0 && <FinRow label="Repairs" value={`−${fmt(prop.repairs_total)}`} negative />}
+                  <ReserveHoldbackRow prop={prop} onSaved={onRefresh} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       Owner Payout
@@ -1391,6 +1563,43 @@ function PropertyCard({
                             {resolvingGapId === gap.id ? 'Working…' : 'Paid Off-Stripe'}
                           </button>
                         )}
+                        {gap.gap_type === 'cancelled_reservation' && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim();
+                              if (!code) { alert('No confirmation code on this gap.'); return; }
+                              if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/reservations/remove', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ confirmation_code: code, property_statement_id: prop.id }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--negative)',
+                              background: 'var(--negative)',
+                              color: 'var(--paper)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Removing…' : 'Remove from statement'}
+                          </button>
+                        )}
                         {fillable && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}
@@ -1521,6 +1730,46 @@ function DashboardContent() {
   // alongside period data, so the per-card badge stays in sync after a
   // bulk-action or owner-email send.
   const [ownerActionCounts, setOwnerActionCounts] = useState<Record<string, number>>({});
+  // Owner name / email config, hydrated live from the `properties` table.
+  // The static PROPERTIES map in lib/properties.ts is only a fallback for
+  // properties not yet in the DB -- the DB is the source of truth, so an
+  // owner-profile edit (name, email) on the property page shows up here
+  // without a code change. Keyed by property_id.
+  const [ownerCfg, setOwnerCfg] = useState<Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }>>({});
+  const loadOwnerCfg = useCallback(async () => {
+    const { data } = await supabase
+      .from('properties')
+      .select('id, name, owner_greeting, owner_full, owner_emails');
+    const map: Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }> = {};
+    (data || []).forEach((r: { id: string; name: string | null; owner_greeting: string | null; owner_full: string | null; owner_emails: string[] | null }) => {
+      map[r.id] = {
+        name: r.name || '',
+        owner_greeting: r.owner_greeting || '',
+        owner_full: r.owner_full || '',
+        owner_emails: Array.isArray(r.owner_emails) ? r.owner_emails : [],
+      };
+    });
+    setOwnerCfg(map);
+  }, []);
+  // DB-first owner config for a property. When the DB row exists it wins
+  // (fields it leaves blank fall back to the static map); otherwise the
+  // static map is used. Returns null only when the property is in neither.
+  const resolveCfg = useCallback((propertyId: string) => {
+    const db = ownerCfg[propertyId];
+    const stat = PROPERTIES[propertyId];
+    if (db) {
+      return {
+        name: db.name || stat?.name || propertyId,
+        owner_greeting: db.owner_greeting || stat?.owner_greeting || '',
+        owner_full: db.owner_full || stat?.owner_full || '',
+        owner_emails: db.owner_emails.length > 0 ? db.owner_emails : (stat?.owner_emails || []),
+      };
+    }
+    if (stat) {
+      return { name: stat.name, owner_greeting: stat.owner_greeting, owner_full: stat.owner_full, owner_emails: stat.owner_emails };
+    }
+    return null;
+  }, [ownerCfg]);
   // Auth is now handled by Google SSO via middleware. By the time this
   // component renders, the user is signed in. Default authenticated=true
   // so the legacy access-code login screen (further down) never shows;
@@ -1567,6 +1816,20 @@ function DashboardContent() {
   >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
+  // Booking.com deposit routing (sweep *5623 -> property accounts). Loaded
+  // lazily on button click, same pattern as remittanceRows.
+  const [bookingRoutingOpen, setBookingRoutingOpen] = useState(false);
+  const [loadingBookingRouting, setLoadingBookingRouting] = useState(false);
+  const [bookingRoutingRows, setBookingRoutingRows] = useState<Array<{
+    propertyShort: string;
+    bankLast4: string | null;
+    guest: string;
+    code: string;
+    stay: string;
+    gross: number | null;
+    tax: number;
+    commission: number;
+  }> | null>(null);
   const [addNoteOpen, setAddNoteOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -1895,13 +2158,14 @@ function DashboardContent() {
         setPeriods(data);
         await loadPeriod(selectedMonth || data[0].month);
         await loadLastSync();
+        await loadOwnerCfg();
       } catch (err) {
         setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
       } finally {
         setLoading(false);
       }
     })();
-  }, [authenticated, loadLastSync]);
+  }, [authenticated, loadLastSync, loadOwnerCfg]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -1917,6 +2181,7 @@ function DashboardContent() {
       if (data.success) {
         setSyncResult({ total: data.total_invoices_found, matched: data.matched, inserted: data.inserted, skipped: data.skipped });
         await loadPeriod(selectedMonth);
+        await loadLastSync();
       } else {
         setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
       }
@@ -1997,6 +2262,52 @@ function DashboardContent() {
       setRemittanceRows(rows);
     } finally {
       setLoadingRemittance(false);
+    }
+  }
+
+  /**
+   * Build the Booking.com deposit-routing rows for the current month: one
+   * per Booking.com reservation on this month's statements. amount = the
+   * gross Booking deposited (guesty_reservations.total_paid), which is the
+   * cash to sweep from *5623 to the property account. tax + commission are
+   * carried through for the reconciliation sub-line only. Read-only; touches
+   * no statement totals. Lazy on button click, mirrors loadRemittance.
+   */
+  async function loadBookingRouting() {
+    setLoadingBookingRouting(true);
+    try {
+      const allCodes: string[] = [];
+      props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
+      const { data: guestyRows } = allCodes.length
+        ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, channel_commission').in('confirmation_code', allCodes)
+        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null }> };
+      const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
+      (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
+
+      const stayFmt = (ci: string, co: string) =>
+        `${fmtDate(ci)} → ${fmtDate(co)}`;
+
+      const rows: NonNullable<typeof bookingRoutingRows> = [];
+      for (const p of props) {
+        for (const r of p.reservations || []) {
+          if (!(r.platform || '').toUpperCase().includes('BOOKING')) continue;
+          const g = byCode.get(r.confirmation_code);
+          const grossRaw = g?.total_paid;
+          rows.push({
+            propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
+            bankLast4: PROPERTIES[p.property_id]?.bank_last4 ?? null,
+            guest: r.guest_name || 'Guest',
+            code: r.confirmation_code || '—',
+            stay: stayFmt(r.check_in, r.check_out),
+            gross: grossRaw != null ? Math.round(Number(grossRaw) * 100) / 100 : null,
+            tax: Math.round(Number(g?.total_taxes || 0) * 100) / 100,
+            commission: Math.round(Number(g?.channel_commission || 0) * 100) / 100,
+          });
+        }
+      }
+      setBookingRoutingRows(rows);
+    } finally {
+      setLoadingBookingRouting(false);
     }
   }
 
@@ -2746,13 +3057,24 @@ function DashboardContent() {
                 >
                   Transfer List
                 </button>
+                <button
+                  onClick={() => { setBookingRoutingOpen(true); if (!bookingRoutingRows) loadBookingRouting(); }}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Booking.com
+                </button>
               </div>
             </div>
 
             {/* Per-property rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {props.map((p) => {
-                const cfg = PROPERTIES[p.property_id];
+                const cfg = resolveCfg(p.property_id);
                 const task = closeTasks[p.property_id];
                 const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
                 const emailsMissing = !cfg || cfg.owner_emails.length === 0;
@@ -2870,7 +3192,7 @@ function DashboardContent() {
       {/* Email preview modal */}
       {previewPropertyId && (() => {
         const prop = props.find(p => p.property_id === previewPropertyId);
-        const cfg = PROPERTIES[previewPropertyId];
+        const cfg = resolveCfg(previewPropertyId);
         if (!prop || !cfg) return null;
         const task = closeTasks[previewPropertyId];
         const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
@@ -2879,6 +3201,7 @@ function DashboardContent() {
           monthName: monthLabel(selectedMonth),
           propertyShort: cfg.name,
           fundsSentIso: fundsSentDate,
+          ownerPayout: prop.owner_payout,
           template: tmpl,
         });
         return (
@@ -2987,7 +3310,7 @@ function DashboardContent() {
               .filter(p => p.owner_payout > 0)
               .map(p => ({
                 property: p.property_name,
-                owner: PROPERTIES[p.property_id]?.owner_full || p.owner_name,
+                owner: resolveCfg(p.property_id)?.owner_full || p.owner_name,
                 payout: p.owner_payout,
                 mgmtFee: p.management_fee,
               }));
@@ -3037,6 +3360,76 @@ function DashboardContent() {
                     }}
                   >
                     Print
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </PreviewModal>
+      )}
+
+      {/* Booking.com deposit routing modal -- sweep *5623 -> property accounts */}
+      {bookingRoutingOpen && (
+        <PreviewModal onClose={() => setBookingRoutingOpen(false)}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Booking.com deposit routing</div>
+          <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>
+            {monthLabel(selectedMonth)} &middot; sweep <em style={{ color: 'var(--tide-deep)' }}>*5623</em> to property accounts
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
+            Booking.com pays the full guest gross into the *5623 deposits account. Move each deposit to its property account. Booking.com auto-debits its commission from the property account next month, and the tax portion is remitted to *9928 (both on the Remittance list).
+          </p>
+          {loadingBookingRouting || !bookingRoutingRows ? (
+            <div style={{ marginTop: 18, padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>Loading…</div>
+          ) : (() => {
+            const text = buildBookingRoutingList({
+              monthName: monthLabel(selectedMonth).toUpperCase(),
+              rows: bookingRoutingRows,
+            });
+            return (
+              <>
+                <pre className="font-mono" style={{
+                  marginTop: 18,
+                  whiteSpace: 'pre',
+                  fontSize: 11, lineHeight: 1.55,
+                  color: 'var(--ink-2)',
+                  background: 'var(--paper-2)',
+                  padding: '16px 18px',
+                  borderLeft: '3px solid var(--tide)',
+                  overflowX: 'auto',
+                }}>{text}</pre>
+                <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={async () => { try { await navigator.clipboard.writeText(text); } catch {} }}
+                    style={{
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Booking.com Deposit Routing`, text)}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: 'pointer',
+                    }}
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={() => { setBookingRoutingRows(null); loadBookingRouting(); }}
+                    disabled={loadingBookingRouting}
+                    style={{
+                      background: 'transparent', color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
+                      padding: '9px 16px', cursor: loadingBookingRouting ? 'wait' : 'pointer',
+                    }}
+                  >
+                    Refresh
                   </button>
                 </div>
               </>

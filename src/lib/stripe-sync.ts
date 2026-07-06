@@ -154,6 +154,7 @@ export async function syncPropertyStripe(opts: {
     management_fee_pct: number;
     cleaning_total: number;
     repairs_total: number;
+    reserve_holdback?: number;
   };
 }): Promise<StripeSyncResult> {
   const { supabase, propertyId, restrictedKey, month, stmt } = opts;
@@ -183,6 +184,30 @@ export async function syncPropertyStripe(opts: {
     const reservations: ReservationRow[] = (rRes || []) as ReservationRow[];
     const byCode = new Map<string, ReservationRow>();
     for (const r of reservations) if (r.confirmation_code) byCode.set(r.confirmation_code, r);
+
+    // Installment-aware guard. Cross-month installment bookings (a long
+    // stay split across months via reservation_installments) already have
+    // their per-month adjusted_revenue set to the NET installment amount
+    // and a PRORATED stripe_fee written by ingest's installment fork.
+    // Stripe-sync must NOT overwrite those: the full-stay Stripe charge
+    // (e.g. one $65k Payment Link) would otherwise get matched to a single
+    // month's row and dump the entire fee on that one month, corrupting
+    // adjusted_revenue and the statement total. For any code with
+    // installment rows we still match/report the charge, but leave the
+    // fee + adjusted_revenue exactly as ingest wrote them.
+    const installmentCodes = new Set<string>();
+    {
+      const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
+      if (codes.length > 0) {
+        const { data: instRows } = await supabase
+          .from('reservation_installments')
+          .select('confirmation_code')
+          .in('confirmation_code', codes);
+        for (const row of instRows || []) {
+          if (row.confirmation_code) installmentCodes.add(row.confirmation_code as string);
+        }
+      }
+    }
 
     // Cross-month known codes for this property -- used to distinguish
     // "real orphan charge" (no reservation anywhere) from "charge for a
@@ -298,7 +323,7 @@ export async function syncPropertyStripe(opts: {
       // every penny matters because deltas snowball across N reservations.
       // Skip rows marked paid_off_stripe (paid by check/wire; their
       // stripe_fee is intentionally fixed).
-      if (actualFee != null && res.stripe_fee != null && res.bank_match_status !== 'paid_off_stripe') {
+      if (actualFee != null && res.stripe_fee != null && res.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(code)) {
         const prev = round2(res.stripe_fee);
         if (prev !== actualFee) {
           const deltaFee = round2(actualFee - prev);
@@ -352,7 +377,7 @@ export async function syncPropertyStripe(opts: {
       // balance_transaction was returned -- same write the description-
       // match path does. Skip rows marked paid_off_stripe.
       const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
-      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe') {
+      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
         if (prev !== actualFee) {
           const deltaFee = round2(actualFee - prev);
@@ -397,7 +422,8 @@ export async function syncPropertyStripe(opts: {
         .eq('property_statement_id', stmt.id);
       const newRentalRevenue = round2((freshRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
       const newMgmtFee = round2(newRentalRevenue * (stmt.management_fee_pct / 100));
-      const newOwnerPayout = round2(newRentalRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+      const reserveHoldback = Number(stmt.reserve_holdback ?? 0);
+      const newOwnerPayout = round2(newRentalRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
       await supabase
         .from('property_statements')
         .update({ rental_revenue: newRentalRevenue, management_fee: newMgmtFee, owner_payout: newOwnerPayout })

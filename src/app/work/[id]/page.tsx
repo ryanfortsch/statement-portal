@@ -13,6 +13,7 @@ import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipComments } from './SlipComments';
 import { SnoozeButton } from './SnoozeButton';
 import { SlipTitleEditor } from './SlipTitleEditor';
+import { SlipBringListEditor } from './SlipBringListEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,6 +151,11 @@ export default async function WorkSlipDetailPage({
             <Stat
               label={slip.completed_at ? 'Completed' : 'Status'}
               value={slip.completed_at ? formatDate(slip.completed_at) : slip.status.replace('_', ' ')}
+              sub={
+                slip.scheduled_date && !slip.completed_at
+                  ? `due ${formatDate(slip.scheduled_date)}`
+                  : undefined
+              }
               last
             />
           </div>
@@ -177,6 +183,11 @@ export default async function WorkSlipDetailPage({
           )}
         </Section>
       )}
+
+      {/* SUPPLY RUN — what the inspector grabs at 85 Eastern to finish this job */}
+      <Section title="Supply run" eyebrow="Before the visit">
+        <SlipBringListEditor slipId={slip.id} initialBringList={slip.bring_list ?? null} />
+      </Section>
 
       {/* ASSIGNMENT */}
       <Section
@@ -364,7 +375,10 @@ function Pill({ color, label, solid = false }: { color: string; label: string; s
 function formatDate(value: string | null): string {
   if (!value) return '—';
   try {
-    return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Bare DATE values (scheduled_date) parse as UTC midnight and would
+    // render a day early in Eastern time; anchor them to local noon.
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return value;
   }

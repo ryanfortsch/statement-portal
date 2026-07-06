@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
@@ -17,6 +18,19 @@ function todayET(): string {
 }
 function daysUntilET(d: string): number {
   return Math.round((Date.parse(`${d}T00:00:00`) - Date.parse(`${todayET()}T00:00:00`)) / 86_400_000);
+}
+function hourET(): number {
+  return Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date()),
+  );
+}
+/** A claimed packet is "at risk" only once the inspector is genuinely late:
+ *  the visit day passed entirely, or it's visit day and we're past 1 PM ET
+ *  (an hour into the 12:00–2:45 window) with nothing started. At 9 AM a
+ *  claimed job for today is simply upcoming, not a no-show. */
+function packetAtRiskET(visitDate: string): boolean {
+  const days = daysUntilET(visitDate);
+  return days < 0 || (days === 0 && hourET() >= 13);
 }
 
 function statusChip(status: string): { label: string; bg: string; color: string } {
@@ -47,17 +61,6 @@ function fmtDate(d: string): string {
 }
 function todayStr(): string {
   return new Date().toISOString().split('T')[0];
-}
-// "9:14a": a lock-event arrival time in Eastern (the locks' local time).
-function fmtTimeET(iso: string): string {
-  try {
-    return new Date(iso)
-      .toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
-      .replace(' AM', 'a')
-      .replace(' PM', 'p');
-  } catch {
-    return '';
-  }
 }
 function plusDays(n: number): string {
   const d = new Date();
@@ -107,39 +110,31 @@ export default async function PacketsBoard({
     .filter((p) => p.status === 'draft')
     .sort((a, b) => a.visit_date.localeCompare(b.visit_date));
 
-  // Live per-packet progress (done stops) for claimed/in-progress packets, so
-  // the office can watch a visit move stop-by-stop on the board.
-  const trackIds = packets.filter((p) => p.status === 'claimed' || p.status === 'in_progress').map((p) => p.id);
-  const progress = new Map<string, number>();
-  // Earliest physical arrival per packet: the contractor's entry code hitting
-  // any stop's lock (stamped by the Seam webhook). Distinct from app progress;
-  // it proves the contractor showed up even before they start the first form.
-  const arrivedAtByPacket = new Map<string, string>();
-  if (trackIds.length) {
-    const { data: ps } = await fieldDb().from('packet_stops').select('packet_id, status, arrived_at').in('packet_id', trackIds);
-    for (const r of (ps ?? []) as { packet_id: string; status: string; arrived_at?: string | null }[]) {
-      if (r.status === 'complete' || r.status === 'skipped') progress.set(r.packet_id, (progress.get(r.packet_id) ?? 0) + 1);
-      if (r.arrived_at) {
-        const prior = arrivedAtByPacket.get(r.packet_id);
-        if (!prior || Date.parse(r.arrived_at) < Date.parse(prior)) arrivedAtByPacket.set(r.packet_id, r.arrived_at);
-      }
-    }
-  }
-
   const today = todayET();
   const outToday = packets.filter((p) => p.visit_date === today && (p.status === 'claimed' || p.status === 'in_progress'));
   const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
   const awaitingApproval = packets.filter((p) => p.status === 'submitted');
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
-  // At risk: claimed but never started, and the visit day has arrived/passed —
+  // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
-  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && daysUntilET(p.visit_date) <= 0 && !arrivedAtByPacket.get(p.id));
+  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && packetAtRiskET(p.visit_date));
   const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
 
+  // Live per-packet progress (done stops) for claimed/in-progress packets, so
+  // the office can watch a visit move stop-by-stop on the board.
+  const trackIds = packets.filter((p) => p.status === 'claimed' || p.status === 'in_progress').map((p) => p.id);
+  const progress = new Map<string, number>();
+  if (trackIds.length) {
+    const { data: ps } = await fieldDb().from('packet_stops').select('packet_id, status').in('packet_id', trackIds);
+    for (const r of (ps ?? []) as { packet_id: string; status: string }[]) {
+      if (r.status === 'complete' || r.status === 'skipped') progress.set(r.packet_id, (progress.get(r.packet_id) ?? 0) + 1);
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
+      <FieldTabs current="packets" />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>
@@ -232,7 +227,6 @@ export default async function PacketsBoard({
                   p={p}
                   who={whoOf(p.awarded_contractor_id)}
                   done={progress.get(p.id) ?? 0}
-                  arrivedAt={arrivedAtByPacket.get(p.id) ?? null}
                 />
               ))}
             </div>
@@ -293,11 +287,9 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim, done = 0, arrivedAt = null }: { p: PacketRow; who: Who; dim?: boolean; done?: number; arrivedAt?: string | null }) {
+function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
-  // A physical arrival (entry code on a stop's lock) clears the no-show worry
-  // even when the contractor hasn't started the app flow yet.
-  const atRisk = p.status === 'claimed' && daysUntilET(p.visit_date) <= 0 && !arrivedAt;
+  const atRisk = p.status === 'claimed' && packetAtRiskET(p.visit_date);
   const tracking = p.status === 'claimed' || p.status === 'in_progress';
   return (
     <div
@@ -313,7 +305,6 @@ function LiveRow({ p, who, dim, done = 0, arrivedAt = null }: { p: PacketRow; wh
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
           {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
-          {tracking && arrivedAt ? ` · on site ${fmtTimeET(arrivedAt)}` : ''}
         </div>
       </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>

@@ -21,6 +21,7 @@ import {
   bulkUpdateTasks,
 } from './actions';
 import { TeamPicker } from '@/components/TeamPicker';
+import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { suppliesLabel } from '@/lib/inspection-supplies';
 
@@ -1144,15 +1145,33 @@ function WorkSlipModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  // Defaults: Rising Tide category + self-assigned. Most slips created
-  // from the board are internal Rising Tide work the creator is taking
-  // on; both are one tap to change before saving.
   const [category, setCategory] = useState<WorkSlipCategory>('rising_tide');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
-  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(myEmail || null);
+  // Assignee defaults to Unassigned — creator identity is captured
+  // server-side (created_by_email) so we know who filed it, but the
+  // slip lands in the team backlog by default rather than auto-claiming
+  // for whoever happens to be creating it.
+  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  // Everything except Property / Title / Description lives behind the
+  // "+ Details" inline link, mirroring the inspection Work Slip modal:
+  // the defaults are right for the vast majority of slips filed from
+  // the board, so the form fits on a phone with the keyboard open. The
+  // panel auto-expands if any of its fields drifted off the defaults
+  // (e.g. reopening the panel after arming Priority=High).
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const showMore =
+    moreOpen ||
+    !!location.trim() ||
+    category !== 'rising_tide' ||
+    priority !== 'normal' ||
+    !!scheduledDate ||
+    assignedToEmail !== null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1167,6 +1186,7 @@ function WorkSlipModal({
       priority,
       scheduled_date: scheduledDate || null,
       assigned_to_email: assignedToEmail,
+      photo_urls: photos,
     });
     if (!res.ok) {
       setError(res.error);
@@ -1208,66 +1228,120 @@ function WorkSlipModal({
           />
         </Field>
 
-        <div className="flex gap-3">
-          <div style={{ flex: 1 }}>
-            <Field label="Category">
-              <select value={category} onChange={(e) => setCategory(e.target.value as WorkSlipCategory)} style={selectStyle()}>
-                {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][]).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Field label="Priority">
-              <select value={priority} onChange={(e) => setPriority(e.target.value as WorkSlipPriority)} style={selectStyle()}>
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-              </select>
-            </Field>
-          </div>
-        </div>
-
-        <Field label="Location (optional)">
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="e.g. Kitchen, Master Bath"
-            maxLength={200}
-            style={inputStyle()}
-          />
-        </Field>
-
-        <Field label="Scheduled date (optional)">
-          <input
-            type="date"
-            value={scheduledDate}
-            onChange={(e) => setScheduledDate(e.target.value)}
-            style={inputStyle()}
-          />
-        </Field>
-
-        <Field label="Assignee">
-          <TeamPicker
-            value={assignedToEmail}
-            onChange={setAssignedToEmail}
-            myEmail={myEmail}
-            placeholder="Unassigned"
-          />
-        </Field>
-
         <Field label="Description (optional)">
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            rows={4}
+            rows={3}
             maxLength={2000}
             placeholder="Any extra detail…"
             style={{ ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' }}
           />
         </Field>
+
+        {/* Inline "+ Details" / "+ Photo" toggles — the whole point of
+            this simplification is that neither has to be visible for the
+            common case, but both are one tap away. */}
+        {!showMore && !(photosOpen || photos.length > 0) && (
+          <div style={{ display: 'flex', gap: 18 }}>
+            <button type="button" onClick={() => setMoreOpen(true)} style={inlineLinkStyle}>
+              + Details
+            </button>
+            <button type="button" onClick={() => setPhotosOpen(true)} style={inlineLinkStyle}>
+              + Photo
+            </button>
+          </div>
+        )}
+
+        {showMore && (
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-3">
+              <div style={{ flex: 1 }}>
+                <Field label="Category">
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
+                    style={selectStyle()}
+                  >
+                    {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][]).map(
+                      ([v, l]) => (
+                        <option key={v} value={v}>{l}</option>
+                      ),
+                    )}
+                  </select>
+                </Field>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Field label="Priority">
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
+                    style={selectStyle()}
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                  </select>
+                </Field>
+              </div>
+            </div>
+
+            <Field label="Location (optional)">
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Kitchen, Master Bath"
+                maxLength={200}
+                style={inputStyle()}
+              />
+            </Field>
+
+            <Field label="Scheduled date (optional)">
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                style={inputStyle()}
+              />
+            </Field>
+
+            <Field label="Assignee">
+              <TeamPicker
+                value={assignedToEmail}
+                onChange={setAssignedToEmail}
+                myEmail={myEmail}
+                placeholder="Unassigned"
+              />
+            </Field>
+
+            {!photosOpen && photos.length === 0 && (
+              <div>
+                <button type="button" onClick={() => setPhotosOpen(true)} style={inlineLinkStyle}>
+                  + Photo
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {(photosOpen || photos.length > 0) && (
+          <Field label="Photos">
+            <PhotoUploader
+              value={photos}
+              onChange={setPhotos}
+              folder="work_slips"
+              disabled={submitting}
+            />
+            {!showMore && (
+              <div style={{ marginTop: 10 }}>
+                <button type="button" onClick={() => setMoreOpen(true)} style={inlineLinkStyle}>
+                  + Details
+                </button>
+              </div>
+            )}
+          </Field>
+        )}
 
         {error && <ErrorBlock message={error} />}
 
@@ -1276,6 +1350,17 @@ function WorkSlipModal({
     </ModalShell>
   );
 }
+
+const inlineLinkStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  color: 'var(--ink-3)',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontFamily: 'inherit',
+};
 
 function TaskModal({
   properties,

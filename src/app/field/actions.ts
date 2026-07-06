@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { fieldDb } from '@/lib/field-db';
 import { geocodeAddress } from '@/lib/geocode';
+import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
@@ -13,7 +14,19 @@ import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail } from '@/lib/field-notify';
+
+/** "Send a note" from the portal's Reach-out affordance. Auth'd by the
+ *  contractor cookie so we know who is asking; emails Ryan with reply-to set to
+ *  the contractor. Returns a result the client can show. */
+export async function sendContractorNote(message: string): Promise<{ ok: boolean; error?: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+  const text = (message || '').trim();
+  if (text.length < 2) return { ok: false, error: 'Add a short message first.' };
+  const sent = await sendContractorQuestionEmail(contractor, text.slice(0, 2000));
+  return sent ? { ok: true } : { ok: false, error: 'Could not send just now. Give us a text or call instead.' };
+}
 
 async function reqContext() {
   const h = await headers();
@@ -92,13 +105,28 @@ export async function completeOnboarding(
 
   // Geocode their home base so the marketplace can rank packets "near you".
   // Best-effort: a failed lookup just leaves coords null (no ranking).
+  // A bare town like "Gloucester" can geocode to another state's Gloucester
+  // (one real inspector landed 472 mi away), so bias to the service area:
+  // try as typed, retry with ", MA" if the hit is far, keep whichever is
+  // closer to HQ, and store nothing rather than an absurd mis-geocode.
+  const HQ = { lat: 42.6209, lng: -70.645 };
+  const PLAUSIBLE_COMMUTE_MILES = 150;
   let homeLat = contractor.home_lat;
   let homeLng = contractor.home_lng;
   if (homeAddress) {
-    const coords = await geocodeAddress(homeAddress);
-    if (coords) {
-      homeLat = coords.lat;
-      homeLng = coords.lng;
+    let best = await geocodeAddress(homeAddress);
+    let bestMiles = best ? haversineMiles(HQ, best) : Infinity;
+    if (bestMiles > PLAUSIBLE_COMMUTE_MILES && !/,|\d{5}/.test(homeAddress)) {
+      const retry = await geocodeAddress(`${homeAddress}, MA`);
+      const retryMiles = retry ? haversineMiles(HQ, retry) : Infinity;
+      if (retryMiles < bestMiles) {
+        best = retry;
+        bestMiles = retryMiles;
+      }
+    }
+    if (best && bestMiles <= PLAUSIBLE_COMMUTE_MILES) {
+      homeLat = best.lat;
+      homeLng = best.lng;
     }
   }
 
@@ -208,6 +236,19 @@ export async function saveProfilePhoto(url: string): Promise<void> {
   revalidatePath('/field');
 }
 
+/** Toggle the "text me when new work is posted" preference (opt-out; default on).
+ *  notifyContractorsOfPacket gates the blast on this. */
+export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false };
+  await fieldDb()
+    .from('contractors')
+    .update({ sms_opt_in: optIn, updated_at: new Date().toISOString() })
+    .eq('id', contractor.id);
+  revalidatePath('/field/profile');
+  return { ok: true };
+}
+
 /** Start (or resume) the inspection for one stop, then drop the contractor
  *  into the existing Stepper. */
 export async function startStopInspection(formData: FormData) {
@@ -265,7 +306,14 @@ export async function startStopInspection(formData: FormData) {
 
   await fieldDb()
     .from('packet_stops')
-    .update({ inspection_id: inspectionId, status: 'in_progress' })
+    .update({
+      inspection_id: inspectionId,
+      status: 'in_progress',
+      // Start tap = intent. 'both' if the lock already recorded their code first
+      // (rare); otherwise 'self'. The Seam recorder upgrades 'self' -> 'both'.
+      started_at: new Date().toISOString(),
+      arrival_source: stop.arrived_verified_at ? 'both' : 'self',
+    })
     .eq('id', stopId);
   if (packet.status === 'claimed') {
     await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
@@ -331,7 +379,7 @@ export async function completeMaintenanceStop(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', stop.work_slip_id);
-  await fieldDb().from('packet_stops').update({ status: 'complete' }).eq('id', stopId);
+  await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
   if (packet.status === 'claimed') {
     await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
   }
@@ -342,6 +390,72 @@ export async function completeMaintenanceStop(formData: FormData) {
     eventType: 'stop_completed',
     propertyId: stop.property_id,
     payload: { work_slip_id: stop.work_slip_id },
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  redirect(`/field/packet/${packetId}`);
+}
+
+/** Inspector marks an ATTACHED work slip done (an extra task the office put on a
+ *  stop). Records the resolution on the slip (stays in_progress until office
+ *  approval) and stamps the attachment's completed_at. Decoupled from
+ *  packet_stops.status, so it never closes the stop or skips the inspection, and
+ *  several attached slips complete independently. Advisory: does NOT gate submit. */
+export async function completeAttachedSlip(formData: FormData) {
+  const packetId = String(formData.get('packet_id') || '');
+  const attachmentId = String(formData.get('attachment_id') || '');
+  const note = String(formData.get('resolution') || '').trim();
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
+  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  // The attachment and its stop must belong to THIS packet (no cross-packet writes).
+  const { data: aData } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id, work_slip_id, packet_stops!inner(packet_id, property_id)')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  const att = aData as { id: string; work_slip_id: string; packet_stops: { packet_id: string; property_id: string } } | null;
+  if (!att || att.packet_stops.packet_id !== packetId) redirect(`/field/packet/${packetId}`);
+  if (note.length < 4) redirect(`/field/packet/${packetId}?note=1`);
+
+  const photos = (() => {
+    try {
+      const v = JSON.parse(String(formData.get('photo_urls') || '[]'));
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  // APPEND the inspector's completion photos to the slip's existing ones rather
+  // than overwrite: an attached slip often carries the office's reference photos
+  // ("here's the broken thing"), which we must not destroy.
+  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
+  const mergedPhotos = [...new Set([...existing, ...photos])];
+  await fieldDb()
+    .from('work_slips')
+    .update({ status: 'in_progress', resolution_notes: note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
+    .eq('id', att.work_slip_id);
+  await fieldDb().from('packet_stop_work_slips').update({ completed_at: new Date().toISOString() }).eq('id', attachmentId);
+  if (packet.status === 'claimed') {
+    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
+  }
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    eventType: 'attached_slip_completed',
+    propertyId: att.packet_stops.property_id,
+    payload: { attachment_id: attachmentId, work_slip_id: att.work_slip_id },
   });
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
@@ -370,10 +484,19 @@ export async function submitPacket(formData: FormData) {
     (stops as { status: string }[]).every((s) => s.status === 'complete' || s.status === 'skipped');
   if (!allComplete) redirect(`/field/packet/${packetId}?incomplete=1`);
 
+  const nowIso = new Date().toISOString();
   await fieldDb()
     .from('inspection_packets')
-    .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+    .update({ status: 'submitted', submitted_at: nowIso })
     .eq('id', packetId);
+  // Close out the last still-open stop's clock (the one the inspector was on when
+  // they submitted, which never got a next-door-opening departure).
+  await fieldDb()
+    .from('packet_stops')
+    .update({ departed_at: nowIso })
+    .eq('packet_id', packetId)
+    .is('departed_at', null)
+    .not('arrived_verified_at', 'is', null);
   await logEvent({
     packetId,
     contractorId: contractor.id,

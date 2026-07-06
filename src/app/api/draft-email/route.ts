@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
 import { renderEmail, type EmailTemplate } from '@/lib/email-templates';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
@@ -107,12 +107,13 @@ function plainToHtml(body: string): string {
   // the operator opened the draft to edit it. Paragraphs get just enough
   // bottom margin to separate them; everything else inherits.
   //
-  // Dollar amounts of the form $X,XXX.XX get wrapped in <strong> so the
+  // Dollar amounts ($X,XXX or $X,XXX.XX) get wrapped in <strong> so the
   // owner payout line in the body reads as bolded in mobile Gmail (the
-  // only meaningful $ figure in the template is the payout). Plain-text
-  // fallback stays clean -- no asterisks or markdown clutter.
+  // only meaningful $ figure in the template is the payout, now rounded to
+  // whole dollars). Plain-text fallback stays clean -- no asterisks or
+  // markdown clutter.
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const boldMoney = (html: string) => html.replace(/\$[0-9][0-9,]*\.[0-9]{2}/g, m => `<strong>${m}</strong>`);
+  const boldMoney = (html: string) => html.replace(/\$[0-9][0-9,]*(?:\.[0-9]{2})?/g, m => `<strong>${m}</strong>`);
   const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
   const htmlParas = paragraphs
     .filter(p => p.length > 0)
@@ -206,13 +207,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'property_id and month are required' }, { status: 400 });
     }
 
-    const prop = PROPERTIES[propertyId];
+    // DB-first: read owner name / email / greeting from the live properties
+    // table (getActivePropertyForStatements falls back to the static map
+    // only when the DB row is missing). An owner-profile edit on the
+    // property page therefore flows straight into the drafted email.
+    const prop = await getActivePropertyForStatements(propertyId);
     if (!prop) {
       return NextResponse.json({ error: `Unknown property: ${propertyId}` }, { status: 400 });
     }
     if (prop.owner_emails.length === 0) {
       return NextResponse.json({
-        error: `No owner email on file for ${prop.name}. Add it to src/lib/properties.ts.`,
+        error: `No owner email on file for ${prop.name}. Add it on the property's page in Helm.`,
       }, { status: 400 });
     }
 

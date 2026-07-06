@@ -15,7 +15,7 @@ import { usePathname } from 'next/navigation';
  * reason the masthead badge does: this lives in a persistent strip and a plain
  * interval can otherwise sit stale.
  */
-export function MessagingTabCount({ category }: { category: 'guests' | 'owners' }) {
+export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -25,8 +25,11 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
       try {
         const res = await fetch('/api/messaging/pending-count', { cache: 'no-store' });
         if (!res.ok) return;
-        const data = (await res.json()) as { guests?: number; owners?: number };
-        const n = category === 'guests' ? data.guests : data.owners;
+        const data = (await res.json()) as { guests?: number; owners?: number; cleaners?: number };
+        const n =
+          category === 'guests' ? data.guests :
+          category === 'owners' ? data.owners :
+          data.cleaners;
         if (!cancelled) setCount(typeof n === 'number' ? n : 0);
       } catch {
         // Silent: a network hiccup shouldn't surface as a tab error.
@@ -49,6 +52,15 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
 
   if (!count || count <= 0) return null;
 
+  // Per-category badge color so the operator can read the tab strip at a
+  // glance — guests/owners/cleaners are different conversational threads
+  // and deserve visually distinct chips. All colors are dark enough that
+  // var(--paper) text reads cleanly on top.
+  const background =
+    category === 'guests' ? 'var(--ink)' :              // navy — brand default
+    category === 'owners' ? 'var(--signal)' :           // gold — established
+    '#1f5e6b';                                          // teal — cleaners
+
   return (
     <span
       aria-label={`${count} draft${count === 1 ? '' : 's'} waiting`}
@@ -61,7 +73,7 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
         height: 16,
         padding: '0 5px',
         borderRadius: 8,
-        background: 'var(--signal)',
+        background,
         color: 'var(--paper)',
         fontSize: 9,
         fontWeight: 700,

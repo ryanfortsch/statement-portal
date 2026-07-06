@@ -13,6 +13,7 @@ import {
 } from '@/lib/seam';
 import { recordCleanerEntry, recordLockFinishEstimate } from '@/lib/cleaning-sessions';
 import { recordInspectorEntry, recordFieldInspectorEntry } from '@/lib/inspection-sessions';
+import { recordPacketArrival } from '@/lib/field-arrival';
 
 // Service role bypasses RLS so the cross-table writes (lock_events,
 // lock_devices, lock_battery_status, work_slips) all work. Same pattern
@@ -131,6 +132,10 @@ async function dispatch(ev: SeamWebhookEvent): Promise<void> {
       await recordInspectorEntry(supabase, input);
       await recordFieldInspectorEntry(supabase, input);
       await recordCleanerEntry(supabase, input);
+      // A Field packet code unlocking a stop's lock verifies that contractor
+      // arrived at that door. Exact packet-code match only; mutually exclusive
+      // with the inspector/cleaner recorders above.
+      await recordPacketArrival(supabase, input);
     } else await recordLockFinishEstimate(supabase, input);
     return;
   }

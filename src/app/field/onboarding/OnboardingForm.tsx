@@ -3,8 +3,6 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { completeOnboarding, type OnboardingState } from '../actions';
-import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
-import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { PhoneInput } from '@/components/PhoneInput';
 import { PaymentFields } from './PaymentFields';
 import { TinInput } from './TinInput';
@@ -67,7 +65,19 @@ function FinishButton() {
  * the contractor typed (W-9, address, payout) intact, instead of redirecting
  * back to a wiped form with a generic message.
  */
-export function OnboardingForm({ defaultName, defaultPhone }: { defaultName: string; defaultPhone: string | null }) {
+export function OnboardingForm({
+  defaultName,
+  defaultPhone,
+  taxClassifications,
+  paymentMethods,
+}: {
+  defaultName: string;
+  defaultPhone: string | null;
+  // Passed in from the server page: these live in server-only modules
+  // (field-w9 / field-pay), so a client component can't import them directly.
+  taxClassifications: readonly string[];
+  paymentMethods: readonly string[];
+}) {
   const [state, formAction] = useActionState<OnboardingState, FormData>(completeOnboarding, { error: '' });
 
   return (
@@ -90,9 +100,6 @@ export function OnboardingForm({ defaultName, defaultPhone }: { defaultName: str
         <div>
           <label style={labelStyle}>Home base (town or ZIP)</label>
           <input name="home_address" type="text" required placeholder="Gloucester, MA" style={inputStyle} />
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginTop: 4, display: 'block' }}>
-            So we can show you the closest work first.
-          </span>
         </div>
 
         <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -114,7 +121,7 @@ export function OnboardingForm({ defaultName, defaultPhone }: { defaultName: str
             <label style={labelStyle}>Federal tax classification</label>
             <select name="w9_tax_classification" required defaultValue="" style={inputStyle}>
               <option value="" disabled>Select one…</option>
-              {TAX_CLASSIFICATIONS.map((t) => (
+              {taxClassifications.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -153,7 +160,7 @@ export function OnboardingForm({ defaultName, defaultPhone }: { defaultName: str
               Rising Tide pays you directly once your work is approved. Stored privately for the office.
             </div>
           </div>
-          <PaymentFields methods={PAYMENT_METHODS} inputStyle={inputStyle} labelStyle={labelStyle} />
+          <PaymentFields methods={paymentMethods} inputStyle={inputStyle} labelStyle={labelStyle} />
         </div>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>

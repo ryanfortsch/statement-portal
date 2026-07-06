@@ -2,7 +2,6 @@ import React from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
-import { LINEN_VENDOR_NAME } from '@/lib/bank-charges';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
@@ -58,6 +57,116 @@ function tripNights(checkIn: string, checkOut: string): number {
   if (isNaN(d1) || isNaN(d2)) return 0;
   return Math.max(0, Math.round((d2 - d1) / 86400_000));
 }
+
+// ---- Guest-facing ADR (grossed-up) --------------------------------------
+//
+// DISPLAY-ONLY. This block powers the two "Avg Daily Rate / ADR" stats on the
+// statement and touches NOTHING in the payout math. rental_revenue,
+// management_fee, and owner_payout are read verbatim from Supabase columns and
+// are unaffected by anything here.
+//
+// What the current ADR shows: RT's NET deposit per night (rental_revenue is
+// channel-net + commission-net + Stripe-net). What owners actually want to see
+// is what the GUEST paid per night. So we reconstruct the guest-facing gross
+// per reservation, sum it, and divide by the SAME nightsBooked denominator the
+// current ADR uses (numerator + denominator stay night-consistent).
+//
+// Per-reservation gross reconstruction (the row's adjusted_revenue is already
+// the month's slice, so installment stays are handled correctly). Every
+// channel follows the same shape -- add the Stripe fee back, gross up the host
+// commission, then layer 11.7% tax iff the FULL trip is < 30 nights -- with
+// different commission rates:
+//   - Airbnb 15.5% / VRBO 8% / Booking.com 15%: start from the channel-net,
+//     commission-net, tax-EXCLUDED rental (adjusted_revenue || rental_income).
+//     VRBO is also net of the Stripe fee, so + stripe_fee lands on the
+//     pre-Stripe base (Airbnb/Booking stripe_fee is 0, a no-op); then gross up
+//     the commission: (net + stripe_fee) / (1 - fee_pct). 11.7% MA occupancy
+//     tax on top when the trip is < 30 nights (>= 30 nights is tax-EXEMPT under
+//     the MA length-of-stay rule).
+//   - Direct / Stay Cape Ann ("Manual"/"Direct"): a 0%-commission RT-Stripe
+//     channel. Its ONLY platform fee is the Stripe fee, so it gets added back
+//     the same way (fee_pct = 0, so no commission gross-up), and the 11.7% tax
+//     rides the same < 30-night rule. For a taxable SCA stay this rebuilds the
+//     guest's actual Payment Link charge (total_paid) to the penny; for a
+//     >= 30-night stay it lands on the pre-tax charge. We deliberately do NOT
+//     read guesty_reservations.total_paid: for an installment SCA stay
+//     total_paid is the WHOLE booking (e.g. $65k for 35 nights), not the month
+//     slice, and dividing it by a single-month night count would blow up.
+//
+// Fee rates below are the platforms' HOST commissions (guest-facing gross
+// reconstruction only); they are NOT the RT management fee_pct and never touch
+// payout math.
+const PLATFORM_FEE_PCT: Record<'airbnb' | 'vrbo' | 'booking', number> = {
+  airbnb: 0.155,   // Airbnb host commission (approximate: Airbnb also charges the
+                   //   guest a service fee that never flows through Guesty)
+  vrbo: 0.08,      // VRBO / HomeAway host commission
+  booking: 0.15,   // Booking.com host commission
+};
+const TAX_RATE = 0.117;            // combined MA state + local occupancy tax
+const TAX_NIGHTS_THRESHOLD = 30;   // strict: nights >= 30 tax-EXEMPT, nights < 30 taxed
+
+// Maps a row's (possibly enriched) platform string to a gross-up bucket, using
+// the same exact-match convention as chLabel() so enriched forms ("direct2",
+// "airbnb2") and unknown/empty strings don't get misrouted. Manual / Direct /
+// Stay Cape Ann -> 'sca' (no commission, no gross-up). Airbnb -> 'airbnb'.
+// HomeAway / VRBO -> 'vrbo'. Booking.com -> 'booking'. Anything unmapped
+// (Unknown / '') -> 'passthrough' (returned net, NOT grossed up), so a stray
+// channel value is never silently inflated 15.5% + 11.7%.
+function grossUpBucket(platform: string): 'airbnb' | 'vrbo' | 'booking' | 'sca' | 'passthrough' {
+  const key = (platform || '').toLowerCase().trim();
+  if (key === 'manual' || key === 'direct' || key === 'direct2' ||
+      key.includes('cape ann') || key.includes('stay cape')) return 'sca';
+  if (key === 'airbnb' || key === 'airbnb2') return 'airbnb';
+  if (key === 'homeaway' || key === 'homeaway2' || key === 'vrbo') return 'vrbo';
+  if (key === 'booking' || key === 'booking.com' || key === 'bookingcom') return 'booking';
+  return 'passthrough';
+}
+
+// Guest-facing gross for one reservation row. See the block comment above.
+function guestFacingGross(r: {
+  adjusted_revenue?: number | null;
+  rental_income?: number | null;
+  stripe_fee?: number | null;
+  nts?: number | null;
+  platform?: string | null;
+}): number {
+  const net = Number(r.adjusted_revenue ?? r.rental_income) || 0;
+  const stripeFee = Number(r.stripe_fee) || 0;
+  // nts is the FULL trip length (check-out minus check-in), which is the correct
+  // basis for the MA 30-night length-of-stay exemption -- NOT the month slice.
+  const nts = Number(r.nts) || 0;
+  const bucket = grossUpBucket(r.platform || '');
+
+  // Unmapped / unknown channel: return net unchanged rather than defaulting to
+  // an Airbnb-style gross-up we can't justify.
+  if (bucket === 'passthrough') return net;
+
+  // SCA / Direct is just a 0%-commission RT-Stripe channel: the Stripe fee is
+  // its ONLY platform fee, so it gets added back like VRBO's does, and the
+  // 11.7% tax layers on the same < 30-night rule as everyone else. For a
+  // taxable SCA stay this reconstructs the guest's actual Payment Link charge
+  // (total_paid) exactly; for a >= 30-night stay it lands on the pre-tax
+  // charge. Airbnb / Booking.com stripe_fee is 0 (channel processes the card),
+  // so the "+ stripeFee" is a no-op there.
+  const feePct = bucket === 'sca' ? 0 : PLATFORM_FEE_PCT[bucket]; // 0 / 0.155 / 0.08 / 0.15
+  const platformGross = (net + stripeFee) / (1 - feePct);
+  const isTaxable = nts > 0 && nts < TAX_NIGHTS_THRESHOLD;
+  const tax = isTaxable ? platformGross * TAX_RATE : 0;
+  return platformGross + tax;
+}
+
+// Sums guest-facing gross across all rows and divides by `denominator` (which
+// MUST be the same nightsBooked value the current net ADR uses). Returns 0 when
+// denominator <= 0. Pure numerator-only helper -- display only.
+function computeGuestFacingADR(
+  rows: Array<Parameters<typeof guestFacingGross>[0]>,
+  denominator: number,
+): number {
+  if (!(denominator > 0)) return 0;
+  const grossTotal = rows.reduce((sum, r) => sum + guestFacingGross(r), 0);
+  return grossTotal / denominator;
+}
+// -------------------------------------------------------------------------
 
 // Normalize guest names: "julie polvinen" -> "Julie Polvinen". Preserves
 // common connectors lowercase ("Mary Van Der Berg" stays as-is after title-casing).
@@ -157,7 +266,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .single();
 
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
-  const { data: cleaningEvents } = await supabase.from('cleaning_events').select('*').eq('property_statement_id', id);
 
   // Add-on charges attributed to specific reservations in the deposit-review
   // queue (e.g. a post-booking Airbnb pet fee). Keyed by the reservation's
@@ -295,15 +403,11 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     (sum, r) => sum + nightsInMonth(r.check_in, r.check_out, month), 0,
   );
   const occupancy = totalDays > 0 ? Math.round((occupiedNights / totalDays) * 100) : 0;
-  const adr = nightsBooked > 0 ? prop.rental_revenue / nightsBooked : 0;
+  // ADR is computed below, after `rows` is built (guest-facing gross needs the
+  // enriched per-row platform values). Denominator stays nightsBooked so the
+  // per-night rate matches what guests actually paid for the month's stays.
   const [yr, moStr] = month.split('-');
   const mo = monthName(month);
-  // "N turns" counts cleaning turnovers only -- exclude Nor'East linen rows,
-  // which are additive cost folded into cleaning_total but aren't turnovers.
-  const cleans = (cleaningEvents?.filter(e =>
-    e.vendor !== LINEN_VENDOR_NAME
-    && (Number(e.credit_amount) || 0) < (Number(e.amount) || 0)
-  ).length || 0) || numStays;
 
   // Guest Rating: month-scoped only. Historical averages are misleading on a
   // monthly statement (we don't want a January review padding April's numbers).
@@ -442,6 +546,12 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     };
   });
 
+  // Guest-facing (grossed-up) ADR. DISPLAY-ONLY -- reconstructs what the guest
+  // paid per night from RT's net deposit, using the SAME nightsBooked
+  // denominator as the legacy net ADR. Payout math is untouched. See the
+  // computeGuestFacingADR block comment near the top of this file.
+  const adr = computeGuestFacingADR(rows, nightsBooked);
+
   // Channel mix (uses enriched platform values from rows)
   const chRev: Record<string, number> = {};
   rows.forEach(r => { const c = chLabel(r.platform); chRev[c] = (chRev[c] || 0) + (r.adjusted_revenue || r.rental_income || 0); });
@@ -554,7 +664,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 </div>
                 <div className="mini">
                   <div className="mini-label">Avg Daily Rate</div>
-                  <div className="mini-value">${Math.round(adr)}<span className="u">.{fmt(adr).split('.')[1]}</span></div>
+                  <div className="mini-value">${fmt(adr).split('.')[0]}<span className="u">.{fmt(adr).split('.')[1]}</span></div>
                 </div>
               </div>
             </section>
@@ -565,10 +675,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">01</span>
                   <h2 className="sec-title">Reservations</h2>
-                  <span className="sec-meta">{numStays} stays</span>
                 </div>
                 <table className="res-table">
-                  <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Net Rev</th></tr></thead>
+                  <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Rental Rev</th></tr></thead>
                   <tbody>
                     {rows.map((r, i) => {
                       const addOns = r.confirmation_code ? (addOnsByCode.get(r.confirmation_code) || []) : [];
@@ -577,7 +686,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                           <tr>
                             <td>
                               <div className="guest">{titleCase(r.guest_name)}</div>
-                              <div className="guest-sub">{r.nts} nts &middot; ${r.perNt}/nt</div>
                               {r.note && (
                                 <div className="guest-note">
                                   {r.note}
@@ -616,12 +724,11 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">02</span>
                   <h2 className="sec-title">Financials</h2>
-                  <span className="sec-meta">Net ${fmt(prop.owner_payout)}</span>
                 </div>
                 <table className="fin-table"><tbody>
                   <tr><td><span className="cat">Rental Revenue</span></td><td className="amt">${fmt(Number(prop.rental_revenue) + Number(prop.add_ons_revenue || 0))}</td></tr>
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
-                  <tr><td><span className="cat">Cleaning<small>({cleans} turns)</small></span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
+                  <tr><td><span className="cat">Cleaning</span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
                   {(() => {
                     // Repairs & Maint = vendor-classified repairs +
                     // operator-attributed bank-debit reimbursements (e.g.
@@ -631,6 +738,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairsCombined > 0 ? 'amt neg' : 'amt'} style={repairsCombined > 0 ? {} : { color: 'var(--ink-4)' }}>{repairsCombined > 0 ? `\u2212$${fmt(repairsCombined)}` : '\u2014'}</td></tr>
                     );
                   })()}
+                  {Number(prop.reserve_holdback || 0) > 0 && (
+                    <tr><td><span className="cat">Owner Reserve</span></td><td className="amt neg">&minus;${fmt(Number(prop.reserve_holdback))}</td></tr>
+                  )}
                   <tr className="total"><td><span className="cat">Owner Payout</span></td><td className="amt">${fmt(prop.owner_payout)}</td></tr>
                 </tbody></table>
 
@@ -676,7 +786,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               </div>
               <div className="insight">
                 <div className="insight-label">ADR</div>
-                <div className="insight-value">${Math.round(adr)}</div>
+                <div className="insight-value">${fmt(adr).split('.')[0]}</div>
                 <div className="insight-sub">avg. daily rate</div>
               </div>
               <div className="insight">

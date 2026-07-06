@@ -34,10 +34,17 @@ export type ContractorRow = {
   agreement_signed_name: string | null;
   agreement_ip: string | null;
   agreement_user_agent: string | null;
+  // Background-check authorization captured at onboarding (FCRA consent on
+  // file; the office runs the actual report through a screening provider).
+  bg_authorized_at: string | null;
+  bg_authorized_name: string | null;
+  bg_authorized_ip: string | null;
+  bg_disclosure_version: string | null;
   home_lat: number | null;
   home_lng: number | null;
   service_radius_miles: number;
   photo_url: string | null;
+  sms_opt_in: boolean; // receives "new work posted" texts (opt-out; default true)
   payment_method: string | null;
   payment_hint: string | null;
   vendor_key: string | null;
@@ -53,12 +60,15 @@ export function onboardingComplete(c: Pick<ContractorRow, 'status' | 'agreement_
   return c.status === 'active' && !!c.agreement_signed_at && c.w9_on_file;
 }
 
-/** True once the contractor may claim paid work: onboarding done AND a cleared
- *  background check (they enter owners' homes). */
+/** True once the contractor may claim paid work: onboarding done AND a
+ *  background check that is at least underway. The office marking the check
+ *  'pending' (running) unlocks claiming so a contractor can start while it
+ *  completes; 'cleared' keeps them unlocked; 'not_started' and 'failed' do not.
+ *  (They enter owners' homes, so a not-yet-started or failed check still gates.) */
 export function canClaim(
   c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>,
 ): boolean {
-  return onboardingComplete(c) && c.background_check_status === 'cleared';
+  return onboardingComplete(c) && (c.background_check_status === 'cleared' || c.background_check_status === 'pending');
 }
 
 export type PacketRow = {
@@ -86,6 +96,7 @@ export type PacketRow = {
   paid_reference: string | null;
   published_at: string | null;
   notes: string | null;
+  instructions: string | null; // packet-wide free-form note from the office, shown to the inspector
   entry_code: string | null;
   auto_generated: boolean;
   suggestion_key: string | null;
@@ -106,7 +117,18 @@ export type PacketStopRow = {
   walk_order: number;
   inspection_id: string | null;
   work_slip_id: string | null;
+  instructions: string | null; // per-stop free-form note from the office, shown to the inspector
   status: StopStatus;
+  // Live-route arrival signals (migration 20260701). started_at = Start tap;
+  // arrived_verified_at = the Seam lock recorded their packet code at the door
+  // (physical proof); arrival_source self|lock|both -> verified iff lock|both.
+  started_at: string | null;
+  arrived_verified_at: string | null;
+  completed_at: string | null;
+  departed_at: string | null; // left the property (next door opening, or submit)
+  arrival_source: 'self' | 'lock' | 'both' | null;
+  verified_device_id: string | null;
+  verified_access_code_id: string | null;
   created_at: string;
 };
 
@@ -116,9 +138,19 @@ export type WorkSlipLite = {
   title: string;
   description: string | null;
   action_summary: string | null;
+  bring_list: string | null;
   location: string | null;
   priority: string;
   photo_urls: string[];
+};
+
+/** A work slip ATTACHED to a stop (extra task riding on the visit), as opposed
+ *  to a maintenance stop that IS a slip. Carries the per-attachment office note
+ *  and its own completion, tracked independently of the stop's status. */
+export type AttachedSlip = WorkSlipLite & {
+  attachmentId: string;
+  officeNote: string | null;
+  completedAt: string | null;
 };
 
 /** Property fields the Field module needs: location + the access bundle. */
@@ -179,6 +211,9 @@ export type PacketStopDetail = PacketStopRow & {
   property: FieldProperty;
   access: AccessBundle | null;
   workSlip: WorkSlipLite | null;
+  /** Extra work slips the office attached to this stop (separate from workSlip,
+   *  which is the maintenance job the stop itself is). [] when none. */
+  attachedSlips: AttachedSlip[];
 };
 
 /** A packet joined with its stops, for both internal and contractor views. */
@@ -221,7 +256,13 @@ export function dollars(cents: number): string {
 /** Drop the trailing state ("Gloucester MA" -> "Gloucester") for display. */
 export function cityShort(city: string | null): string {
   if (!city) return '';
-  return city.replace(/,?\s*(MA|CT|FL|NH|RI|ME)$/i, '').trim();
+  // Normalize every stored shape ("Gloucester", "Gloucester, MA",
+  // "Gloucester, MA 01930", "Gloucester MA") to the bare town, so the same
+  // town never reads as two ("Gloucester & Gloucester, MA 01930").
+  return city
+    .split(',')[0]
+    .replace(/\s+(MA|CT|FL|NH|RI|ME)(\s+\d{5}(-\d{4})?)?$/i, '')
+    .trim();
 }
 
 function streetName(name: string): string {
@@ -238,7 +279,20 @@ export function sharedArea(p: PacketDetail): string | null {
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-  return top && top[1] > 1 ? top[0] : null;
+  // "N inspections on X" claims EVERY stop is on X — only say it when true.
+  // (2 of 3 on Rocky Neck plus one in Beverly used to read "on Rocky Neck".)
+  return top && top[1] === p.stops.length ? top[0] : null;
+}
+
+/** Honest multi-town label, in stop order: "Gloucester", "Gloucester & Beverly",
+ *  "Gloucester, Rockport & Beverly". A contractor judges drive time off this —
+ *  a packet must never hide that a leg is in another town. */
+export function townsLabel(cities: Array<string | null>): string {
+  const towns = [...new Set(cities.map(cityShort).filter(Boolean))];
+  if (towns.length === 0) return '';
+  if (towns.length === 1) return towns[0];
+  if (towns.length === 2) return `${towns[0]} & ${towns[1]}`;
+  return `${towns.slice(0, -1).join(', ')} & ${towns[towns.length - 1]}`;
 }
 
 /** The card/detail headline: carries what + where. The property name for a
@@ -258,9 +312,15 @@ export function packetHeadline(p: PacketDetail): string {
     return `${label} · ${homes} homes`;
   }
   // Inspections: one stop per home, so a shared street/town is accurate.
-  if (p.stop_count === 1) return p.stops[0]?.property.name ?? '1 inspection';
+  if (p.stop_count === 1) {
+    const nm = p.stops[0]?.property.name;
+    if (nm) return nm;
+    // Masked (pre-claim) payload has no name — fall back to the town.
+    const c = cityShort(p.stops[0]?.property.city ?? null);
+    return c ? `1 inspection in ${c}` : '1 inspection';
+  }
   const area = sharedArea(p);
   if (area) return `${p.stop_count} inspections on ${area}`;
-  const city = cityShort(p.stops[0]?.property.city ?? null);
-  return city ? `${p.stop_count} inspections in ${city}` : `${p.stop_count} inspections`;
+  const towns = townsLabel(p.stops.map((s) => s.property.city));
+  return towns ? `${p.stop_count} inspections in ${towns}` : `${p.stop_count} inspections`;
 }

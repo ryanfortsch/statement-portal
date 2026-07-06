@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, autoAttachInventorySlips } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -18,6 +18,59 @@ async function staffEmail(): Promise<string> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   return session.user.email;
+}
+
+// ── Attach work slips + instructions to a packet stop ──────────────────
+// Hand the assigned inspector extra tasks per property: open work slips (with a
+// per-slip note) plus free-form per-stop / per-packet instructions. Allowed
+// anytime the packet is still live (incl. after a contractor claims it) — the
+// attachment just shows up on their packet on next load. Unpriced, so no payout
+// or stop-count effect.
+
+export async function attachSlipToStop(packetId: string, stopId: string, workSlipId: string): Promise<{ ok: boolean }> {
+  const email = await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .upsert({ stop_id: stopId, work_slip_id: workSlipId, created_by_email: email }, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function detachSlipFromStop(packetId: string, attachmentId: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb().from('packet_stop_work_slips').delete().eq('id', attachmentId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function updateStopSlipNote(packetId: string, attachmentId: string, note: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .update({ office_note: note.trim().slice(0, 2000) || null })
+    .eq('id', attachmentId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function setStopInstructions(packetId: string, stopId: string, text: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('packet_stops')
+    .update({ instructions: text.trim().slice(0, 4000) || null })
+    .eq('id', stopId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
+export async function setPacketInstructions(packetId: string, text: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const { error } = await fieldDb()
+    .from('inspection_packets')
+    .update({ instructions: text.trim().slice(0, 4000) || null })
+    .eq('id', packetId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
 }
 
 /** Office-only: decrypt a contractor's full TIN for filing their 1099. */
@@ -270,6 +323,8 @@ export async function publishPacket(formData: FormData): Promise<void> {
     actor_email: email,
     event_type: 'published',
   });
+  // Restock slips created since the draft attach themselves at publish.
+  await autoAttachInventorySlips(packetId).catch(() => {});
   // Text active inspectors near the cluster — fire-and-forget so a Quo hiccup
   // never blocks the publish. No-op when Quo isn't configured or the packet
   // didn't actually go live (revalidation may have emptied it).
@@ -459,20 +514,31 @@ export async function removeStop(formData: FormData): Promise<void> {
     .select('base_price_cents')
     .eq('id', stopId)
     .maybeSingle();
+  // Already gone — a double-submitted remove (the link has no pending state).
+  // Bail before touching the packet row: blindly decrementing stop_count on
+  // the second fire is how a 2-row packet gets stored as "1 stop".
+  if (!stop) return;
   await fieldDb().from('packet_stops').delete().eq('id', stopId).eq('packet_id', packetId);
+  // Count the SURVIVING rows instead of decrementing the column, so the stored
+  // count can never drift from reality. The price stays a subtraction (not a
+  // recompute from bases) to preserve any operator-set posted price.
+  const { count: liveCount } = await fieldDb()
+    .from('packet_stops')
+    .select('id', { count: 'exact', head: true })
+    .eq('packet_id', packetId);
   const { data: pkt } = await fieldDb()
     .from('inspection_packets')
-    .select('posted_price_cents, stop_count')
+    .select('posted_price_cents')
     .eq('id', packetId)
     .maybeSingle();
   if (pkt) {
-    const base = (stop as { base_price_cents: number } | null)?.base_price_cents ?? 0;
-    const p = pkt as { posted_price_cents: number; stop_count: number };
+    const base = (stop as { base_price_cents: number }).base_price_cents ?? 0;
+    const p = pkt as { posted_price_cents: number };
     await fieldDb()
       .from('inspection_packets')
       .update({
         posted_price_cents: Math.max(0, p.posted_price_cents - base),
-        stop_count: Math.max(0, p.stop_count - 1),
+        stop_count: liveCount ?? 0,
         updated_at: new Date().toISOString(),
       })
       .eq('id', packetId);

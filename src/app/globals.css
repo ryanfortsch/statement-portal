@@ -249,11 +249,62 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.02em;
-  min-width: 64px;
+  /* Wide enough for the longest live readout ('inspecting 1h 23m', 17 mono
+     chars) so a long readout never shoves the pip rail left — the six-pip
+     column stays aligned down the whole ledger. */
+  min-width: 120px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .rt-tn-act { flex: 0 0 auto; min-width: 72px; text-align: right; }
+/* Desktop: a CONSTANT action-column width (not content-sized) so the state
+   column's right edge — and therefore the pip rail — lines up on every row
+   whether the slot holds Start, Resume, or a variable-width Field byline.
+   Mobile keeps auto width; the row's flex-wrap handles narrow screens. */
+@media (min-width: 641px) {
+  .rt-tn-act { width: 128px; }
+}
+/* Field byline — delegation credit in the action column (see FieldCredit in
+   CompactTurnoverRow): uppercase micro-kicker over a Fraunces-italic payload,
+   right-aligned off the same edge as Start / Resume / Summary. Bare type on
+   purpose: no fill, border, or radius, so it can never be mistaken for the
+   solid navy START button. */
+.rt-tn-field {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.rt-tn-field-k {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* ink-3, not the usual ink-4 micro-kicker: at 9px on paper ink-4 sits at
+     2.35:1 and the kicker is the only text distinguishing FIELD from ON
+     SITE. ink-3 (5.1:1) keeps the quiet register while staying legible. */
+  color: var(--ink-3);
+  line-height: 1;
+}
+.rt-tn-field-p {
+  font-family: var(--font-fraunces), "Times New Roman", serif;
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.1;
+  /* Matches the desktop .rt-tn-act column width so a long contractor name
+     ellipsizes instead of widening the column. */
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-tn-field:hover .rt-tn-field-p {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
 .rt-tn-start {
   background: var(--ink);
   color: var(--paper);
@@ -924,4 +975,45 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
    /print sheet, not an in-place overlay. */
 @media print {
   .rt-no-print { display: none !important; }
+}
+
+/* Field contractor portal — phone reachability. The per-stop Start/Resume
+   button lives in a far-right sliver on desktop; on a phone that's the
+   hardest thumb reach for the action tapped at every home, so the stop row
+   wraps and the action stacks full-width beneath the stop's details. */
+@media (max-width: 640px) {
+  .rt-stop-row {
+    flex-wrap: wrap;
+  }
+  .rt-stop-action {
+    flex-basis: 100%;
+    order: 99;
+    margin-left: 40px; /* align under content: 26px pin + 14px gap */
+  }
+  .rt-stop-action form,
+  .rt-stop-action button {
+    width: 100%;
+  }
+}
+
+/* Field home — narrow-phone fitting. The JourneyRail's long stage labels wrap
+   raggedly in a 4-way split under ~400px, so short forms swap in; the
+   PacketCard's price column stops fighting the details column and drops to
+   its own full-width row. */
+.rt-jr-short { display: none; }
+@media (max-width: 400px) {
+  .rt-jr-long { display: none; }
+  .rt-jr-short { display: inline; }
+  .rt-packet-row { flex-wrap: wrap; }
+  .rt-packet-price {
+    flex-basis: 100%;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    text-align: left;
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+  }
+  .rt-packet-price > * { margin-top: 0 !important; }
+  .rt-packet-price > :last-child { margin-left: auto; }
 }

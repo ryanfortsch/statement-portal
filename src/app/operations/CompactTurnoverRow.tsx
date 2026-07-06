@@ -12,6 +12,8 @@ import {
   fieldChipLabel,
   fieldChipColor,
   formatDateShort,
+  guestDisplay,
+  INSPECTING_TEXT_HUE,
   lifecycleOf,
   STAGE_HUES,
   type StageCls,
@@ -35,6 +37,15 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
+  const todayStr = new Date(now).toISOString().slice(0, 10);
+  const lc = lifecycleOf(t, now, todayStr);
+
+  // Slow breathe on the active pip's halo. Re-arm ONLY when the active stage
+  // (or its overdue hue) changes — with no dep array, the 1s `now` tick was
+  // cancelling and restarting the 2s animation every render, which read as a
+  // 1Hz blink stuck near peak opacity instead of a calm breathe.
   useEffect(() => {
     const el = haloRef.current;
     if (!el) return;
@@ -45,11 +56,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
       easing: 'ease-in-out',
     });
     return () => a.cancel();
-  });
-
-  const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
-  const todayStr = new Date(now).toISOString().slice(0, 10);
-  const lc = lifecycleOf(t, now, todayStr);
+  }, [lc.active, lc.overdue]);
 
   // Readout: cleaning-in-progress counts up off real entry; otherwise count
   // down to check-in; done rows show a calm mark.
@@ -60,7 +67,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
     roColor = 'var(--positive)';
   } else if (lc.active === 'cleaning' && lc.enteredAt) {
     readout = `cleaning ${elapsed(lc.enteredAt, now)}`;
-    roColor = '#b08a2e';
+    roColor = STAGE_HUES[2]; // cleaning stage identity — matches pip + header dot
   } else if (lc.active === 'clean') {
     // Lockless home, due, not yet cleaned: no lock signal is coming, so the
     // honest readout is "needs clean" (red once past the check-in target),
@@ -72,7 +79,7 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
     // An inspection is genuinely underway (app start, or a master-code unlock):
     // count up off its real start, not a bare countdown.
     readout = lc.inspectionStartedAt ? `inspecting ${elapsed(lc.inspectionStartedAt, now)}` : 'inspecting';
-    roColor = '#b8901a';
+    roColor = INSPECTING_TEXT_HUE; // shared with the header stage-strip dot
   } else if (lc.active === 'inspected') {
     // Cleaned and due, but no inspection has started: the actionable state is
     // "needs inspection", not a bare countdown to check-in.
@@ -94,7 +101,13 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
       onClick={() => setOpen((o) => !o)}
       role="button"
       tabIndex={0}
+      aria-expanded={open}
       onKeyDown={(e) => {
+        // Keydown bubbles from the inner Start / Resume / Undo / Mark-done
+        // controls (the stopPropagation on those wrappers only covers click),
+        // and preventDefault below would swallow their native activation.
+        // Only toggle when the row ITSELF is the focused target.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           setOpen((o) => !o);
@@ -114,12 +127,26 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
             </span>
           )}
         </div>
-        <div className="rt-tn-prop" title={`${t.propertyName} · ${t.guestName ?? 'guest'}`}>
-          {t.isSameDayTurnover && !isDone && <span className="rt-tn-sd" aria-hidden />}
+        <div
+          className="rt-tn-prop"
+          title={`${t.propertyName} · ${guestDisplay(t.guestName)}${t.isSameDayTurnover ? ' · same-day turn' : ''}`}
+        >
+          {t.isSameDayTurnover && !isDone && <span className="rt-tn-sd" title="Same-day turnover" />}
           <span className="font-serif" style={{ fontSize: 13.5, color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>
             {t.propertyName}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}> · {t.guestName || 'Guest'}</span>
+          {(() => {
+            // Hold placeholders ('Reservation HMYZR2RYJD') render as an
+            // italic, dim 'Hold' — status, not a person — same as the
+            // occupancy calendar below.
+            const g = guestDisplay(t.guestName);
+            const isHold = g === 'Hold';
+            return (
+              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: isHold ? 'italic' : 'normal' }}>
+                {' '}· {g}
+              </span>
+            );
+          })()}
           {t.channel && (
             <span
               aria-hidden
@@ -129,6 +156,14 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
           {batteryLow && !isDone && (
             <span title="Low smart-lock battery — pack spares" style={{ color: 'var(--negative)', fontSize: 11, marginLeft: 7 }}>
               ⚠ battery
+            </span>
+          )}
+          {t.prepSlips.length > 0 && !isDone && (
+            <span
+              title={t.prepSlips.map((s) => s.actionSummary || s.title).join(' · ')}
+              style={{ color: 'var(--signal)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}
+            >
+              ✧ guest prep
             </span>
           )}
         </div>
@@ -180,10 +215,25 @@ export function CompactTurnoverRow({ t, myEmail }: { t: Turnover; myEmail: strin
                 />
               )}
               {t.lockBattery?.isLow && (
-                <span style={{ color: 'var(--signal)', fontSize: 11, fontWeight: 600 }}>
+                // Same severity color as the collapsed '⚠ battery' flag — the
+                // identical fact shouldn't downgrade from rust to gold on click.
+                <span style={{ color: 'var(--negative)', fontSize: 11, fontWeight: 600 }}>
                   Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
                 </span>
               )}
+              {t.prepSlips.map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/work/${s.id}`}
+                  // whiteSpace normal (unlike chipLink's nowrap): the summary
+                  // runs ~70 chars and an unshrinkable nowrap chip would
+                  // reintroduce the horizontal page scroll the compact-row
+                  // redesign eliminated on phones.
+                  style={{ ...chipLink, whiteSpace: 'normal', color: 'var(--signal)', fontWeight: 600 }}
+                >
+                  {truncate(s.actionSummary || s.title, 90)} →
+                </Link>
+              ))}
               {t.openWorkSlipsCount > 0 && (
                 <Link href={`/properties/${t.propertyId}/work-slips/print`} style={chipLink}>
                   {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
@@ -277,12 +327,14 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
     );
   }
   // A LIVE Field packet (published to a contractor and beyond) covers this
-  // turnover, so hide the staff Start CTA — otherwise a staff walk and a
-  // paid contractor walk both happen. A DRAFT packet is NOT yet published
-  // to anyone, so it must not block staff: a draft was silently hiding
-  // Start and forcing turnovers to be marked done by hand. The Field chip
-  // still shows the draft exists; cancel the packet to clear it.
-  if (t.fieldPacket && t.fieldPacket.status !== 'draft') return null;
+  // turnover, so the staff Start CTA yields to the Field byline — otherwise
+  // a staff walk and a paid contractor walk both happen. A DRAFT packet is
+  // NOT yet published to anyone, so it must not block staff: a draft was
+  // silently hiding Start and forcing turnovers to be marked done by hand.
+  // The expanded Field chip still shows the draft exists.
+  if (t.fieldPacket && t.fieldPacket.status !== 'draft') {
+    return <FieldCredit fp={t.fieldPacket} />;
+  }
   return (
     <form action={startInspection} style={{ margin: 0 }}>
       <input type="hidden" name="property_id" value={t.propertyId} />
@@ -293,7 +345,53 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
   );
 }
 
+/**
+ * The Field byline — who has this walk, as editorial attribution rather than
+ * chrome. A two-line right-aligned credit in the action column: an uppercase
+ * micro-kicker (FIELD, or ON SITE once the contractor starts) over the
+ * payload in Fraunces italic. Typographically the opposite pole from the
+ * solid navy START button, so delegation reads as a state, not an action.
+ * The whole stack links to the packet.
+ *
+ *   published            claimed / in_progress      submitted
+ *   FIELD                FIELD | ON SITE            FIELD
+ *   Open for claim       Delaney Jordan             Review →
+ *   (gold: unassigned)   (tide-deep: delegated)     (ink: operator to-do)
+ */
+function FieldCredit({ fp }: { fp: NonNullable<Turnover['fieldPacket']> }) {
+  if (fp.status === 'approved') return null; // done path renders elsewhere
+  const claimed = fp.status === 'claimed' || fp.status === 'in_progress';
+  const payload = claimed
+    ? (fp.contractorName ?? 'Claimed')
+    : fp.status === 'published'
+      ? 'Open for claim'
+      : 'Review →';
+  const color = claimed ? 'var(--tide-deep)' : fp.status === 'published' ? 'var(--signal)' : 'var(--ink)';
+  const walkDay = fp.visitDate ? ` · walks ${formatDateShort(fp.visitDate)}` : '';
+  const title = claimed
+    ? `Field packet · ${fp.contractorName ?? 'claimed'}${walkDay}`
+    : fp.status === 'published'
+      ? `Field packet · open for claim${walkDay}`
+      : `Field packet · submitted for review`;
+  return (
+    <Link href={`/operations/packets/${fp.packetId}`} className="rt-tn-field" title={title}>
+      <span className="rt-tn-field-k" style={fp.status === 'in_progress' ? { color: 'var(--signal)' } : undefined}>
+        {fp.status === 'in_progress' ? 'On site' : 'Field'}
+      </span>
+      <span className="rt-tn-field-p" style={{ color, fontWeight: fp.status === 'submitted' ? 500 : 400 }}>
+        {payload}
+      </span>
+    </Link>
+  );
+}
+
+
 const chipLink: React.CSSProperties = { fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', whiteSpace: 'nowrap' };
+
+/** Keep prep-slip chip labels short enough to scan at a glance. */
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
 
 function elapsed(sinceIso: string, now: number): string {
   const s = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 1000));

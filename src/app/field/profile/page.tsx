@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
-import { dollars } from '@/lib/field-types';
+import { dollars, type ContractorRow } from '@/lib/field-types';
 import { FieldShell } from '../FieldShell';
 import { ProfilePhoto } from '../ProfilePhoto';
+import { SmsToggle } from '../SmsToggle';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -47,72 +48,65 @@ export default async function FieldProfilePage() {
 
   const { payStats, reliability, rating, reviews, history } = await loadContractorProfile(contractor.id);
 
-  const stats: Array<{ label: string; value: string; tone?: string }> = [];
-  if (payStats && payStats.paidCents > 0) stats.push({ label: 'Earned to date', value: dollars(payStats.paidCents) });
-  if (payStats && payStats.owedCents > 0) stats.push({ label: 'Pending', value: dollars(payStats.owedCents), tone: 'var(--signal)' });
+  const paidCents = payStats?.paidCents ?? 0;
+  const owedCents = payStats?.owedCents ?? 0;
   const jobsDone = reliability?.completed ?? payStats?.approvedCount ?? 0;
-  if (jobsDone > 0) stats.push({ label: 'Jobs completed', value: String(jobsDone) });
-  if (reliability && reliability.onTime + reliability.late > 0) {
-    stats.push({ label: 'On time', value: `${Math.round((reliability.onTime / (reliability.onTime + reliability.late)) * 100)}%` });
-  }
-  if (rating?.rated && rating.avg != null) stats.push({ label: 'Guest rating', value: `★ ${rating.avg.toFixed(2)}` });
-
+  const onTimePct =
+    reliability && reliability.onTime + reliability.late > 0
+      ? Math.round((reliability.onTime / (reliability.onTime + reliability.late)) * 100)
+      : null;
   const tier = rating?.tier ?? 'unrated';
-  const streak = rating?.fiveStreak ?? 0;
-  const next = NEXT_TIER[tier];
+  const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
+
+  const firstName = contractor.full_name.split(' ')[0];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
       <Link href="/field" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Back to work</Link>
 
-      {/* Identity */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, margin: '16px 0 28px', flexWrap: 'wrap' }}>
-        <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} />
-        <div>
-          <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0 }}>{contractor.full_name}</h1>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Hero */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, margin: '16px 0 26px', flexWrap: 'wrap' }}>
+        <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} size={76} stacked />
+        <div style={{ minWidth: 0 }}>
+          <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0, lineHeight: 1.1 }}>{contractor.full_name}</h1>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ textTransform: 'capitalize' }}>{contractor.trade}</span>
-            {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· with Rising Tide since {monthYear(contractor.created_at)}</span>}
+            {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
             {tier !== 'unrated' && (
               <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier], border: `1px solid ${TIER_TINT[tier]}`, borderRadius: 999, padding: '1px 8px' }}>
                 {tier}
               </span>
             )}
           </div>
+          {rating?.rated && rating.avg != null && (
+            <div style={{ fontSize: 13, color: '#b8860b', marginTop: 5 }}>
+              ★ {rating.avg.toFixed(2)} <span style={{ color: 'var(--ink-4)' }}>· {rating.count} guest {rating.count === 1 ? 'review' : 'reviews'}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Lifetime stats */}
-      {stats.length > 0 && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 28 }}>
-          {stats.map((s) => (
-            <div key={s.label} style={{ flex: '1 1 130px', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
-              <div className="font-mono" style={{ fontSize: 20, color: s.tone ?? 'var(--ink)' }}>{s.value}</div>
-              <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>{s.label}</div>
-            </div>
-          ))}
+      {/* Lifetime stats — only once there's something real to show */}
+      {hasActivity && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 28 }}>
+          <Stat label="Earned to date" value={dollars(paidCents)} />
+          {owedCents > 0 && <Stat label="Pending" value={dollars(owedCents)} tone="var(--signal)" />}
+          {jobsDone > 0 && <Stat label="Jobs completed" value={String(jobsDone)} />}
+          {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
+          {rating?.rated && rating.avg != null && <Stat label="Guest rating" value={`★ ${rating.avg.toFixed(2)}`} />}
         </div>
       )}
 
-      {/* Reputation / streak */}
-      <Section title="Reputation">
-        {streak > 0 || (rating?.count ?? 0) > 0 ? (
-          <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-            <span style={{ color: 'var(--ink)' }}>🔥 {streak} five-star {streak === 1 ? 'stay' : 'stays'} in a row</span>
-            {next ? <> · {Math.max(0, next.at - streak)} more to {next.name}</> : <> · top tier 🥇</>}
-            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>
-              Your reputation is the guest rating of the stays you prep. {rating?.count ?? 0} rated so far.
-            </div>
-          </div>
-        ) : (
-          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-            No guest reviews yet. The guests who stay in the homes you prep rate their stay, and those become your
-            reviews. String together 25 five-star stays in a row for Bronze, 50 for Silver, 100 for Gold.
-          </p>
-        )}
-      </Section>
+      {/* Reputation ladder — the aspirational centerpiece, shown even at zero */}
+      <ReputationLadder
+        tier={tier}
+        total={rating?.fiveStarTotal ?? 0}
+        streak={rating?.fiveStreak ?? 0}
+        count={rating?.count ?? 0}
+        toNext={rating?.toNextTier ?? null}
+      />
 
-      {/* Reviews */}
+      {/* Guest reviews */}
       {reviews.length > 0 && (
         <Section title={`Guest reviews · ${reviews.length}`}>
           {reviews.map((r, i) => (
@@ -130,16 +124,109 @@ export default async function FieldProfilePage() {
         </Section>
       )}
 
-      {/* Account */}
-      <Section title="Account">
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', display: 'grid', gap: 6 }}>
-          <Status ok={contractor.w9_on_file} label="W-9 on file" />
-          <Status ok={!!contractor.agreement_signed_at} label="Contractor agreement signed" />
-          <Status ok={!!contractor.photo_url} label="Profile photo" />
-          <div style={{ color: 'var(--ink-4)' }}>Payout method · coming soon</div>
+      {/* Notifications */}
+      <section style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>Notifications</h2>
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>Text me when new work is posted</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
+              We text your phone the moment a packet opens near you. Turn it off anytime.
+            </div>
+          </div>
+          <SmsToggle initial={contractor.sms_opt_in} />
         </div>
-      </Section>
+      </section>
+
+      {/* Account */}
+      <AccountCard contractor={contractor} />
+
+      {/* New-contractor forward nudge */}
+      {!hasActivity && (
+        <Link
+          href="/field"
+          style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--rule)', borderRadius: 12, padding: '18px 20px', background: 'var(--paper-2, #fff)', marginTop: 4 }}
+        >
+          <div className="font-serif" style={{ fontSize: 18, color: 'var(--ink)' }}>Ready when you are, {firstName}</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
+            Browse the work open near you and claim your first visit. <span style={{ color: 'var(--signal)', fontWeight: 600 }}>See open work →</span>
+          </div>
+        </Link>
+      )}
     </FieldShell>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
+      <div className="font-mono" style={{ fontSize: 20, color: tone ?? 'var(--ink)' }}>{value}</div>
+      <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
+/** The path to Bronze (25) / Silver (50) / Gold (100) cumulative five-star
+ *  reviews, with a progress bar and the current run as a flourish. Renders an
+ *  aspirational empty state at zero so a brand-new inspector sees the goal. */
+function ReputationLadder({
+  tier,
+  total,
+  streak,
+  count,
+  toNext,
+}: {
+  tier: string;
+  total: number;
+  streak: number;
+  count: number;
+  toNext: number | null;
+}) {
+  const next = NEXT_TIER[tier];
+  const pct = next ? Math.min(100, Math.round((total / next.at) * 100)) : 100;
+  const barTint = TIER_TINT[tier === 'unrated' ? 'bronze' : tier];
+  const milestones = [
+    { n: 25, label: 'Bronze' },
+    { n: 50, label: 'Silver' },
+    { n: 100, label: 'Gold' },
+  ];
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '18px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Reputation</div>
+        {streak >= 3 && <div style={{ fontSize: 13, color: 'var(--signal)' }}>🔥 {streak} five-star in a row</div>}
+      </div>
+
+      {count === 0 ? (
+        <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 14px' }}>
+          The guests who stay in the homes you prep rate their stay, and those become your reputation. String together
+          five-star stays to climb the ladder.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
+            {tier === 'unrated' ? 'Unrated' : tier}
+          </span>
+          <span style={{ fontSize: 14, color: 'var(--ink)' }}>{total} five-star</span>
+          {next && <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{toNext ?? Math.max(0, next.at - total)} more → {next.name}</span>}
+          {!next && <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>}
+        </div>
+      )}
+
+      <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: barTint, transition: 'width .3s ease' }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+        {milestones.map((m) => {
+          const reached = total >= m.n;
+          return (
+            <span key={m.n} style={{ fontSize: 10.5, fontWeight: reached ? 700 : 400, color: reached ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
+              {reached ? '✓ ' : ''}{m.label} · {m.n}
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -186,10 +273,57 @@ function HistoryRow({ h }: { h: ContractorHistoryItem }) {
   );
 }
 
-function Status({ ok, label }: { ok: boolean; label: string }) {
+const BG_CHECK: Record<ContractorRow['background_check_status'], { icon: string; label: string; tint: string }> = {
+  cleared: { icon: '✓', label: 'Background check cleared', tint: 'var(--positive)' },
+  pending: { icon: '◷', label: 'Background check in progress', tint: 'var(--signal)' },
+  not_started: { icon: '◷', label: 'Background check pending', tint: 'var(--ink-4)' },
+  failed: { icon: '✕', label: 'Background check needs attention', tint: 'var(--negative)' },
+};
+
+/** Account standing: a small completion meter + the legal/identity/payout
+ *  checklist. Surfaces the real payout method captured at onboarding. */
+function AccountCard({ contractor }: { contractor: ContractorRow }) {
+  const bg = BG_CHECK[contractor.background_check_status];
+  const payout = contractor.payment_method
+    ? contractor.payment_hint
+      ? `${contractor.payment_method} · ${contractor.payment_hint}`
+      : contractor.payment_method
+    : null;
+
+  const items: Array<{ done: boolean; icon: string; label: string; tint: string; detail?: string }> = [
+    { done: contractor.w9_on_file, icon: contractor.w9_on_file ? '✓' : '○', label: 'W-9 on file', tint: contractor.w9_on_file ? 'var(--positive)' : 'var(--ink-4)' },
+    { done: !!contractor.agreement_signed_at, icon: contractor.agreement_signed_at ? '✓' : '○', label: 'Contractor agreement signed', tint: contractor.agreement_signed_at ? 'var(--positive)' : 'var(--ink-4)' },
+    { done: contractor.background_check_status === 'cleared', icon: bg.icon, label: bg.label, tint: bg.tint },
+    { done: !!payout, icon: payout ? '✓' : '○', label: payout ? 'Payout method set' : 'Payout method', tint: payout ? 'var(--positive)' : 'var(--ink-4)', detail: payout ?? undefined },
+    { done: !!contractor.photo_url, icon: contractor.photo_url ? '✓' : '○', label: 'Profile photo', tint: contractor.photo_url ? 'var(--positive)' : 'var(--ink-4)' },
+  ];
+  const done = items.filter((i) => i.done).length;
+  const pct = Math.round((done / items.length) * 100);
+  const allSet = done === items.length;
+
   return (
-    <div style={{ color: ok ? 'var(--ink-3)' : 'var(--ink-4)' }}>
-      <span style={{ color: ok ? 'var(--positive)' : 'var(--ink-4)' }}>{ok ? '✓' : '○'}</span> {label}
-    </div>
+    <section style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', margin: 0 }}>Account</h2>
+        <span style={{ fontSize: 11, color: allSet ? 'var(--positive)' : 'var(--ink-4)' }}>
+          {allSet ? 'All set' : `${done} of ${items.length} complete`}
+        </span>
+      </div>
+
+      <div style={{ height: 6, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: allSet ? 'var(--positive)' : 'var(--ink-3)', transition: 'width .3s ease' }} />
+      </div>
+
+      <div style={{ display: 'grid', gap: 9 }}>
+        {items.map((it) => (
+          <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', fontSize: 13 }}>
+            <span style={{ color: it.done ? 'var(--ink-3)' : 'var(--ink-4)' }}>
+              <span style={{ color: it.tint, marginRight: 6 }}>{it.icon}</span>{it.label}
+            </span>
+            {it.detail && <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-4)', textAlign: 'right' }}>{it.detail}</span>}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

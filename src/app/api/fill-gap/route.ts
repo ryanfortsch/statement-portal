@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
-import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -232,6 +232,7 @@ type ExistingStmt = {
   management_fee_pct: number;
   cleaning_total: number;
   repairs_total: number;
+  reserve_holdback?: number;
   has_guesty_statement: boolean;
   has_platform_csv: boolean;
   has_bank_csv: boolean;
@@ -440,7 +441,8 @@ async function fillPlatformGap(args: {
   //    (unchanged from the prior run, since platform CSV doesn't touch
   //    bank-sourced cleaning).
   const managementFee = round2(totalRevenue * (stmt.management_fee_pct / 100));
-  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0));
+  const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
+  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
   const numStays = reservations.filter(r => {
     const ch = changes.find(c => c.id === r.id);
     const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
@@ -583,7 +585,7 @@ export async function POST(request: NextRequest) {
 
     const { data: stmt } = await supabase
       .from('property_statements')
-      .select('id, property_id, property_name, rental_revenue, management_fee, management_fee_pct, cleaning_total, repairs_total, has_guesty_statement, has_platform_csv, has_bank_csv')
+      .select('id, property_id, property_name, rental_revenue, management_fee, management_fee_pct, cleaning_total, repairs_total, reserve_holdback, has_guesty_statement, has_platform_csv, has_bank_csv')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
@@ -618,6 +620,7 @@ export async function POST(request: NextRequest) {
     // to a checkout. Mirrors /api/ingest via the shared classifier.
     const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const laundryCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     for (const row of bankRows) {
@@ -640,6 +643,10 @@ export async function POST(request: NextRequest) {
         linenCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
       }
+      if (cls?.kind === 'laundry' && isInMonth(date, month) && amount < 0) {
+        laundryCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
+        continue;
+      }
       if (cls?.kind === 'repair' && isInMonth(date, month) && amount < 0) {
         repairCharges.push({ date, amount: Math.abs(amount), description: desc, vendor: cls.vendor });
         continue;
@@ -656,7 +663,8 @@ export async function POST(request: NextRequest) {
 
     const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
     const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal) * 100) / 100;
+    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
     const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // 4. Re-run the deposit matching pass. Same algorithm as /api/ingest, but
@@ -781,6 +789,36 @@ export async function POST(request: NextRequest) {
           vendor: LINEN_VENDOR_NAME,
         });
       }
+      // Laundry Plus charges. Mirror of /api/ingest: attribute to nearest
+      // Cape Ann Elite cleaning within 7 days for display grouping, else
+      // leave as a standalone laundry row.
+      for (const c of laundryCharges) {
+        const cIsoStr = isoFromMMDDYYYY(c.date);
+        const cMs = cIsoStr ? new Date(cIsoStr + 'T00:00:00Z').getTime() : null;
+        let nearest: { guest: string | null; checkout: string | null; deltaMs: number } | null = null;
+        if (cMs !== null) {
+          for (const ins of cleaningInserts) {
+            if (ins.source !== 'matched' && ins.source !== 'bank') continue;
+            if (!ins.bank_charge_date) continue;
+            const insMs = new Date(ins.bank_charge_date + 'T00:00:00Z').getTime();
+            const deltaMs = Math.abs(insMs - cMs);
+            if (!nearest || deltaMs < nearest.deltaMs) {
+              nearest = { guest: ins.guest_name, checkout: ins.checkout_date, deltaMs };
+            }
+          }
+        }
+        const withinWindow = nearest && nearest.deltaMs <= 7 * 24 * 60 * 60 * 1000;
+        cleaningInserts.push({
+          property_statement_id: stmt.id,
+          guest_name: withinWindow ? nearest!.guest : null,
+          checkout_date: withinWindow ? nearest!.checkout : null,
+          bank_charge_amount: c.amount,
+          bank_charge_date: cIsoStr || null,
+          amount: c.amount,
+          source: 'bank-laundry',
+          vendor: LAUNDRY_VENDOR_NAME,
+        });
+      }
       await insertCleaningEvents(supabase, cleaningInserts);
     }
 
@@ -802,8 +840,9 @@ export async function POST(request: NextRequest) {
     //    rental_revenue + management_fee are unchanged (those come from Guesty,
     //    which we haven't touched). cleaning_total + repairs_total change,
     //    owner_payout recomputes from both.
+    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
     const newOwnerPayout =
-      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal) * 100) / 100;
+      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal - reserveHoldback) * 100) / 100;
 
     // Confidence: green if we now have all three sources. We don't know
     // about has_platform_csv here without reading the existing row, but

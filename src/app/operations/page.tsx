@@ -6,7 +6,7 @@ import { auth } from '@/auth';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
-import { lifecycleOf } from './turnover-format';
+import { lifecycleOf, INSPECTING_TEXT_HUE, STAGE_HUES } from './turnover-format';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
@@ -106,7 +106,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     const packetByBooking = await loadPacketStatusByBooking(data.turnovers.map((t) => t.reservationId));
     for (const t of data.turnovers) {
       const ps = packetByBooking.get(t.reservationId);
-      if (ps) t.fieldPacket = { packetId: ps.packetId, status: ps.status, contractorName: ps.contractorName };
+      if (ps) t.fieldPacket = { packetId: ps.packetId, status: ps.status, contractorName: ps.contractorName, visitDate: ps.visitDate ?? null };
     }
   } catch {
     // Field tables unconfigured / unavailable — leave turnovers chip-less.
@@ -315,10 +315,16 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               fontSize: 12,
             }}
           >
-            {cleaningNow > 0 && <StageCount dot="#b08a2e" label="cleaning now" n={cleaningNow} />}
+            {/* Dot hues mirror the row readout colors for the same states, so
+                an operator can scan from a header count straight to the rows
+                it's counting. cleaning = the pip rail's cleaning identity;
+                needs-inspection matches its signal-gold row readout (it was
+                tide-deep navy — the checked-out stage color — so scanning for
+                a navy-dotted state found only orange rows). */}
+            {cleaningNow > 0 && <StageCount dot={STAGE_HUES[2]} label="cleaning now" n={cleaningNow} />}
             {awaitingCleaner > 0 && <StageCount dot="var(--signal)" label="awaiting cleaner" n={awaitingCleaner} />}
-            {inspectingNow > 0 && <StageCount dot="#d6a51e" label="inspecting now" n={inspectingNow} />}
-            {needsInspection > 0 && <StageCount dot="var(--tide-deep)" label="clean · needs inspection" n={needsInspection} />}
+            {inspectingNow > 0 && <StageCount dot={INSPECTING_TEXT_HUE} label="inspecting now" n={inspectingNow} />}
+            {needsInspection > 0 && <StageCount dot="var(--signal)" label="clean · needs inspection" n={needsInspection} />}
             {doneCount > 0 && <StageCount dot="var(--positive)" label="done" n={doneCount} />}
           </div>
         )}

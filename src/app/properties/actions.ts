@@ -6,7 +6,6 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
 import { formatUsPhone } from '@/lib/phone';
-import { supabase } from '@/lib/supabase';
 import { upsertPropertyAccess, getPropertyAccess, ACCESS_COLUMNS, type PropertyAccess } from '@/lib/property-access';
 import type { DocumentCategory } from '@/lib/property-documents';
 import {
@@ -146,6 +145,13 @@ async function performPropertyUpdate(
   id: string,
   formData: FormData,
 ): Promise<{ error: string | null }> {
+  // Bank account last 4: optional, but if present must be exactly 4 digits
+  // (it keys the statement bank-matching). Empty clears the field.
+  const bankDigits = String(formData.get('bank_last4') ?? '').replace(/\D/g, '');
+  if (bankDigits && bankDigits.length !== 4) {
+    return { error: 'Bank account last 4 must be exactly 4 digits.' };
+  }
+
   const payload = {
     // Owner identity + contact. owner_full / owner_greeting are NOT NULL
     // columns (empty-string default); owner_emails is a text[]. The
@@ -160,6 +166,9 @@ async function performPropertyUpdate(
     owner_phone: phoneOrNull(formData, 'owner_phone'),
     owner_mailing_address: strOrNull(formData, 'owner_mailing_address'),
     owner_preferred_contact: strOrNull(formData, 'owner_preferred_contact'),
+
+    // Billing
+    bank_last4: bankDigits ? bankDigits : null,
 
     // Property specs
     bedrooms: intOrNull(formData, 'bedrooms'),
@@ -388,15 +397,21 @@ export async function markOwnerContacted(args: {
   if (!VALID_CHANNELS.includes(args.channel)) return { ok: false, error: 'Invalid channel' };
 
   const at = new Date().toISOString();
-  const { error } = await supabase
+  // Service role + 0-row guard: same anon-RLS silent-drop on public.properties
+  // that broke saved owner cards also silently swallowed "I reached out".
+  const { data, error } = await getServiceClient()
     .from('properties')
     .update({
       owner_last_contacted_at: at,
       owner_last_contacted_via: args.channel,
       owner_last_contacted_by_email: session.user.email,
     })
-    .eq('id', args.property_id);
+    .eq('id', args.property_id)
+    .select('id');
   if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) {
+    return { ok: false, error: `Property ${args.property_id} not updated (0 rows).` };
+  }
 
   revalidatePath('/properties');
   revalidatePath(`/properties/${args.property_id}`);
@@ -572,11 +587,19 @@ export async function saveOwnerCards(
 
   const owners = normalizeOwnerCards(rawOwners);
 
-  const { error } = await supabase
+  // Service role + a 0-row guard. Anon UPDATEs on public.properties are blocked
+  // by RLS and silently match 0 rows (no error), which made saved owner cards
+  // vanish on reload (reported 2026-06-30 on 21 Horton). Mirror updateProperty:
+  // write through the service-role client and assert a row actually came back.
+  const { data, error } = await getServiceClient()
     .from('properties')
     .update({ owners })
-    .eq('id', propertyId);
+    .eq('id', propertyId)
+    .select('id');
   if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) {
+    return { ok: false, error: `Property ${propertyId} not updated (0 rows). Check the property id.` };
+  }
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath('/properties');
@@ -608,7 +631,7 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { error } = await supabase
+  const { error } = await getServiceClient()
     .from('property_notices')
     .insert({ property_id: propertyId, ...payload });
   if (error) throw new Error(error.message);
@@ -629,7 +652,7 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { error } = await supabase
+  const { error } = await getServiceClient()
     .from('property_notices')
     .update({ ...payload, updated_at: new Date().toISOString() })
     .eq('id', noticeId)
@@ -650,7 +673,7 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const { error } = await supabase
+  const { error } = await getServiceClient()
     .from('property_notices')
     .delete()
     .eq('id', noticeId)
@@ -726,7 +749,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const { error } = await supabase
+  const { error } = await getServiceClient()
     .from('property_notes')
     .delete()
     .eq('id', noteId)
@@ -747,7 +770,8 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const { data: current, error: readErr } = await supabase
+  const sb = getServiceClient();
+  const { data: current, error: readErr } = await sb
     .from('property_notes')
     .select('resolved_at')
     .eq('id', noteId)
@@ -759,7 +783,7 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
   const nextResolvedAt = current.resolved_at ? null : new Date().toISOString();
   const nextResolvedBy = nextResolvedAt ? session.user.email : null;
 
-  const { error } = await supabase
+  const { error } = await sb
     .from('property_notes')
     .update({ resolved_at: nextResolvedAt, resolved_by_email: nextResolvedBy })
     .eq('id', noteId)

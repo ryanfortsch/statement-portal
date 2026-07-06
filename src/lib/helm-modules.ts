@@ -118,6 +118,10 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Applicant pipeline. Review applications, invite or decline, track source channels.',
     status: 'active',
     primary: false,
+    // A tab inside the Field section (see FieldTabs: Packets / Contractors /
+    // Hiring), so it's hidden from the standalone nav lists -- route + search
+    // still resolve, it just doesn't duplicate the Field entry.
+    hidden: true,
     group: 'operations',
   },
   {
@@ -182,6 +186,15 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'relationships',
+  },
+  {
+    id: 'cleaner-messaging',
+    href: '/cleaner-messaging',
+    number: '08c',
+    title: 'Cleaner Messaging',
+    description: 'Bilingual reply drafts for Rosa and Nina. Portuguese draft + English translation side-by-side, plus translation of their inbound message. Approve, reject, or coach the AI from Helm.',
+    status: 'active',
+    primary: false,
   },
   {
     id: 'revenue',
@@ -393,4 +406,24 @@ export function getGroupedOverflowModules(): { group: HelmGroup; label: string; 
       .filter((m) => (m.group ?? 'reference') === g.id)
       .sort((a, b) => statusRank[a.status] - statusRank[b.status]),
   })).filter((s) => s.modules.length > 0);
+}
+
+// Pinned to the top of the "More" menu in this exact order, regardless of
+// group. Per Dotti: Properties, then Field, then Financials lead; everything
+// else follows in its grouped order.
+const OVERFLOW_PRIORITY = ['properties', 'field', 'financials'];
+
+/**
+ * The flat "More" menu list both the desktop dropdown and the mobile sheet
+ * render: the grouped overflow flattened, then the priority modules pulled to
+ * the front in OVERFLOW_PRIORITY order. Single source of truth so the two
+ * surfaces stay congruent.
+ */
+export function getOverflowModulesFlat(): HelmModule[] {
+  const flat = getGroupedOverflowModules().flatMap((s) => s.modules);
+  const pinned = OVERFLOW_PRIORITY
+    .map((id) => flat.find((m) => m.id === id))
+    .filter((m): m is HelmModule => !!m);
+  const pinnedIds = new Set(pinned.map((m) => m.id));
+  return [...pinned, ...flat.filter((m) => !pinnedIds.has(m.id))];
 }

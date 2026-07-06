@@ -32,6 +32,7 @@ import {
 import {
   accessBundle,
   cityShort,
+  townsLabel,
   type FieldProperty,
   type PacketDetail,
   type PacketRow,
@@ -41,12 +42,23 @@ import {
   type WindowBasis,
   type ContractorRow,
   type WorkSlipLite,
+  type AttachedSlip,
 } from '@/lib/field-types';
 
 // Same exclusions the Operations turnover pipeline uses: out-of-region
 // properties Rising Tide doesn't physically inspect.
 const NON_OPERATIONS_PROPERTY_IDS = new Set(['65_calderwood', '3246_ne_27th']);
+// A guest reservation is a turnover to PREP (inspect before the next arrival).
 const TURNOVER_STATUSES = ['confirmed', 'completed'];
+// An owner / manual "block" (Guesty owner-use, etc.) means the home is OCCUPIED
+// but is NOT a turnover: it must count as occupancy (never send someone to
+// inspect into it, and its end is a valid checkout boundary) yet must never
+// generate inspection work or a deadline. Occupancy queries fetch this superset;
+// turnover/candidate logic re-filters to guest stays via isGuestStay().
+const BLOCK_STATUS = 'block';
+const OCCUPANCY_STATUSES = [...TURNOVER_STATUSES, BLOCK_STATUS];
+const isGuestStay = (b: { status: string | null }): boolean =>
+  TURNOVER_STATUSES.includes(b.status ?? '');
 
 // Clustering + pricing knobs now live in @/lib/field-pricing (shared with the
 // operator's live preview so the two can't drift).
@@ -147,7 +159,7 @@ async function deriveDayCandidates(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', fetchEnd)
     .gte('check_out', fetchStart)
@@ -182,8 +194,12 @@ async function deriveDayCandidates(
     const occupiedOn = (d: string) =>
       propBookings.some((b) => b.check_in <= d && d < b.check_out);
 
-    // Each upcoming check-in within the window is a reason to inspect.
-    const upcoming = propBookings.filter((b) => b.check_in >= windowStart && b.check_in <= windowEnd);
+    // Each upcoming GUEST check-in within the window is a reason to inspect.
+    // Owner/manual blocks are occupancy only (occupiedOn / priorCheckout below
+    // see them), never a turnover to prep.
+    const upcoming = propBookings.filter(
+      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd,
+    );
     for (const stay of upcoming) {
       const checkIn = stay.check_in;
       // Most recent checkout on/before this check-in (the turnover this preps).
@@ -245,8 +261,11 @@ function clusterName(props: FieldProperty[]): string {
   const counts = new Map<string, number>();
   for (const s of streets) counts.set(s, (counts.get(s) ?? 0) + 1);
   const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  if (dominant && (counts.get(dominant) ?? 0) > 1) return dominant;
-  return cityShort(props[0].city) || props[0].name;
+  // A street label claims every stop is on it; a single-town label claims every
+  // stop is in it. Only make claims that are true — a "Gloucester · 3 stops"
+  // packet with a Beverly leg misleads whoever claims it.
+  if (dominant && (counts.get(dominant) ?? 0) === props.length) return dominant;
+  return townsLabel(props.map((p) => p.city)) || cityShort(props[0].city) || props[0].name;
 }
 
 /**
@@ -417,9 +436,17 @@ export async function loadPackets(statuses?: string[]): Promise<PacketRow[]> {
   return (data ?? []) as PacketRow[];
 }
 
+/** Strip a property's identifying fields for a pre-claim contractor payload:
+ *  no name/address/title/coordinates ride along until the inspector claims the
+ *  job. Town (city) is kept so the card can still say "in Gloucester". */
+function maskIdentity(p: FieldProperty): FieldProperty {
+  return { ...p, name: '', title: null, address: '', latitude: null, longitude: null };
+}
+
 async function stopsWithProperties(
   stops: PacketStopRow[],
   revealAccess: boolean,
+  revealIdentity: boolean,
 ): Promise<PacketStopDetail[]> {
   if (stops.length === 0) return [];
   const ids = [...new Set(stops.map((s) => s.property_id))];
@@ -437,10 +464,32 @@ async function stopsWithProperties(
   if (slipIds.length) {
     const { data: slips } = await fieldDb()
       .from('work_slips')
-      .select('id, title, description, action_summary, location, priority, photo_urls')
+      .select('id, title, description, action_summary, bring_list, location, priority, photo_urls')
       .in('id', slipIds);
     for (const s of (slips ?? []) as WorkSlipLite[]) slipById.set(s.id, s);
   }
+
+  // Extra work slips the office attached to any stop (inspection or maintenance),
+  // each with its per-attachment note + independent completion. One batch query.
+  const stopIds = stops.map((s) => s.id);
+  const attachedByStop = new Map<string, AttachedSlip[]>();
+  if (stopIds.length) {
+    const { data: att } = await fieldDb()
+      .from('packet_stop_work_slips')
+      .select('id, stop_id, office_note, completed_at, ordering, created_at, work_slips(id, title, description, action_summary, bring_list, location, priority, photo_urls)')
+      .in('stop_id', stopIds)
+      .order('ordering', { ascending: true })
+      .order('created_at', { ascending: true });
+    // Supabase types the to-one embed as an array; at runtime it's one object.
+    for (const row of (att ?? []) as unknown as AttachmentRow[]) {
+      const slip = row.work_slips;
+      if (!slip) continue;
+      const list = attachedByStop.get(row.stop_id) ?? [];
+      list.push({ ...slip, attachmentId: row.id, officeNote: row.office_note, completedAt: row.completed_at });
+      attachedByStop.set(row.stop_id, list);
+    }
+  }
+
   return stops
     .slice()
     .sort((a, b) => a.walk_order - b.walk_order)
@@ -448,16 +497,27 @@ async function stopsWithProperties(
       const property = propById.get(s.property_id)!;
       return {
         ...s,
-        property,
+        property: revealIdentity ? property : maskIdentity(property),
         access: revealAccess && property ? accessBundle(property) : null,
         workSlip: s.work_slip_id ? slipById.get(s.work_slip_id) ?? null : null,
+        attachedSlips: attachedByStop.get(s.id) ?? [],
       };
     });
 }
 
+/** Raw shape of a packet_stop_work_slips row joined to its work slip. */
+type AttachmentRow = {
+  id: string;
+  stop_id: string;
+  office_note: string | null;
+  completed_at: string | null;
+  ordering: number;
+  work_slips: WorkSlipLite | null;
+};
+
 export async function loadPacketDetail(
   packetId: string,
-  opts: { revealAccess?: boolean } = {},
+  opts: { revealAccess?: boolean; revealIdentity?: boolean } = {},
 ): Promise<PacketDetail | null> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
@@ -467,7 +527,13 @@ export async function loadPacketDetail(
   const packet = (pData as PacketRow | null) ?? null;
   if (!packet) return null;
   const { data: sData } = await fieldDb().from('packet_stops').select('*').eq('packet_id', packetId);
-  const stops = await stopsWithProperties((sData ?? []) as PacketStopRow[], !!opts.revealAccess);
+  // Identity is revealed by default (office/internal views); contractor
+  // marketplace + pre-claim views pass revealIdentity:false to mask addresses.
+  const stops = await stopsWithProperties(
+    (sData ?? []) as PacketStopRow[],
+    !!opts.revealAccess,
+    opts.revealIdentity !== false,
+  );
   let contractor: ContractorRow | null = null;
   if (packet.awarded_contractor_id) {
     const { data: cData } = await fieldDb()
@@ -502,8 +568,10 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
     .in('status', ['claimed', 'in_progress', 'submitted', 'approved'])
     .order('visit_date', { ascending: true });
 
+  // Browsing, not-yet-claimed packets: mask property identity (no addresses /
+  // names / coords) until the inspector actually claims the job.
   const availableRaw = (
-    await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id)))
+    await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id, { revealIdentity: false })))
   ).filter(Boolean) as PacketDetail[];
   // Access codes are never loaded into the marketplace payload — the cards
   // don't render them, and the detail page reveals them gated on active status.
@@ -538,7 +606,7 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 // day was calendar-blocked since the packet was built. A turnover day
 // (check_in == day or check_out == day) is NOT stale — that's the whole
 // point of the visit window.
-async function staleStopIds(
+export async function staleStopIds(
   visitDate: string,
   stops: Array<{ id: string; property_id: string }>,
 ): Promise<Set<string>> {
@@ -547,7 +615,7 @@ async function staleStopIds(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('property_id')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', ids)
     .lt('check_in', visitDate)
@@ -837,7 +905,7 @@ async function candidatesForDay(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', addDays(day, 365))
     .gte('check_out', addDays(day, -30));
@@ -861,8 +929,8 @@ async function candidatesForDay(
   for (const p of properties) {
     if (blocked.has(p.id)) continue;
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
-    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight
-    const next = pb.find((b) => b.check_in > day) ?? null;
+    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight (guest or owner block)
+    const next = pb.find((b) => isGuestStay(b) && b.check_in > day) ?? null; // next GUEST arrival to prep for
     const priorCheckout = pb.filter((b) => b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
     let basis: WindowBasis = 'vacant';
     if (priorCheckout && day === priorCheckout) basis = 'checkout_day';
@@ -972,31 +1040,98 @@ export async function createPacketFromProperties(args: {
         };
       }),
     );
+  // Restock slips ride along automatically — see autoAttachInventorySlips.
+  await autoAttachInventorySlips(packetId);
   return packetId;
+}
+
+/**
+ * Auto-assign restocking: attach every open inventory-category work slip
+ * ("Restock toilet paper" etc.) to its property's stop on this packet, so the
+ * inspector gets an explicit mark-done task (and the slip actually closes)
+ * instead of the restock only riding along as supply-run text. Idempotent via
+ * the unique (stop_id, work_slip_id) upsert; manual attach/detach still works
+ * on top. Inspection packets only — a maintenance stop IS its slip.
+ *
+ * Called at packet creation and again at publish (catching slips created in
+ * between). Never throws; a failure just means the office attaches by hand.
+ */
+export async function autoAttachInventorySlips(packetId: string): Promise<number> {
+  const { data: pkt } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, trade')
+    .eq('id', packetId)
+    .maybeSingle();
+  const trade = (pkt as { id: string; trade?: string | null } | null)?.trade ?? 'inspection';
+  if (!pkt || trade !== 'inspection') return 0;
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id, work_slip_id')
+    .eq('packet_id', packetId);
+  const stops = (sData ?? []) as { id: string; property_id: string; work_slip_id: string | null }[];
+  if (stops.length === 0) return 0;
+
+  const { data: wData } = await fieldDb()
+    .from('work_slips')
+    .select('id, property_id')
+    .in('property_id', [...new Set(stops.map((s) => s.property_id))])
+    .eq('category', 'inventory')
+    .in('status', ['open', 'in_progress', 'scheduled']);
+  const slips = (wData ?? []) as { id: string; property_id: string }[];
+  if (slips.length === 0) return 0;
+
+  const byProp = new Map<string, string[]>();
+  for (const w of slips) byProp.set(w.property_id, [...(byProp.get(w.property_id) ?? []), w.id]);
+
+  const rows = stops.flatMap((s) =>
+    (byProp.get(s.property_id) ?? [])
+      .filter((slipId) => slipId !== s.work_slip_id)
+      .map((slipId) => ({ stop_id: s.id, work_slip_id: slipId, created_by_email: 'helm-auto' })),
+  );
+  if (rows.length === 0) return 0;
+
+  const { error } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .upsert(rows, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
+  return error ? 0 : rows.length;
 }
 
 // ── Supply run (inspection prep) ──────────────────────────────────────
 /** Where Rising Tide stages supplies + the per-property odds-and-ends bins. */
 export const SUPPLY_CLOSET = '85 Eastern Ave';
+/** Geocode of the supply closet, so it can be the literal first pin on a
+ *  packet's route map. Matches the "85 Eastern Ave" coords annotated in
+ *  projections-distance.ts (NOT the ~1mi-off value some pricing code uses). */
+export const SUPPLY_CLOSET_COORDS = { lat: 42.6209, lng: -70.645 };
 
 export type SupplyRunStop = { propertyName: string; binLabel: string; lowItems: string[] };
+export type SupplyRunJob = { title: string; propertyName: string; bring: string };
+/** The full 85 Eastern pick list for a packet: the per-home bins to grab (with
+ *  any consumables a prior visit flagged low), plus the materials each work slip
+ *  on the packet needs to be completed. */
+export type SupplyRun = { bins: SupplyRunStop[]; jobs: SupplyRunJob[] };
 
-/** Per-property supply-run prep for a packet: grab the property's labeled bin
- *  from the closet, plus any items a prior inspection already flagged low
- *  (open Rising Tide restock slips, category 'inventory'). */
-export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRunStop[]> {
+/** Supply-run prep for a packet, assembled for the supply-closet stop:
+ *  - bins: one per property in the packet, labeled, with any open restock slips
+ *    (category 'inventory') flagged as "bring extra".
+ *  - jobs: the operator-authored bring_list for every work slip on the packet,
+ *    so the inspector grabs the parts to finish each job in the same trip. */
+export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> {
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('property_id, walk_order')
+    .select('property_id, work_slip_id, walk_order')
     .eq('packet_id', packetId)
     .order('walk_order', { ascending: true });
-  const orderedIds = ((sData ?? []) as { property_id: string }[]).map((s) => s.property_id);
+  const stopRows = (sData ?? []) as { property_id: string; work_slip_id: string | null }[];
+  const orderedIds = stopRows.map((s) => s.property_id);
   const propIds = [...new Set(orderedIds)];
-  if (propIds.length === 0) return [];
+  if (propIds.length === 0) return { bins: [], jobs: [] };
 
   const { data: pData } = await fieldDb().from('properties').select('id, name').in('id', propIds);
   const nameById = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
 
+  // Consumables a prior inspection already flagged low at these homes.
   const { data: wData } = await fieldDb()
     .from('work_slips')
     .select('property_id, title')
@@ -1011,10 +1146,30 @@ export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRunSt
     lowByProp.set(w.property_id, arr);
   }
 
-  return propIds.map((id) => {
+  const bins = propIds.map((id) => {
     const name = nameById.get(id) ?? id;
     return { propertyName: name, binLabel: name, lowItems: lowByProp.get(id) ?? [] };
   });
+
+  // Materials to complete the work slips on this packet (maintenance stops, plus
+  // any slip attached to an inspection stop) — only those the office authored a
+  // bring_list for.
+  const slipIds = [...new Set(stopRows.map((s) => s.work_slip_id).filter((v): v is string => !!v))];
+  const jobs: SupplyRunJob[] = [];
+  if (slipIds.length) {
+    const { data: jData } = await fieldDb()
+      .from('work_slips')
+      .select('property_id, title, bring_list')
+      .in('id', slipIds)
+      .not('bring_list', 'is', null);
+    for (const j of (jData ?? []) as { property_id: string; title: string; bring_list: string | null }[]) {
+      const bring = (j.bring_list ?? '').trim();
+      if (!bring) continue;
+      jobs.push({ title: j.title, propertyName: nameById.get(j.property_id) ?? j.property_id, bring });
+    }
+  }
+
+  return { bins, jobs };
 }
 
 // ── Maintenance trade: work slips → claimable packets ─────────────────
@@ -1071,6 +1226,21 @@ export async function loadOpenMaintenance(): Promise<MaintenanceSlip[]> {
         lng: p.longitude,
       };
     });
+}
+
+/** Every active (non-done) work slip on one property: the pool the office can
+ *  ATTACH to a packet stop. Unlike loadOpenMaintenance this keeps all categories
+ *  and assignments, since an inspector might also handle an inventory or owner
+ *  item while they're in the home. The office UI filters out ones already
+ *  attached to the stop. */
+export async function loadAttachableSlips(propertyId: string): Promise<WorkSlipLite[]> {
+  const { data } = await fieldDb()
+    .from('work_slips')
+    .select('id, title, description, action_summary, bring_list, location, priority, photo_urls')
+    .eq('property_id', propertyId)
+    .neq('status', 'done')
+    .order('created_at', { ascending: false });
+  return (data ?? []) as WorkSlipLite[];
 }
 
 /** Bundle selected work slips into a maintenance packet (trade='maintenance').
@@ -1220,7 +1390,7 @@ export async function suggestRecurringInspections(): Promise<number> {
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', horizonEnd)
     .gte('check_out', today);
@@ -1258,8 +1428,9 @@ export async function suggestRecurringInspections(): Promise<number> {
     if (covered.has(p.id)) continue;
     const bks = byProp.get(p.id) ?? [];
     // Skip homes with a guest arriving or leaving within the cadence window —
-    // the normal turnover flow will surface those days on the board.
-    if (bks.some((b) => (b.check_out >= today && b.check_out <= cadenceEnd) || (b.check_in >= today && b.check_in <= cadenceEnd))) {
+    // the normal turnover flow will surface those days on the board. (Owner
+    // blocks aren't turnovers; occupiedOn below just avoids their days.)
+    if (bks.some((b) => isGuestStay(b) && ((b.check_out >= today && b.check_out <= cadenceEnd) || (b.check_in >= today && b.check_in <= cadenceEnd)))) {
       continue;
     }
     const last = lastInspected.get(p.id);
@@ -1451,7 +1622,7 @@ export async function loadInspectionCalendar(
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('id, property_id, check_in, check_out, status')
-    .in('status', TURNOVER_STATUSES)
+    .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', propIds)
     .lte('check_in', fetchEnd)
@@ -1489,17 +1660,18 @@ export async function loadInspectionCalendar(
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
     const uncovered = pb.filter(
-      (b) => b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
+      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
     );
     if (uncovered.length === 0) continue;
     const nextDeadline = uncovered.map((b) => b.check_in).sort()[0];
 
     const cells: CalCell[] = days.map((D) => {
-      const occupied = pb.some((b) => b.check_in <= D && D < b.check_out);
-      const isBlocked = blocked.has(`${p.id}:${D}`);
-      const checkIn = pb.some((b) => b.check_in === D);
-      const state: CalCellState = isBlocked ? 'blocked' : occupied ? 'occupied' : 'open';
-      const next = pb.find((b) => b.check_in > D);
+      const guestOccupied = pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out);
+      const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
+      const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied;
+      const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
+      const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
+      const next = pb.find((b) => isGuestStay(b) && b.check_in > D);
       const nextCovered = !!next && coveredBookings.has(next.id);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
       const covered = state === 'open' && nextCovered;

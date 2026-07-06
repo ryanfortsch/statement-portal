@@ -108,18 +108,39 @@ Rising Tide's own direct-booking site, **staycapeann.com**, is built so the paym
 - Are matched to their real Stripe charge in `lib/stripe-sync.ts` via the **amount-based fallback** (expected gross = `guesty_rental_income + total_taxes`). The matcher runs per-property (each property's own Stripe key); the description-token matcher tries first, the amount fallback kicks in for the SCA-style descriptions. Ambiguity (multiple orphan charges with the same amount on one property) falls through to the existing missing-charge gap.
 - Volume here is expected to **grow** -- design choices in the ingest / Stripe sync should treat this as the standard path for Direct stays, not an edge case.
 
+### Legacy "Stay Collections" (Guesty Payments) charges -- a shrinking back-catalog
+Before SCA moved to RT's own per-property Stripe, some Direct bookings were paid through **Guesty Payments** (Guesty's Stripe Connect), branded "Stay Collections". These charges are different from current SCA:
+- The guest's total was often **split into multiple Stripe charges** (e.g. one $32,000 stay = two $16,000 charges), so a single-charge amount match misses them.
+- Each charge carries a **Guesty application fee** (~1% of the charge, the `application_fee_amount` field) on TOP of a higher ~4.4% Stripe processing rate. Effective fee is ~5.4% of gross, not the 3.9% + $0.40 estimate the ingest uses.
+- Net example (Hancock GY-fCdhbUYC, 3 South): $32,000 gross - $1,408.60 Stripe - $320 Guesty = **$30,271.40 net**, vs the 3.9% estimate's $30,751.60. Installments split on the estimate over-recognize revenue by the fee gap.
+
+**Identification:** the tell is `application_fee_amount != null` on the Stripe charge -- current RT-direct charges have none. Helm stores no field that distinguishes them.
+
+**Handling (per PR):** `/api/installments/verify-source` now expands `balance_transaction` and sums ALL charges carrying the confirmation code, reporting the **actual net after real fees** (Stripe processing + Guesty application) so the installment editor guides the operator to split on the true net. It does NOT auto-change `calcStripeFee` in ingest (that would retroactively shift already-sent statements). For an installment legacy booking the operator still sets the split by hand, but the cross-check now shows the right number.
+
+**Reachability caveat:** verify-source reads fees only if the property's `STRIPE_KEYS_JSON` restricted key can see the charge's account. If a legacy charge lives in a Guesty Connect account RT's key can't reach, the cross-check degrades to gross-only. Legacy is shrinking (SCA no longer routes through Guesty), so this is deliberately a light-touch guide, not a permanent multi-account subsystem.
+
 ### The formula
 ```
 adjusted_revenue = guesty_rental_income - stripe_fee (if VRBO or Manual/non-zero)
 management_fee = adjusted_revenue * fee_pct
-owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - repairs_total
+owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - repairs_total - reserve_holdback
 ```
+
+`reserve_holdback` is the per-statement Owner Reserve withhold — a $0 default, operator opt-in per statement via the "Withhold Owner Reserve" checkbox on the statement card. Default $2,000 when enabled, editable. Rising Tide's policy: new owners give a $2,000 check on onboarding as a minimum account balance; for owners who haven't paid (or are delinquent), the operator ticks the box on their next statement to hold the $2,000 from that payout instead. Appears as an "Owner Reserve" line item on the editorial PDF between Cleaning and Owner Payout. Preserved across re-ingest via SELECT-before-delete in `/api/ingest`.
 
 ## Cleaning Logic
 
-**Bank statement is source of truth for total cleaning cost.** All "CAPE ANN ELITE" ACH charges on the property's Chase account in the statement month = total cleaning.
+**Bank statement is source of truth for total cleaning cost.** In the statement month, on the property's Chase account:
+- **"CAPE ANN ELITE"** ACH charges = housekeeping (matched 1:1 to a checkout as a turnover)
+- **"NOREAST"** debit card charges = linen service (additive, not a turnover)
+- **"LAUNDRY PLUS"** debit card charges = laundry service (additive, not a turnover)
 
-Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total.
+All three roll into a single `cleaning_total` on the property statement — owner sees one "Cleaning" line. The turns count on the editorial statement (`(N turns)`) filters non-turnover vendors via `NON_TURNOVER_VENDORS` in `src/lib/bank-charges.ts` — extend that list if a new additive vendor is added.
+
+Laundry rows attribute to the nearest Cape Ann Elite cleaning by bank_charge_date within 7 days for display grouping on the dashboard; outside that window they render as standalone "Laundry service" rows like linens.
+
+Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total. The matcher restricts to `source IN ('matched', 'bank')` so a Cape Ann Elite invoice cannot false-match a Laundry Plus or Nor'East row that happens to share an amount.
 
 ## Property Naming Convention
 

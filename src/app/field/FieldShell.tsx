@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { signOutField } from './actions';
+import { RyanContact } from './RyanContact';
 
 /**
  * Standalone shell for the contractor portal. Deliberately NOT the Helm
@@ -23,11 +24,11 @@ export function FieldShell({
       <header
         style={{
           borderBottom: '1px solid var(--rule)',
-          padding: '18px 24px',
+          padding: '16px clamp(16px, 5vw, 24px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 16,
+          gap: 12,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -42,7 +43,7 @@ export function FieldShell({
               fontSize: 11,
               letterSpacing: '0.22em',
               textTransform: 'uppercase',
-              color: 'var(--signal)',
+              color: 'var(--tide)',
               fontWeight: 600,
             }}
           >
@@ -54,7 +55,7 @@ export function FieldShell({
             <Link
               href="/field/profile"
               title="Your profile"
-              style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}
+              style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3, padding: '10px 4px', display: 'inline-flex', alignItems: 'center' }}
             >
               {contractorName}
             </Link>
@@ -71,6 +72,8 @@ export function FieldShell({
                   letterSpacing: '0.14em',
                   textTransform: 'uppercase',
                   color: 'var(--ink-4)',
+                  padding: '12px 8px',
+                  margin: '-12px -8px',
                 }}
               >
                 Sign out
@@ -79,20 +82,21 @@ export function FieldShell({
           )}
         </div>
       </header>
-      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: '32px 24px 64px' }}>
+      <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>
+      {contractorName && <RyanContact />}
       <footer
         style={{
           borderTop: '1px solid var(--rule)',
-          padding: '16px 24px',
+          padding: '16px clamp(16px, 5vw, 24px)',
           fontSize: 11,
           color: 'var(--ink-4)',
           letterSpacing: '0.06em',
           textAlign: 'center',
         }}
       >
-        Rising Tide STR · Gloucester, MA · (978) 865-2387
+        Rising Tide STR · Gloucester, MA · <a href="tel:+19788652387" style={{ color: 'inherit' }}>(978) 865-2387</a>
       </footer>
     </div>
   );

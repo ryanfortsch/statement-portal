@@ -87,18 +87,17 @@ export async function recordInspectorEntry(sb: SupabaseClient, ev: LockEventInpu
 }
 
 /**
- * lock.unlocked → record a FIELD contractor's arrival, matched on the packet
- * entry code Helm programmed onto this lock at claim time. Exact match against
- * a LIVE (removed_at null) packet_access_codes row: submit / release / cancel
- * revokes the row, so a stale or replayed event after the claim window ends is
- * a no-op. Like the master-code path there is NO any-keypad fallback.
+ * lock.unlocked → light the turnover rail's "Inspecting" state when a FIELD
+ * contractor keys in, matched on the packet entry code Helm programmed onto
+ * this lock at claim time. Exact match against a LIVE (removed_at null)
+ * packet_access_codes row: submit / release / cancel revokes the row, so a
+ * stale or replayed event after the claim window ends is a no-op. Like the
+ * master-code path there is NO any-keypad fallback.
  *
- * Two writes on a match:
- *   - inspection_sessions (earliest wins): lights "Inspecting" on the turnover
- *     rail, keyed to the same checkout the turnover joins on.
- *   - packet_stops.arrived_at (first arrival only): the office packets board's
- *     physical "on site" stamp. Non-fatal: the rail signal still lands if the
- *     column isn't migrated yet.
+ * Writes inspection_sessions only (earliest wins, keyed to the same checkout
+ * the turnover joins on). The Field-side bookkeeping for the same unlock
+ * (packet_stops.arrived_verified_at, stop/packet status advance, timeline
+ * event) lives in field-arrival.ts recordPacketArrival: the webhook runs both.
  */
 export async function recordFieldInspectorEntry(sb: SupabaseClient, ev: LockEventInput): Promise<Outcome> {
   if (!isKeypadEntry(ev.method)) return { ok: false, reason: `non-keypad method (${ev.method})` };
@@ -117,20 +116,6 @@ export async function recordFieldInspectorEntry(sb: SupabaseClient, ev: LockEven
   if (!fieldCode.property_id) return { ok: false, reason: 'field code has no property' };
 
   const checkoutDate = await mostRecentCheckoutForProperty(sb, fieldCode.property_id, ev.occurredAt);
-
-  // Stamp the stop's first physical arrival regardless of checkout attribution:
-  // the office board cares that the contractor showed up even on a stop whose
-  // property has no recent checkout (e.g. an idle-home routine check).
-  // supabase-js reports failures in the returned error, it does not throw; the
-  // error is deliberately ignored so a missing arrived_at column (migration not
-  // applied yet) or a transient write hiccup never blocks the rail signal.
-  await sb
-    .from('packet_stops')
-    .update({ arrived_at: ev.occurredAt })
-    .eq('packet_id', fieldCode.packet_id)
-    .eq('property_id', fieldCode.property_id)
-    .is('arrived_at', null);
-
   if (!checkoutDate) return { ok: false, reason: 'no recent checkout to attribute' };
 
   // Keep the EARLIEST entry as the start (the contractor may punch in more than once).

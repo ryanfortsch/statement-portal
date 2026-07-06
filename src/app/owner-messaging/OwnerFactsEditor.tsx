@@ -7,6 +7,8 @@ import { saveOwnerFacts } from './actions';
 type Props = {
   initialContent: string;
   initialBytes: number;
+  /** Loop-owned facts auto-distilled from your coaching (read-only). */
+  learnedContent?: string;
 };
 
 /**
@@ -19,7 +21,7 @@ type Props = {
  * `Bailey wants statements by the 5th`); a plain markdown file is enough
  * until the volume justifies structure.
  */
-export function OwnerFactsEditor({ initialContent, initialBytes }: Props) {
+export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent }: Props) {
   const [content, setContent] = useState(initialContent);
   const [savedContent, setSavedContent] = useState(initialContent);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -60,7 +62,7 @@ export function OwnerFactsEditor({ initialContent, initialBytes }: Props) {
         }}
       >
         Edit the curated owner facts here. Changes apply to the next owner
-        draft — no service reload needed. Format: one fact per line,
+        draft, no service reload needed. Format: one fact per line,
         optionally tagged with the property slug in square brackets, e.g.
         <code style={{ background: 'var(--paper-2)', padding: '1px 5px' }}>
           [21_horton] Susan prefers SMS over email.
@@ -136,6 +138,45 @@ export function OwnerFactsEditor({ initialContent, initialBytes }: Props) {
           Loaded: {initialBytes.toLocaleString()} bytes
         </span>
       </div>
+
+      {learnedContent && /(^|\n)- /.test(learnedContent) && (
+        <div style={{ marginTop: 28 }}>
+          <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>
+            Learned from your coaching · auto-distilled, read-only
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--ink-3)',
+              lineHeight: 1.6,
+              marginBottom: 12,
+            }}
+          >
+            These owner-correspondence rules were distilled automatically from
+            coaching you gave on owner drafts. They already shape the next
+            owner reply. To override one, add a counter-rule in the editor above.
+          </div>
+          <pre
+            style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+              fontSize: 12,
+              lineHeight: 1.55,
+              color: 'var(--ink-3)',
+              background: 'var(--paper-2)',
+              border: '1px solid var(--rule)',
+              borderRadius: 4,
+              padding: 14,
+              margin: 0,
+              maxHeight: 320,
+              overflow: 'auto',
+            }}
+          >
+            {learnedContent}
+          </pre>
+        </div>
+      )}
     </Section>
   );
 }

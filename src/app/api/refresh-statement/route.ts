@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     const { data: stmt } = await supabase
       .from('property_statements')
-      .select('id, management_fee_pct, cleaning_total, repairs_total')
+      .select('id, management_fee_pct, cleaning_total, repairs_total, reserve_holdback')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
       .single();
@@ -179,8 +179,9 @@ export async function POST(request: NextRequest) {
       .eq('property_statement_id', stmt.id);
     const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
     const newMgmtFee = round2(newRentalRev * (stmt.management_fee_pct / 100));
+    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
     const newOwnerPayout = round2(
-      newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0),
+      newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback,
     );
     const newNumStays = (allRes || []).filter(r => (r.adjusted_revenue || 0) > 0).length;
     const newNightsBooked = (allRes || []).reduce((s, r) => s + (r.nights || 0), 0);
