@@ -115,7 +115,11 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
       ? `${p.max_pairwise_miles < 1 ? '<1' : Math.round(p.max_pairwise_miles)} mi apart · `
       : '';
   const away =
-    p.distanceMiles != null ? `${p.distanceMiles < 1 ? '<1' : Math.round(p.distanceMiles)} mi away · ` : '';
+    // An implausible distance is a mis-geocoded home, not information — hide
+    // it rather than print "472 mi away" on a Gloucester packet.
+    p.distanceMiles != null && p.distanceMiles <= 120
+      ? `${p.distanceMiles < 1 ? '<1' : Math.round(p.distanceMiles)} mi away · `
+      : '';
   return (
     <Link
       href={href}

@@ -256,7 +256,13 @@ export function dollars(cents: number): string {
 /** Drop the trailing state ("Gloucester MA" -> "Gloucester") for display. */
 export function cityShort(city: string | null): string {
   if (!city) return '';
-  return city.replace(/,?\s*(MA|CT|FL|NH|RI|ME)$/i, '').trim();
+  // Normalize every stored shape ("Gloucester", "Gloucester, MA",
+  // "Gloucester, MA 01930", "Gloucester MA") to the bare town, so the same
+  // town never reads as two ("Gloucester & Gloucester, MA 01930").
+  return city
+    .split(',')[0]
+    .replace(/\s+(MA|CT|FL|NH|RI|ME)(\s+\d{5}(-\d{4})?)?$/i, '')
+    .trim();
 }
 
 function streetName(name: string): string {
