@@ -67,6 +67,10 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
         scrollWheelZoom: false,
         zoomControl: false,
         attributionControl: false,
+        // On touch devices the map is a static route picture: one-finger drag
+        // must scroll the PAGE, not pan the map (the per-stop "Open in Maps"
+        // pills do real navigation). Pinch zoom stays available.
+        dragging: !('ontouchstart' in window),
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
 
@@ -128,7 +132,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
   if (status === 'failed') {
     return (
       <div style={{ border: '1px solid var(--rule)', marginBottom: 22, padding: '14px 16px', fontSize: 13, color: 'var(--ink-4)', background: 'var(--paper-2, #fff)' }}>
-        Map unavailable right now — tap a stop&apos;s address below for directions.
+        Map unavailable right now. Tap a stop&apos;s address below for directions.
       </div>
     );
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { useFormStatus } from 'react-dom';
 import { completeOnboarding, type OnboardingState } from '../actions';
 import { PhoneInput } from '@/components/PhoneInput';
@@ -18,7 +18,7 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%',
   font: 'inherit',
-  fontSize: 15,
+  fontSize: 16,
   color: 'var(--ink)',
   background: 'var(--paper)',
   border: '1px solid var(--rule)',
@@ -82,16 +82,10 @@ export function OnboardingForm({
 
   return (
     <>
-      {state.error && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 13, marginBottom: 20, borderRadius: 6 }}>
-          {state.error}
-        </div>
-      )}
-
       <form action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 480 }}>
         <div>
           <label style={labelStyle}>Full name</label>
-          <input name="full_name" type="text" defaultValue={defaultName} required style={inputStyle} />
+          <input name="full_name" type="text" defaultValue={defaultName} required autoComplete="name" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Mobile phone</label>
@@ -128,20 +122,20 @@ export function OnboardingForm({
           </div>
           <div>
             <label style={labelStyle}>Street address</label>
-            <input name="w9_address" type="text" required placeholder="123 Main St" style={inputStyle} />
+            <input name="w9_address" type="text" required autoComplete="street-address" placeholder="123 Main St" style={inputStyle} />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 2 }}>
               <label style={labelStyle}>City</label>
-              <input name="w9_city" type="text" required style={inputStyle} />
+              <input name="w9_city" type="text" required autoComplete="address-level2" style={inputStyle} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>State</label>
-              <input name="w9_state" type="text" required maxLength={2} placeholder="MA" style={inputStyle} />
+              <input name="w9_state" type="text" required maxLength={2} autoComplete="address-level1" placeholder="MA" style={inputStyle} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>ZIP</label>
-              <input name="w9_zip" type="text" required inputMode="numeric" style={inputStyle} />
+              <input name="w9_zip" type="text" required inputMode="numeric" autoComplete="postal-code" maxLength={5} style={inputStyle} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
@@ -181,8 +175,30 @@ export function OnboardingForm({
           />
         </div>
 
+        {/* The error renders HERE, beside the button the contractor just
+            tapped — the old top-of-form banner sat ~2000px off-screen after a
+            failed submit, so the Finish button just looked dead. */}
+        <InlineError error={state.error} />
         <FinishButton />
       </form>
     </>
+  );
+}
+
+/** Inline error that scrolls itself into view when it appears. */
+function InlineError({ error }: { error: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [error]);
+  if (!error) return null;
+  return (
+    <div
+      ref={ref}
+      role="alert"
+      style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', fontSize: 13, borderRadius: 6 }}
+    >
+      {error}
+    </div>
   );
 }

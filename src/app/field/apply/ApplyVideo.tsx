@@ -62,7 +62,7 @@ export function ApplyVideo() {
       return;
     }
     if (file.size > MAX_BYTES) {
-      setErr('That file is too large — a clip under 30 seconds from your phone should fit fine.');
+      setErr('That file is too large. A clip under 30 seconds from your phone should fit fine.');
       setStatus('error');
       return;
     }

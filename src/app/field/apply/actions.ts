@@ -5,15 +5,26 @@ import { fieldDb } from '@/lib/field-db';
 import { sendNewApplicantEmail } from '@/lib/field-notify';
 import { screenApplication } from '@/lib/ai/screen-applicant';
 
+export type ApplyState = { error: string };
+
 /** Public application submit (no auth — this is the top of the recruiting
  *  funnel). Writes via the service-role client; the table has no anon policy,
- *  so applicants never touch it directly. */
-export async function submitApplication(formData: FormData): Promise<void> {
+ *  so applicants never touch it directly.
+ *
+ *  useActionState-shaped, same pattern as onboarding's completeOnboarding: a
+ *  validation failure RETURNS a specific inline error so the form stays
+ *  mounted with everything the applicant typed (and their uploaded intro
+ *  video) intact — the old redirect('?error=1') wiped a fully-filled form
+ *  over one bad field. Success still redirects to the thanks screen. */
+export async function submitApplication(_prev: ApplyState, formData: FormData): Promise<ApplyState> {
   const full_name = String(formData.get('full_name') || '').trim().slice(0, 120);
   const email = String(formData.get('email') || '').trim().toLowerCase().slice(0, 200);
   const phone = String(formData.get('phone') || '').trim().slice(0, 40);
   const area = String(formData.get('area') || '').trim().slice(0, 120);
-  if (full_name.length < 2 || !email.includes('@') || phone.length < 7 || area.length < 2) redirect('/field/apply?error=1');
+  if (full_name.length < 2) return { error: 'Please add your full name.' };
+  if (!email.includes('@')) return { error: 'That email doesn’t look right. Please double-check it.' };
+  if (phone.length < 7) return { error: 'Please add a phone number we can reach you at.' };
+  if (area.length < 2) return { error: 'Please tell us where you’re based.' };
 
   const trd = String(formData.get('trade') || 'inspection');
   const trade = trd === 'maintenance' || trd === 'cleaning' ? trd : 'inspection';

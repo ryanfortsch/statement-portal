@@ -69,7 +69,6 @@ export function ProfilePhoto({
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="user"
         style={{ display: 'none' }}
         disabled={busy}
         onChange={(e) => {

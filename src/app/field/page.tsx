@@ -2,18 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
-import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
+import { getContractorRatings } from '@/lib/field-ratings';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { FieldPillars } from './FieldPillars';
-
-const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
-const NEXT_TIER: Record<string, { name: string; at: number }> = {
-  unrated: { name: 'Bronze', at: 25 },
-  bronze: { name: 'Silver', at: 50 },
-  silver: { name: 'Gold', at: 100 },
-};
 
 /** The one repeatable editorial section header: a tide index numeral, a serif
  *  title, and a hairline rule running to the edge. The page's spine. */
@@ -23,67 +16,6 @@ function SectionHeader({ n, title }: { n?: string; title: string }) {
       {n && <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide)', flexShrink: 0 }}>{n}</span>}
       <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)', flexShrink: 0 }}>{title}</span>
       <span style={{ flex: 1, height: 0, borderTop: '1px solid var(--rule)', alignSelf: 'center', marginLeft: 4 }} />
-    </div>
-  );
-}
-
-/** The contractor's own reputation: a ladder toward Bronze (25) / Silver (50) /
- *  Gold (100) cumulative 5-star reviews, with the current "in a row" run as a
- *  flourish. */
-function StreakLadder({ rating }: { rating?: ContractorRating }) {
-  const streak = rating?.fiveStreak ?? 0;
-  const count = rating?.count ?? 0;
-  const tier = rating?.tier ?? 'unrated';
-  const next = NEXT_TIER[tier]; // undefined at gold
-  const pct = next ? Math.min(100, Math.round((streak / next.at) * 100)) : 100;
-  const toNext = rating?.toNextTier ?? (next ? Math.max(0, next.at - streak) : 0);
-  const milestones = [
-    { n: 25, label: 'Bronze' },
-    { n: 50, label: 'Silver' },
-    { n: 100, label: 'Gold' },
-  ];
-  return (
-    <div style={{ borderRadius: 0, padding: '18px 20px', marginBottom: 36, background: 'var(--paper-2)', boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Your rating</div>
-        {count > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-            {rating?.rated && rating.avg != null ? `★ ${rating.avg.toFixed(2)} · ` : ''}
-            {count} {count === 1 ? 'review' : 'reviews'}
-          </div>
-        )}
-      </div>
-      {count === 0 ? (
-        <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-          No guest reviews yet. The guests who stay in the homes you prep rate their stay. Earn{' '}
-          <strong style={{ color: TIER_TINT.bronze }}>25 five-star reviews in a row</strong> for Bronze, 50 in a
-          row for Silver, 100 for Gold.
-        </p>
-      ) : (
-        <>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
-              {tier === 'unrated' ? 'Unrated' : tier}
-            </span>
-            <span style={{ fontSize: 14, color: 'var(--ink)' }}>{streak} in a row</span>
-            {next ? (
-              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{toNext} more in a row to {next.name}</span>
-            ) : (
-              <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier</span>
-            )}
-          </div>
-          <div style={{ height: 8, borderRadius: 999, background: 'var(--paper-3)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: TIER_TINT[tier === 'unrated' ? 'bronze' : tier], transition: 'width .3s ease' }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-            {milestones.map((m) => (
-              <span key={m.n} style={{ fontSize: 10.5, fontWeight: streak >= m.n ? 700 : 400, color: streak >= m.n ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
-                {m.label} {m.n}
-              </span>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -416,8 +348,9 @@ export default async function FieldHome({
         )}
       </div>
 
-      <StreakLadder rating={rating} />
-
+      {/* The rating ladder card that sat here moved to /field/profile (the
+          ReputationLadder) — work comes first on the working screen, and the
+          greeting's inline ★ average already answers "how am I doing". */}
       {mine.length > 0 && (
         <section style={{ marginBottom: 40 }}>
           <SectionHeader title="Your packets" />
