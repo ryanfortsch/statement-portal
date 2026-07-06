@@ -5,13 +5,18 @@ import type { AttachedSlip, WorkSlipLite } from '@/lib/field-types';
 import { attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
 
 const box: React.CSSProperties = {
+  // display:block matters: textareas/selects are inline-level, so without it
+  // they render BESIDE their label text (a floating box) instead of below it.
+  display: 'block',
   font: 'inherit',
   fontSize: 13,
   color: 'var(--ink)',
   background: 'var(--paper)',
   border: '1px solid var(--rule)',
+  borderRadius: 6,
   padding: '7px 9px',
   width: '100%',
+  boxSizing: 'border-box',
   resize: 'vertical',
 };
 
@@ -68,9 +73,14 @@ export function StopAttachments({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 11.5, color: 'var(--tide-deep)', letterSpacing: '0.04em' }}
+        style={{ background: open ? 'rgba(58,107,138,0.08)' : 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '4px 12px', fontSize: 12, fontWeight: 600, color: 'var(--tide-deep)' }}
       >
-        {open ? '−' : '+'} Attachments &amp; instructions{attached.length > 0 ? ` (${attached.length})` : ''}
+        {open ? '− ' : '+ '}Work slips &amp; instructions
+        {attached.length > 0
+          ? ` · ${attached.length} attached`
+          : pickable.length > 0
+            ? ` · ${pickable.length} open ${pickable.length === 1 ? 'slip' : 'slips'}`
+            : ''}
       </button>
 
       {open && (
