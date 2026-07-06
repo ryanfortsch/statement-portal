@@ -8,6 +8,7 @@ import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundl
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
+import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
@@ -125,7 +126,8 @@ function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: 
 function SupplyRunCard({ run }: { run: SupplyRun }) {
   const homes = run.bins.map((b) => b.propertyName);
   const restock = [...new Set(run.bins.flatMap((b) => b.lowItems))];
-  if (homes.length === 0 && run.jobs.length === 0) return null;
+  // No early return: the kit pickup is stop 1 of EVERY route, even when
+  // nothing specific is flagged — the bag itself always gets grabbed.
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
@@ -168,6 +170,28 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The last leg of every route: back to 85 Eastern to drop the kit off. Renders
+ *  after the homes so the day reads closet → homes → closet. */
+function KitReturnCard() {
+  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginTop: 18, background: 'rgba(0,0,0,0.015)' }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
+        Last stop · Supply closet
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          Drop your kit back at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> — the bag and anything
+          you pulled from a home, so it&apos;s packed and ready for the next trip.
+        </div>
+        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
+          Directions →
+        </a>
+      </div>
     </div>
   );
 }
@@ -286,10 +310,10 @@ export default async function PacketPage({
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
   const supplyRun = working ? await loadPacketSupplyRun(packetId) : { bins: [], jobs: [] };
-  // The supply closet is a real first leg of the route whenever there's a bag to
-  // grab. It owns pin 1 on the map (order below every home) and the homes
-  // renumber to 2..N+1 behind it.
-  const showSupplyStop = working && (supplyRun.bins.length > 0 || supplyRun.jobs.length > 0);
+  // The supply closet bookends EVERY route: stop 1 to grab the kit, and the
+  // last leg to drop it back off. It owns pin 1 on the map (order below every
+  // home) and the homes renumber to 2..N+1 behind it.
+  const showSupplyStop = working;
   // Live route coloring: done stops (tide), the current stop (signal), upcoming
   // (hollow), plus a per-stop "verified at the door" flag from the Seam lock.
   // Only colored while actively working; browsing keeps the plain signal pins.
@@ -311,15 +335,26 @@ export default async function PacketPage({
       done: s.status === 'complete' || s.status === 'skipped',
       verified: !!s.arrived_verified_at,
     })),
+    // The return leg: drop the kit back at the closet. Path-only (pin: false) —
+    // it ends where pin 1 already sits, so the dashed line closes the loop
+    // without stacking a second marker on the same spot.
+    ...(showSupplyStop
+      ? [{
+          label: `Drop your kit · ${SUPPLY_CLOSET}`,
+          lat: SUPPLY_CLOSET_COORDS.lat,
+          lng: SUPPLY_CLOSET_COORDS.lng,
+          order: Math.max(0, ...packet.stops.map((s) => s.walk_order)) + 1,
+          num: undefined as number | undefined,
+          done: false,
+          verified: false,
+          pin: false,
+        }]
+      : []),
   ].sort((a, b) => a.order - b.order);
-  let currentAssigned = false;
-  const routeStops = rawRoute.map((r) => {
-    const state: 'done' | 'current' | 'next' = r.done
-      ? 'done'
-      : !currentAssigned
-        ? ((currentAssigned = true), 'current')
-        : 'next';
-    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: working ? state : undefined, verified: r.verified };
+  const firstOpenIdx = rawRoute.findIndex((r) => !r.done);
+  const routeStops = rawRoute.map((r, idx) => {
+    const state: 'done' | 'current' | 'next' = r.done ? 'done' : idx === firstOpenIdx ? 'current' : 'next';
+    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: working ? state : undefined, verified: r.verified, pin: 'pin' in r ? r.pin : undefined };
   });
 
   // Safety cue: a guest mid-stay (or a calendar block) on the visit date. The
@@ -422,6 +457,12 @@ export default async function PacketPage({
         </p>
       )}
       {!isMaint && <InspectionScope />}
+      {!working && (
+        <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520, margin: '0 0 24px' }}>
+          Every route starts and ends at our supply closet ({SUPPLY_CLOSET}): grab your kit on the way out, drop it
+          back when you&apos;re done.
+        </p>
+      )}
 
       {isMine ? (
         <PacketRouteMap stops={routeStops} />
@@ -498,6 +539,22 @@ export default async function PacketPage({
                   }}
                 >
                   {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
+                  {/* Time at property, driven by the door: live-ticking while
+                      they're inside, fixed once they've left. */}
+                  {(() => {
+                    const start = s.arrived_verified_at ?? s.started_at;
+                    if (!start) return null;
+                    if (s.status === 'in_progress') {
+                      return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={start} endIso={s.departed_at} live /></span>;
+                    }
+                    if (s.status === 'complete') {
+                      return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={start} endIso={s.departed_at ?? s.completed_at} live={false} /></span>;
+                    }
+                    return null;
+                  })()}
+                  {s.arrived_verified_at && (
+                    <span style={{ color: 'var(--positive)' }}> · ✓ entered</span>
+                  )}
                   {/* Keep the timing visible while working — a same-day check-in
                       and a vacant home look identical exactly when it matters. */}
                   {s.status !== 'complete' && s.next_checkin === packet.visit_date && (
@@ -586,6 +643,8 @@ export default async function PacketPage({
           </div>
         ))}
       </section>
+
+      {working && <KitReturnCard />}
 
       <div
         className="rt-cta-bar"

@@ -312,7 +312,7 @@ export async function completeInspection(
     if ((pk as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id !== actor.contractorId) {
       redirect('/field');
     }
-    await fieldDb().from('packet_stops').update({ status: 'complete' }).eq('inspection_id', inspectionId);
+    await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('inspection_id', inspectionId);
     redirect(`/field/packet/${packetId}`);
   }
 
