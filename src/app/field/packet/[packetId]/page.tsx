@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
+import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
@@ -259,6 +260,22 @@ export default async function PacketPage({
     packet = (await loadPacketDetail(packetId, { revealAccess: canSeeAccess, revealIdentity: true }))!;
   }
 
+  // Which stops have a LIVE programmed smart-lock code, so we can say "your code
+  // opens this door" (verified entry) instead of the static-code / call-office
+  // fallback. Reads packet_access_codes -- the record that the trip PIN was
+  // actually written into that property's Seam lock for this packet.
+  let codedProps = new Set<string>();
+  if (canSeeAccess) {
+    const { data: codes } = await fieldDb()
+      .from('packet_access_codes')
+      .select('property_id')
+      .eq('packet_id', packetId)
+      .is('removed_at', null);
+    codedProps = new Set(
+      ((codes ?? []) as { property_id: string | null }[]).map((c) => c.property_id).filter((p): p is string => !!p),
+    );
+  }
+
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const allComplete = packet.stops.length > 0 && doneCount === packet.stops.length;
   const claimable = !isMine && packet.status === 'published' && canClaim(contractor);
@@ -487,11 +504,18 @@ export default async function PacketPage({
                   </a>
                 ) : null;
               })()}
-              {isMine && s.access && (
+              {isMine && (codedProps.has(s.property_id) ? (
+                <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(46,125,79,0.06)', borderLeft: '3px solid var(--positive, #2e7d4f)' }}>
+                  <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    🔒 Smart lock — your code{packet.entry_code ? <> <strong className="font-mono">{packet.entry_code}</strong></> : ''} opens this door.
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>Punch it on the keypad. We&apos;ll see you&apos;re in.</div>
+                </div>
+              ) : s.access ? (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--rule)' }}>
                   <AccessLines a={s.access} />
                 </div>
-              )}
+              ) : null)}
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} />
               )}
