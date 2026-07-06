@@ -20,6 +20,85 @@ const box: React.CSSProperties = {
   resize: 'vertical',
 };
 
+const eyebrow: React.CSSProperties = {
+  fontSize: 10.5,
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-4)',
+  fontWeight: 600,
+};
+
+const quietBtn: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ink-4)',
+  fontSize: 11,
+  textDecoration: 'underline',
+  padding: 0,
+  flexShrink: 0,
+};
+
+/** Everything in here autosaves (selects on change, text on click-away). The
+ *  header pins that promise so the operator never hunts for a Save button. */
+function SaveState({ pending }: { pending: boolean }) {
+  return (
+    <span style={{ fontSize: 11, color: pending ? 'var(--signal)' : 'var(--ink-4)', flexShrink: 0 }}>
+      {pending ? 'Saving…' : 'Saves automatically'}
+    </span>
+  );
+}
+
+/** One attached slip: a tight row. The per-slip note stays tucked behind
+ *  "+ add note" unless one exists, so empty note boxes never stack up. */
+function AttachedRow({
+  packetId,
+  a,
+  onSave,
+}: {
+  packetId: string;
+  a: AttachedSlip;
+  onSave: (fn: () => Promise<unknown>) => void;
+}) {
+  const [showNote, setShowNote] = useState(!!a.officeNote);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', flex: 1, minWidth: 0 }}>
+          {a.title}
+          {a.completedAt ? <span style={{ color: 'var(--positive)', fontSize: 11, fontWeight: 400 }}> · done</span> : null}
+        </span>
+        {!showNote && (
+          <button type="button" onClick={() => setShowNote(true)} style={quietBtn}>
+            add note
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onSave(() => detachSlipFromStop(packetId, a.attachmentId))}
+          style={quietBtn}
+        >
+          remove
+        </button>
+      </div>
+      {showNote && (
+        <textarea
+          rows={1}
+          defaultValue={a.officeNote ?? ''}
+          placeholder="Note for the inspector on this one"
+          autoFocus={!a.officeNote}
+          onBlur={(e) => {
+            const v = e.target.value;
+            if (v !== (a.officeNote ?? '')) onSave(() => updateStopSlipNote(packetId, a.attachmentId, v));
+            if (!v.trim() && !a.officeNote) setShowNote(false);
+          }}
+          style={box}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * Office control to hand an inspector extra work at one packet stop: attach the
  * property's open work slips (each with an optional note), and write free-form
@@ -48,9 +127,11 @@ export function StopAttachments({
   const [open, setOpen] = useState(attached.length > 0 || !!instructions);
   const [pending, start] = useTransition();
   const [instr, setInstr] = useState(instructions ?? '');
+  const [showInstr, setShowInstr] = useState(!!instructions);
 
   const attachedSlipIds = new Set(attached.map((a) => a.id));
   const pickable = attachable.filter((w) => !attachedSlipIds.has(w.id) && w.id !== stopWorkSlipId);
+  const onSave = (fn: () => Promise<unknown>) => start(async () => { await fn(); });
 
   if (!editable) {
     if (attached.length === 0 && !instructions) return null;
@@ -84,72 +165,63 @@ export function StopAttachments({
       </button>
 
       {open && (
-        <div style={{ marginTop: 10, paddingLeft: 12, borderLeft: '2px solid var(--rule)', display: 'flex', flexDirection: 'column', gap: 12, opacity: pending ? 0.6 : 1 }}>
+        <div style={{ marginTop: 10, maxWidth: 540, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12, opacity: pending ? 0.7 : 1 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+            <span style={eyebrow}>At this stop</span>
+            <SaveState pending={pending} />
+          </div>
+
           {/* Attached slips */}
-          {attached.map((a) => (
-            <div key={a.attachmentId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-                <span style={{ fontSize: 13, color: 'var(--ink)' }}>
-                  {a.title}
-                  {a.completedAt ? <span style={{ color: 'var(--positive)', fontSize: 11 }}> · done</span> : null}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => start(async () => { await detachSlipFromStop(packetId, a.attachmentId); })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline', flexShrink: 0 }}
-                >
-                  remove
-                </button>
-              </div>
-              <textarea
-                rows={1}
-                defaultValue={a.officeNote ?? ''}
-                placeholder="Note for the inspector on this one (optional)"
-                onBlur={(e) => {
-                  const v = e.target.value;
-                  if (v !== (a.officeNote ?? '')) start(async () => { await updateStopSlipNote(packetId, a.attachmentId, v); });
-                }}
-                style={box}
-              />
+          {attached.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {attached.map((a) => (
+                <AttachedRow key={a.attachmentId} packetId={packetId} a={a} onSave={onSave} />
+              ))}
             </div>
-          ))}
+          )}
 
           {/* Attach a slip */}
           {pickable.length > 0 ? (
-            <label style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-              Attach a work slip
-              <select
-                value=""
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (id) start(async () => { await attachSlipToStop(packetId, stopId, id); });
-                }}
-                style={{ ...box, marginTop: 4 }}
-              >
-                <option value="">Choose an open slip…</option>
-                {pickable.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.title}{w.location ? ` (${w.location})` : ''} · {w.priority}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id) onSave(() => attachSlipToStop(packetId, stopId, id));
+              }}
+              style={{ ...box, color: 'var(--ink-3)' }}
+            >
+              <option value="">+ Attach a work slip ({pickable.length} open)…</option>
+              {pickable.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.title}{w.location ? ` (${w.location})` : ''} · {w.priority}
+                </option>
+              ))}
+            </select>
           ) : attached.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>No open work slips on this property to attach.</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+              No open work slips on this property. Create one in Work and it will show up here.
+            </div>
           ) : null}
 
-          {/* Per-stop instructions */}
-          <label style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-            Other instructions for this stop
+          {/* Per-stop instructions, tucked away until wanted */}
+          {showInstr ? (
             <textarea
               rows={2}
               value={instr}
+              autoFocus={!instructions}
               onChange={(e) => setInstr(e.target.value)}
-              onBlur={() => { if (instr !== (instructions ?? '')) start(async () => { await setStopInstructions(packetId, stopId, instr); }); }}
-              placeholder="Anything else you want them to do here"
-              style={{ ...box, marginTop: 4 }}
+              onBlur={() => {
+                if (instr !== (instructions ?? '')) onSave(() => setStopInstructions(packetId, stopId, instr));
+                if (!instr.trim() && !instructions) setShowInstr(false);
+              }}
+              placeholder="Anything else you want them to do at this stop"
+              style={box}
             />
-          </label>
+          ) : (
+            <button type="button" onClick={() => setShowInstr(true)} style={{ ...quietBtn, alignSelf: 'flex-start' }}>
+              + add instructions for this stop
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -170,16 +242,19 @@ export function PacketInstructions({ packetId, instructions, editable }: { packe
     );
   }
   return (
-    <label style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginBottom: 16, opacity: pending ? 0.6 : 1 }}>
-      Instructions for the whole packet (optional)
+    <div style={{ marginBottom: 16, maxWidth: 540, opacity: pending ? 0.7 : 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Instructions for the whole packet (optional)</span>
+        <SaveState pending={pending} />
+      </div>
       <textarea
         rows={2}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => { if (text !== (instructions ?? '')) start(async () => { await setPacketInstructions(packetId, text); }); }}
         placeholder="A note the inspector sees across all stops on this trip"
-        style={{ ...box, marginTop: 4, maxWidth: 520 }}
+        style={box}
       />
-    </label>
+    </div>
   );
 }
