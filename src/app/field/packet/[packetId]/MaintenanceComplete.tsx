@@ -57,7 +57,7 @@ export function MaintenanceComplete({
             name="resolution"
             rows={2}
             placeholder={placeholder ?? 'What you did (optional)'}
-            style={{ width: '100%', font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
+            style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
           />
           <div style={{ marginTop: 8 }}>
             {/* /api/upload accepts the contractor cookie too (dual-plane) and
@@ -74,7 +74,7 @@ export function MaintenanceComplete({
           <button
             type="button"
             onClick={() => setShowDetail(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
           >
             + add note or photo
           </button>

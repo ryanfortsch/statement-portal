@@ -206,7 +206,7 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Grab your bag at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> — one bag, packed for this whole trip.
+          Grab your bag at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong>. One bag, packed for this whole trip.
         </div>
         <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
           Directions →
@@ -257,7 +257,7 @@ function KitReturnCard() {
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Drop your kit back at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> — the bag and anything
+          Drop your kit back at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong>: the bag and anything
           you pulled from a home, so it&apos;s packed and ready for the next trip.
         </div>
         <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
@@ -290,11 +290,14 @@ function AccessLines({ a }: { a: AccessBundle }) {
     ([, v]) => v && String(v).trim() && !ACCESS_NOISE.has(String(v).trim().toLowerCase()),
   );
   if (present.length === 0) {
+    const pill: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--signal)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' };
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-        No smart lock here. Use your trip code above, then{' '}
-        <a href={`sms:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>text</a> or{' '}
-        <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 600 }}>call the office</a> when you arrive so we can confirm you&apos;re in.
+        No smart lock here. Use your trip code above, then let the office know you&apos;re in.
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          <a href={`sms:${OFFICE_TEL}`} style={pill}>Text the office</a>
+          <a href={`tel:${OFFICE_TEL}`} style={pill}>Call the office</a>
+        </div>
       </div>
     );
   }
@@ -303,7 +306,9 @@ function AccessLines({ a }: { a: AccessBundle }) {
       <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 }}>
         How to get in
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13 }}>
+      {/* Roomier rows: each value is a tap-to-copy chip, and 6px between
+          38px+ chips made mis-taps easy with winter gloves at a keypad. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 14px', fontSize: 13, alignItems: 'center' }}>
         {present.map(([k, v]) => {
           const sv = String(v);
           const isCode = ACCESS_CODE_LABELS.has(k);
@@ -475,7 +480,7 @@ export default async function PacketPage({
       {preview && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', border: '1px solid var(--tide-deep)', background: 'rgba(58,107,138,0.08)', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
           <span style={{ fontSize: 13, color: 'var(--tide-deep)', lineHeight: 1.5 }}>
-            <strong>Office preview</strong> — exactly what{' '}
+            <strong>Office preview</strong>: exactly what{' '}
             {packet.awarded_contractor_id ? contractor.full_name : 'an eligible inspector'} sees. Buttons are disabled.
           </span>
           <Link href={`/operations/packets/${packetId}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
@@ -497,9 +502,12 @@ export default async function PacketPage({
         <span className="font-mono" style={{ fontSize: 30 }}>{dollars(packet.posted_price_cents)}</span>
         <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
           {/* Count the LIVE stops, not the stored stop_count — a partial
-              revalidation can leave the column ahead of reality. */}
-          for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'} ·{' '}
-          {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each
+              revalidation can leave the column ahead of reality. The per-stop
+              math is claim-decision context; once it's theirs, drop it. */}
+          for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
+          {!isMine && (
+            <> · {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each</>
+          )}
         </span>
       </div>
 
@@ -525,8 +533,10 @@ export default async function PacketPage({
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Works at every stop. It stops working when you submit.</div>
           </div>
-          <span className="font-mono" style={{ fontSize: 30, letterSpacing: '0.18em', color: 'var(--tide-deep)' }}>
-            {packet.entry_code}
+          {/* Tap-to-copy like every other code — this is the one the inspector
+              actually punches at every keypad, at peak stress. */}
+          <span style={{ fontSize: 26, letterSpacing: '0.14em', color: 'var(--tide-deep)' }}>
+            <CopyCode value={packet.entry_code} />
           </span>
         </div>
       )}
@@ -575,8 +585,11 @@ export default async function PacketPage({
           as soon as you claim.
         </p>
       )}
-      {!isMaint && <InspectionScope />}
-      {!working && (
+      {/* The three-pillar scope sells the standard BEFORE claiming. Once the
+          packet is theirs (working, submitted, approved) it's ~300px of
+          scrolling between the inspector and their stops — drop it. */}
+      {!isMaint && !isMine && <InspectionScope />}
+      {!isMine && (
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520, margin: '0 0 24px' }}>
           Every route starts and ends at our supply closet ({SUPPLY_CLOSET}): grab your kit on the way out, drop it
           back when you&apos;re done.
@@ -632,9 +645,11 @@ export default async function PacketPage({
                       {s.workSlip.action_summary || s.workSlip.description}
                     </div>
                   )}
-                  <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
-                    {s.workSlip.location ? `${s.workSlip.location} · ` : ''}priority: {s.workSlip.priority}
-                  </div>
+                  {/* Location only — priority is office triage detail, not
+                      door-side instruction (matches AttachedSlipCard). */}
+                  {s.workSlip.location && (
+                    <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{s.workSlip.location}</div>
+                  )}
                   {s.workSlip.bring_list && (
                     <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
                       <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{s.workSlip.bring_list}
@@ -712,15 +727,23 @@ export default async function PacketPage({
               })()}
               {isMine && occupiedStops.has(s.id) && s.status !== 'complete' && (
                 <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
-                  A guest may be in this home today. <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 700 }}>Call the office</a> before you enter.
+                  A guest may be in this home today. Check with the office before you enter.
+                  {/* The safety tap gets a real pill, not 13px inline text. */}
+                  <div style={{ marginTop: 8 }}>
+                    <a
+                      href={`tel:${OFFICE_TEL}`}
+                      style={{ fontSize: 13, fontWeight: 700, color: 'var(--signal)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--signal)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper)' }}
+                    >
+                      Call the office
+                    </a>
+                  </div>
                 </div>
               )}
               {isMine && (codedProps.has(s.property_id) ? (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(46,125,79,0.06)', borderLeft: '3px solid var(--positive, #2e7d4f)' }}>
                   <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    🔒 Smart lock — your code{packet.entry_code ? <> <strong className="font-mono">{packet.entry_code}</strong></> : ''} opens this door.
+                    🔒 Smart lock: your code{packet.entry_code ? <> <strong className="font-mono">{packet.entry_code}</strong></> : ''} opens this door.
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>Punch it on the keypad. We&apos;ll see you&apos;re in.</div>
                 </div>
               ) : s.access ? (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--rule)' }}>
@@ -761,77 +784,92 @@ export default async function PacketPage({
 
       {working && <KitReturnCard />}
 
-      <div
-        className="rt-cta-bar"
-        style={{
-          borderTop: '1px solid var(--ink)',
-          marginTop: 8,
-          padding: '18px 0 calc(14px + env(safe-area-inset-bottom, 0px))',
-          position: 'sticky',
-          bottom: 0,
-          zIndex: 20,
-          background: 'var(--paper)',
-        }}
-      >
-        {claimable && (
-          <form action={claimPacket}>
-            <input type="hidden" name="packet_id" value={packet.id} />
-            <PendingButton
-              label={`Claim this packet · ${dollars(packet.posted_price_cents)}`}
-              busyLabel="Claiming…"
-              style={{
-                background: 'var(--signal)',
-                color: 'var(--paper)',
-                border: 'none',
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                padding: '16px 34px',
-                minHeight: 48,
-              }}
-            />
-          </form>
-        )}
-        {!isMine && packet.status === 'published' && !canClaim(contractor) && (
-          onboardingComplete(contractor) ? (
-            <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
-              Your background check hasn&apos;t started yet. You&apos;ll be able to claim as soon as the office kicks it off.
-            </p>
-          ) : (
-            <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
-              Finish your account setup to claim this packet →
-            </Link>
-          )
-        )}
-        {isMine && packet.status !== 'submitted' && packet.status !== 'approved' && (
-          <form action={submitPacket}>
-            <input type="hidden" name="packet_id" value={packet.id} />
-            <PendingButton
-              disabled={!allComplete}
-              label={allComplete ? 'Submit completed packet' : 'Finish all stops to submit'}
-              busyLabel="Submitting…"
-              style={{
-                background: allComplete ? 'var(--ink)' : 'transparent',
-                color: allComplete ? 'var(--paper)' : 'var(--ink-4)',
-                border: allComplete ? 'none' : '1px solid var(--rule)',
-                cursor: allComplete ? 'pointer' : 'not-allowed',
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                padding: '16px 34px',
-                minHeight: 48,
-              }}
-            />
-          </form>
-        )}
-        {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
-          <div style={{ fontSize: 14, color: 'var(--positive)' }}>
-            Submitted for review. Thanks{packet.status === 'approved' ? ' — approved!' : ''}.
-          </div>
-        )}
-      </div>
+      {/* Sticky bar renders ONLY when it carries a real action or verdict:
+          claim, submit (all stops done), the eligibility nudge, or the
+          submitted/approved receipt. Mid-job it used to pin a disabled
+          "Finish all stops to submit" button to the bottom of every scroll —
+          the progress bar up top already tells that story. */}
+      {(claimable ||
+        (!isMine && packet.status === 'published' && !canClaim(contractor)) ||
+        (isMine && (packet.status === 'submitted' || packet.status === 'approved')) ||
+        (isMine && packet.status !== 'submitted' && packet.status !== 'approved' && allComplete)) && (
+        <div
+          className="rt-cta-bar"
+          style={{
+            borderTop: '1px solid var(--ink)',
+            marginTop: 8,
+            padding: '18px 0 calc(14px + env(safe-area-inset-bottom, 0px))',
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 20,
+            background: 'var(--paper)',
+          }}
+        >
+          {claimable && (
+            <form action={claimPacket}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <PendingButton
+                label={`Claim this packet · ${dollars(packet.posted_price_cents)}`}
+                busyLabel="Claiming…"
+                style={{
+                  width: '100%',
+                  maxWidth: 480,
+                  background: 'var(--signal)',
+                  color: 'var(--paper)',
+                  border: 'none',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  padding: '16px 24px',
+                  minHeight: 48,
+                }}
+              />
+            </form>
+          )}
+          {!isMine && packet.status === 'published' && !canClaim(contractor) && (
+            onboardingComplete(contractor) ? (
+              <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
+                Your background check hasn&apos;t started yet. You&apos;ll be able to claim as soon as the office kicks it off.
+              </p>
+            ) : (
+              <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
+                Finish your account setup to claim this packet →
+              </Link>
+            )
+          )}
+          {isMine && packet.status !== 'submitted' && packet.status !== 'approved' && allComplete && (
+            <form action={submitPacket}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <PendingButton
+                label="Submit completed packet"
+                busyLabel="Submitting…"
+                style={{
+                  width: '100%',
+                  maxWidth: 480,
+                  background: 'var(--ink)',
+                  color: 'var(--paper)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  padding: '16px 24px',
+                  minHeight: 48,
+                }}
+              />
+            </form>
+          )}
+          {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
+            <div style={{ fontSize: 14, color: 'var(--positive)' }}>
+              {packet.status === 'approved'
+                ? 'Approved. Your payout is on the way.'
+                : 'Submitted for review. Thanks!'}
+            </div>
+          )}
+        </div>
+      )}
       </fieldset>
     </FieldShell>
   );
