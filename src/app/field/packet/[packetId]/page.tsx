@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -298,13 +298,16 @@ export default async function PacketPage({
   );
   const rawRoute = [
     ...(showSupplyStop
-      ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1, done: anyStarted, verified: false }]
+      ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1, num: 1, done: anyStarted, verified: false }]
       : []),
     ...packet.stops.map((s, i) => ({
       label: stopLabel(s, i),
       lat: s.property.latitude ?? NaN,
       lng: s.property.longitude ?? NaN,
       order: s.walk_order,
+      // The pin carries the stop's LIST number so map and list always agree,
+      // even when a coordinate-less stop gets filtered off the map.
+      num: i + 1 + (showSupplyStop ? 1 : 0),
       done: s.status === 'complete' || s.status === 'skipped',
       verified: !!s.arrived_verified_at,
     })),
@@ -316,8 +319,14 @@ export default async function PacketPage({
       : !currentAssigned
         ? ((currentAssigned = true), 'current')
         : 'next';
-    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, state: working ? state : undefined, verified: r.verified };
+    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: working ? state : undefined, verified: r.verified };
   });
+
+  // Safety cue: a guest mid-stay (or a calendar block) on the visit date. The
+  // claim-time revalidation only guards inspection packets while still
+  // published; maintenance runs with guests in-house by design, and a booking
+  // can land after a claim. Read-only — warn the contractor, never drop a stop.
+  const occupiedStops = working ? await staleStopIds(packet.visit_date, packet.stops) : new Set<string>();
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -330,8 +339,10 @@ export default async function PacketPage({
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
         <span className="font-mono" style={{ fontSize: 30 }}>{dollars(packet.posted_price_cents)}</span>
         <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-          for {packet.stop_count} {packet.stop_count === 1 ? 'stop' : 'stops'} ·{' '}
-          {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stop_count)))} each
+          {/* Count the LIVE stops, not the stored stop_count — a partial
+              revalidation can leave the column ahead of reality. */}
+          for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'} ·{' '}
+          {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each
         </span>
       </div>
 
@@ -487,6 +498,11 @@ export default async function PacketPage({
                   }}
                 >
                   {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
+                  {/* Keep the timing visible while working — a same-day check-in
+                      and a vacant home look identical exactly when it matters. */}
+                  {s.status !== 'complete' && s.next_checkin === packet.visit_date && (
+                    <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · guest checks in at 4 PM today — do this one early</span>
+                  )}
                 </div>
               ) : (
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{INSPECTION_WINDOW}</div>
@@ -504,6 +520,11 @@ export default async function PacketPage({
                   </a>
                 ) : null;
               })()}
+              {isMine && occupiedStops.has(s.id) && s.status !== 'complete' && (
+                <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
+                  A guest may be in this home today. <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--signal)', fontWeight: 700 }}>Call the office</a> before you enter.
+                </div>
+              )}
               {isMine && (codedProps.has(s.property_id) ? (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(46,125,79,0.06)', borderLeft: '3px solid var(--positive, #2e7d4f)' }}>
                   <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>

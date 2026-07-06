@@ -602,7 +602,7 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 // day was calendar-blocked since the packet was built. A turnover day
 // (check_in == day or check_out == day) is NOT stale — that's the whole
 // point of the visit window.
-async function staleStopIds(
+export async function staleStopIds(
   visitDate: string,
   stops: Array<{ id: string; property_id: string }>,
 ): Promise<Set<string>> {
