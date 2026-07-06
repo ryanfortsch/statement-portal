@@ -237,91 +237,114 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         )}
 
-        {/* Price + lifecycle controls */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 18 }}>
-          {editable && (
-            <>
-              <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="hidden" name="packet_id" value={packet.id} />
-                <span style={{ color: 'var(--ink-4)' }}>$</span>
-                <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
-                <button type="submit" style={btnGhost}>Update price</button>
-              </form>
-              <form action={publishPacket}>
-                <input type="hidden" name="packet_id" value={packet.id} />
-                <button type="submit" style={btnDark}>Publish to contractors</button>
-              </form>
-            </>
+        {/* Lifecycle controls: ONE loud action per state; everything else is a
+            quiet utility link so the page doesn't shout five buttons at once. */}
+        <div style={{ marginTop: 18 }}>
+          {(editable || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {editable && (
+                <>
+                  <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <span style={{ color: 'var(--ink-4)' }}>$</span>
+                    <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
+                    <button type="submit" style={btnGhost}>Update price</button>
+                  </form>
+                  <form action={publishPacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <button type="submit" style={btnDark}>Publish to contractors</button>
+                  </form>
+                </>
+              )}
+              {packet.status === 'submitted' && (
+                <>
+                  <form action={approvePacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <button type="submit" style={btnDark}>Approve packet</button>
+                  </form>
+                  <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+                    <button type="submit" style={btnGhost}>Request changes</button>
+                  </form>
+                </>
+              )}
+              {packet.status === 'approved' && !packet.paid_at && (
+                <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
+                  <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
+                </form>
+              )}
+            </div>
           )}
-          {(editable || packet.status === 'published') && (
-            <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input type="date" name="visit_date" defaultValue={packet.visit_date} style={priceInput} />
-              <button type="submit" style={btnGhost}>Move date</button>
-            </form>
-          )}
-          {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
-            <form action={assignPacket} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <select name="contractor_id" required defaultValue="" style={priceInput}>
-                <option value="" disabled>Choose an inspector…</option>
-                {assignable.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.full_name} · {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
-                  </option>
-                ))}
-              </select>
-              <button type="submit" style={btnGhost}>{packet.status === 'claimed' ? 'Reassign' : 'Assign'}</button>
-            </form>
-          )}
-          {packet.status === 'published' && (
-            <form action={unpublishPacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost}>Unpublish</button>
-            </form>
-          )}
-          {packet.status === 'claimed' && (
-            <form action={releasePacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
-            </form>
-          )}
-          {packet.status === 'submitted' && (
-            <form action={approvePacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnDark}>Approve packet</button>
-            </form>
-          )}
-          {packet.status === 'submitted' && (
-            <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-              <button type="submit" style={btnGhost}>Request changes</button>
-            </form>
-          )}
-          {packet.status === 'approved' && !packet.paid_at && (
-            <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-              <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
-            </form>
-          )}
-          {packet.status === 'approved' && packet.paid_at && packet.paid_method && (
-            <span style={{ fontSize: 12, color: 'var(--ink-4)', alignSelf: 'center' }}>
-              via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}
-            </span>
-          )}
+
           {packet.status === 'approved' && packet.paid_at && (
-            <span style={{ fontSize: 12, color: 'var(--positive)', alignSelf: 'center' }}>
+            <div style={{ fontSize: 12, color: 'var(--positive)' }}>
               Paid {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {packet.contractor ? ` to ${packet.contractor.full_name}` : ''}
-            </span>
+              {packet.paid_method && (
+                <span style={{ color: 'var(--ink-4)' }}> · via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}</span>
+              )}
+            </div>
           )}
-          {isLive && packet.status !== 'submitted' && (
-            <form action={cancelPacket}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <button type="submit" style={btnGhost}>Cancel</button>
-            </form>
+
+          {/* Quiet utilities — rarely used, so they whisper. */}
+          {isLive && (
+            <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 14 }}>
+              {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
+                  <div style={menuCard}>
+                    <div style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, padding: '2px 0 6px' }}>
+                      Hand this trip to
+                    </div>
+                    {assignable.map((c, i) => (
+                      <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <input type="hidden" name="contractor_id" value={c.id} />
+                        <button type="submit" style={menuRow}>
+                          <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
+                          <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                            {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
+                          </span>
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {(editable || packet.status === 'published') && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Move date ▾</summary>
+                  <div style={menuCard}>
+                    <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
+                      <button type="submit" style={btnGhost}>Set</button>
+                    </form>
+                  </div>
+                </details>
+              )}
+              {packet.status === 'published' && (
+                <form action={unpublishPacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={quietCtl}>Unpublish</button>
+                </form>
+              )}
+              {packet.status === 'claimed' && (
+                <form action={releasePacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={quietCtl} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
+                </form>
+              )}
+              {packet.status !== 'submitted' && (
+                <form action={cancelPacket} style={{ margin: 0 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <button type="submit" style={{ ...quietCtl, color: 'var(--signal)' }}>Cancel packet</button>
+                </form>
+              )}
+            </div>
           )}
         </div>
 
@@ -415,4 +438,43 @@ const btnGhost: React.CSSProperties = {
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   padding: '9px 16px',
+};
+
+// The whisper tier: rarely-used levers render as small underlined text, not
+// another bordered button competing with the primary action.
+const quietCtl: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ink-4)',
+  fontSize: 12,
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
+  padding: 0,
+};
+// display:flex on summary drops the native disclosure triangle cross-browser.
+const quietSummary: React.CSSProperties = { ...quietCtl, display: 'flex', listStyle: 'none', userSelect: 'none' };
+const menuCard: React.CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 8px)',
+  left: 0,
+  zIndex: 30,
+  minWidth: 280,
+  background: 'var(--paper-2, #fff)',
+  border: '1px solid var(--rule)',
+  borderRadius: 10,
+  boxShadow: '0 10px 28px rgba(11,37,69,0.14)',
+  padding: '10px 16px',
+};
+const menuRow: React.CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: 14,
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  textAlign: 'left',
+  padding: '9px 0',
 };
