@@ -60,7 +60,10 @@ export function MaintenanceComplete({
             style={{ width: '100%', font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
           />
           <div style={{ marginTop: 8 }}>
-            <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" endpoint="/api/field/upload" />
+            {/* /api/upload accepts the contractor cookie too (dual-plane) and
+                honors the folder hint — /api/field/upload is avatar-specific
+                and filed these under field-avatars/. */}
+            <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
           </div>
         </div>
       )}

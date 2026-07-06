@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { auth } from '@/auth';
+import { resolveContractorFromCookie } from '@/lib/field-auth';
 
 const MAX_BYTES = 12 * 1024 * 1024; // 12 MB; iPhone photos are ~3-5 MB
 const ALLOWED_TYPES = new Set([
@@ -31,9 +32,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Dual-plane auth: Helm staff sign in via Google SSO; Field contractors
+  // carry a portal session cookie instead. A contractor mid-inspection
+  // attaches issue photos through the same shared Stepper, so this endpoint
+  // must accept either identity (they 401'd here before, with no way in).
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    const contractor = await resolveContractorFromCookie();
+    if (!contractor) {
+      return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    }
   }
 
   let formData: FormData;
