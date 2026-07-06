@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
-import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -252,16 +253,46 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string; blocked?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string; blocked?: string; office?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
-  const contractor = await resolveContractorFromCookie();
-  if (!contractor) redirect('/field');
+
+  // Office preview (?office=1): a Helm-signed-in staffer renders this exact
+  // page read-only, as the inspector sees it. Explicit param (not just cookie
+  // absence) so a staffer who also carries a test-contractor cookie still gets
+  // the preview they asked for. Actions are disabled via a <fieldset disabled>
+  // around the whole page; the server actions independently re-check the
+  // contractor cookie anyway.
+  const wantsPreview = sp.office === '1';
+  const cookieContractor = wantsPreview ? null : await resolveContractorFromCookie();
+  let preview = false;
+  if (!cookieContractor) {
+    const session = wantsPreview ? await auth() : null;
+    if (!session?.user?.email) redirect('/field');
+    preview = true;
+  }
 
   // Load masked first (no addresses) to determine ownership safely.
   let packet = await loadPacketDetail(packetId, { revealIdentity: false });
-  if (!packet) redirect('/field');
+  if (!packet) redirect(preview ? '/operations/packets' : '/field');
+
+  // Whose eyes: the awarded inspector's when someone holds the packet, else a
+  // synthetic vetted-and-eligible inspector (what any claimable browser sees).
+  let contractor = cookieContractor;
+  if (!contractor && packet.awarded_contractor_id) {
+    const { data } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
+    contractor = (data as ContractorRow | null) ?? null;
+  }
+  contractor ??= {
+    id: '__office_preview__',
+    full_name: 'Inspector preview',
+    trade: packet.trade,
+    status: 'active',
+    w9_on_file: true,
+    agreement_signed_at: new Date().toISOString(),
+    background_check_status: 'cleared',
+  } as unknown as ContractorRow;
 
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
@@ -273,7 +304,9 @@ export default async function PacketPage({
   const stopLabel = (s: PacketStopDetail, i: number): string =>
     isMine ? s.property.address : vetted ? s.property.name : `Home ${i + 1}`;
   // A contractor only sees another's packet if it's published AND their trade.
-  if (!isMine && (packet.status !== 'published' || packet.trade !== contractor.trade)) redirect('/field');
+  // The office preview skips the gate — it can look at any state (a draft
+  // previews as it will appear once published).
+  if (!preview && !isMine && (packet.status !== 'published' || packet.trade !== contractor.trade)) redirect('/field');
   // Reveal door/access codes only while the contractor is actively engaged
   // (claimed or in progress) — never after they submit/approve/cancel, so a
   // departed or cancelled inspector can't keep live codes for an owner's home.
@@ -364,7 +397,22 @@ export default async function PacketPage({
   const occupiedStops = working ? await staleStopIds(packet.visit_date, packet.stops) : new Set<string>();
 
   return (
-    <FieldShell contractorName={contractor.full_name}>
+    <FieldShell contractorName={preview ? null : contractor.full_name} showSignOut={!preview}>
+      {preview && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', border: '1px solid var(--tide-deep)', background: 'rgba(58,107,138,0.08)', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+          <span style={{ fontSize: 13, color: 'var(--tide-deep)', lineHeight: 1.5 }}>
+            <strong>Office preview</strong> — exactly what{' '}
+            {packet.awarded_contractor_id ? contractor.full_name : 'an eligible inspector'} sees. Buttons are disabled.
+          </span>
+          <Link href={`/operations/packets/${packetId}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            ← Back to the office view
+          </Link>
+        </div>
+      )}
+      {/* In preview every button/input inside goes inert (fieldset semantics);
+          links (Maps, Directions, tel:) stay live. display:contents keeps the
+          wrapper out of layout. */}
+      <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
         {fmtDate(packet.visit_date)}
       </div>
@@ -717,6 +765,7 @@ export default async function PacketPage({
           </div>
         )}
       </div>
+      </fieldset>
     </FieldShell>
   );
 }
