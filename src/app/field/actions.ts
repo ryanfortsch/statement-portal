@@ -468,10 +468,19 @@ export async function submitPacket(formData: FormData) {
     (stops as { status: string }[]).every((s) => s.status === 'complete' || s.status === 'skipped');
   if (!allComplete) redirect(`/field/packet/${packetId}?incomplete=1`);
 
+  const nowIso = new Date().toISOString();
   await fieldDb()
     .from('inspection_packets')
-    .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+    .update({ status: 'submitted', submitted_at: nowIso })
     .eq('id', packetId);
+  // Close out the last still-open stop's clock (the one the inspector was on when
+  // they submitted, which never got a next-door-opening departure).
+  await fieldDb()
+    .from('packet_stops')
+    .update({ departed_at: nowIso })
+    .eq('packet_id', packetId)
+    .is('departed_at', null)
+    .not('arrived_verified_at', 'is', null);
   await logEvent({
     packetId,
     contractorId: contractor.id,

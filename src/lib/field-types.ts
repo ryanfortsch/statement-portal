@@ -125,6 +125,7 @@ export type PacketStopRow = {
   started_at: string | null;
   arrived_verified_at: string | null;
   completed_at: string | null;
+  departed_at: string | null; // left the property (next door opening, or submit)
   arrival_source: 'self' | 'lock' | 'both' | null;
   verified_device_id: string | null;
   verified_access_code_id: string | null;

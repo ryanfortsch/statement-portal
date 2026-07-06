@@ -57,16 +57,39 @@ export async function recordPacketArrival(sb: SupabaseClient, ev: LockEventInput
 
   // both = they also tapped Start; lock = door proof arrived first.
   const source = stop.started_at ? 'both' : 'lock';
-  const { error } = await sb
-    .from('packet_stops')
-    .update({
-      arrived_verified_at: ev.occurredAt,
-      arrival_source: source,
-      verified_device_id: ev.deviceId,
-      verified_access_code_id: ev.accessCodeId,
-    })
-    .eq('id', stop.id);
+  // The door IS the Start button: an unlock auto-advances a not-yet-started stop
+  // to in-progress and starts its clock (never un-does a completed/skipped stop
+  // or an earlier manual Start).
+  const update: Record<string, unknown> = {
+    arrived_verified_at: ev.occurredAt,
+    arrival_source: source,
+    verified_device_id: ev.deviceId,
+    verified_access_code_id: ev.accessCodeId,
+  };
+  if (stop.status === 'pending') update.status = 'in_progress';
+  if (!stop.started_at) update.started_at = ev.occurredAt;
+  const { error } = await sb.from('packet_stops').update(update).eq('id', stop.id);
   if (error) return { ok: false, reason: error.message };
+
+  // Opening THIS door ends the previous stop's visit: back-stamp any earlier
+  // arrived stop on this packet that hasn't been closed out yet (its
+  // time-at-property). The final stop is closed on packet submit instead.
+  await sb
+    .from('packet_stops')
+    .update({ departed_at: ev.occurredAt })
+    .eq('packet_id', match.packet_id)
+    .neq('id', stop.id)
+    .is('departed_at', null)
+    .not('arrived_verified_at', 'is', null)
+    .lt('arrived_verified_at', ev.occurredAt);
+
+  // First verified arrival moves the packet into "in progress" so the office
+  // tracker lights up (claim -> in_progress, same as the manual Start path).
+  await sb
+    .from('inspection_packets')
+    .update({ status: 'in_progress', updated_at: ev.occurredAt })
+    .eq('id', match.packet_id)
+    .eq('status', 'claimed');
 
   await sb.from('packet_events').insert({
     packet_id: match.packet_id,
