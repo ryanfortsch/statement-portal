@@ -6,9 +6,10 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, cityShort, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
-import { claimPacket, startStopInspection, submitPacket } from '../../actions';
+import { claimPacket, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
+import { StartStop } from './StartStop';
 import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
@@ -96,12 +97,11 @@ function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: 
         <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
         {done && <span style={{ fontSize: 12, color: 'var(--positive)', flexShrink: 0 }}>✓ Done</span>}
       </div>
-      {(slip.action_summary || slip.description) && (
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.5 }}>{slip.action_summary || slip.description}</div>
+      {/* Deliberately spare at the door: title + where + what to bring + any
+          office note. Priority and Supplies-Check provenance are office detail. */}
+      {slip.location && (
+        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{slip.location}</div>
       )}
-      <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
-        {slip.location ? `${slip.location} · ` : ''}priority: {slip.priority}
-      </div>
       {slip.bring_list && (
         <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
           <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{slip.bring_list}
@@ -114,7 +114,7 @@ function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: 
       )}
       {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={56} />}
       {isMine && !done && (
-        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark this done" placeholder="What did you do?" />
+        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" />
       )}
     </div>
   );
@@ -271,7 +271,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; note?: string; blocked?: string; office?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -493,11 +493,6 @@ export default async function PacketPage({
           Finish every stop before submitting the packet.
         </div>
       )}
-      {sp.note && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
-          Add a short note on what you did before marking the job done.
-        </div>
-      )}
       {sp.stale && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
           A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
@@ -683,25 +678,7 @@ export default async function PacketPage({
                 {s.status === 'complete' ? (
                   <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
                 ) : (
-                  <form action={startStopInspection} style={{ margin: 0 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input type="hidden" name="stop_id" value={s.id} />
-                    <PendingButton
-                      label={s.status === 'in_progress' ? 'Resume' : 'Start'}
-                      busyLabel="Opening…"
-                      style={{
-                        background: 'var(--ink)',
-                        color: 'var(--paper)',
-                        border: 'none',
-                        fontSize: 12,
-                        fontWeight: 600,
-                        letterSpacing: '0.12em',
-                        textTransform: 'uppercase',
-                        padding: '12px 20px',
-                        minHeight: 44,
-                      }}
-                    />
-                  </form>
+                  <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
                 )}
               </div>
             )}
