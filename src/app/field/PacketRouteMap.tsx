@@ -17,8 +17,10 @@ import { useEffect, useRef, useState } from 'react';
 type StopState = 'done' | 'current' | 'next';
 /** `num` is the number shown on the pin. Pass the stop's LIST position so the
  *  map always agrees with the stop list — without it, a coordinate-less stop
- *  gets filtered out and every pin after it silently shifts down by one. */
-type Stop = { label: string; lat: number; lng: number; order: number; num?: number; state?: StopState; verified?: boolean };
+ *  gets filtered out and every pin after it silently shifts down by one.
+ *  `pin: false` joins the route line without drawing a marker — used for the
+ *  return-to-supply-closet leg, which ends where pin 1 already sits. */
+type Stop = { label: string; lat: number; lng: number; order: number; num?: number; state?: StopState; verified?: boolean; pin?: boolean };
 
 const SIGNAL = '#c85a3a';
 const TIDE = '#3a6b8a';
@@ -70,6 +72,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
 
       const latlngs = valid.map((p) => [p.lat, p.lng] as [number, number]);
       valid.forEach((p, i) => {
+        if (p.pin === false) return; // path-only point (return leg to the closet)
         const icon = L.divIcon({
           className: '',
           html: pinHtml(p.num ?? i + 1, p),
