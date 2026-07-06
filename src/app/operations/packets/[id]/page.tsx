@@ -237,6 +237,21 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         )}
 
+        {/* See exactly what the inspector sees: the contractor page rendered
+            read-only through the same code path (?office=1 = staff preview).
+            Claimed → the awarded inspector's live view; else an eligible
+            browser's view. */}
+        <div style={{ marginTop: 14 }}>
+          <Link
+            href={`/field/packet/${packet.id}?office=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--rule)', borderRadius: 999, padding: '7px 14px', background: 'var(--paper-2, #fff)' }}
+          >
+            👁 Preview as inspector ↗
+          </Link>
+        </div>
+
         {/* Lifecycle controls: ONE loud action per state; everything else is a
             quiet utility link so the page doesn't shout five buttons at once. */}
         <div style={{ marginTop: 18 }}>
