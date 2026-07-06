@@ -1104,6 +1104,11 @@ export const SUPPLY_CLOSET = '85 Eastern Ave';
  *  packet's route map. Matches the "85 Eastern Ave" coords annotated in
  *  projections-distance.ts (NOT the ~1mi-off value some pricing code uses). */
 export const SUPPLY_CLOSET_COORDS = { lat: 42.6209, lng: -70.645 };
+/** Entry code for the supply closet, shown ONLY to the assigned inspector on
+ *  their claimed packet. Kept in an env var, never in source — this repo is
+ *  public, and a real door code doesn't belong in git. Unset => the code line
+ *  just doesn't render. Set SUPPLY_CLOSET_CODE in Vercel to light it up. */
+export const SUPPLY_CLOSET_CODE: string | null = process.env.SUPPLY_CLOSET_CODE?.trim() || null;
 
 export type SupplyRunStop = { propertyName: string; binLabel: string; lowItems: string[] };
 export type SupplyRunJob = { title: string; propertyName: string; bring: string };
