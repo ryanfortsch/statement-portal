@@ -41,6 +41,11 @@ export async function GET() {
   // Owners (OwnerMessagingQueue): everything in approvals (no filter).
   //   pending = approvals
   //
+  // Proactive cleaner/owner messages (ProactiveRemindersPanel) need no
+  // handling here: when one fires in approve mode it arrives as a normal
+  // pending approval in its queue's list, and neither page filters, so the
+  // counts below already include them.
+  //
   // If the badge says N, open the corresponding tab and you will see N
   // cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.

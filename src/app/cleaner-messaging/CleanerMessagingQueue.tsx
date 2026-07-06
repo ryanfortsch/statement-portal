@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { CleanerApproval } from '@/lib/stay-concierge';
@@ -12,22 +12,44 @@ import {
 } from './actions';
 import { prettifyTopic, ageToneColor, relativeTimeShort } from '@/app/messaging/format';
 
-type Props = { initialPending: CleanerApproval[] };
+type PropertyOption = { id: string; name: string };
+
+type Props = {
+  initialPending: CleanerApproval[];
+  /** Helm property list for the proposed-slip selector on each card. */
+  properties: PropertyOption[];
+};
 
 const REFRESH_MS = 15_000;
 
-export function CleanerMessagingQueue({ initialPending }: Props) {
+// Teal for the work-slip-on-approval block: an operational side effect,
+// distinct from both the draft (ink) and error/stale (signal) tones.
+const SLIP_TONE = '#1f5e6b';
+
+export function CleanerMessagingQueue({ initialPending, properties }: Props) {
   const router = useRouter();
+  // Refresh inside a transition. A bare router.refresh() re-suspends the
+  // queue's Suspense boundary, which swaps in the skeleton and UNMOUNTS
+  // everything below it -- including the proactive-message form, erasing
+  // whatever the operator was mid-typing (the exact bug the guest queue
+  // shipped and fixed). A transition keeps the current UI mounted while the
+  // new payload streams, so client state survives.
+  const [, startTransition] = useTransition();
+  const softRefresh = useCallback(
+    () => startTransition(() => router.refresh()),
+    [router],
+  );
 
   useEffect(() => {
-    const t = setInterval(() => router.refresh(), REFRESH_MS);
+    const t = setInterval(softRefresh, REFRESH_MS);
     return () => clearInterval(t);
-  }, [router]);
+  }, [softRefresh]);
 
   return (
     <Section
       title={initialPending.length === 0 ? 'Inbox zero' : `Pending (${initialPending.length})`}
       eyebrow={`refreshes every ${REFRESH_MS / 1000}s`}
+      right={<RefreshChip onClick={softRefresh} />}
       empty={initialPending.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
@@ -36,6 +58,7 @@ export function CleanerMessagingQueue({ initialPending }: Props) {
           <CleanerApprovalCard
             key={approval.id}
             approval={approval}
+            properties={properties}
             onResolved={() => router.refresh()}
           />
         ))}
@@ -44,13 +67,52 @@ export function CleanerMessagingQueue({ initialPending }: Props) {
   );
 }
 
+function RefreshChip({ onClick }: { onClick: () => void }) {
+  // Track elapsed seconds since mount, rather than a Date snapshot. Keeps
+  // render pure. setInterval ticks every second; the ref is set during the
+  // effect (never read during render) so the chip resets when the parent
+  // remounts after a router.refresh.
+  const mountedAt = useRef<number>(0);
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    mountedAt.current = Date.now();
+    const t = setInterval(() => {
+      setSeconds(Math.max(0, Math.round((Date.now() - mountedAt.current) / 1000)));
+    }, 1_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const label = seconds < 60 ? `${seconds}s ago` : `${Math.round(seconds / 60)} min ago`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        fontSize: 10,
+        letterSpacing: '0.16em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
+        color: 'var(--ink-3)',
+        background: 'transparent',
+        border: '1px solid var(--rule)',
+        padding: '6px 10px',
+        cursor: 'pointer',
+      }}
+    >
+      Refresh · {label}
+    </button>
+  );
+}
+
 type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
 
 function CleanerApprovalCard({
   approval,
+  properties,
   onResolved,
 }: {
   approval: CleanerApproval;
+  properties: PropertyOption[];
   onResolved: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -58,6 +120,19 @@ function CleanerApprovalCard({
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+
+  // Proposed work slip mined from the cleaner's message. The operator picks
+  // the property and can untick filing entirely; the decision rides along on
+  // approve. Default the select to the inferred property when Helm knows it.
+  const slip = approval.proposed_slip ?? null;
+  const inferredKnown = properties.some((p) => p.id === approval.property_id);
+  const [slipPropertyId, setSlipPropertyId] = useState(
+    slip && inferredKnown ? approval.property_id : '',
+  );
+  const [fileSlip, setFileSlip] = useState(true);
+  // Filing needs a destination: block approve rather than silently dropping
+  // the slip (or filing it nowhere). Unticking the box unblocks.
+  const slipBlocked = !!slip && fileSlip && !slipPropertyId;
 
   const nameLabel = approval.cleaner_name || approval.cleaner_contact || 'Cleaner';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
@@ -155,6 +230,72 @@ function CleanerApprovalCard({
         </FieldBlock>
       </div>
 
+      {slip && (
+        <div
+          style={{
+            marginTop: 16,
+            border: '1px solid var(--rule)',
+            borderLeft: `3px solid ${SLIP_TONE}`,
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div className="eyebrow" style={{ color: SLIP_TONE, marginBottom: 8 }}>
+            Work slip on approval
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
+              {slip.title}
+            </span>
+            <SlipChip>{slip.category}</SlipChip>
+            <SlipChip tone={slip.priority === 'high' ? 'var(--signal)' : undefined}>
+              {slip.priority} priority
+            </SlipChip>
+          </div>
+          {slip.note && (
+            <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>
+              {slip.note}
+            </p>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
+            <select
+              value={slipPropertyId}
+              onChange={(e) => setSlipPropertyId(e.target.value)}
+              aria-label="Property for the work slip"
+              style={{
+                fontSize: 13,
+                padding: '6px 8px',
+                background: 'var(--paper)',
+                color: 'var(--ink)',
+                border: '1px solid var(--rule)',
+                outline: 'none',
+              }}
+            >
+              <option value="">Select property…</option>
+              {properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--ink-2)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={fileSlip}
+                onChange={(e) => setFileSlip(e.target.checked)}
+                style={{ accentColor: SLIP_TONE, width: 14, height: 14 }}
+              />
+              File this slip when I approve
+            </label>
+          </div>
+          {slipBlocked && (
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>
+              Pick a property for the slip (or untick it).
+            </p>
+          )}
+        </div>
+      )}
+
       {error && (
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
           {error}
@@ -171,14 +312,27 @@ function CleanerApprovalCard({
         }}
       >
         <PrimaryButton
-          onClick={() => run('approve', () => approveCleanerDraft(approval.id))}
-          disabled={isPending}
+          onClick={() =>
+            run('approve', () =>
+              approveCleanerDraft(
+                approval.id,
+                slip
+                  ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
+                  : undefined,
+              ),
+            )
+          }
+          disabled={isPending || slipBlocked}
         >
           {pendingAction === 'approve' ? 'Sending…' : 'Approve & send'}
         </PrimaryButton>
-        <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
-          {showCoach ? 'Cancel coaching' : 'Coach the AI'}
-        </SecondaryButton>
+        {/* Proactive reminders are the operator's own composed message, not an
+            AI draft of an inbound, so there is nothing to coach/regenerate. */}
+        {approval.topic !== 'proactive_reminder' && (
+          <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+            {showCoach ? 'Cancel coaching' : 'Coach the AI'}
+          </SecondaryButton>
+        )}
         <SecondaryButton
           onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
           disabled={isPending}
@@ -312,6 +466,28 @@ function BodyText({ children, emphasis = false }: { children: React.ReactNode; e
     >
       {children}
     </p>
+  );
+}
+
+/** Small uppercase chip for a proposed slip's category/priority. Neutral ink
+ * by default; a high priority borrows the signal tone so it reads urgent. */
+function SlipChip({ children, tone }: { children: React.ReactNode; tone?: string }) {
+  const color = tone || 'var(--ink-3)';
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: '.16em',
+        textTransform: 'uppercase',
+        color,
+        border: `1px solid ${color}`,
+        padding: '2px 8px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
