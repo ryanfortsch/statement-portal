@@ -514,20 +514,31 @@ export async function removeStop(formData: FormData): Promise<void> {
     .select('base_price_cents')
     .eq('id', stopId)
     .maybeSingle();
+  // Already gone — a double-submitted remove (the link has no pending state).
+  // Bail before touching the packet row: blindly decrementing stop_count on
+  // the second fire is how a 2-row packet gets stored as "1 stop".
+  if (!stop) return;
   await fieldDb().from('packet_stops').delete().eq('id', stopId).eq('packet_id', packetId);
+  // Count the SURVIVING rows instead of decrementing the column, so the stored
+  // count can never drift from reality. The price stays a subtraction (not a
+  // recompute from bases) to preserve any operator-set posted price.
+  const { count: liveCount } = await fieldDb()
+    .from('packet_stops')
+    .select('id', { count: 'exact', head: true })
+    .eq('packet_id', packetId);
   const { data: pkt } = await fieldDb()
     .from('inspection_packets')
-    .select('posted_price_cents, stop_count')
+    .select('posted_price_cents')
     .eq('id', packetId)
     .maybeSingle();
   if (pkt) {
-    const base = (stop as { base_price_cents: number } | null)?.base_price_cents ?? 0;
-    const p = pkt as { posted_price_cents: number; stop_count: number };
+    const base = (stop as { base_price_cents: number }).base_price_cents ?? 0;
+    const p = pkt as { posted_price_cents: number };
     await fieldDb()
       .from('inspection_packets')
       .update({
         posted_price_cents: Math.max(0, p.posted_price_cents - base),
-        stop_count: Math.max(0, p.stop_count - 1),
+        stop_count: liveCount ?? 0,
         updated_at: new Date().toISOString(),
       })
       .eq('id', packetId);
