@@ -78,6 +78,10 @@ type Props = {
   initialResults: StepperResult[];
   initialNotes?: StepperNote[];
   initialWorkSlips?: StepperWorkSlip[];
+  /** Where ← Exit lands. Staff default is the inspections index; the
+   *  contractor entry (/field/inspect) passes its packet page — the staff
+   *  route is behind Helm SSO and would bounce a contractor to sign-in. */
+  exitHref?: string;
 };
 
 export function Stepper({
@@ -90,6 +94,7 @@ export function Stepper({
   initialResults,
   initialNotes = [],
   initialWorkSlips = [],
+  exitHref = '/inspections',
 }: Props) {
   const router = useRouter();
   const [results, setResults] = useState<Map<string, StepperResult>>(
@@ -106,6 +111,22 @@ export function Stepper({
   const [, startTransition] = useTransition();
   const [isCompleting, setIsCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-card persistence state. The UI marks optimistically and advances, so a
+  // dropped save on flaky cell used to leave a card LOOKING marked with no row
+  // behind it — then Complete failed with "mark every card" and no clue which.
+  // cardKey -> 'saving' | 'failed'; absent = persisted (or never marked).
+  const [saveState, setSaveState] = useState<Map<string, 'saving' | 'failed'>>(new Map());
+  function setCardSave(key: string, v: 'saving' | 'failed' | null) {
+    setSaveState((prev) => {
+      const m = new Map(prev);
+      if (v) m.set(key, v);
+      else m.delete(key);
+      return m;
+    });
+  }
+  const failedKeys = [...saveState.entries()].filter(([, v]) => v === 'failed').map(([k]) => k);
+  const savingCount = [...saveState.values()].filter((v) => v === 'saving').length;
 
   // Modal state
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -151,6 +172,7 @@ export function Stepper({
   }
 
   function persist(card: StepperCard, next: StepperResult) {
+    setCardSave(card.cardKey, 'saving');
     startTransition(async () => {
       const res = await saveResult({
         inspectionId,
@@ -159,8 +181,41 @@ export function Stepper({
         status: next.status,
         notes: next.notes,
       });
-      if (!res.ok) setError(res.error);
+      if (!res.ok) {
+        setCardSave(card.cardKey, 'failed');
+        // Bind the error to the card that failed — the stepper may have
+        // auto-advanced by the time this resolves.
+        setError(`"${card.title}" didn't save — ${res.error}`);
+      } else {
+        setCardSave(card.cardKey, null);
+      }
     });
+  }
+
+  /** Re-persist every card whose save failed, from the marks already held in
+   *  local state. Safe to spam — saveResult upserts. */
+  function retryFailedSaves() {
+    setError(null);
+    for (const key of failedKeys) {
+      const card = cards.find((c) => c.cardKey === key);
+      const r = results.get(key);
+      if (card && r) persist(card, r);
+    }
+  }
+
+  /** ← Exit, guarded: confirm before leaving with saves in flight or failed
+   *  (they only live in local state — leaving loses them). The button also
+   *  sits one fat-finger from the progress counter on a phone. */
+  function exitStepper() {
+    if (savingCount > 0 || failedKeys.length > 0) {
+      const ok = window.confirm(
+        failedKeys.length > 0
+          ? 'Some marks failed to save and will be lost if you leave. Leave anyway?'
+          : 'A mark is still saving. Leave anyway?',
+      );
+      if (!ok) return;
+    }
+    router.push(exitHref);
   }
 
   function mark(status: InspectionStatus) {
@@ -300,7 +355,7 @@ export function Stepper({
         <TopBar
           markedCount={markedCount}
           total={total}
-          onExit={() => router.push('/inspections')}
+          onExit={exitStepper}
           onAddSlip={() => setShowWorkSlipModal(true)}
         />
 
@@ -376,6 +431,35 @@ export function Stepper({
               one Rising Tide restock work slip per supply on Complete. */}
           <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} bedrooms={propertyBedrooms} />
 
+          {/* Save integrity before the wrap: a failed autosave means a card
+              LOOKS marked with no row behind it — surface it here with a retry
+              instead of letting Complete bounce with a confusing count. */}
+          {failedKeys.length > 0 && (
+            <div style={{ marginTop: 20, padding: '12px 14px', borderLeft: '3px solid var(--negative)', background: 'rgba(138,58,46,0.06)', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13.5, color: 'var(--negative)' }}>
+                {failedKeys.length} {failedKeys.length === 1 ? 'mark' : 'marks'} didn&apos;t save (bad signal?).
+              </span>
+              <button type="button" onClick={retryFailedSaves} style={{ background: 'var(--negative)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', padding: '10px 16px' }}>
+                Retry now
+              </button>
+            </div>
+          )}
+          {markedCount < total && (
+            <div style={{ marginTop: 14, fontSize: 13, color: 'var(--ink-3)' }}>
+              {total - markedCount} {total - markedCount === 1 ? 'card is' : 'cards are'} still unmarked.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  const first = cards.findIndex((c) => !results.has(c.cardKey));
+                  if (first >= 0) setActiveIdx(first);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline' }}
+              >
+                Jump to the first →
+              </button>
+            </div>
+          )}
+
           {error && <ErrorBlock error={error} />}
 
           {/* Wrap-up actions sit inline at the end of the page — deliberately
@@ -395,10 +479,10 @@ export function Stepper({
             <button
               type="button"
               onClick={complete}
-              disabled={isCompleting || markedCount === 0}
-              style={{ ...primaryBtn(), opacity: markedCount === 0 ? 0.5 : 1 }}
+              disabled={isCompleting || markedCount === 0 || failedKeys.length > 0 || savingCount > 0}
+              style={{ ...primaryBtn(), opacity: markedCount === 0 || failedKeys.length > 0 || savingCount > 0 ? 0.5 : 1 }}
             >
-              {isCompleting ? 'Completing…' : 'Complete Inspection →'}
+              {isCompleting ? 'Completing…' : savingCount > 0 ? 'Saving marks…' : 'Complete Inspection →'}
             </button>
           </div>
         </section>
@@ -415,7 +499,7 @@ export function Stepper({
         markedCount={markedCount}
         total={total}
         currentIdx={activeIdx}
-        onExit={() => router.push('/inspections')}
+        onExit={exitStepper}
         onAddSlip={() => setShowWorkSlipModal(true)}
       />
 
@@ -481,8 +565,29 @@ export function Stepper({
 
         {/* Mark indicator (subtle, just so the inspector knows it's saved) */}
         {activeResult && (
-          <div style={{ marginTop: 20 }}>
+          <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <StatusBadge status={activeResult.status} />
+            {saveState.get(activeCard.cardKey) === 'saving' && (
+              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>saving…</span>
+            )}
+          </div>
+        )}
+        {activeCard && saveState.get(activeCard.cardKey) === 'failed' && (
+          <div style={{ marginTop: 12, padding: '10px 14px', borderLeft: '3px solid var(--negative)', background: 'rgba(138,58,46,0.06)', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--negative)' }}>This mark didn&apos;t save (bad signal?).</span>
+            <button
+              type="button"
+              onClick={() => {
+                const r = results.get(activeCard.cardKey);
+                if (r) {
+                  setError(null);
+                  persist(activeCard, r);
+                }
+              }}
+              style={{ background: 'var(--negative)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', padding: '9px 14px' }}
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -1668,6 +1773,9 @@ function QuickPhotoButton({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Keep the shot around when the upload dies on a flaky signal, so retry
+  // re-sends the same photo instead of forcing a re-shoot.
+  const [failedFile, setFailedFile] = useState<File | null>(null);
 
   async function handleFile(rawFile: File) {
     setErr(null);
@@ -1681,12 +1789,19 @@ function QuickPhotoButton({
       const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
       if (!res.ok || !body.url) {
         setErr(body.error || `Upload failed (HTTP ${res.status})`);
+        setFailedFile(rawFile);
       } else {
         const persistErr = await onPhoto(body.url);
-        if (persistErr) setErr(persistErr);
+        if (persistErr) {
+          setErr(persistErr);
+          setFailedFile(rawFile);
+        } else {
+          setFailedFile(null);
+        }
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Upload failed');
+      setFailedFile(rawFile);
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -1736,9 +1851,23 @@ function QuickPhotoButton({
             background: 'var(--paper-2)',
             fontSize: 12,
             color: 'var(--negative)',
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
           }}
         >
-          {err}
+          <span>{err}</span>
+          {failedFile && !uploading && (
+            <button
+              type="button"
+              onClick={() => handleFile(failedFile)}
+              style={{ background: 'var(--negative)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', padding: '8px 12px' }}
+            >
+              Retry photo
+            </button>
+          )}
         </div>
       )}
     </>
