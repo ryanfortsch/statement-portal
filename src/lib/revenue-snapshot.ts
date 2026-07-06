@@ -19,6 +19,7 @@ import {
   nightsBetween,
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
+import { loadInstallmentsForCodes, type Installment } from './installments';
 
 const ALLOWED_STATUSES = new Set([
   'confirmed',
@@ -121,6 +122,7 @@ type PropertyRow = {
 type ReservationRow = {
   property_id: string | null;
   listing_id: string | null;
+  confirmation_code: string | null;
   check_in: string | null;
   check_out: string | null;
   status: string | null;
@@ -388,7 +390,7 @@ export async function computeRevenueSnapshot(
 
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
-    .select('property_id, listing_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
+    .select('property_id, listing_id, confirmation_code, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
     .lt('check_in', periodEndExclusive)
     .gt('check_out', rangeStart);
 
@@ -400,6 +402,15 @@ export async function computeRevenueSnapshot(
     ((resData ?? []) as ReservationRow[]).filter(
       (r) => r.check_in && r.check_out && isAllowed(r.status),
     ),
+  );
+
+  // Cross-month installment splits for any fetched booking. A split booking
+  // is allocated to its months per the operator-entered slices (matching the
+  // Statements module) instead of checkout attribution -- one batched query,
+  // empty map when the table doesn't exist yet.
+  const installmentsByCode = await loadInstallmentsForCodes(
+    supabase,
+    reservations.map((r) => r.confirmation_code || ''),
   );
 
   // 3. Forward reservations: today through +30d, count turnovers per property.
@@ -546,12 +557,18 @@ export async function computeRevenueSnapshot(
       if (totalNights <= 0) continue;
 
       const fullPayout = resolveGrossPayout(r, mgmtFeeFraction);
+      // Operator-entered cross-month split for this booking, if any.
+      const instRows = r.confirmation_code ? installmentsByCode.get(r.confirmation_code) : undefined;
+      const hasInstallments = !!instRows && instRows.length > 0;
 
       // Zero-payout rows are owner blocks, holds, or cancelled rows that
       // linger in guesty_reservations. They don't count toward
       // stays/nights/revenue, but the nights they occupy are unavailable —
       // bucket them per month so we can subtract from the denominator.
-      if (fullPayout <= 0) {
+      // (A split booking is real revenue even when the guesty_reservations
+      // money fields are empty -- e.g. an SCA stay paid through RT's Stripe
+      // -- so installment bookings never take this branch.)
+      if (fullPayout <= 0 && !hasInstallments) {
         const blockedStart = checkIn > propStart ? checkIn : propStart;
         const blockedEnd = checkOut < periodEndExclusive ? checkOut : periodEndExclusive;
         let cursor = blockedStart;
@@ -588,6 +605,44 @@ export async function computeRevenueSnapshot(
           }
           cursor = monthEndExclusive;
         }
+      }
+
+      // ── Installment fork ──────────────────────────────────────────────
+      // A split booking is allocated to its months per the operator's
+      // reservation_installments slices -- the SAME allocation the
+      // Statements module uses -- instead of whole-value checkout
+      // attribution. Each in-range month gets its slice's revenue + nights;
+      // the stay itself (1 staysCount + cleaning) is counted once, in the
+      // final (checkout) month, mirroring statements' num_stays. A slice is
+      // "recognized" at the END of its month so the same range window as
+      // checkout attribution applies. installment_revenue is the
+      // post-Stripe-fee, pre-mgmt-fee month slice -- the number that
+      // month's owner statement recognizes (closed months are later
+      // overridden by the actual statement in applyStatementsAndPacing
+      // anyway, so this only ever shows on open/future months).
+      // The `continue` below is the double-count guard: a split booking
+      // NEVER also checkout-attributes its full value.
+      if (hasInstallments) {
+        if (prop.activated_at && prop.activated_at.slice(0, 10) > checkOut) continue;
+        for (const slice of instRows as Installment[]) {
+          const [sy, sm] = slice.month.split('-').map(Number);
+          if (!sy || !sm) continue;
+          const sliceEnd = ymd(new Date(Date.UTC(sy, sm, 0))); // last day of slice month
+          if (sliceEnd <= rangeStart || sliceEnd > periodEndExclusive) continue;
+          const sliceRev = Number(slice.installment_revenue) || 0;
+          const sliceNights = Number(slice.installment_nights) || 0;
+          totalRevenue += sliceRev;
+          nightsSold += sliceNights;
+          revenueByMonth.set(slice.month, (revenueByMonth.get(slice.month) ?? 0) + sliceRev);
+          nightsByMonth.set(slice.month, (nightsByMonth.get(slice.month) ?? 0) + sliceNights);
+          if (slice.is_final_month) {
+            staysCount += 1;
+            cleaningCost += cleaningPerStay;
+            staysByMonth.set(slice.month, (staysByMonth.get(slice.month) ?? 0) + 1);
+            cleaningByMonth.set(slice.month, (cleaningByMonth.get(slice.month) ?? 0) + cleaningPerStay);
+          }
+        }
+        continue;
       }
 
       // Statement methodology: revenue is recognized at checkout. If the

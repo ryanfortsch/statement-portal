@@ -297,7 +297,12 @@ function PropertyCard({
   showDelta: boolean;
 }) {
   const m = snapshot.metrics;
-  const noData = m.staysCount === 0;
+  // A month can have revenue with zero stays: a cross-month installment
+  // booking contributes its month slice every month it spans, but the STAY
+  // is only counted once, in its final (checkout) month. Hancock's July on
+  // 3 South is $20.9k of revenue with staysCount 0 -- that's data, not
+  // "no bookings".
+  const noData = m.staysCount === 0 && (m.totalRevenue ?? 0) <= 0;
   const delta = showDelta ? deltaPct(m.projectedOwnerPayout, priorPayout) : null;
 
   return (
