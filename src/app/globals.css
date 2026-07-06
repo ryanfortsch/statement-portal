@@ -925,3 +925,22 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 @media print {
   .rt-no-print { display: none !important; }
 }
+
+/* Field contractor portal — phone reachability. The per-stop Start/Resume
+   button lives in a far-right sliver on desktop; on a phone that's the
+   hardest thumb reach for the action tapped at every home, so the stop row
+   wraps and the action stacks full-width beneath the stop's details. */
+@media (max-width: 640px) {
+  .rt-stop-row {
+    flex-wrap: wrap;
+  }
+  .rt-stop-action {
+    flex-basis: 100%;
+    order: 99;
+    margin-left: 40px; /* align under content: 26px pin + 14px gap */
+  }
+  .rt-stop-action form,
+  .rt-stop-action button {
+    width: 100%;
+  }
+}

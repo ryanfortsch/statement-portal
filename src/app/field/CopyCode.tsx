@@ -20,16 +20,23 @@ export function CopyCode({ value, copyValue, mono = true }: { value: string; cop
       }}
       title="Tap to copy"
       style={{
-        background: 'none',
-        border: 'none',
+        // A real chip, not 13px underlined text: codes get tapped at the keypad
+        // (peak stress), so give the tap a target.
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifySelf: 'start',
+        maxWidth: '100%',
+        background: 'var(--paper-2, #fff)',
+        border: `1px solid ${copied ? 'var(--positive)' : 'var(--rule)'}`,
+        borderRadius: 8,
         cursor: 'pointer',
-        padding: 0,
+        padding: '8px 12px',
+        minHeight: 38,
         font: 'inherit',
         fontFamily: mono ? 'var(--font-mono-dash), monospace' : 'inherit',
         color: copied ? 'var(--positive)' : 'var(--ink)',
-        textDecoration: 'underline',
-        textDecorationStyle: 'dotted',
-        textUnderlineOffset: 3,
+        textAlign: 'left',
+        overflowWrap: 'anywhere',
       }}
     >
       {copied ? 'copied ✓' : value}

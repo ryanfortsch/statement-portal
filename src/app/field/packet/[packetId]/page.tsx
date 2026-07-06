@@ -135,7 +135,7 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
         <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
           Grab your bag at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong> — one bag, packed for this whole trip.
         </div>
-        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
           Directions →
         </a>
       </div>
@@ -407,6 +407,7 @@ export default async function PacketPage({
         {packet.stops.map((s, i) => (
           <div
             key={s.id}
+            className="rt-stop-row"
             style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', display: 'flex', gap: 14, alignItems: 'flex-start' }}
           >
             <div
@@ -480,7 +481,7 @@ export default async function PacketPage({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-block', marginTop: 4 }}
+                    style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', marginTop: 8, border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}
                   >
                     Open in Maps ↗
                   </a>
@@ -506,7 +507,7 @@ export default async function PacketPage({
               )}
             </div>
             {isMine && !s.workSlip && (
-              <div style={{ flexShrink: 0 }}>
+              <div className="rt-stop-action" style={{ flexShrink: 0 }}>
                 {s.status === 'complete' ? (
                   <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
                 ) : (
@@ -520,11 +521,12 @@ export default async function PacketPage({
                         background: 'var(--ink)',
                         color: 'var(--paper)',
                         border: 'none',
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: 600,
                         letterSpacing: '0.12em',
                         textTransform: 'uppercase',
-                        padding: '9px 16px',
+                        padding: '12px 20px',
+                        minHeight: 44,
                       }}
                     />
                   </form>
@@ -540,7 +542,18 @@ export default async function PacketPage({
         ))}
       </section>
 
-      <div style={{ borderTop: '1px solid var(--ink)', marginTop: 8, paddingTop: 24 }}>
+      <div
+        className="rt-cta-bar"
+        style={{
+          borderTop: '1px solid var(--ink)',
+          marginTop: 8,
+          padding: '18px 0 calc(14px + env(safe-area-inset-bottom, 0px))',
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 20,
+          background: 'var(--paper)',
+        }}
+      >
         {claimable && (
           <form action={claimPacket}>
             <input type="hidden" name="packet_id" value={packet.id} />
@@ -556,11 +569,9 @@ export default async function PacketPage({
                 letterSpacing: '0.14em',
                 textTransform: 'uppercase',
                 padding: '16px 34px',
+                minHeight: 48,
               }}
             />
-            <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
-              First inspector to claim gets it. You&apos;ll get the addresses and entry details right away.
-            </p>
           </form>
         )}
         {!isMine && packet.status === 'published' && !canClaim(contractor) && (
@@ -591,6 +602,7 @@ export default async function PacketPage({
                 letterSpacing: '0.14em',
                 textTransform: 'uppercase',
                 padding: '16px 34px',
+                minHeight: 48,
               }}
             />
           </form>
