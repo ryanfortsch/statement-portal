@@ -107,7 +107,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
     const packetByBooking = await loadPacketStatusByBooking(data.turnovers.map((t) => t.reservationId));
     for (const t of data.turnovers) {
       const ps = packetByBooking.get(t.reservationId);
-      if (ps) t.fieldPacket = { packetId: ps.packetId, status: ps.status, contractorName: ps.contractorName, visitDate: ps.visitDate ?? null };
+      if (ps) t.fieldPacket = { packetId: ps.packetId, status: ps.status, contractorName: ps.contractorName, visitDate: ps.visitDate ?? null, stopActive: ps.stopActive };
     }
   } catch {
     // Field tables unconfigured / unavailable — leave turnovers chip-less.
