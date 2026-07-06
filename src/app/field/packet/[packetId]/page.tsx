@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, type SupplyRun } from '@/lib/field-packets';
-import { canClaim, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { canClaim, cityShort, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, startStopInspection, submitPacket } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -610,7 +610,11 @@ export default async function PacketPage({
                   )}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>{INSPECTION_WINDOW}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
+                  {/* The town is the drive-time signal a browser needs before
+                      claiming — even masked stops say where they are. */}
+                  {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{INSPECTION_WINDOW}
+                </div>
               )}
               {isMine && (() => {
                 const href = mapsUrl(s);

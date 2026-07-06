@@ -32,6 +32,7 @@ import {
 import {
   accessBundle,
   cityShort,
+  townsLabel,
   type FieldProperty,
   type PacketDetail,
   type PacketRow,
@@ -260,8 +261,11 @@ function clusterName(props: FieldProperty[]): string {
   const counts = new Map<string, number>();
   for (const s of streets) counts.set(s, (counts.get(s) ?? 0) + 1);
   const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  if (dominant && (counts.get(dominant) ?? 0) > 1) return dominant;
-  return cityShort(props[0].city) || props[0].name;
+  // A street label claims every stop is on it; a single-town label claims every
+  // stop is in it. Only make claims that are true — a "Gloucester · 3 stops"
+  // packet with a Beverly leg misleads whoever claims it.
+  if (dominant && (counts.get(dominant) ?? 0) === props.length) return dominant;
+  return townsLabel(props.map((p) => p.city)) || cityShort(props[0].city) || props[0].name;
 }
 
 /**

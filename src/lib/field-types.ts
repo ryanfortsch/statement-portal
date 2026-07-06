@@ -273,7 +273,20 @@ export function sharedArea(p: PacketDetail): string | null {
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-  return top && top[1] > 1 ? top[0] : null;
+  // "N inspections on X" claims EVERY stop is on X — only say it when true.
+  // (2 of 3 on Rocky Neck plus one in Beverly used to read "on Rocky Neck".)
+  return top && top[1] === p.stops.length ? top[0] : null;
+}
+
+/** Honest multi-town label, in stop order: "Gloucester", "Gloucester & Beverly",
+ *  "Gloucester, Rockport & Beverly". A contractor judges drive time off this —
+ *  a packet must never hide that a leg is in another town. */
+export function townsLabel(cities: Array<string | null>): string {
+  const towns = [...new Set(cities.map(cityShort).filter(Boolean))];
+  if (towns.length === 0) return '';
+  if (towns.length === 1) return towns[0];
+  if (towns.length === 2) return `${towns[0]} & ${towns[1]}`;
+  return `${towns.slice(0, -1).join(', ')} & ${towns[towns.length - 1]}`;
 }
 
 /** The card/detail headline: carries what + where. The property name for a
@@ -302,6 +315,6 @@ export function packetHeadline(p: PacketDetail): string {
   }
   const area = sharedArea(p);
   if (area) return `${p.stop_count} inspections on ${area}`;
-  const city = cityShort(p.stops[0]?.property.city ?? null);
-  return city ? `${p.stop_count} inspections in ${city}` : `${p.stop_count} inspections`;
+  const towns = townsLabel(p.stops.map((s) => s.property.city));
+  return towns ? `${p.stop_count} inspections in ${towns}` : `${p.stop_count} inspections`;
 }
