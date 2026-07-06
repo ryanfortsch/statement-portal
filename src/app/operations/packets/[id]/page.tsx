@@ -264,7 +264,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <form action={assignPacket} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <select name="contractor_id" required defaultValue="" style={priceInput}>
-                <option value="" disabled>{packet.status === 'claimed' ? 'Reassign to…' : 'Assign to…'}</option>
+                <option value="" disabled>Choose an inspector…</option>
                 {assignable.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.full_name} · {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
