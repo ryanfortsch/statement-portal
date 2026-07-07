@@ -116,8 +116,28 @@ function onboardingDataFromProperty(p: HelmPropertyRow): OnboardingData {
   set('cable_provider', p.cable_provider);
   set('wifi_name', p.wifi_name);
   set('wifi_password', p.wifi_password);
+  set('wifi_name_2', p.wifi_name_2);
+  set('wifi_password_2', p.wifi_password_2);
   set('num_tvs', p.num_tvs);
   set('smart_tv', p.smart_tv);
+
+  // Guest home guide. Pre-fill from the property's current guide
+  // customization so the owner sees (and can improve) exactly what
+  // guests read today. Bathrooms / kitchen only surface when the picker
+  // slot still points at that catalog key - a staff-repurposed slot
+  // (e.g. Hot Tub in slot 5) is not the owner's bathroom answer.
+  const guideOv = p.home_guide_overrides ?? {};
+  set('guide_parking', guideOv.parking);
+  set('guide_climate', guideOv.climate);
+  if (!guideOv.slot5 || guideOv.slot5.key === 'bathrooms') {
+    set('guide_bathrooms', guideOv.slot5?.body ?? guideOv.bathrooms);
+  }
+  if (!guideOv.slot6 || guideOv.slot6.key === 'kitchen') {
+    set('guide_kitchen', guideOv.slot6?.body ?? guideOv.kitchen);
+  }
+  // guide_amenities intentionally not pre-filled: its landing spot is a
+  // guest-facing property note, and the note upsert skips unchanged
+  // bodies, so a blank round-trip costs nothing.
 
   // STR setup
   set('currently_listed', p.currently_listed);
@@ -290,6 +310,10 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
               <Field name="wifi_password" label="WiFi password" defaultValue={ob.wifi_password} />
             </Row>
             <Row>
+              <Field name="wifi_name_2" label="Second WiFi network" defaultValue={ob.wifi_name_2} hint="Only if the home runs a second router (guest suite, boat house, in-law)" />
+              <Field name="wifi_password_2" label="Second WiFi password" defaultValue={ob.wifi_password_2} />
+            </Row>
+            <Row>
               <Field name="num_tvs" label="Number of TVs" type="number" defaultValue={ob.num_tvs} />
               <Field name="smart_tv" label="Smart TV?" defaultValue={ob.smart_tv} hint="Yes / No" />
             </Row>
@@ -378,6 +402,58 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
               textarea
             />
             <Field name="str_permit_expires" label="STR permit expiration" defaultValue={ob.str_permit_expires} hint="If known. e.g. 2027-04-30" />
+          </Section>
+
+          {/* ── Guest home guide ── */}
+          {/*
+            The pipeline into the printed "Welcome Home" guide + the guest
+            knowledge base. Answers flow to home_guide_overrides (parking /
+            climate fill the fixed cells, bathrooms / kitchen the default
+            picker slots) and the amenities blurb lands as a guest-facing
+            property note. Nobody knows the house like the owner, so we ask
+            while we have them.
+          */}
+          <Section eyebrow="08" title="Your Home, for Guests">
+            <p className="rt-pub-section-lead">
+              These answers go straight into the one-page welcome guide we print and post in the home.
+              Write them the way you&rsquo;d explain the house to a friend staying for the weekend; we&rsquo;ll
+              polish the wording before anything is published.
+            </p>
+            <Field
+              name="guide_parking"
+              label="Parking, in your words"
+              defaultValue={ob.guide_parking}
+              hint="Where guests should park, how many cars fit, anything to avoid (neighbor's spot, street rules)"
+              textarea
+            />
+            <Field
+              name="guide_climate"
+              label="Heating & cooling tips"
+              defaultValue={ob.guide_climate}
+              hint="How the thermostats work, window units, wood stove season, any quirks"
+              textarea
+            />
+            <Field
+              name="guide_bathrooms"
+              label="Bathrooms"
+              defaultValue={ob.guide_bathrooms}
+              hint="Hot-water wait, water pressure, shower quirks, septic do's and don'ts"
+              textarea
+            />
+            <Field
+              name="guide_kitchen"
+              label="Kitchen & appliances"
+              defaultValue={ob.guide_kitchen}
+              hint="Coffee maker, stove or oven quirks, dishwasher, disposal, anything with a trick to it"
+              textarea
+            />
+            <Field
+              name="guide_amenities"
+              label="Special amenities"
+              defaultValue={ob.guide_amenities}
+              hint="Hot tub, grill, fire pit, laundry, beach gear, bikes: how to use them and any rules"
+              textarea
+            />
           </Section>
 
           <div className="rt-pub-submit">
@@ -553,6 +629,13 @@ const publicCss = `
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+  .rt-pub-section-lead {
+    margin: -4px 0 2px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-3);
+    max-width: 560px;
   }
   .rt-pub-row {
     display: grid;

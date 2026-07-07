@@ -17,6 +17,7 @@ import type {
   ReadinessState,
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
+import type { HomeGuideOverrides } from '@/lib/properties';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
 import { geocodeAddress } from '@/lib/geocode';
 import {
@@ -697,6 +698,10 @@ export async function promoteToProperty(projectionId: string) {
     // prospect's input over null.
     bedrooms: numOr(ob.bedrooms, projRow.bedrooms as number),
 
+    // Guest-guide answers from the intake seed the printed Welcome Home
+    // guide the moment the property exists (fresh row, nothing to merge).
+    home_guide_overrides: mergeGuideAnswers(ob, null),
+
     projection_id: projectionId,
   };
 
@@ -725,6 +730,10 @@ export async function promoteToProperty(projectionId: string) {
       console.warn('[promoteToProperty] property_notes seed skipped:', err);
     }
   }
+
+  // Amenity how-tos from the guide section land as a guest-facing note
+  // (feeds the guest KB; staff can lift it into a guide slot).
+  await upsertAmenitiesNote(sb, propertyId, ob);
 
   // Wire the back-reference on the prospect side so the link is bidirectional.
   const { error: linkErr } = await sb
@@ -1088,7 +1097,7 @@ export async function saveOnboardingDraft(
   const sb = getServiceClient();
   const { data: propHit, error: propLookupErr } = await sb
     .from('properties')
-    .select('id, owner_emails')
+    .select('id, owner_emails, home_guide_overrides')
     .eq('onboarding_token', token)
     .maybeSingle();
   if (propLookupErr) return { ok: false, reason: propLookupErr.message };
@@ -1097,6 +1106,12 @@ export async function saveOnboardingDraft(
   const updatePayload: Record<string, unknown> = {
     ...propertyColumnsFromOnboarding(data),
   };
+  // Guest-guide answers pipeline into the printed Welcome Home guide.
+  const draftGuide = mergeGuideAnswers(
+    data,
+    (propHit as { home_guide_overrides: HomeGuideOverrides | null }).home_guide_overrides,
+  );
+  if (draftGuide) updatePayload.home_guide_overrides = draftGuide;
   if (data.phone) updatePayload.owner_phone = data.phone;
   if (data.mailing_address) updatePayload.owner_mailing_address = data.mailing_address;
   if (data.preferred_contact) updatePayload.owner_preferred_contact = data.preferred_contact;
@@ -1187,7 +1202,7 @@ export async function submitOnboarding(formData: FormData) {
 
   const { data: propHit } = await sb
     .from('properties')
-    .select('id, owner_emails')
+    .select('id, owner_emails, home_guide_overrides')
     .eq('onboarding_token', token)
     .maybeSingle();
 
@@ -1202,6 +1217,12 @@ export async function submitOnboarding(formData: FormData) {
     ...propertyColumnsFromOnboarding(data),
     onboarding_submitted_at: new Date().toISOString(),
   };
+  // Guest-guide answers pipeline into the printed Welcome Home guide.
+  const submitGuide = mergeGuideAnswers(
+    data,
+    (propHit as { home_guide_overrides: HomeGuideOverrides | null }).home_guide_overrides,
+  );
+  if (submitGuide) updatePayload.home_guide_overrides = submitGuide;
   if (data.phone) updatePayload.owner_phone = data.phone;
   if (data.mailing_address) updatePayload.owner_mailing_address = data.mailing_address;
   if (data.preferred_contact) updatePayload.owner_preferred_contact = data.preferred_contact;
@@ -1222,6 +1243,12 @@ export async function submitOnboarding(formData: FormData) {
   // Sensitive codes to the RLS-locked property_access table.
   const { error: accessErr } = await upsertPropertyAccess(propHit.id, accessColumnsFromOnboarding(data));
   if (accessErr) throw new Error(accessErr);
+
+  // Amenity how-tos land as a guest-facing property note (feeds the
+  // guest KB; staff can lift it into a guide slot). Submit-only: the
+  // debounced draft path skips it so half-typed prose never lands in
+  // the note feed.
+  await upsertAmenitiesNote(sb, propHit.id, data);
 
   // Staff notification — same idempotent pattern as the projection
   // branch above. Looks up the property to get address + notification
@@ -1302,7 +1329,8 @@ function parseOnboardingFormData(formData: FormData): OnboardingData {
     'property_address', 'property_type', 'hoa', 'bedrooms', 'bathrooms',
     'square_feet', 'livable_floors', 'basement', 'parking',
     'electricity_provider', 'heating', 'cooling', 'internet_provider',
-    'cable_provider', 'wifi_name', 'wifi_password', 'num_tvs', 'smart_tv',
+    'cable_provider', 'wifi_name', 'wifi_password', 'wifi_name_2', 'wifi_password_2',
+    'num_tvs', 'smart_tv',
     'currently_listed', 'listing_urls', 'str_registration', 'str_insurance',
     'guest_access_method', 'smart_lock_brand', 'smart_lock_code', 'security_cameras',
     'key_code_location', 'alarm_system', 'known_issues', 'upcoming_maintenance', 'notes',
@@ -1311,6 +1339,7 @@ function parseOnboardingFormData(formData: FormData): OnboardingData {
     'gas_shutoff_location', 'water_shutoff_location', 'electrical_panel_location',
     'fire_extinguisher_locations', 'smoke_detector_locations', 'fire_exit_locations',
     'str_permit_expires',
+    'guide_parking', 'guide_climate', 'guide_bathrooms', 'guide_kitchen', 'guide_amenities',
   ];
 
   const data: OnboardingData = {};
@@ -1343,6 +1372,7 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     internet_provider: ob.internet_provider || null,
     cable_provider: ob.cable_provider || null,
     wifi_name: ob.wifi_name || null,
+    wifi_name_2: ob.wifi_name_2 || null,
     num_tvs: numOr(ob.num_tvs, null),
     smart_tv: ob.smart_tv || null,
 
@@ -1390,15 +1420,105 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
 
 /** The sensitive subset of an onboarding submission, destined for the
  *  RLS-locked property_access table rather than properties. Only the codes
- *  the onboarding form actually collects (gate/garage/thermostat/wifi-2 are
- *  not asked, so they're left untouched on the access row). */
+ *  the onboarding form actually collects (gate/garage/thermostat are not
+ *  asked, so they're left untouched on the access row). */
 function accessColumnsFromOnboarding(ob: OnboardingData) {
   return {
     wifi_password: ob.wifi_password || null,
+    wifi_password_2: ob.wifi_password_2 || null,
     smart_lock_code: ob.smart_lock_code || null,
     key_code_location: ob.key_code_location || null,
     alarm_system: ob.alarm_system || null,
   };
+}
+
+/**
+ * Merge the owner's guest-home-guide answers into a property's
+ * home_guide_overrides blob. The intake form is the pipeline that
+ * populates the printed Welcome Home guide.
+ *
+ * Rules:
+ *   - Only non-empty answers write; a blank form field never clears an
+ *     override (the guide falls back to sensible defaults anyway).
+ *   - parking / climate answers fill the fixed cells 03 / 02.
+ *   - bathrooms / kitchen answers fill picker slots 5 / 6, but ONLY if
+ *     the slot still points at that catalog key (or is unset). If staff
+ *     re-purposed a slot (e.g. slot5 = Hot Tub), the owner's bathroom
+ *     prose must not clobber that curation.
+ *   - Returns null when there is nothing new to write, so callers can
+ *     skip the column entirely (never flips a populated blob back to
+ *     null, never churns updated_at on a no-op).
+ */
+function mergeGuideAnswers(
+  ob: OnboardingData,
+  current: HomeGuideOverrides | null,
+): HomeGuideOverrides | null {
+  const merged: HomeGuideOverrides = { ...(current ?? {}) };
+  let changed = false;
+
+  const parking = (ob.guide_parking || '').trim();
+  if (parking && parking !== merged.parking) { merged.parking = parking; changed = true; }
+  const climate = (ob.guide_climate || '').trim();
+  if (climate && climate !== merged.climate) { merged.climate = climate; changed = true; }
+
+  // Slot 5 defaults to Bathrooms, slot 6 to Kitchen, mirroring the
+  // renderer's resolveSlot fallbacks, legacy top-level keys included.
+  const bathrooms = (ob.guide_bathrooms || '').trim();
+  const slot5Key = merged.slot5?.key ?? 'bathrooms';
+  if (bathrooms && slot5Key === 'bathrooms' && bathrooms !== (merged.slot5?.body ?? merged.bathrooms)) {
+    merged.slot5 = { key: 'bathrooms', body: bathrooms };
+    changed = true;
+  }
+  const kitchen = (ob.guide_kitchen || '').trim();
+  const slot6Key = merged.slot6?.key ?? 'kitchen';
+  if (kitchen && slot6Key === 'kitchen' && kitchen !== (merged.slot6?.body ?? merged.kitchen)) {
+    merged.slot6 = { key: 'kitchen', body: kitchen };
+    changed = true;
+  }
+
+  return changed ? merged : null;
+}
+
+/**
+ * Persist the owner's "special amenities" guide answer as a guest-facing
+ * property note. The note feed is also the guest knowledge base (it
+ * syncs to the AI concierge), and staff can lift it into a guide slot
+ * from the property page. One canonical note per property (stable
+ * title), updated in place on re-submits so repeat onboarding rounds
+ * never spam the feed. Best-effort: the submission is already persisted
+ * by the time this runs; a notes hiccup must not fail the form.
+ */
+const AMENITIES_NOTE_TITLE = 'Guest amenities & how-tos (owner intake)';
+async function upsertAmenitiesNote(sb: SupabaseClient, propertyId: string, ob: OnboardingData) {
+  const body = (ob.guide_amenities || '').trim();
+  if (!body) return;
+  try {
+    const { data: existing } = await sb
+      .from('property_notes')
+      .select('id, body')
+      .eq('property_id', propertyId)
+      .eq('title', AMENITIES_NOTE_TITLE)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      if ((existing as { body: string }).body !== body) {
+        await sb
+          .from('property_notes')
+          .update({ body, updated_at: new Date().toISOString() })
+          .eq('id', (existing as { id: string }).id);
+      }
+      return;
+    }
+    await sb.from('property_notes').insert({
+      property_id: propertyId,
+      title: AMENITIES_NOTE_TITLE,
+      body,
+      tag: 'onboarding',
+      guest_facing: true,
+    });
+  } catch (err) {
+    console.warn('[upsertAmenitiesNote] skipped:', err);
+  }
 }
 
 // ─── Contract redlines ──────────────────────────────────────────────────────

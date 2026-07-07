@@ -1261,6 +1261,8 @@ function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboardi
         { label: 'Cable', value: data.cable_provider },
         { label: 'WiFi name', value: data.wifi_name },
         { label: 'WiFi pass', value: data.wifi_password },
+        { label: 'WiFi 2 name', value: data.wifi_name_2 },
+        { label: 'WiFi 2 pass', value: data.wifi_password_2 },
         { label: 'TVs', value: data.num_tvs },
         { label: 'Smart TV', value: data.smart_tv },
       ],
@@ -1295,6 +1297,16 @@ function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboardi
         { label: 'Relation', value: data.emergency_relationship },
         { label: 'Phone', value: data.emergency_phone },
         { label: 'Email', value: data.emergency_email },
+      ],
+    },
+    {
+      title: 'Guest home guide',
+      items: [
+        { label: 'Parking', value: data.guide_parking },
+        { label: 'Climate', value: data.guide_climate },
+        { label: 'Bathrooms', value: data.guide_bathrooms },
+        { label: 'Kitchen', value: data.guide_kitchen },
+        { label: 'Amenities', value: data.guide_amenities },
       ],
     },
   ];
