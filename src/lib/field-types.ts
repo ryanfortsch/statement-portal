@@ -97,6 +97,11 @@ export type PacketRow = {
   published_at: string | null;
   notes: string | null;
   instructions: string | null; // packet-wide free-form note from the office, shown to the inspector
+  // Above-and-beyond bonus on top of posted_price_cents (0 = none). The posted
+  // price stays the agreed claim-time record; the bonus is the extra, with the
+  // reason shown to the contractor. Total payout = posted_price_cents + bonus_cents.
+  bonus_cents: number;
+  bonus_reason: string | null;
   entry_code: string | null;
   auto_generated: boolean;
   suggestion_key: string | null;

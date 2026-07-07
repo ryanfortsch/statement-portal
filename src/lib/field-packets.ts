@@ -1744,22 +1744,24 @@ export type ContractorPayStats = {
 export async function getContractorPayStats(): Promise<Map<string, ContractorPayStats>> {
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .select('awarded_contractor_id, posted_price_cents, paid_at')
+    .select('awarded_contractor_id, posted_price_cents, bonus_cents, paid_at')
     .eq('status', 'approved')
     .not('awarded_contractor_id', 'is', null);
   const map = new Map<string, ContractorPayStats>();
   for (const r of (data ?? []) as Array<{
     awarded_contractor_id: string;
     posted_price_cents: number;
+    bonus_cents: number;
     paid_at: string | null;
   }>) {
     const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0 };
+    const total = r.posted_price_cents + (r.bonus_cents || 0);
     s.approvedCount++;
     if (r.paid_at) {
       s.paidCount++;
-      s.paidCents += r.posted_price_cents;
+      s.paidCents += total;
     } else {
-      s.owedCents += r.posted_price_cents;
+      s.owedCents += total;
     }
     map.set(r.awarded_contractor_id, s);
   }
