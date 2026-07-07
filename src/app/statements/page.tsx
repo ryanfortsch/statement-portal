@@ -15,6 +15,7 @@ import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
+import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -54,6 +55,9 @@ type RepairEvent = {
   bank_charge_date: string | null;
   bank_charge_amount: number;
   source: string | null;
+  // Backlink to property_receipts for receipt-sourced mirror rows
+  // (source='receipt'). Optional: absent until the receipts migration runs.
+  receipt_id?: string | null;
 };
 
 type DataGap = {
@@ -1128,6 +1132,7 @@ function PropertyCard({
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const [refreshingStatement, setRefreshingStatement] = useState(false);
+  const [addingReceipt, setAddingReceipt] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   const cleaning = prop.cleaning_events || [];
@@ -1477,18 +1482,56 @@ function PropertyCard({
                         fontWeight: 500,
                         color: 'var(--ink)',
                       }}>
-                        {re.vendor_name || 'Maintenance vendor'}
+                        {re.vendor_name || (re.source === 'receipt' ? 'Receipt expense' : 'Maintenance vendor')}
                       </span>
-                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-                        Bank
+                      {re.source === 'receipt' && re.description && (
+                        <span style={{ fontSize: 11, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {re.description}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: re.source === 'receipt' ? 'var(--tide)' : 'var(--ink-4)' }}>
+                        {re.source === 'receipt' ? 'Receipt' : 'Bank'}
                       </span>
                     </div>
-                    <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(re.bank_charge_amount)}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(re.bank_charge_amount)}</span>
+                      {re.source === 'receipt' && re.receipt_id && (
+                        <ReceiptRowActions receiptId={re.receipt_id} onVoided={onRefresh} />
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {/* Receipt capture -- photograph a Home Depot run (or drag the
+              photo in) and bill it to this month's Repairs & Maintenance.
+              Rides under section 05 when repairs exist; stands alone as a
+              slim affordance when the month has none yet. */}
+          <div style={{ marginTop: repairs.length > 0 ? 12 : 28 }}>
+            {addingReceipt ? (
+              <ReceiptCapture
+                propertyId={prop.property_id}
+                propertyName={prop.property_name}
+                defaultMonth={month}
+                onDone={onRefresh}
+                onCancel={() => setAddingReceipt(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAddingReceipt(true)}
+                style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
+                  color: 'var(--ink-3)', border: '1px solid var(--rule)', background: 'transparent',
+                  padding: '5px 10px', cursor: 'pointer',
+                }}
+              >
+                + Add receipt
+              </button>
+            )}
+          </div>
 
           {/* Unattributed bank deposits -- operator review queue. Shows
               nothing if there are no pending deposits for this property+month. */}
