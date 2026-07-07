@@ -96,6 +96,23 @@ export async function POST(req: Request) {
   const description = (body.description ?? '').trim() || null;
   const actionSummary = (body.action_summary ?? '').trim() || null;
 
+  // A prep slip scheduled well in the future (e.g. gear for an October
+  // check-in approved in July) would otherwise sit on the active board for
+  // months, in the way of work that needs doing now. Snooze it until a week
+  // before its due date: it drops off the active board and the property
+  // turnover count, still lives in the "Snoozed" bucket, and resurfaces with
+  // a week of lead. Slips with no scheduled_date (e.g. cleaner-reported
+  // issues, which are "now" work) are never snoozed. On the reopen path below
+  // the snooze is cleared so a re-ask always surfaces immediately.
+  const SLIP_SNOOZE_LEAD_DAYS = 7;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let snoozedUntil: string | null = null;
+  if (scheduledDate) {
+    const wakeMs = Date.parse(`${scheduledDate}T00:00:00Z`) - SLIP_SNOOZE_LEAD_DAYS * 86_400_000;
+    const wakeIso = new Date(wakeMs).toISOString().slice(0, 10);
+    if (wakeIso > todayIso) snoozedUntil = wakeIso;
+  }
+
   // The FK would reject an unknown property anyway; checking first gives the
   // caller a clean "skipped" instead of a raw constraint error. Personal
   // properties (65 Calderwood, 3246 NE 27th) are filtered concierge-side but
@@ -173,6 +190,9 @@ export async function POST(req: Request) {
       priority,
       status: 'open',
       scheduled_date: scheduledDate,
+      snoozed_until: snoozedUntil,
+      snoozed_by_email: snoozedUntil ? CONCIERGE_BOT_EMAIL : null,
+      snoozed_at: snoozedUntil ? new Date().toISOString() : null,
       guesty_reservation_id: (body.guesty_reservation_id ?? '').trim() || null,
       from_guest_request_key: requestKey,
       created_by_email: CONCIERGE_BOT_EMAIL,
