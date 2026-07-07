@@ -28,6 +28,7 @@ import {
   baseForProperty,
   priceCents,
   isRushVisit,
+  setupPriceCents,
 } from '@/lib/field-pricing';
 import {
   accessBundle,
@@ -646,11 +647,18 @@ export async function revalidatePacket(
 ): Promise<{ removed: number; remaining: number; emptied: boolean }> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
-    .select('id, status, visit_date, trade')
+    .select('id, status, visit_date, trade, kind')
     .eq('id', packetId)
     .maybeSingle();
-  const packet = pData as { id: string; status: string; visit_date: string; trade: string } | null;
+  const packet = pData as { id: string; status: string; visit_date: string; trade: string; kind: string } | null;
   if (!packet) return { removed: 0, remaining: 0, emptied: true };
+
+  // Setup packets are scheduled by hand for a brand-new property (often with
+  // owner comings-and-goings or calendar blocks while it's outfitted); the
+  // vacancy staleness test doesn't apply.
+  if (packet.kind === 'setup') {
+    return { removed: 0, remaining: 0, emptied: false };
+  }
 
   // The occupancy/vacancy staleness test only makes sense for inspections —
   // maintenance and cleaning are routinely done with a guest in-house, so never
@@ -1377,6 +1385,99 @@ export async function createMaintenancePacket(args: {
   // Never leave a stop-less packet to be published + texted to contractors.
   if (stopErr) {
     await fieldDb().from('inspection_packets').delete().eq('id', packetId);
+    return null;
+  }
+  return packetId;
+}
+
+// ── Property setup: a new home joins the program ──────────────────────
+/** Create a SETUP packet: staging a brand-new property for photos and
+ *  outfitting it for vacation-rental operations. 2 to 4 hours, one home, done
+ *  by inspection-trade specialists (trade stays 'inspection'; kind='setup').
+ *  The job itself is an auto-created work slip, so the entire existing
+ *  completion rail (notes + photos on mark-done, the Approve review, redo,
+ *  pay) works unchanged. */
+export async function createSetupPacket(args: {
+  propertyId: string;
+  visitDate: string;
+  priceCentsOverride?: number;
+  scope: string;
+  createdByEmail: string;
+  publish: boolean;
+}): Promise<string | null> {
+  const properties = await loadFieldProperties();
+  const prop = properties.find((p) => p.id === args.propertyId);
+  if (!prop) return null;
+
+  const computed = setupPriceCents(prop.bedrooms);
+  let posted = args.priceCentsOverride ?? computed;
+  if (args.priceCentsOverride != null && (args.priceCentsOverride > computed * 6 || args.priceCentsOverride < computed * 0.2)) {
+    posted = computed;
+  }
+
+  // The setup job as a work slip: the stop points at it, the contractor's
+  // mark-done writes the resolution + photos onto it, and the Approve screen
+  // reads it back. category 'rising_tide' keeps it out of the open-maintenance
+  // bundling pool.
+  const { data: slip, error: slipErr } = await fieldDb()
+    .from('work_slips')
+    .insert({
+      property_id: prop.id,
+      title: `Set up ${prop.name} for launch`,
+      description: args.scope.trim().slice(0, 4000) || 'Stage the home for photos and outfit it for guests.',
+      category: 'rising_tide',
+      priority: 'high',
+      status: 'open',
+      assigned_to_type: 'unassigned',
+      created_by_email: args.createdByEmail,
+    })
+    .select('id')
+    .single();
+  if (slipErr || !slip) return null;
+  const slipId = (slip as { id: string }).id;
+
+  const { data: packet, error } = await fieldDb()
+    .from('inspection_packets')
+    .insert({
+      title: `Set up ${prop.name}`,
+      status: args.publish ? 'published' : 'draft',
+      trade: 'inspection',
+      kind: 'setup',
+      visit_date: args.visitDate,
+      window_start: args.visitDate,
+      window_end: args.visitDate,
+      claim_deadline: args.visitDate,
+      centroid_lat: prop.latitude,
+      centroid_lng: prop.longitude,
+      max_pairwise_miles: 0,
+      stop_count: 1,
+      posted_price_cents: posted,
+      auto_generated: false,
+      suggestion_key: null,
+      created_by_email: args.createdByEmail,
+      published_at: args.publish ? new Date().toISOString() : null,
+    })
+    .select('id')
+    .single();
+  if (error || !packet) {
+    await fieldDb().from('work_slips').delete().eq('id', slipId);
+    return null;
+  }
+  const packetId = (packet as { id: string }).id;
+  const { error: stopErr } = await fieldDb().from('packet_stops').insert({
+    packet_id: packetId,
+    property_id: prop.id,
+    booking_id: null,
+    work_slip_id: slipId,
+    window_basis: 'vacant' as WindowBasis,
+    prior_checkout: null,
+    next_checkin: null,
+    base_price_cents: posted,
+    walk_order: 0,
+  });
+  if (stopErr) {
+    await fieldDb().from('inspection_packets').delete().eq('id', packetId);
+    await fieldDb().from('work_slips').delete().eq('id', slipId);
     return null;
   }
   return packetId;

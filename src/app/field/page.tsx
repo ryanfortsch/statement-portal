@@ -27,6 +27,7 @@ export const metadata: Metadata = {
 };
 
 function windowSummary(p: PacketDetail): string {
+  if (p.kind === 'setup') return 'new-property setup · 2 to 4 hours on site';
   if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
   // The claim decision hinges on whether the day has a hard finish time — say
   // so on the card, not a made-up fixed window.

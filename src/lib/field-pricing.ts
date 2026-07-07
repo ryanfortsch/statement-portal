@@ -54,6 +54,18 @@ export function sizeBaseCents(bedrooms: number | null | undefined): number {
 /** Maintenance per-job pay from the on-site estimate. */
 export const MAINTENANCE_BASE_CENTS = Math.round(MAINTENANCE_MINUTES * PER_MINUTE_CENTS);
 
+/** Property setup (staging for photos + outfitting for operations): 2 to 4
+ *  hours on site, scaled by home size. Operator overrides per packet. */
+export function setupMinutes(bedrooms: number | null | undefined): number {
+  if (bedrooms == null) return 180;
+  if (bedrooms <= 2) return 150;
+  if (bedrooms === 3) return 180;
+  return 225;
+}
+export function setupPriceCents(bedrooms: number | null | undefined): number {
+  return Math.round(setupMinutes(bedrooms) * PER_MINUTE_CENTS / 100) * 100;
+}
+
 /** Effective per-stop base for a property: an explicit operator rate wins;
  *  otherwise it's the size-based on-site pay. (An exact default value reads as
  *  "unset" and falls through to the time estimate.) */

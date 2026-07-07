@@ -139,6 +139,20 @@ function InspectionScope() {
 }
 
 
+/** Property setup, framed for the specialist walking in: a brand-new home
+ *  joining the program, staged for photos and outfitted for guests. Rendered
+ *  in place of the inspection pillars and the check-in day plan (a setup day
+ *  has neither). */
+function SetupScope() {
+  return (
+    <div style={{ borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+      <strong style={{ color: 'var(--ink)' }}>Property setup: plan 2 to 4 hours on site.</strong> A new home joining
+      the program. Stage it so it&apos;s photo-ready and outfit it for guests; the job card below has the scope.
+      Photograph your work as you go. Anything unclear, call the office.
+    </div>
+  );
+}
+
 /** An extra work slip the office attached to a stop: title, details, the
  *  per-attachment office note, and (for the assigned inspector, until done) a
  *  completion form keyed to the attachment, not the stop. */
@@ -372,6 +386,7 @@ export default async function PacketPage({
 
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
+  const isSetup = packet.kind === 'setup';
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -546,7 +561,7 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMaint && <DayPlan stops={packet.stops} visitDate={packet.visit_date} />}
+      {!isMaint && !isSetup && <DayPlan stops={packet.stops} visitDate={packet.visit_date} />}
 
       {working && <SupplyRunCard run={supplyRun} />}
 
@@ -598,7 +613,8 @@ export default async function PacketPage({
       {/* The three-pillar scope sells the standard BEFORE claiming. Once the
           packet is theirs (working, submitted, approved) it's ~300px of
           scrolling between the inspector and their stops — drop it. */}
-      {!isMaint && !isMine && <InspectionScope />}
+      {!isMaint && !isSetup && !isMine && <InspectionScope />}
+      {isSetup && <SetupScope />}
       {!isMine && (
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520, margin: '0 0 24px' }}>
           Every route starts and ends at our supply closet ({SUPPLY_CLOSET}): grab your kit on the way out, drop it

@@ -142,6 +142,8 @@ export default async function PacketsBoard({
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
               Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.{' '}
+              <Link href="/operations/packets/setup" style={{ color: 'var(--tide-deep)' }}>New property setup →</Link>
+              {' · '}
               <Link href="/operations/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs →</Link>
               {' · '}
               <Link href="/operations/contractors" style={{ color: 'var(--tide-deep)' }}>Manage contractors →</Link>
@@ -301,6 +303,11 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
         {p.trade !== 'inspection' && (
           <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
             {p.trade}
+          </span>
+        )}
+        {p.kind === 'setup' && (
+          <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--signal)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
+            setup
           </span>
         )}
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
