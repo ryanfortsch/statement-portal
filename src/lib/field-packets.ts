@@ -1736,7 +1736,14 @@ export type CalRow = {
    *  still needs covered), for urgency sorting + at-risk flags. */
   nextDeadline: string | null;
 };
-export type InspectionCalendarData = { days: string[]; rows: CalRow[]; missingCoords: number };
+export type InspectionCalendarData = {
+  days: string[];
+  rows: CalRow[];
+  missingCoords: number;
+  /** The homes hidden from the board (no lat/lng), by name with the id for a
+   *  direct fix link. "1 property is hidden" alone sent the operator digging. */
+  missingProps: Array<{ id: string; name: string }>;
+};
 
 /**
  * The calendar-of-open-windows board: each property that needs inspecting in
@@ -1844,7 +1851,10 @@ export async function loadInspectionCalendar(
       (a.nextDeadline ?? '9999-99-99').localeCompare(b.nextDeadline ?? '9999-99-99') ||
       a.propertyName.localeCompare(b.propertyName),
   );
-  return { days, rows, missingCoords: properties.length - withCoords.length };
+  const missingProps = properties
+    .filter((p) => p.latitude == null || p.longitude == null)
+    .map((p) => ({ id: p.id, name: p.name }));
+  return { days, rows, missingCoords: missingProps.length, missingProps };
 }
 
 // ── Field payout ledger ───────────────────────────────────────────────
