@@ -198,13 +198,21 @@ export default async function PacketsBoard({
 
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
-          {calendar.missingCoords > 0 && (
+          {calendar.missingProps.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 8 }}>
-              {/* One template string, not JSX text fragments: SSR text-node
-                  boundaries were swallowing the space ("property ishidden"). */}
-              {calendar.missingCoords === 1
-                ? '1 property is hidden here: no map coordinates on file, so it cannot be bundled. Add lat/long on the property to include it.'
-                : `${calendar.missingCoords} properties are hidden here: no map coordinates on file, so they cannot be bundled. Add lat/long on each property to include them.`}
+              {/* Single string + named links, not JSX text fragments: SSR
+                  text-node boundaries were swallowing spaces ("ishidden"),
+                  and a nameless count sent the operator digging. */}
+              {`Hidden from this board (no map coordinates, so no bundling): `}
+              {calendar.missingProps.map((p, i) => (
+                <span key={p.id}>
+                  {i > 0 && ', '}
+                  <Link href={`/properties/${p.id}/edit`} style={{ color: 'var(--signal)', fontWeight: 600 }}>
+                    {p.name}
+                  </Link>
+                </span>
+              ))}
+              {`. Add lat/long there to include ${calendar.missingProps.length === 1 ? 'it' : 'them'}.`}
             </div>
           )}
         </div>
