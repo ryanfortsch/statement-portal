@@ -140,10 +140,12 @@ export async function setPacketVisitDate(formData: FormData): Promise<void> {
   await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
+  // Optional start time; an empty field clears it back to "anytime that day".
+  const visitTime = String(formData.get('visit_time') || '');
   if (!packetId || !visitDate) return;
   await fieldDb()
     .from('inspection_packets')
-    .update({ visit_date: visitDate, window_start: visitDate, window_end: visitDate, claim_deadline: visitDate, updated_at: new Date().toISOString() })
+    .update({ visit_date: visitDate, visit_time: visitTime || null, window_start: visitDate, window_end: visitDate, claim_deadline: visitDate, updated_at: new Date().toISOString() })
     .eq('id', packetId)
     .in('status', ['draft', 'published']);
   revalidatePath(`/operations/packets/${packetId}`);
@@ -158,6 +160,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   const email = await staffEmail();
   const propertyId = String(formData.get('property_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
+  const visitTime = String(formData.get('visit_time') || '');
   const priceDollars = Number(formData.get('price_dollars') || 0);
   const scope = String(formData.get('scope') || '');
   const publish = String(formData.get('mode') || 'publish') !== 'draft';
@@ -166,6 +169,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   const packetId = await createSetupPacket({
     propertyId,
     visitDate,
+    visitTime: visitTime || undefined,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     scope,
     createdByEmail: email,

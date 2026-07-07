@@ -84,6 +84,8 @@ export type PacketRow = {
   trade: ContractorTrade;
   kind: PacketKind;
   visit_date: string;
+  /** Optional start time (HH:MM:SS). Null = anytime that day. */
+  visit_time: string | null;
   window_start: string;
   window_end: string;
   centroid_lat: number | null;
@@ -313,6 +315,16 @@ export function townsLabel(cities: Array<string | null>): string {
 
 /** The card/detail headline: carries what + where. The property name for a
  *  single stop, otherwise "N inspections on <neighborhood>" or "in <town>". */
+/** "10:00 AM" from a Postgres time ("10:00:00"), or null when unset. */
+export function fmtVisitTime(t: string | null | undefined): string | null {
+  if (!t) return null;
+  const m = t.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h24 = Number(m[1]);
+  const h = h24 % 12 || 12;
+  return `${h}:${m[2]} ${h24 >= 12 ? 'PM' : 'AM'}`;
+}
+
 export function packetHeadline(p: PacketDetail): string {
   // Property setup: one home, one big job. Name the home when the viewer may
   // see it (masked payloads carry no name, so fall back to the town).

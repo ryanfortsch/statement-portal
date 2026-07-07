@@ -9,7 +9,7 @@ import { sendMessage, listPhoneNumbers, normalizePhone } from '@/lib/quo';
 import { haversineMiles } from '@/lib/proximity';
 import { loadPacketDetail, getContractorReliability } from '@/lib/field-packets';
 import { fieldDb } from '@/lib/field-db';
-import { dollars, packetHeadline } from '@/lib/field-types';
+import { dollars, fmtVisitTime, packetHeadline } from '@/lib/field-types';
 import type { ContractorRow, PacketRow } from '@/lib/field-types';
 
 const FROM_NAME = 'Rising Tide Field';
@@ -121,12 +121,12 @@ export async function sendClaimConfirmation(
   const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
-    <p>You're booked for <strong>${packet.visit_date}</strong>. Pay for the packet is <strong>${dollars(packet.posted_price_cents)}</strong>. Open the packet for the route, each property's window, and entry details.</p>
+    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>. Pay for the packet is <strong>${dollars(packet.posted_price_cents)}</strong>. Open the packet for the route, each property's window, and entry details.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
-    subject: `Confirmed: ${packet.title} on ${packet.visit_date}`,
+    subject: `Confirmed: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}`,
     fromName: FROM_NAME,
     cc: OFFICE_CC,
     html,
@@ -234,6 +234,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
       return packet.visit_date;
     }
   })();
+  const when = fmtVisitTime(packet.visit_time) ? `${date} ${fmtVisitTime(packet.visit_time)}` : date;
   const headline = packetHeadline(packet);
 
   let sent = 0;
@@ -253,7 +254,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     }
     const link = `${fieldBaseUrl()}/field/${c.portal_token}`;
     const to = c.phone.startsWith('+') ? c.phone : `+1${normalizePhone(c.phone)}`;
-    const content = `Rising Tide Field: new work near you — ${headline}, ${date} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
+    const content = `Rising Tide Field: new work near you — ${headline}, ${when} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
     try {
       await sendMessage({ from, to, content });
       sent++;
