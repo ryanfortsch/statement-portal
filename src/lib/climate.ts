@@ -27,6 +27,7 @@ import {
   listThermostats,
   setThermostatCool,
   setThermostatHeat,
+  pollActionAttempt,
   type SeamThermostat,
 } from '@/lib/seam';
 
@@ -270,10 +271,33 @@ export async function runClimateAutomation(
         continue;
       }
 
-      if (desired.mode === 'cool') {
-        await setThermostatCool(profile.seam_device_id as string, desired.setpoint);
-      } else {
-        await setThermostatHeat(profile.seam_device_id as string, desired.setpoint);
+      const attempt =
+        desired.mode === 'cool'
+          ? await setThermostatCool(profile.seam_device_id as string, desired.setpoint)
+          : await setThermostatHeat(profile.seam_device_id as string, desired.setpoint);
+
+      // Seam applies a thermostat command ASYNCHRONOUSLY: the POST returning
+      // 200 only means the request was accepted, not that the physical
+      // thermostat changed. Poll the action attempt to a terminal state (up to
+      // ~10s) so we only record last_applied_* on a CONFIRMED success. Without
+      // this, a rejected/offline/stuck command still gets marked "applied", the
+      // next run sees desired === last_applied and skips as "unchanged", and
+      // the thermostat is left wherever it actually was (e.g. stuck at a stale
+      // setpoint) with no retry, ever.
+      if (attempt?.action_attempt_id) {
+        const final = await pollActionAttempt(attempt.action_attempt_id);
+        if (final.status !== 'success') {
+          const message =
+            final.status === 'error'
+              ? final.error?.message || 'The thermostat rejected the setpoint.'
+              : 'Still applying after 10s. The thermostat has not confirmed yet, so this will retry next run.';
+          await sb
+            .from('property_climate_profiles')
+            .update({ last_run_at: nowIso, last_error: message })
+            .eq('property_id', profile.property_id);
+          results.push({ property_id: profile.property_id, ok: false, applied: false, desired, error: message });
+          continue;
+        }
       }
 
       await sb
