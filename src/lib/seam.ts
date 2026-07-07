@@ -187,20 +187,25 @@ export async function listThermostats(): Promise<SeamThermostat[]> {
   return res.thermostats ?? [];
 }
 
-/** Set the thermostat to cool mode at a Fahrenheit setpoint. */
-export async function setThermostatCool(deviceId: string, fahrenheit: number): Promise<void> {
-  await seamPost('/thermostats/cool', {
+/** Set the thermostat to cool mode at a Fahrenheit setpoint. Async: returns the
+ *  action attempt the caller should poll for the real outcome (Seam accepting
+ *  the request with a 200 does not mean the physical thermostat applied it). */
+export async function setThermostatCool(deviceId: string, fahrenheit: number): Promise<SeamActionAttempt | null> {
+  const res = await seamPost<{ action_attempt?: SeamActionAttempt }>('/thermostats/cool', {
     device_id: deviceId,
     cooling_set_point_fahrenheit: fahrenheit,
   });
+  return res.action_attempt ?? null;
 }
 
-/** Set the thermostat to heat mode at a Fahrenheit setpoint. */
-export async function setThermostatHeat(deviceId: string, fahrenheit: number): Promise<void> {
-  await seamPost('/thermostats/heat', {
+/** Set the thermostat to heat mode at a Fahrenheit setpoint. Async: returns the
+ *  action attempt the caller should poll for the real outcome. */
+export async function setThermostatHeat(deviceId: string, fahrenheit: number): Promise<SeamActionAttempt | null> {
+  const res = await seamPost<{ action_attempt?: SeamActionAttempt }>('/thermostats/heat', {
     device_id: deviceId,
     heating_set_point_fahrenheit: fahrenheit,
   });
+  return res.action_attempt ?? null;
 }
 
 async function seamPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
