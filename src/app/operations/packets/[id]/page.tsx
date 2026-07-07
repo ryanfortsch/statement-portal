@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
 import { StopAttachments, PacketInstructions } from './StopAttachments';
+import { BonusFields } from './BonusFields';
 import { PacketRouteMap } from '@/app/field/PacketRouteMap';
 import { OnSite } from '@/app/field/packet/[packetId]/OnSite';
 import { AutoRefresh } from '@/components/AutoRefresh';
@@ -354,9 +355,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
                     {/* Above-and-beyond? Add it right here and it rides the
                         approval: shows in their portal + approval email. */}
-                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>+ bonus $</span>
-                    <input type="number" name="bonus_dollars" min={0} step={1} placeholder="0" style={{ ...priceInput, width: 70 }} />
-                    <input name="bonus_reason" placeholder="why (they'll see this)" style={{ ...priceInput, width: 190 }} />
+                    <BonusFields />
                   </form>
                   <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
@@ -396,9 +395,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   {/* Decide-later bonus: add or adjust any time before it's paid. */}
                   <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
-                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>bonus $</span>
-                    <input type="number" name="bonus_dollars" min={0} step={1} defaultValue={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined} placeholder="0" style={{ ...priceInput, width: 70 }} />
-                    <input name="bonus_reason" defaultValue={packet.bonus_reason ?? ''} placeholder="why (they'll see this)" style={{ ...priceInput, width: 190 }} />
+                    <BonusFields
+                      defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
+                      defaultReason={packet.bonus_reason}
+                    />
                     <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
                   </form>
                 </div>
