@@ -200,8 +200,11 @@ export default async function PacketsBoard({
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
           {calendar.missingCoords > 0 && (
             <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 8 }}>
-              {calendar.missingCoords} {calendar.missingCoords === 1 ? 'property is' : 'properties are'} hidden here — no map
-              coordinates on file, so they can&apos;t be bundled. Add lat/long on the property to include them.
+              {/* One template string, not JSX text fragments: SSR text-node
+                  boundaries were swallowing the space ("property ishidden"). */}
+              {calendar.missingCoords === 1
+                ? '1 property is hidden here: no map coordinates on file, so it cannot be bundled. Add lat/long on the property to include it.'
+                : `${calendar.missingCoords} properties are hidden here: no map coordinates on file, so they cannot be bundled. Add lat/long on each property to include them.`}
             </div>
           )}
         </div>
