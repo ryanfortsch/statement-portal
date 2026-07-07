@@ -655,7 +655,39 @@ export async function POST(request: NextRequest) {
     const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
     const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
     const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
-    const repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    let repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+
+    // Receipt-backed expenses fold into repairs_total. property_receipts is
+    // keyed (property_id, month) -- NOT the statement UUID -- so operator-
+    // entered receipts survive the wholesale delete-and-rebuild in section 8
+    // below (the exact bank_deposit_attributions survival pattern). The
+    // folded value then flows untouched through the owner-payout math, the
+    // statement insert, and the syncPropertyStripe payload; mirror rows for
+    // line-item display land in section 11b. Tolerates the
+    // supabase-schema property_receipts migration not having run yet.
+    type ActiveReceipt = {
+      id: string;
+      amount: number;
+      vendor_name: string | null;
+      description: string | null;
+      expense_date: string | null;
+    };
+    let activeReceipts: ActiveReceipt[] = [];
+    {
+      const { data: receiptRows, error: receiptErr } = await supabase
+        .from('property_receipts')
+        .select('id, amount, vendor_name, description, expense_date')
+        .eq('property_id', propertyId)
+        .eq('month', month)
+        .eq('status', 'active');
+      if (receiptErr && receiptErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(receiptErr.message || '')) {
+        throw receiptErr;
+      }
+      if (receiptErr) console.warn('property_receipts read skipped (table missing -- run the property_receipts migration)');
+      activeReceipts = (receiptRows || []) as ActiveReceipt[];
+      const receiptsTotal = Math.round(activeReceipts.reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
+      repairsTotal = Math.round((repairsTotal + receiptsTotal) * 100) / 100;
+    }
 
     // 4. Process reservations with channel logic.
     //
@@ -1268,10 +1300,26 @@ export async function POST(request: NextRequest) {
     }
     await insertCleaningEvents(supabase, cleaningInserts);
 
-    // 11b. Insert repair events (handyman / vendor charges from the bank).
-    // Tolerates the migration not having run yet.
-    if (repairCharges.length > 0) {
-      const repairInserts = repairCharges.map(c => {
+    // 11b. Insert repair events: handyman / vendor charges from the bank,
+    // plus one mirror row per active receipt (source='receipt') so the
+    // dashboard's Repairs & Maintenance section shows receipt line items.
+    // Mirror rows are rebuilt after the wholesale delete in section 8, same
+    // as bank rows, so they can never double-count. Tolerance also matches
+    // PostgREST's missing-COLUMN message ("Could not find the '...' column")
+    // so a half-applied schema (repair_events exists, receipt_id missing)
+    // degrades instead of 500ing -- same precedent as the direction-column
+    // tolerance on the debit upsert above.
+    {
+      type RepairEventInsert = {
+        property_statement_id: string;
+        vendor_name: string | null;
+        description: string | null;
+        bank_charge_date: string | null;
+        bank_charge_amount: number;
+        source: string;
+        receipt_id?: string;
+      };
+      const repairInserts: RepairEventInsert[] = repairCharges.map(c => {
         const parts = c.date.split('/');
         const iso = parts.length === 3 ? `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}` : null;
         return {
@@ -1283,11 +1331,24 @@ export async function POST(request: NextRequest) {
           source: 'bank',
         };
       });
-      const { error: repErr } = await supabase
-        .from('repair_events')
-        .insert(repairInserts);
-      if (repErr && repErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(repErr.message || '')) throw repErr;
-      if (repErr) console.warn('repair_events insert skipped (table missing -- run supabase-schema-repairs.sql)');
+      for (const r of activeReceipts) {
+        repairInserts.push({
+          property_statement_id: stmt.id,
+          vendor_name: r.vendor_name,
+          description: r.description,
+          bank_charge_date: r.expense_date,
+          bank_charge_amount: Math.round((Number(r.amount) || 0) * 100) / 100,
+          source: 'receipt',
+          receipt_id: r.id,
+        });
+      }
+      if (repairInserts.length > 0) {
+        const { error: repErr } = await supabase
+          .from('repair_events')
+          .insert(repairInserts);
+        if (repErr && repErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|Could not find the '.*' column/i.test(repErr.message || '')) throw repErr;
+        if (repErr) console.warn('repair_events insert skipped (schema missing -- run supabase-schema-repairs.sql + the property_receipts migration):', repErr.message);
+      }
     }
 
     // 12. Data gap flags
