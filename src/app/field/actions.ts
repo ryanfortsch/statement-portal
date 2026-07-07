@@ -329,6 +329,78 @@ export async function startStopInspection(formData: FormData) {
   redirect(`/field/inspect/${inspectionId}`);
 }
 
+/** Undo an accidental Start: allowed only while the inspection is completely
+ *  untouched (no marks, notes, or slips) — any real work means finish it or
+ *  call the office. Unlinks and deletes the empty inspection, returns the stop
+ *  to pending (clearing the on-site clock and the office "On site" signal),
+ *  and reverts the packet to claimed when nothing else has begun. */
+export async function undoStartStop(formData: FormData) {
+  const packetId = String(formData.get('packet_id') || '');
+  const stopId = String(formData.get('stop_id') || '');
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
+  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('*')
+    .eq('id', stopId)
+    .eq('packet_id', packetId)
+    .maybeSingle();
+  const stop = sData as PacketStopRow | null;
+  if (!stop || stop.status !== 'in_progress' || !stop.inspection_id) redirect(`/field/packet/${packetId}`);
+
+  const [{ count: results }, { count: notes }, { count: slips }] = await Promise.all([
+    fieldDb().from('inspection_results').select('id', { count: 'exact', head: true }).eq('inspection_id', stop.inspection_id),
+    fieldDb().from('inspection_notes').select('id', { count: 'exact', head: true }).eq('inspection_id', stop.inspection_id),
+    fieldDb().from('work_slips').select('id', { count: 'exact', head: true }).eq('inspection_id', stop.inspection_id),
+  ]);
+  if ((results ?? 0) > 0 || (notes ?? 0) > 0 || (slips ?? 0) > 0) {
+    redirect(`/field/packet/${packetId}?resetblocked=1`);
+  }
+
+  const inspectionId = stop.inspection_id;
+  await fieldDb()
+    .from('packet_stops')
+    .update({
+      status: 'pending',
+      inspection_id: null,
+      started_at: null,
+      // A lock-verified arrival is physical truth; only the tap resets.
+      arrival_source: stop.arrived_verified_at ? 'lock' : null,
+    })
+    .eq('id', stopId);
+  await fieldDb().from('inspections').delete().eq('id', inspectionId);
+
+  const { data: others } = await fieldDb()
+    .from('packet_stops')
+    .select('status, started_at')
+    .eq('packet_id', packetId);
+  const anyBegun = ((others ?? []) as { status: string; started_at: string | null }[]).some(
+    (o) => o.started_at || ['in_progress', 'complete', 'skipped'].includes(o.status),
+  );
+  if (!anyBegun && packet.status === 'in_progress') {
+    await fieldDb().from('inspection_packets').update({ status: 'claimed' }).eq('id', packetId);
+  }
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    eventType: 'stop_start_undone',
+    propertyId: stop.property_id,
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  redirect(`/field/packet/${packetId}`);
+}
+
 /** Complete a maintenance stop: record the resolution on the work slip and mark
  *  the stop done. No inspection deck — the "work" is the slip's job, and a short
  *  note on what was done is the maintenance quality floor. */
