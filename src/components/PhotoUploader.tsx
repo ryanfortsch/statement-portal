@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { compressImage } from '@/lib/image-compress';
 
 type Props = {
@@ -193,10 +194,20 @@ export function PhotoThumbs({ urls, size = 80 }: { urls: string[]; size?: number
         }}
       >
         {urls.map((url, i) => (
-          <button
+          // An anchor, not a button: buttons go inert inside the office
+          // preview's read-only <fieldset disabled>, which silently killed the
+          // lightbox there. Plain click opens the viewer; cmd/middle-click
+          // opens the full-size image in a new tab.
+          <a
             key={`${url}-${i}`}
-            type="button"
-            onClick={() => setLightboxIndex(i)}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+              e.preventDefault();
+              setLightboxIndex(i);
+            }}
             aria-label={`Open photo ${i + 1} of ${urls.length}`}
             style={{
               display: 'block',
@@ -215,7 +226,7 @@ export function PhotoThumbs({ urls, size = 80 }: { urls: string[]; size?: number
               alt={`Photo ${i + 1}`}
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             />
-          </button>
+          </a>
         ))}
       </div>
 
@@ -282,7 +293,10 @@ function Lightbox({
     else goNext();
   }
 
-  return (
+  // Portaled to <body>: the viewer can open from inside the office preview's
+  // read-only <fieldset disabled>, and a portal keeps its close/next buttons
+  // outside that subtree (a disabled fieldset inerts every descendant control).
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -400,7 +414,8 @@ function Lightbox({
           ›
         </button>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
