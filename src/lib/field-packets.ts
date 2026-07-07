@@ -77,6 +77,7 @@ function mergeAccess(p: FieldProperty, access: PropertyAccess | undefined): Fiel
     ...p,
     smart_lock_code: access?.smart_lock_code ?? null,
     key_code_location: access?.key_code_location ?? null,
+    arrival_brief: access?.arrival_brief ?? null,
     gate_code: access?.gate_code ?? null,
     garage_code: access?.garage_code ?? null,
     alarm_system: access?.alarm_system ?? null,

@@ -754,6 +754,19 @@ export default async function PacketPage({
                   <AccessLines a={s.access} />
                 </div>
               ) : null)}
+              {/* Arrival + parking, colleague tone (synthesized from what we
+                  tell guests). <details>, not a button: it stays tappable in
+                  the read-only office preview. */}
+              {isMine && s.access?.arrival && (
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 4px', minHeight: 36 }}>
+                    ⓘ Arrival &amp; parking
+                  </summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px', marginTop: 4, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                    {s.access.arrival}
+                  </div>
+                </details>
+              )}
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} />
               )}

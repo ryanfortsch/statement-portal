@@ -20,6 +20,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /** The sensitive columns that live on property_access (not properties). */
 export const ACCESS_COLUMNS = [
+  'arrival_brief',
   'smart_lock_code',
   'gate_code',
   'garage_code',
@@ -31,6 +32,8 @@ export const ACCESS_COLUMNS = [
 ] as const;
 
 export type PropertyAccess = {
+  /** Colleague-tone arrival + parking brief shown to the assigned inspector. */
+  arrival_brief: string | null;
   smart_lock_code: string | null;
   gate_code: string | null;
   garage_code: string | null;
@@ -42,6 +45,7 @@ export type PropertyAccess = {
 };
 
 export const EMPTY_ACCESS: PropertyAccess = {
+  arrival_brief: null,
   smart_lock_code: null,
   gate_code: null,
   garage_code: null,

@@ -166,6 +166,7 @@ export type FieldProperty = {
   bedrooms: number | null;
   // Access bundle (revealed to the awarded contractor only).
   guest_access_method: string | null;
+  arrival_brief: string | null;
   smart_lock_brand: string | null;
   smart_lock_code: string | null;
   key_code_location: string | null;
@@ -178,6 +179,8 @@ export type FieldProperty = {
 /** Entry/access info shown to a contractor after they claim a packet. */
 export type AccessBundle = {
   method: string | null;
+  /** Arrival + parking brief, colleague tone (from property_access). */
+  arrival: string | null;
   smartLock: string | null;
   lockboxLocation: string | null;
   gateCode: string | null;
@@ -193,6 +196,7 @@ export function accessBundle(p: FieldProperty): AccessBundle {
       : p.smart_lock_code || null;
   return {
     method: p.guest_access_method,
+    arrival: p.arrival_brief,
     smartLock,
     lockboxLocation: p.key_code_location,
     gateCode: p.gate_code,
