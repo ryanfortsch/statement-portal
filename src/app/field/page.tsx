@@ -97,12 +97,21 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
           </div>
         </div>
         <div className="rt-packet-price" style={{ textAlign: 'right', flexShrink: 0 }}>
+          {/* The headline number is the real payout: posted price plus any
+              above-and-beyond bonus (bonus only ever exists on the viewer's
+              own packet, so open-marketplace cards are unchanged). */}
           <div className="font-mono" style={{ fontSize: 24, lineHeight: 1 }}>
-            {dollars(p.posted_price_cents)}
+            {dollars(p.posted_price_cents + (p.bonus_cents || 0))}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
-            {dollars(Math.round(p.posted_price_cents / Math.max(1, p.stop_count)))} / stop
-          </div>
+          {p.bonus_cents > 0 ? (
+            <div style={{ fontSize: 11, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>
+              includes {dollars(p.bonus_cents)} bonus
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
+              {dollars(Math.round(p.posted_price_cents / Math.max(1, p.stop_count)))} / stop
+            </div>
+          )}
           <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 12, fontWeight: 600 }}>View →</div>
         </div>
       </div>
