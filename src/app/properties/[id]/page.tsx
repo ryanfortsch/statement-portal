@@ -32,6 +32,7 @@ import { getPropertyDocuments } from '@/lib/property-documents';
 import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
 import { getGuestCodeView } from '@/lib/guest-locks';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
+import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
 import { computeLaunchProgress } from '@/lib/launch-checklist';
@@ -847,6 +848,7 @@ export default async function PropertyDetailPage({
           Closed-state chip surfaces the open count so a single glance
           tells you whether there's tribal knowledge attached. */}
       <CollapsibleSection
+        id="ops-notebook"
         title="Operations notebook"
         summary={(() => {
           const open = propertyNotes.filter((n) => !n.resolved_at).length;
@@ -1246,7 +1248,7 @@ export default async function PropertyDetailPage({
             </Link>
             {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
               <ActionLink
-                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}`}
+                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}&property=${p.id}`}
                 title="Add or replace this listing's bedroom photos on staycapeann.com"
               >
                 Bedroom photos →
@@ -1379,7 +1381,7 @@ export default async function PropertyDetailPage({
             (e.g. "please run the bathroom fan during showers"). Same brand
             language as the WiFi placard so a stack of these in a glass
             case reads as one consistent set. */}
-        <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
+        <div id="guest-placards" style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Guest placards
@@ -1414,6 +1416,7 @@ export default async function PropertyDetailPage({
               {propertyNotices.map((n) => (
                 <div
                   key={n.id}
+                  id={`notice-${n.id}`}
                   style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
                   {n.eyebrow ? <div className="eyebrow">{n.eyebrow}</div> : <div className="eyebrow" style={{ opacity: 0.4 }}>Notice</div>}
@@ -1606,6 +1609,10 @@ export default async function PropertyDetailPage({
           </span>
         </div>
       </footer>
+
+      {/* Opens collapsed <details> ancestors of the URL-hash target and
+          scrolls to it (deep links like #ops-notebook / #notice-<id>). */}
+      <HashOpenScript />
     </div>
   );
 }

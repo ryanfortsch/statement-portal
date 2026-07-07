@@ -1,16 +1,22 @@
 'use client';
 
+import { SubmitButton } from '@/components/SubmitButton';
+
 /**
- * Confirm-then-delete button for a property notice. Wraps a server-action
- * `<form>` with a `confirm()` so an accidental click on the edit page
- * doesn't drop a notice without warning.
+ * Confirm-then-delete button for a property notice (or note, via the
+ * optional `label`). Wraps a server-action `<form>` with a `confirm()`
+ * so an accidental click on the edit page doesn't drop a record without
+ * warning. Pending-aware: disables and shows "Deleting…" while the
+ * action runs.
  */
 export function DeletePropertyNoticeButton({
   action,
   confirmText,
+  label = 'Delete notice',
 }: {
   action: () => Promise<void> | void;
   confirmText: string;
+  label?: string;
 }) {
   return (
     <form
@@ -19,8 +25,10 @@ export function DeletePropertyNoticeButton({
         if (!window.confirm(confirmText)) e.preventDefault();
       }}
     >
-      <button
-        type="submit"
+      <SubmitButton
+        label={label}
+        busyLabel="Deleting…"
+        spinnerTone="ink"
         style={{
           background: 'transparent',
           color: 'var(--negative)',
@@ -32,9 +40,7 @@ export function DeletePropertyNoticeButton({
           border: '1px solid var(--negative)',
           cursor: 'pointer',
         }}
-      >
-        Delete notice
-      </button>
+      />
     </form>
   );
 }

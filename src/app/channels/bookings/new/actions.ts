@@ -42,7 +42,7 @@ export async function createManualBooking(formData: FormData) {
   const sb = getSb();
   const nights = nightsBetween(checkIn, checkOut);
 
-  const { error } = await sb
+  const { data, error } = await sb
     .from('bookings')
     .insert({
       property_id: propertyId,
@@ -60,14 +60,16 @@ export async function createManualBooking(formData: FormData) {
       cleaning_fee: cleaningFee,
       payout,
       notes,
-    });
+    })
+    .select('id')
+    .single();
 
   if (error) throw new Error(error.message);
 
   revalidatePath('/channels');
   revalidatePath('/channels/bookings');
   revalidatePath('/channels/calendar');
-  redirect(`/channels/bookings?property=${propertyId}`);
+  redirect(`/channels/bookings/${data.id}`);
 }
 
 function parseMoney(value: FormDataEntryValue | null): number | null {

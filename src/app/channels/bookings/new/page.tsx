@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { SubmitButton } from '@/components/SubmitButton';
 import { PROPERTIES } from '@/lib/properties';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { createManualBooking } from './actions';
@@ -116,7 +117,7 @@ export default async function ChannelsBookingsNewPage({
           </Field>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <button type="submit" style={primaryButton}>{isBlock ? 'Create block' : 'Create booking'}</button>
+            <SubmitButton label={isBlock ? 'Create block' : 'Create booking'} busyLabel="Creating…" style={primaryButton} />
             <Link href="/channels/bookings" style={secondaryButton}>Cancel</Link>
           </div>
         </form>

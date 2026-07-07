@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { NoteEditorForm } from '@/components/properties/NoteEditorForm';
+import { DeletePropertyNoticeButton } from '@/components/properties/DeletePropertyNoticeButton';
 import { updatePropertyNote, deletePropertyNote } from '@/app/properties/actions';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
 import type { HelmPropertyRow } from '@/lib/properties';
@@ -22,9 +23,8 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
 
 /**
  * Edit + delete page for an existing property note. The form posts to
- * updatePropertyNote; the delete control is a separate form alongside
- * that posts to deletePropertyNote so the operator can confirm via
- * the browser's native form-submit dance.
+ * updatePropertyNote; the delete control is a separate confirm-gated
+ * form alongside that posts to deletePropertyNote.
  */
 export default async function EditPropertyNotePage({
   params,
@@ -50,7 +50,7 @@ export default async function EditPropertyNotePage({
 
       <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
         <Link
-          href={`/properties/${p.id}`}
+          href={`/properties/${p.id}?tab=operations`}
           style={{
             fontSize: 11,
             letterSpacing: '.18em',
@@ -75,27 +75,14 @@ export default async function EditPropertyNotePage({
         </div>
 
         <div style={{ borderTop: '1px solid var(--rule)', marginTop: 56, paddingTop: 24 }}>
-          <form action={deleteAction}>
-            <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 14 }}>
-              Permanently delete this note. Cannot be undone.
-            </p>
-            <button
-              type="submit"
-              style={{
-                background: 'transparent',
-                color: 'var(--negative)',
-                border: '1px solid var(--negative)',
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                padding: '11px 18px',
-                cursor: 'pointer',
-              }}
-            >
-              Delete note
-            </button>
-          </form>
+          <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 14 }}>
+            Permanently delete this note. Cannot be undone.
+          </p>
+          <DeletePropertyNoticeButton
+            action={deleteAction}
+            confirmText={`Delete the “${note.title}” note from ${p.name}? This can't be undone.`}
+            label="Delete note"
+          />
         </div>
       </div>
     </div>

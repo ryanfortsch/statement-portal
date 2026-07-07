@@ -5,6 +5,7 @@ import { isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { loadApplications, type ContractorApplication } from '@/lib/field-packets';
 import { CopyCode } from '@/app/field/CopyCode';
+import { SubmitButton } from '@/components/SubmitButton';
 import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
 import { ScreenButton } from './ScreenButton';
 
@@ -212,11 +213,11 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
       <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
         <form action={inviteApplicant} style={{ margin: 0 }}>
           <input type="hidden" name="application_id" value={a.id} />
-          <button type="submit" style={btnDark}>Invite</button>
+          <SubmitButton label="Invite" busyLabel="Inviting…" style={btnDark} />
         </form>
         <form action={declineApplicant} style={{ margin: 0 }}>
           <input type="hidden" name="application_id" value={a.id} />
-          <button type="submit" style={btnGhost}>Decline</button>
+          <SubmitButton label="Decline" busyLabel="Declining…" style={btnGhost} spinnerTone="ink" />
         </form>
       </div>
     </div>
@@ -232,7 +233,7 @@ function Closed({ title, apps }: { title: string; apps: ContractorApplication[] 
           <span style={{ fontSize: 14 }}>{a.full_name} <a href={`mailto:${a.email}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.email}</a>{a.phone ? <> <a href={`tel:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.phone}</a></> : null}</span>
           <form action={reopenApplicant} style={{ margin: 0 }}>
             <input type="hidden" name="application_id" value={a.id} />
-            <button type="submit" style={{ ...btnGhost, padding: '4px 10px' }}>Reopen</button>
+            <SubmitButton label="Reopen" busyLabel="Reopening…" style={{ ...btnGhost, padding: '4px 10px' }} spinnerTone="ink" />
           </form>
         </div>
       ))}

@@ -596,7 +596,7 @@ export function ScaLaunchClient(props: Props) {
             <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onVerify}>{busy === 'verify' ? 'Checking…' : 'Verify payments (production)'}</button>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onRefreshSiteData}>{busy === 'refresh-data' ? 'Triggering…' : 'Refresh site data'}</button>
-              <button type="button" style={{ ...btnBase, borderColor: 'var(--negative)', color: 'var(--negative)' }} disabled={busy !== null} onClick={onUnlist}>Unlist…</button>
+              <button type="button" style={{ ...btnBase, borderColor: 'var(--negative)', color: 'var(--negative)' }} disabled={busy !== null} onClick={onUnlist}>{busy === 'unlist' ? 'Opening removal PR…' : 'Unlist…'}</button>
             </div>
             <p style={hintStyle}>The listing page is built from Guesty&rsquo;s snapshot, which go-live refreshes automatically (takes a couple minutes after merge). If the page or its photos look stale, click <strong>Refresh site data</strong>; it also self-heals on the nightly refresh.</p>
           </div>

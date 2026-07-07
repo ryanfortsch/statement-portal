@@ -190,7 +190,7 @@ export function EditFormShell({
             {pending ? 'Saving…' : 'Save changes'}
           </button>
           <Link
-            href={`/properties/${propertyId}`}
+            href={`/properties/${propertyId}?tab=operations`}
             style={{
               fontSize: 11,
               letterSpacing: '.18em',

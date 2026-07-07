@@ -63,9 +63,9 @@ async function loadListings(): Promise<{ listings: BedroomListing[]; error: stri
 export default async function BedroomPhotosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ listing?: string }>;
+  searchParams: Promise<{ listing?: string; property?: string }>;
 }) {
-  const { listing } = await searchParams;
+  const { listing, property } = await searchParams;
   const session = await auth();
   const signedIn = !!session?.user?.email;
   const githubConfigured = gh.isGithubConfigured();
@@ -82,7 +82,7 @@ export default async function BedroomPhotosPage({
 
       <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
         <Link
-          href="/properties"
+          href={property ? `/properties/${property}?tab=growth` : '/properties'}
           style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.04em' }}
         >
           ← Properties

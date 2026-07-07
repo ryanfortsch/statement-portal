@@ -31,6 +31,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
   const [editing, setEditing] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Editable form state
   const [type, setType] = useState<ContactType>(contact.type);
@@ -58,6 +60,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
     e.preventDefault();
     setError(null);
     setSavedAt(null);
+    setSubmitting(true);
     const res = await updateContact({
       id: contact.id,
       type,
@@ -69,6 +72,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       tags: tagsInput,
       linked_property_ids: linkedPropertyIds,
     });
+    setSubmitting(false);
     if (!res.ok) {
       setError(res.error);
       return;
@@ -80,9 +84,11 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
 
   async function removeContact() {
     if (!confirm(`Delete contact "${contact.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
       await deleteContact({ id: contact.id });
     } catch (e) {
+      setDeleting(false);
       setError(e instanceof Error ? e.message : String(e));
     }
   }
@@ -261,18 +267,19 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   <button
                     type="button"
                     onClick={removeContact}
+                    disabled={deleting}
                     style={{
                       background: 'transparent',
-                      border: '1px solid var(--negative)',
-                      color: 'var(--negative)',
+                      border: deleting ? '1px solid var(--ink-4)' : '1px solid var(--negative)',
+                      color: deleting ? 'var(--ink-4)' : 'var(--negative)',
                       padding: '8px 14px',
                       fontSize: 11,
                       letterSpacing: '.18em',
                       textTransform: 'uppercase',
-                      cursor: 'pointer',
+                      cursor: deleting ? 'wait' : 'pointer',
                     }}
                   >
-                    Delete
+                    {deleting ? 'Deleting…' : 'Delete'}
                   </button>
                   <button
                     type="button"
@@ -396,8 +403,9 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                 </button>
                 <button
                   type="submit"
+                  disabled={submitting}
                   style={{
-                    background: 'var(--ink)',
+                    background: submitting ? 'var(--ink-4)' : 'var(--ink)',
                     color: 'var(--paper)',
                     border: 'none',
                     padding: '10px 18px',
@@ -405,10 +413,10 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                     letterSpacing: '.18em',
                     textTransform: 'uppercase',
                     fontWeight: 600,
-                    cursor: 'pointer',
+                    cursor: submitting ? 'wait' : 'pointer',
                   }}
                 >
-                  Save
+                  {submitting ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </form>

@@ -12,15 +12,19 @@ export const maxDuration = 300;
  *
  * If listing_id is present, sync only that listing. Otherwise sync every
  * active listing that has an ical_import_url. Used by:
- *   - The "Run sync now" button on /channels
+ *   - The "Run sync now" button on /channels (fetch, JSON in/out)
  *   - The cron route (which forwards via fetch)
  *   - Per-listing "resync" buttons on /channels/listings (via server action)
  */
 export async function POST(request: NextRequest) {
+  const isJson = (request.headers.get('content-type') ?? '').includes('application/json');
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = isJson ? await request.json().catch(() => ({})) : {};
     const onlyListingId = typeof body?.listing_id === 'string' ? body.listing_id : undefined;
-    await syncAllListings({ onlyListingId });
+    const result = await syncAllListings({ onlyListingId });
+    if (isJson) {
+      return NextResponse.json({ ok: true, ...result });
+    }
     return NextResponse.redirect(new URL('/channels', request.url), 303);
   } catch (err) {
     return NextResponse.json(

@@ -5,6 +5,7 @@ import { getContact, listContactEvents, listContactStays, type ContactStay } fro
 import { displayName, formatTagLabel } from '@/lib/guests-types';
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
+import { SubmitButton } from '@/components/SubmitButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,16 +91,12 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           {contact.status === 'subscribed' ? (
             <form action={unsubscribeContact}>
               <input type="hidden" name="id" value={contact.id} />
-              <button type="submit" style={dangerButtonStyle}>
-                Unsubscribe
-              </button>
+              <SubmitButton label="Unsubscribe" busyLabel="Unsubscribing…" style={dangerButtonStyle} spinnerTone="ink" />
             </form>
           ) : (
             <form action={resubscribeContact}>
               <input type="hidden" name="id" value={contact.id} />
-              <button type="submit" style={primaryButtonStyle}>
-                Resubscribe
-              </button>
+              <SubmitButton label="Resubscribe" busyLabel="Resubscribing…" style={primaryButtonStyle} />
             </form>
           )}
           <a href={`mailto:${contact.email}`} style={secondaryButtonStyle}>

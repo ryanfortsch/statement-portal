@@ -11,6 +11,7 @@ import { loadPaymentSummaries } from '@/lib/field-pay';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { CopyCode } from '@/app/field/CopyCode';
+import { SubmitButton } from '@/components/SubmitButton';
 import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
 import {
@@ -166,7 +167,7 @@ export default async function ContractorsPage() {
               <option value="cleaning">Cleaning</option>
             </select>
           </label>
-          <button type="submit" style={btnDark}>Send invite</button>
+          <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
         </form>
 
         {contractors.length === 0 ? (
@@ -271,7 +272,7 @@ function ContractorCard({
                 <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
                   <input type="hidden" name="contractor_id" value={c.id} />
                   <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
-                  <button type="submit" style={payBtn}>Mark {dollars(ps!.owedCents)} paid</button>
+                  <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
                 </form>
               )}
             </>
@@ -315,7 +316,7 @@ function ContractorCard({
               <form action={setContractorW9} style={{ display: 'inline' }}>
                 <input type="hidden" name="contractor_id" value={c.id} />
                 <input type="hidden" name="on_file" value="true" />
-                <button type="submit" style={linkBtn}>Mark W-9 on file</button>
+                <SubmitButton label="Mark W-9 on file" busyLabel="Marking…" style={linkBtn} spinnerTone="ink" />
               </form>
             )}
           </div>
@@ -363,10 +364,10 @@ function ContractorCard({
           {(['pending', 'cleared', 'failed'] as const)
             .filter((s) => s !== c.background_check_status)
             .map((s) => (
-              <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }}>
+              <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${s}`}>
                 <input type="hidden" name="contractor_id" value={c.id} />
                 <input type="hidden" name="bg_status" value={s} />
-                <button type="submit" style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} title={`Mark background check ${s}`}>{s}</button>
+                <SubmitButton label={s} busyLabel="Marking…" style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} spinnerTone="ink" />
               </form>
             ))}
         </div>
@@ -375,29 +376,29 @@ function ContractorCard({
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="paused" />
-              <button type="submit" style={actBtn}>Pause</button>
+              <SubmitButton label="Pause" busyLabel="Pausing…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
           {(c.status === 'paused' || c.status === 'archived') && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="active" />
-              <button type="submit" style={actBtn}>Reactivate</button>
+              <SubmitButton label="Reactivate" busyLabel="Reactivating…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
           <form action={resendInvite} style={{ margin: 0 }}>
             <input type="hidden" name="contractor_id" value={c.id} />
-            <button type="submit" style={actBtn}>Resend invite</button>
+            <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
           </form>
-          <form action={rotateContractorToken} style={{ margin: 0 }}>
+          <form action={rotateContractorToken} style={{ margin: 0 }} title="Kill the old link + all sessions and email a fresh one">
             <input type="hidden" name="contractor_id" value={c.id} />
-            <button type="submit" style={actBtn} title="Kill the old link + all sessions and email a fresh one">Rotate link</button>
+            <SubmitButton label="Rotate link" busyLabel="Rotating…" style={actBtn} spinnerTone="ink" />
           </form>
           {c.status !== 'archived' && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="archived" />
-              <button type="submit" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }}>Archive</button>
+              <SubmitButton label="Archive" busyLabel="Archiving…" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }} spinnerTone="ink" />
             </form>
           )}
         </div>

@@ -6,6 +6,7 @@ import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
 import { manuallyAddContact, syncFromGuesty } from './actions';
+import { SubmitButton } from '@/components/SubmitButton';
 import { GuestsTabBar } from './GuestsTabBar';
 import { ReviewsTab } from './ReviewsTab';
 
@@ -155,10 +156,13 @@ export default async function GuestPage({
           <Link href="/guests/import" style={primaryButtonStyle}>
             Import CSV →
           </Link>
-          <form action={syncFromGuesty}>
-            <button type="submit" style={secondaryButtonStyle} title="Pull guest emails from Guesty into the contact list">
-              Sync from Guesty{lastGuestySyncRel ? ` · ${lastGuestySyncRel}` : ''}
-            </button>
+          <form action={syncFromGuesty} title="Pull guest emails from Guesty into the contact list">
+            <SubmitButton
+              label={<>Sync from Guesty{lastGuestySyncRel ? ` · ${lastGuestySyncRel}` : ''}</>}
+              busyLabel="Syncing from Guesty…"
+              style={secondaryButtonStyle}
+              spinnerTone="ink"
+            />
           </form>
           <Link href="/guests/campaigns" style={secondaryButtonStyle}>
             Campaigns ({campaigns.length})
@@ -198,7 +202,7 @@ export default async function GuestPage({
                 <input name="last_name" placeholder="Last" style={inputStyle} />
               </div>
               <input name="tags" placeholder="tags, comma, separated" style={inputStyle} />
-              <button type="submit" style={primaryButtonStyle}>Add</button>
+              <SubmitButton label="Add" busyLabel="Adding…" style={primaryButtonStyle} />
             </form>
           </details>
         </div>

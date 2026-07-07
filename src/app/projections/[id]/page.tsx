@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { SubmitButton } from '@/components/SubmitButton';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
@@ -549,9 +550,18 @@ function ProjectionStageBody({
           Surfaces the same setting that lives in the edit form so staff
           doesn't have to drill in. Submits to toggleMonthlyBreakdown
           which is pre-bound to the inverse of the current value. */}
-      <form action={toggleBreakdown} style={{ marginBottom: 14 }}>
-        <button
-          type="submit"
+      <form
+        action={toggleBreakdown}
+        style={{ marginBottom: 14 }}
+        title={
+          breakdownOn
+            ? 'Click to remove the Year 1 monthly breakdown slide from the deck.'
+            : 'Click to add a Year 1 monthly breakdown slide (per-month revenue, cleaning, mgmt fee, owner payout) to the deck.'
+        }
+      >
+        <SubmitButton
+          busyLabel="Updating…"
+          spinnerTone="ink"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -564,30 +574,28 @@ function ProjectionStageBody({
             cursor: 'pointer',
             fontFamily: 'inherit',
           }}
-          title={
-            breakdownOn
-              ? 'Click to remove the Year 1 monthly breakdown slide from the deck.'
-              : 'Click to add a Year 1 monthly breakdown slide (per-month revenue, cleaning, mgmt fee, owner payout) to the deck.'
+          label={
+            <>
+              <span
+                aria-hidden
+                style={{
+                  width: 14,
+                  height: 14,
+                  border: '1.5px solid var(--ink)',
+                  background: breakdownOn ? 'var(--ink)' : 'transparent',
+                  color: 'var(--paper)',
+                  fontSize: 10,
+                  lineHeight: '11px',
+                  textAlign: 'center',
+                  fontWeight: 700,
+                }}
+              >
+                {breakdownOn ? '✓' : ''}
+              </span>
+              <span>Include monthly breakdown slide</span>
+            </>
           }
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 14,
-              height: 14,
-              border: '1.5px solid var(--ink)',
-              background: breakdownOn ? 'var(--ink)' : 'transparent',
-              color: 'var(--paper)',
-              fontSize: 10,
-              lineHeight: '11px',
-              textAlign: 'center',
-              fontWeight: 700,
-            }}
-          >
-            {breakdownOn ? '✓' : ''}
-          </span>
-          <span>Include monthly breakdown slide</span>
-        </button>
+        />
       </form>
       <DeliverableActions
         projectionId={projectionId}
@@ -597,9 +605,7 @@ function ProjectionStageBody({
         extraAction={
           canMarkSent ? (
             <form action={markSent} style={{ display: 'inline-block' }}>
-              <button type="submit" style={ghostButtonStyle}>
-                Mark as sent
-              </button>
+              <SubmitButton label="Mark as sent" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
             </form>
           ) : null
         }
@@ -677,20 +683,18 @@ function GuideAndContractStageBody({
                 ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
               </span>
               <form action={unmarkContractDone} style={{ display: 'inline-block' }}>
-                <button
-                  type="submit"
+                <SubmitButton
+                  label="Undo"
+                  busyLabel="Undoing…"
+                  spinnerTone="ink"
                   style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
-                >
-                  Undo
-                </button>
+                />
               </form>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
               <form action={markContractDone} style={{ display: 'inline-block' }}>
-                <button type="submit" style={ghostButtonStyle}>
-                  Mark contract complete
-                </button>
+                <SubmitButton label="Mark contract complete" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
               </form>
               <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
                 Use when the contract was executed outside the in-Helm signing flow.
@@ -918,20 +922,18 @@ function OnboardingStageBody({
                 ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
               </span>
               <form action={unmarkOnboardingDone} style={{ display: 'inline-block' }}>
-                <button
-                  type="submit"
+                <SubmitButton
+                  label="Undo"
+                  busyLabel="Undoing…"
+                  spinnerTone="ink"
                   style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
-                >
-                  Undo
-                </button>
+                />
               </form>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
               <form action={markOnboardingDone} style={{ display: 'inline-block' }}>
-                <button type="submit" style={ghostButtonStyle}>
-                  Mark onboarding complete
-                </button>
+                <SubmitButton label="Mark onboarding complete" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
               </form>
               <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
                 Use when you&rsquo;ve gathered the property info another way.
@@ -1016,8 +1018,9 @@ function PromoteStageBody({
         with all the operational details copied over (utilities, access, emergency contact). The prospect record stays as the sales artifact.
       </p>
       <form action={promote}>
-        <button
-          type="submit"
+        <SubmitButton
+          label={unlocked ? 'Promote to managed property →' : 'Awaiting prerequisites'}
+          busyLabel="Promoting…"
           disabled={!unlocked}
           style={{
             background: unlocked ? 'var(--ink)' : 'var(--paper-2)',
@@ -1030,9 +1033,7 @@ function PromoteStageBody({
             border: 'none',
             cursor: unlocked ? 'pointer' : 'not-allowed',
           }}
-        >
-          {unlocked ? 'Promote to managed property →' : 'Awaiting prerequisites'}
-        </button>
+        />
       </form>
     </>
   );

@@ -305,7 +305,6 @@ export async function updateProjection(id: string, formData: FormData) {
 
   revalidatePath('/properties');
   revalidatePath(`/projections/${id}`);
-  redirect(`/projections/${id}`);
 }
 
 export async function deleteProjection(id: string) {
@@ -637,7 +636,7 @@ export async function promoteToProperty(projectionId: string) {
   // Already promoted? Just go there.
   const existing = projRow.property_id as string | null;
   if (existing) {
-    redirect(`/properties/${existing}`);
+    redirect(`/properties/${existing}/launch`);
   }
 
   const ob = (projRow.onboarding_data ?? {}) as OnboardingData;

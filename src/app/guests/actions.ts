@@ -159,7 +159,7 @@ export async function importContactsFromCsv(formData: FormData): Promise<void> {
   });
 
   revalidatePath('/guests');
-  redirect(`/guests?imported=${inserted}`);
+  redirect(`/guests?tab=contacts&imported=${inserted}`);
 }
 
 export async function unsubscribeContact(formData: FormData): Promise<void> {
@@ -243,9 +243,9 @@ export async function syncFromGuesty(): Promise<void> {
     },
   });
 
-  revalidatePath('/audience');
+  revalidatePath('/guests');
   redirect(
-    `/audience?synced=${result.inserted}&updated=${result.updated}&scanned=${result.unique_guests}`,
+    `/guests?tab=contacts&synced=${result.inserted}&updated=${result.updated}&scanned=${result.unique_guests}`,
   );
 }
 

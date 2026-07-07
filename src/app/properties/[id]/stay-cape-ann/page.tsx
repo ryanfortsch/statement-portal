@@ -69,7 +69,7 @@ export default async function StayCapeAnnLaunchPage({
 
       <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
         <Link
-          href={`/properties/${id}`}
+          href={`/properties/${id}?tab=growth`}
           style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.04em' }}
         >
           ← {property.name}
