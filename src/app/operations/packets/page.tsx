@@ -137,31 +137,35 @@ export default async function PacketsBoard({
       <HelmMasthead current="field" />
       <FieldTabs current="packets" />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
+        {/* One calm header: title + subtitle left, the two CREATE actions right.
+            "Manage contractors" was a duplicate of the CONTRACTORS tab above;
+            the date filter and test console are secondary, so they whisper on
+            their own line instead of crowding the title. */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.{' '}
-              <Link href="/operations/packets/setup" style={{ color: 'var(--tide-deep)' }}>New property setup →</Link>
-              {' · '}
-              <Link href="/operations/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs →</Link>
-              {' · '}
-              <Link href="/operations/contractors" style={{ color: 'var(--tide-deep)' }}>Manage contractors →</Link>
-              {' · '}
-              <Link href="/operations/packets/test" style={{ color: 'var(--tide-deep)' }}>Test console →</Link>
+              Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.
             </div>
           </div>
-          <form method="get" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link href="/operations/packets/setup" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Property setup</Link>
+            <Link href="/operations/packets/maintenance" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Maintenance run</Link>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginTop: 10 }}>
+          <form method="get" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
               From
               <input type="date" name="from" defaultValue={from} style={inDate} />
             </label>
-            <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+            <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
               To
               <input type="date" name="to" defaultValue={to} style={inDate} />
             </label>
-            <button type="submit" style={btnGhost}>Apply</button>
+            <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}>Apply</button>
           </form>
+          <Link href="/operations/packets/test" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3 }}>Test console</Link>
         </div>
 
         {sp.sent === '1' && (
