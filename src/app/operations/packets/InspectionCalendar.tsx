@@ -97,6 +97,8 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
     });
   }
 
+  const [showAllBundles, setShowAllBundles] = useState(false);
+
   function pickBundle(day: string, propIds: string[]) {
     setSelDay(day);
     setSelProps(propIds);
@@ -177,8 +179,9 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
       </div>
 
       {suggestedBundles.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {suggestedBundles.map((b, i) => (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          {/* Soonest few only — eight near-identical chips read as noise. */}
+          {(showAllBundles ? suggestedBundles : suggestedBundles.slice(0, 4)).map((b, i) => (
             <button
               key={i}
               type="button"
@@ -188,6 +191,15 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
               {areaOf(b.rows)} · {fmtChipDay(b.day)} · {b.rows.length} stops
             </button>
           ))}
+          {suggestedBundles.length > 4 && (
+            <button
+              type="button"
+              onClick={() => setShowAllBundles((v) => !v)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}
+            >
+              {showAllBundles ? 'Show fewer' : `+${suggestedBundles.length - 4} more`}
+            </button>
+          )}
         </div>
       )}
 
