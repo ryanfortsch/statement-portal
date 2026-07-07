@@ -4,6 +4,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { loadApplications, type ContractorApplication } from '@/lib/field-packets';
+import { parseTrade, TRADE_META } from '@/lib/field-types';
 import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
@@ -54,7 +55,13 @@ function RecChip({ rec, score }: { rec: Rec | null; score: number | null }) {
   );
 }
 
-export default async function ApplicantsPage() {
+export default async function ApplicantsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ trade?: string }>;
+}) {
+  const trade = parseTrade((await searchParams).trade);
+  const meta = TRADE_META[trade];
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -66,7 +73,7 @@ export default async function ApplicantsPage() {
     );
   }
 
-  const apps = await loadApplications();
+  const apps = (await loadApplications()).filter((a) => (a.trade ?? 'inspection') === trade);
   const active = apps
     .filter((a) => a.status === 'new' || a.status === 'reviewing')
     .sort((a, b) => {
@@ -85,12 +92,13 @@ export default async function ApplicantsPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
-      <FieldTabs current="hiring" />
+      <FieldTabs current="hiring" trade={trade} />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>{meta.label}</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Applicants</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 620 }}>
-          People who applied through the public link. Invite the good ones (we email them a portal link and they
-          onboard themselves) or decline. Post the job anywhere and point it at these links:
+          People who applied to be a {meta.role} through the public link. Invite the good ones (we email them a portal
+          link and they onboard themselves) or decline. Post the job anywhere and point it at these links:
         </p>
 
         {/* Shareable apply links, tagged by source for attribution */}
@@ -102,7 +110,7 @@ export default async function ApplicantsPage() {
             {SOURCES.map((s) => (
               <div key={s} style={{ display: 'contents' }}>
                 <span style={{ color: 'var(--ink-4)', textTransform: 'capitalize' }}>{s}</span>
-                <CopyCode value={`${base}/field/apply?src=${s}`} mono={false} />
+                <CopyCode value={`${base}/field/apply?src=${s}${trade !== 'inspection' ? `&trade=${trade}` : ''}`} mono={false} />
               </div>
             ))}
           </div>
@@ -145,7 +153,7 @@ export default async function ApplicantsPage() {
           <Closed title={`Declined · ${declined.length}`} apps={declined} />
         )}
       </section>
-      <HelmFooter module="Field" right="Applicants" />
+      <HelmFooter module="Field" right={`${meta.label} applicants`} />
     </div>
   );
 }

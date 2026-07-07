@@ -4,7 +4,32 @@
  */
 
 export type ContractorStatus = 'invited' | 'onboarding' | 'active' | 'paused' | 'archived';
-export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning';
+export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning' | 'creative';
+
+/**
+ * Per-trade metadata. Each trade is its own "job" in the Field module: its own
+ * roster, hiring pipeline, and public application. `nav` decides whether it
+ * shows as a job-type tab (cleaning stays valid but hidden — turnovers run
+ * through Cape Ann Elite, not this portal). `hasPackets` gates the packet/route
+ * machinery: creative work is paid per delivered asset, so it has no packets.
+ */
+export const TRADE_META: Record<
+  ContractorTrade,
+  { label: string; singular: string; role: string; hasPackets: boolean; nav: boolean }
+> = {
+  inspection: { label: 'Inspectors', singular: 'inspector', role: 'Vacation Rental Specialist', hasPackets: true, nav: true },
+  maintenance: { label: 'Handymen', singular: 'handyman', role: 'Maintenance Tech', hasPackets: true, nav: true },
+  creative: { label: 'Creative', singular: 'contributor', role: 'Social Media Contributor', hasPackets: false, nav: true },
+  cleaning: { label: 'Cleaners', singular: 'cleaner', role: 'Turnover Cleaner', hasPackets: true, nav: false },
+};
+
+/** Job-type tabs, in nav order. */
+export const NAV_TRADES = (Object.keys(TRADE_META) as ContractorTrade[]).filter((t) => TRADE_META[t].nav);
+
+/** Coerce an untrusted string (URL param, form field) to a known trade. */
+export function parseTrade(v: string | null | undefined): ContractorTrade {
+  return v === 'maintenance' || v === 'cleaning' || v === 'creative' ? v : 'inspection';
+}
 
 export type PacketStatus =
   | 'draft'

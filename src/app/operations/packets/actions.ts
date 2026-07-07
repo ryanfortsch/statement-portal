@@ -11,7 +11,7 @@ import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
-import { canClaim, type PacketRow } from '@/lib/field-types';
+import { canClaim, parseTrade, type PacketRow } from '@/lib/field-types';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -660,8 +660,7 @@ export async function inviteContractor(formData: FormData): Promise<void> {
   const fullName = String(formData.get('full_name') || '').trim();
   const contractorEmail = String(formData.get('email') || '').trim().toLowerCase();
   const phone = String(formData.get('phone') || '').trim() || null;
-  const tradeIn = String(formData.get('trade') || 'inspection');
-  const trade = tradeIn === 'maintenance' || tradeIn === 'cleaning' ? tradeIn : 'inspection';
+  const trade = parseTrade(formData.get('trade') as string | null);
   if (!fullName || !contractorEmail) return;
 
   // Already invited? Re-send their link instead of throwing on the unique email.

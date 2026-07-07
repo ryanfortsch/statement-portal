@@ -7,7 +7,7 @@ import { newPortalToken } from '@/lib/field-auth';
 import { sendInviteEmail } from '@/lib/field-notify';
 import { loadApplications } from '@/lib/field-packets';
 import { screenApplications } from '@/lib/ai/screen-applicant';
-import type { ContractorRow } from '@/lib/field-types';
+import { parseTrade, type ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
   const session = await auth();
@@ -26,7 +26,7 @@ export async function inviteApplicant(formData: FormData): Promise<void> {
   if (!appRow) return;
   const app = appRow as { full_name: string; email: string; phone: string | null; trade: string };
   const email = app.email.toLowerCase();
-  const trade = app.trade === 'maintenance' || app.trade === 'cleaning' ? app.trade : 'inspection';
+  const trade = parseTrade(app.trade);
 
   let contractorId: string | null = null;
   const { data: existing } = await fieldDb().from('contractors').select('*').eq('email', email).maybeSingle();

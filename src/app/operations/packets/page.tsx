@@ -4,7 +4,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
-import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { dollars, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -72,7 +72,7 @@ function plusDays(n: number): string {
 export default async function PacketsBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; sent?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; sent?: string; trade?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -89,12 +89,16 @@ export default async function PacketsBoard({
   const sp = await searchParams;
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
+  const trade = parseTrade(sp.trade);
 
-  const [calendar, packets, { data: cData }] = await Promise.all([
+  const [calendar, allPackets, { data: cData }] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
     fieldDb().from('contractors').select('id, full_name, photo_url'),
   ]);
+  // Scope the board to the active job type. Packets carry a trade; legacy rows
+  // with none are inspection. Creative has no packets and never links here.
+  const packets = allPackets.filter((p) => (p.trade ?? 'inspection') === trade);
   const contractorInfo = new Map(
     ((cData ?? []) as Pick<ContractorRow, 'id' | 'full_name' | 'photo_url'>[]).map((c) => [c.id, c]),
   );
@@ -135,7 +139,7 @@ export default async function PacketsBoard({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
-      <FieldTabs current="packets" />
+      <FieldTabs current="packets" trade={trade} />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         {/* One calm header: title + subtitle left, the two CREATE actions right.
             "Manage contractors" was a duplicate of the CONTRACTORS tab above;
@@ -196,6 +200,7 @@ export default async function PacketsBoard({
           </div>
         )}
 
+        {trade === 'inspection' && (
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} />
           {calendar.missingProps.length > 0 && (
@@ -216,6 +221,7 @@ export default async function PacketsBoard({
             </div>
           )}
         </div>
+        )}
 
         {drafts.length > 0 && (
           <div style={{ marginTop: 40 }}>
