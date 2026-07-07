@@ -59,19 +59,14 @@ function fmtShortDate(d: string): string {
  *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
  *  the inspector goes after. Already-cleaned homes are open from 11. */
 function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean } {
-  const checkinToday = !!s.next_checkin && s.next_checkin === visitDate;
-  const turnoverToday = s.window_basis === 'checkout_day';
-  if (turnoverToday && checkinToday) {
-    return { label: 'Same-day turnover · in after the cleaner, done before the 4 PM check-in', urgent: true };
-  }
-  if (turnoverToday) {
-    return { label: 'Checkout today · cleaner has it midday — go after, no check-in deadline', urgent: false };
-  }
-  if (checkinToday) {
-    return { label: 'Already cleaned · guest arrives 4 PM — do this one early', urgent: true };
-  }
-  const next = s.next_checkin ? ` · next guest ${fmtShortDate(s.next_checkin)}` : '';
-  return { label: `Already cleaned · anytime from 11 AM${next}`, urgent: false };
+  // Two facts, no coaching: did a guest check out today, and when's the next
+  // check-in. The sequencing advice lives in the DayPlan banner up top; per
+  // Dotti, the per-stop line stays this simple.
+  const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Already cleaned';
+  if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, urgent: false };
+  const today = s.next_checkin === visitDate;
+  const when = today ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`;
+  return { label: `${first} · next check-in: ${when}`, urgent: today };
 }
 
 /** The one question an inspector has before anything else: "do I have a hard
