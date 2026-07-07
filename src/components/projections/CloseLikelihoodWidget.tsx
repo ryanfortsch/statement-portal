@@ -1,8 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { setCloseLikelihood } from '@/app/projections/actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Inline "% likely to close" widget. Two modes:
@@ -26,7 +26,7 @@ export function CloseLikelihoodWidget({
   value: number | null;
   size?: 'large' | 'chip';
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(value != null ? String(value) : '');
   const [pending, startTransition] = useTransition();
@@ -38,7 +38,7 @@ export function CloseLikelihoodWidget({
       try {
         await setCloseLikelihood(projectionId, next);
         setEditing(false);
-        router.refresh();
+        softRefresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }

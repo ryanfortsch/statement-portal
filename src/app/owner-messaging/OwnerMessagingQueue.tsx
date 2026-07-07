@@ -49,7 +49,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
           <OwnerApprovalCard
             key={approval.id}
             approval={approval}
-            onResolved={() => router.refresh()}
+            onResolved={softRefresh}
           />
         ))}
       </div>

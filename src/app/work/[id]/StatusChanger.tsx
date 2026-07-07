@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { updateWorkSlipStatus, updateWorkSlipResolution } from '../actions';
 import type { WorkSlipStatus } from '@/lib/work-types';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 const STATUS_OPTIONS: { value: WorkSlipStatus; label: string; color: string }[] = [
   { value: 'open',         label: 'Open',         color: 'var(--ink-3)' },
@@ -26,7 +26,7 @@ export function StatusChanger({
   initialStatus: WorkSlipStatus;
   initialResolutionNotes: string | null;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [status, setStatus] = useState<WorkSlipStatus>(initialStatus);
   const [resolutionNotes, setResolutionNotes] = useState<string>(initialResolutionNotes ?? '');
   const [, startTransition] = useTransition();
@@ -47,7 +47,7 @@ export function StatusChanger({
         setStatus(prev);
         setErr(res.error);
       } else {
-        router.refresh();
+        softRefresh();
       }
     });
   }
@@ -70,7 +70,7 @@ export function StatusChanger({
       setErr(res.error);
     } else {
       if (nextStatus) setStatus(nextStatus);
-      router.refresh();
+      softRefresh();
     }
   }
 

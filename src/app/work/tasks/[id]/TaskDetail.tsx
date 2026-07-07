@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   type TaskRow,
   type TaskCommentRow,
@@ -12,6 +11,7 @@ import {
 } from '@/lib/work-types';
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
 import { TeamPicker } from '@/components/TeamPicker';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -23,7 +23,7 @@ type Props = {
 };
 
 export function TaskDetail({ task, comments, properties, myEmail }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -68,7 +68,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       return;
     }
     setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
-    router.refresh();
+    softRefresh();
   }
 
   async function postComment() {
@@ -85,7 +85,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       { id: res.id, task_id: task.id, author_email: '', body: commentBody.trim(), created_at: new Date().toISOString() },
     ]);
     setCommentBody('');
-    router.refresh();
+    softRefresh();
   }
 
   function removeComment(c: TaskCommentRow) {

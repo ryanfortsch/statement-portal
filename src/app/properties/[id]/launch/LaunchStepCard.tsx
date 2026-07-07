@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   setLaunchStepStatus,
   setLaunchStepNotes,
   setLaunchStepField,
 } from './actions';
 import type { LaunchStep, LaunchStepRow, LaunchStepStatus } from '@/lib/launch-checklist';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   propertyId: string;
@@ -87,7 +87,7 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
 /**
  * One row in the launch checklist. The page renders these inside phase
  * sections. Status changes go through a server action and the page
- * re-renders via router.refresh().
+ * re-renders via softRefresh().
  *
  * Visual model: every row carries a left-side status dot (24px circle,
  * varies per state) + a title-and-meta column + a right-side status
@@ -97,7 +97,7 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
  * change affordance entirely and gain a small "Auto" badge.
  */
 export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState<string>(row?.notes ?? '');
@@ -123,7 +123,7 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
       return;
     }
     setFieldSaved(true);
-    router.refresh();
+    softRefresh();
   }
 
   // Effective status: the operator's manual choice wins; otherwise the
@@ -145,7 +145,7 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
         setError(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   }
 
@@ -158,7 +158,7 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
       setError(res.error);
       return;
     }
-    router.refresh();
+    softRefresh();
   }
 
   return (

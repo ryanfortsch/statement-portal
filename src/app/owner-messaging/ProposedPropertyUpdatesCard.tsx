@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { captureColumn, type CaptureItem } from '@/lib/property-capture-catalog';
 import type { ProposedPropertyUpdate } from '@/lib/stay-concierge';
@@ -10,6 +9,7 @@ import {
   applyProposedUpdate,
   dismissProposedUpdate,
 } from './proposed-updates-actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * "Proposed property updates" — durable property facts owners shared in their
@@ -101,7 +101,7 @@ function CandidateCard({
   properties: { id: string; name: string }[];
   source: 'owner' | 'cleaner';
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const known = properties.some((p) => p.id === candidate.property_id);
   const [propertyId, setPropertyId] = useState(known ? candidate.property_id : '');
   const [phase, setPhase] = useState<Phase>('idle');
@@ -163,7 +163,7 @@ function CandidateCard({
       }
       setDoneSummary({ columns: res.columns, notes: res.notes, skipped: res.skipped, warning: res.warning });
       setPhase('done');
-      router.refresh();
+      softRefresh();
     });
   }
 
@@ -177,7 +177,7 @@ function CandidateCard({
       }
       setPhase('done');
       setDoneSummary(null);
-      router.refresh();
+      softRefresh();
     });
   }
 

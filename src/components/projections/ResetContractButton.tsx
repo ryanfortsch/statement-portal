@@ -1,8 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { resetContractOverrides } from '@/app/projections/actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Clears the contract overrides + legacy custom_clauses on the projection,
@@ -25,7 +25,7 @@ export function ResetContractButton({
   projectionId: string;
   hasOverrides: boolean;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +43,7 @@ export function ResetContractButton({
         setError(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   };
 

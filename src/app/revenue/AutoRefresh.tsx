@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   shouldRefresh: boolean;
@@ -11,7 +11,7 @@ type Props = {
 /**
  * Background sync trigger. When the page renders with stale data
  * (`shouldRefresh=true`), this component POSTs to /api/sync-guesty after
- * mount, then calls router.refresh() so the server component re-runs with
+ * mount, then calls softRefresh() so the server component re-runs with
  * the fresh data. The page paints immediately while this work is in flight.
  *
  * Idempotent within a session via `sessionStorage`: if a refresh just ran in
@@ -19,7 +19,7 @@ type Props = {
  * effect twice.
  */
 export function AutoRefresh({ shouldRefresh, initialLabel }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [status, setStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>(
     shouldRefresh ? 'syncing' : 'idle',
   );
@@ -48,12 +48,12 @@ export function AutoRefresh({ shouldRefresh, initialLabel }: Props) {
           return;
         }
         setStatus('done');
-        router.refresh();
+        softRefresh();
       } catch {
         setStatus('error');
       }
     })();
-  }, [shouldRefresh, router]);
+  }, [shouldRefresh, softRefresh]);
 
   let label = initialLabel;
   if (status === 'syncing') label = 'Refreshing from Guesty...';

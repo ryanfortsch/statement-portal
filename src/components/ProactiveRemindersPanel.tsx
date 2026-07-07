@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type {
   ProactiveTarget,
   RecurringMessage,
   CreateRecurringInput,
 } from '@/lib/stay-concierge';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Audience-parameterized generalization of the guest RemindersSection
@@ -194,7 +194,7 @@ function ActiveList({
   actions: ProactiveReminderActions;
   onChanged: () => void;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -215,7 +215,7 @@ function ActiveList({
         return;
       }
       onChanged();
-      router.refresh();
+      softRefresh();
     });
   };
 
@@ -298,7 +298,7 @@ function CreateForm({
   targetsLoaded: boolean;
   onCreated: () => void;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
   const [polishing, startPolish] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -390,7 +390,7 @@ function CreateForm({
       setEndDate('');
       setFireDate('');
       onCreated();
-      router.refresh();
+      softRefresh();
     });
   };
 
