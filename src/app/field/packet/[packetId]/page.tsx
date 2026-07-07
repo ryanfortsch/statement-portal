@@ -526,7 +526,7 @@ export default async function PacketPage({
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
               Your entry code today
             </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Works at every stop. It stops working when you submit.</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Works at every stop.</div>
           </div>
           {/* Tap-to-copy like every other code — this is the one the inspector
               actually punches at every keypad, at peak stress. */}
