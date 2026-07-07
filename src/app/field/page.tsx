@@ -348,9 +348,9 @@ export default async function FieldHome({
         )}
       </div>
 
-      {/* The rating ladder card that sat here moved to /field/profile (the
-          ReputationLadder) — work comes first on the working screen, and the
-          greeting's inline ★ average already answers "how am I doing". */}
+      {/* No rating/reputation card here (the Bronze/Silver/Gold ladder was cut
+          per Ryan — a number IS the reputation). The greeting's inline ★
+          average answers "how am I doing"; /field/profile has the reviews. */}
       {mine.length > 0 && (
         <section style={{ marginBottom: 40 }}>
           <SectionHeader title="Your packets" />
