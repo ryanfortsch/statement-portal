@@ -147,8 +147,7 @@ function SetupScope() {
   return (
     <div style={{ borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
       <strong style={{ color: 'var(--ink)' }}>Property setup: plan 2 to 4 hours on site.</strong> A new home joining
-      the program. Stage it so it&apos;s photo-ready and outfit it for guests; the job card below has the scope.
-      Photograph your work as you go. Anything unclear, call the office.
+      the program. Stage it so it&apos;s photo-ready and outfit it for guests. Anything unclear, call the office.
     </div>
   );
 }
@@ -433,11 +432,12 @@ export default async function PacketPage({
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
-  const supplyRun = working ? await loadPacketSupplyRun(packetId) : { bins: [], jobs: [] };
+  // Gated per packet: setups skip the closet unless the office opted in.
+  const showSupplyStop = working && packet.supply_run;
+  const supplyRun = showSupplyStop ? await loadPacketSupplyRun(packetId) : { bins: [], jobs: [] };
   // The supply closet bookends EVERY route: stop 1 to grab the kit, and the
   // last leg to drop it back off. It owns pin 1 on the map (order below every
   // home) and the homes renumber to 2..N+1 behind it.
-  const showSupplyStop = working;
   // Live route coloring: done stops (tide), the current stop (signal), upcoming
   // (hollow), plus a per-stop "verified at the door" flag from the Seam lock.
   // Only colored while actively working; browsing keeps the plain signal pins.
@@ -563,7 +563,7 @@ export default async function PacketPage({
 
       {!isMaint && !isSetup && <DayPlan stops={packet.stops} visitDate={packet.visit_date} />}
 
-      {working && <SupplyRunCard run={supplyRun} />}
+      {showSupplyStop && <SupplyRunCard run={supplyRun} />}
 
       {sp.taken && (
         <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
@@ -835,7 +835,7 @@ export default async function PacketPage({
         ))}
       </section>
 
-      {working && <KitReturnCard />}
+      {showSupplyStop && <KitReturnCard />}
 
       {/* Sticky bar renders ONLY when it carries a real action or verdict:
           claim, submit (all stops done), the eligibility nudge, or the

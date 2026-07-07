@@ -72,6 +72,10 @@ export default async function SetupPacketPage() {
               style={{ ...inp, resize: 'vertical' }}
             />
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-3)', margin: '2px 0 4px' }}>
+            <input type="checkbox" name="supply_run" />
+            Include a supply-closet bag pickup at 85 Eastern Ave as stop 1
+          </label>
           <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
             <button type="submit" name="mode" value="publish" style={btnDark}>Publish to contractors</button>
             <button type="submit" name="mode" value="draft" style={btnGhost}>Save as draft</button>

@@ -112,6 +112,7 @@ export type PacketRow = {
   bonus_cents: number;
   bonus_reason: string | null;
   entry_code: string | null;
+  supply_run: boolean; // stop 1 bag pickup at the closet (setups default off)
   auto_generated: boolean;
   suggestion_key: string | null;
   created_by_email: string | null;

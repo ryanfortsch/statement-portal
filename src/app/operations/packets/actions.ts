@@ -164,6 +164,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   const priceDollars = Number(formData.get('price_dollars') || 0);
   const scope = String(formData.get('scope') || '');
   const publish = String(formData.get('mode') || 'publish') !== 'draft';
+  const supplyRun = formData.get('supply_run') === 'on';
   if (!propertyId || !visitDate) return;
 
   const packetId = await createSetupPacket({
@@ -172,6 +173,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
     visitTime: visitTime || undefined,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     scope,
+    supplyRun,
     createdByEmail: email,
     publish,
   });

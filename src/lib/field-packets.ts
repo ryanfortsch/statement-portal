@@ -1404,6 +1404,8 @@ export async function createSetupPacket(args: {
   visitTime?: string;
   priceCentsOverride?: number;
   scope: string;
+  /** Include the stop-1 bag pickup at the supply closet (setups default to no). */
+  supplyRun?: boolean;
   createdByEmail: string;
   publish: boolean;
 }): Promise<string | null> {
@@ -1445,6 +1447,7 @@ export async function createSetupPacket(args: {
       status: args.publish ? 'published' : 'draft',
       trade: 'inspection',
       kind: 'setup',
+      supply_run: !!args.supplyRun,
       visit_date: args.visitDate,
       visit_time: args.visitTime || null,
       window_start: args.visitDate,
