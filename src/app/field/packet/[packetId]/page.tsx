@@ -6,7 +6,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, cityShort, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
-import { claimPacket, submitPacket } from '../../actions';
+import { claimPacket, submitPacket, undoStartStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
 import { StartStop } from './StartStop';
@@ -327,7 +327,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string; resetblocked?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -551,6 +551,11 @@ export default async function PacketPage({
           Claiming is paused on your account while we sort out a few recent jobs. Please reach out to the Rising Tide office.
         </div>
       )}
+      {sp.resetblocked && (
+        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+          That inspection already has work in it, so it can&apos;t be reset. Finish it, or call the office and we&apos;ll sort it.
+        </div>
+      )}
       {sp.incomplete && (
         <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
           Finish every stop before submitting the packet.
@@ -764,7 +769,21 @@ export default async function PacketPage({
                 {s.status === 'complete' ? (
                   <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
                 ) : (
-                  <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
+                  <>
+                    <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
+                    {s.status === 'in_progress' && (
+                      <form action={undoStartStop} style={{ margin: '8px 0 0', textAlign: 'center' }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <input type="hidden" name="stop_id" value={s.id} />
+                        <button
+                          type="submit"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px', fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
+                        >
+                          Started by accident? Reset this stop
+                        </button>
+                      </form>
+                    )}
+                  </>
                 )}
               </div>
             )}
