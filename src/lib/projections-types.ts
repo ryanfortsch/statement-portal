@@ -315,6 +315,10 @@ export type OnboardingData = {
   cable_provider?: string;
   wifi_name?: string;
   wifi_password?: string;
+  // Second router (guest suite / boat house). Prints as "Network 2" on
+  // the guest Welcome Home guide; blank for single-network homes.
+  wifi_name_2?: string;
+  wifi_password_2?: string;
   num_tvs?: string;
   smart_tv?: string;
 
@@ -353,6 +357,17 @@ export type OnboardingData = {
   smoke_detector_locations?: string;
   fire_exit_locations?: string;
   str_permit_expires?: string;
+
+  // Guest home guide. Owner-written, guest-facing prose that pipelines
+  // straight into the printed Welcome Home guide (home_guide_overrides
+  // on the property): parking/climate fill the fixed cells, bathrooms/
+  // kitchen fill the default picker slots, amenities lands as a
+  // guest-facing property note for staff to place.
+  guide_parking?: string;
+  guide_climate?: string;
+  guide_bathrooms?: string;
+  guide_kitchen?: string;
+  guide_amenities?: string;
 };
 
 /** The set of editable input fields used by the form + server actions. */

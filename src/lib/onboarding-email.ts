@@ -43,6 +43,19 @@ function summaryRows(data: OnboardingData): Array<[string, string]> {
     ['Currently listed', data.currently_listed],
     ['Smart lock', [data.smart_lock_brand, data.smart_lock_code].filter(Boolean).join(' · ')],
     ['Known issues', data.known_issues],
+    // Which guest-guide sections the owner wrote. The prose itself is
+    // long-form; the pipeline already placed it on the Welcome Home
+    // guide, so the email just flags what came in.
+    ['Home guide answers', ([
+      ['parking', data.guide_parking],
+      ['climate', data.guide_climate],
+      ['bathrooms', data.guide_bathrooms],
+      ['kitchen', data.guide_kitchen],
+      ['amenities', data.guide_amenities],
+    ] as const)
+      .filter(([, v]) => (v ?? '').trim().length > 0)
+      .map(([k]) => k)
+      .join(', ')],
   ];
   return rows
     .map<[string, string]>(([k, v]) => [k, (v ?? '').trim()])
@@ -61,8 +74,8 @@ function fieldCounts(data: OnboardingData): { filled: number; total: number } {
     return typeof v === 'string' && v.trim().length > 0;
   }).length;
   // Approximate "total" from the OnboardingData shape — the form has
-  // ~36 optional fields total (counted from the type definition).
-  return { filled, total: 36 };
+  // ~43 optional fields total (counted from the type definition).
+  return { filled, total: 43 };
 }
 
 function escapeHtml(s: string): string {

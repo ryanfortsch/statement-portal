@@ -61,6 +61,8 @@ function buildGroups(d: OnboardingData): Group[] {
         { label: 'Cable', value: d.cable_provider },
         { label: 'WiFi network', value: d.wifi_name },
         { label: 'WiFi password', value: d.wifi_password },
+        { label: 'WiFi network 2', value: d.wifi_name_2 },
+        { label: 'WiFi password 2', value: d.wifi_password_2 },
         { label: 'Number of TVs', value: d.num_tvs },
         { label: 'Smart TV', value: d.smart_tv },
       ],
@@ -111,6 +113,16 @@ function buildGroups(d: OnboardingData): Group[] {
         { label: 'Smoke detectors', value: d.smoke_detector_locations },
         { label: 'Fire exits', value: d.fire_exit_locations },
         { label: 'STR permit expires', value: d.str_permit_expires },
+      ],
+    },
+    {
+      title: 'Guest home guide',
+      items: [
+        { label: 'Parking', value: d.guide_parking },
+        { label: 'Heating & cooling', value: d.guide_climate },
+        { label: 'Bathrooms', value: d.guide_bathrooms },
+        { label: 'Kitchen & appliances', value: d.guide_kitchen },
+        { label: 'Special amenities', value: d.guide_amenities },
       ],
     },
   ];
