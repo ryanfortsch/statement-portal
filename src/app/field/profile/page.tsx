@@ -14,13 +14,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
-const TIER_TINT: Record<string, string> = { unrated: 'var(--ink-4)', bronze: '#a0522d', silver: '#8a8d91', gold: '#b8860b' };
-const NEXT_TIER: Record<string, { name: string; at: number }> = {
-  unrated: { name: 'Bronze', at: 25 },
-  bronze: { name: 'Silver', at: 50 },
-  silver: { name: 'Gold', at: 100 },
-};
-
 function monthYear(d: string | null): string {
   if (!d) return '';
   try {
@@ -55,7 +48,6 @@ export default async function FieldProfilePage() {
     reliability && reliability.onTime + reliability.late > 0
       ? Math.round((reliability.onTime / (reliability.onTime + reliability.late)) * 100)
       : null;
-  const tier = rating?.tier ?? 'unrated';
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
   const firstName = contractor.full_name.split(' ')[0];
@@ -72,11 +64,6 @@ export default async function FieldProfilePage() {
           <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ textTransform: 'capitalize' }}>{contractor.trade}</span>
             {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
-            {tier !== 'unrated' && (
-              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier], border: `1px solid ${TIER_TINT[tier]}`, borderRadius: 999, padding: '1px 8px' }}>
-                {tier}
-              </span>
-            )}
           </div>
           {rating?.rated && rating.avg != null && (
             <div style={{ fontSize: 13, color: '#b8860b', marginTop: 5 }}>
@@ -97,14 +84,6 @@ export default async function FieldProfilePage() {
         </div>
       )}
 
-      {/* Reputation ladder — the aspirational centerpiece, shown even at zero */}
-      <ReputationLadder
-        tier={tier}
-        total={rating?.fiveStarTotal ?? 0}
-        streak={rating?.fiveStreak ?? 0}
-        count={rating?.count ?? 0}
-        toNext={rating?.toNextTier ?? null}
-      />
 
       {/* Guest reviews */}
       {reviews.length > 0 && (
@@ -162,70 +141,6 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
       <div className="font-mono" style={{ fontSize: 20, color: tone ?? 'var(--ink)' }}>{value}</div>
       <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>{label}</div>
-    </div>
-  );
-}
-
-/** The path to Bronze (25) / Silver (50) / Gold (100) cumulative five-star
- *  reviews, with a progress bar and the current run as a flourish. Renders an
- *  aspirational empty state at zero so a brand-new inspector sees the goal. */
-function ReputationLadder({
-  tier,
-  total,
-  streak,
-  count,
-  toNext,
-}: {
-  tier: string;
-  total: number;
-  streak: number;
-  count: number;
-  toNext: number | null;
-}) {
-  const next = NEXT_TIER[tier];
-  const pct = next ? Math.min(100, Math.round((total / next.at) * 100)) : 100;
-  const barTint = TIER_TINT[tier === 'unrated' ? 'bronze' : tier];
-  const milestones = [
-    { n: 25, label: 'Bronze' },
-    { n: 50, label: 'Silver' },
-    { n: 100, label: 'Gold' },
-  ];
-  return (
-    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '18px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Reputation</div>
-        {streak >= 3 && <div style={{ fontSize: 13, color: 'var(--signal)' }}>🔥 {streak} five-star in a row</div>}
-      </div>
-
-      {count === 0 ? (
-        <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 14px' }}>
-          The guests who stay in the homes you prep rate their stay, and those become your reputation. String together
-          five-star stays to climb the ladder.
-        </p>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: TIER_TINT[tier] }}>
-            {tier === 'unrated' ? 'Unrated' : tier}
-          </span>
-          <span style={{ fontSize: 14, color: 'var(--ink)' }}>{total} five-star</span>
-          {next && <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{toNext ?? Math.max(0, next.at - total)} more → {next.name}</span>}
-          {!next && <span style={{ fontSize: 13, color: TIER_TINT.gold }}>Top tier 🥇</span>}
-        </div>
-      )}
-
-      <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: barTint, transition: 'width .3s ease' }} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-        {milestones.map((m) => {
-          const reached = total >= m.n;
-          return (
-            <span key={m.n} style={{ fontSize: 10.5, fontWeight: reached ? 700 : 400, color: reached ? TIER_TINT[m.label.toLowerCase()] : 'var(--ink-4)' }}>
-              {reached ? '✓ ' : ''}{m.label} · {m.n}
-            </span>
-          );
-        })}
-      </div>
     </div>
   );
 }
