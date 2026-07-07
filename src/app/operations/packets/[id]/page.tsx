@@ -13,7 +13,7 @@ import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
-import { canClaim, type ContractorRow } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { RevealPay } from '../../contractors/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
@@ -163,7 +163,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{packet.title}</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{fmtDate(packet.visit_date)} · {packet.stop_count} stops</span>
+              <span>{fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · ${fmtVisitTime(packet.visit_time)}` : ''} · {packet.stop_count} stops</span>
               {packet.contractor && (
                 <>
                   <span>·</span>
@@ -454,11 +454,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               )}
               {(editable || packet.status === 'published') && (
                 <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Move date ▾</summary>
+                  <summary style={quietSummary}>Move date / time ▾</summary>
                   <div style={menuCard}>
-                    <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
+                      <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} title="Optional start time; leave blank for anytime that day" style={{ ...priceInput, width: 110 }} />
                       <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
                     </form>
                   </div>

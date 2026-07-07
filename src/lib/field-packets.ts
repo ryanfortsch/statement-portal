@@ -1400,6 +1400,8 @@ export async function createMaintenancePacket(args: {
 export async function createSetupPacket(args: {
   propertyId: string;
   visitDate: string;
+  /** Optional HH:MM start time; null/undefined = anytime that day. */
+  visitTime?: string;
   priceCentsOverride?: number;
   scope: string;
   createdByEmail: string;
@@ -1444,6 +1446,7 @@ export async function createSetupPacket(args: {
       trade: 'inspection',
       kind: 'setup',
       visit_date: args.visitDate,
+      visit_time: args.visitTime || null,
       window_start: args.visitDate,
       window_end: args.visitDate,
       claim_deadline: args.visitDate,

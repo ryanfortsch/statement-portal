@@ -56,6 +56,10 @@ export default async function SetupPacketPage() {
             <input type="date" name="visit_date" required style={inp} />
           </label>
           <label style={lbl}>
+            Start time <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional; blank means anytime that day)</span>
+            <input type="time" name="visit_time" style={inp} />
+          </label>
+          <label style={lbl}>
             Pay $ <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(leave blank to price by home size at $40/hr)</span>
             <input type="number" name="price_dollars" min={0} step={1} placeholder="auto" style={inp} />
           </label>
