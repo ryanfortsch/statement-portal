@@ -174,6 +174,10 @@ const placardCss = `
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   }
   @media print {
+    /* Keep the navy frame + cream panel when printing straight from the
+       browser (Cmd+P strips backgrounds by default; the puppeteer PDF
+       path already forces printBackground: true). */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { background: white; }
     .rt-doc { background: white; padding: 0; min-height: 0; display: block; }
     /* One placard per 4x6 page. Two-network homes print two pages, one
