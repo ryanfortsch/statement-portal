@@ -71,11 +71,18 @@ export function canClaim(
   return onboardingComplete(c) && (c.background_check_status === 'cleared' || c.background_check_status === 'pending');
 }
 
+/** What the packet IS, orthogonal to who can do it (`trade`). 'standard' =
+ *  every turnover-inspection and maintenance packet; 'setup' = staging a new
+ *  property for photos + outfitting it for operations (2 to 4 hours, one home,
+ *  done by inspection-trade specialists). */
+export type PacketKind = 'standard' | 'setup';
+
 export type PacketRow = {
   id: string;
   title: string;
   status: PacketStatus;
   trade: ContractorTrade;
+  kind: PacketKind;
   visit_date: string;
   window_start: string;
   window_end: string;
@@ -307,6 +314,14 @@ export function townsLabel(cities: Array<string | null>): string {
 /** The card/detail headline: carries what + where. The property name for a
  *  single stop, otherwise "N inspections on <neighborhood>" or "in <town>". */
 export function packetHeadline(p: PacketDetail): string {
+  // Property setup: one home, one big job. Name the home when the viewer may
+  // see it (masked payloads carry no name, so fall back to the town).
+  if (p.kind === 'setup') {
+    const nm = p.stops[0]?.property.name;
+    if (nm) return `Set up ${nm}`;
+    const c = cityShort(p.stops[0]?.property.city ?? null);
+    return c ? `Property setup in ${c}` : 'Property setup';
+  }
   // Maintenance/cleaning count JOBS, and several jobs can share one home — so
   // label by distinct homes, never by a "shared street" (which falsely implies
   // every job is on that street).

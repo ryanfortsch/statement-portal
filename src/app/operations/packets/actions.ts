@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, autoAttachInventorySlips } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, autoAttachInventorySlips } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -150,6 +150,35 @@ export async function setPacketVisitDate(formData: FormData): Promise<void> {
   revalidatePath('/operations/packets');
 }
 
+
+/** Create (and optionally publish) a property-SETUP packet: staging a new home
+ *  for photos + outfitting it for operations. Publishing texts the inspection
+ *  contractors like any other packet. */
+export async function createSetupPacketAction(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const propertyId = String(formData.get('property_id') || '');
+  const visitDate = String(formData.get('visit_date') || '');
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  const scope = String(formData.get('scope') || '');
+  const publish = String(formData.get('mode') || 'publish') !== 'draft';
+  if (!propertyId || !visitDate) return;
+
+  const packetId = await createSetupPacket({
+    propertyId,
+    visitDate,
+    priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+    scope,
+    createdByEmail: email,
+    publish,
+  });
+  if (!packetId) return;
+  if (publish) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    notifyContractorsOfPacket(packetId).catch(() => {});
+  }
+  revalidatePath('/operations/packets');
+  redirect(`/operations/packets/${packetId}`);
+}
 
 /** Office-only: decrypt a contractor's full payout details (e.g. ACH account). */
 export async function revealPay(contractorId: string): Promise<string | null> {
