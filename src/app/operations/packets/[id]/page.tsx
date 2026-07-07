@@ -5,6 +5,9 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
 import { StopAttachments, PacketInstructions } from './StopAttachments';
+import { PacketRouteMap } from '@/app/field/PacketRouteMap';
+import { OnSite } from '@/app/field/packet/[packetId]/OnSite';
+import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
@@ -30,6 +33,32 @@ function windowLabel(s: PacketStopDetail): string {
 }
 
 const TIER_LABEL: Record<ReliabilityTier, string> = { top: 'top', steady: 'steady', new: 'new', watch: 'watch' };
+
+// ── Live trip timing (Uber-style tracker) ─────────────────────────────
+// Arrival = the Seam lock recording their trip code (arrived_verified_at), with
+// the manual Start tap as fallback. Departure = the next door opening or submit.
+function stopStart(s: PacketStopDetail): string | null {
+  return s.arrived_verified_at ?? s.started_at;
+}
+function stopEnd(s: PacketStopDetail): string | null {
+  return s.departed_at ?? s.completed_at;
+}
+/** Minutes on site for a CLOSED visit; null while still open or never started. */
+function stopMins(s: PacketStopDetail): number | null {
+  const a = stopStart(s);
+  const b = stopEnd(s);
+  if (!a || !b) return null;
+  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000));
+}
+/** Wall-clock arrival like "1:12 PM", pinned to Eastern so the server's UTC
+ *  clock never shifts what the office reads. */
+function fmtClock(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+  } catch {
+    return '';
+  }
+}
 
 function ageDays(iso: string): number {
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
@@ -182,21 +211,54 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         )}
 
-        {tracking && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-              <span style={{ color: 'var(--ink-3)' }}>
-                {packet.contractor ? `${packet.contractor.full_name} · ` : ''}{doneCount} of {packet.stops.length} stops done
-              </span>
-              <span style={{ color: packet.status === 'in_progress' ? 'var(--tide-deep)' : 'var(--ink-4)' }}>
-                {packet.status === 'in_progress' ? 'on site' : 'claimed · not started'}
-              </span>
+        {tracking && (() => {
+          // The same delivery-style route the inspector sees, from the office
+          // side: done stops tide, current stop signal, upcoming hollow, with
+          // per-stop verified-entry marks. Numbering matches the stop list.
+          const sorted = packet.stops;
+          const firstOpenIdx = sorted.findIndex((s) => s.status !== 'complete' && s.status !== 'skipped');
+          const routeStops = sorted.map((s, i) => ({
+            label: s.property.name,
+            lat: s.property.latitude ?? NaN,
+            lng: s.property.longitude ?? NaN,
+            order: s.walk_order,
+            num: i + 1,
+            state: (s.status === 'complete' || s.status === 'skipped'
+              ? 'done'
+              : i === firstOpenIdx
+                ? 'current'
+                : 'next') as 'done' | 'current' | 'next',
+            verified: !!s.arrived_verified_at,
+          }));
+          const closedMins = sorted.reduce((sum, s) => sum + (stopMins(s) ?? 0), 0);
+          const current = firstOpenIdx >= 0 ? sorted[firstOpenIdx] : null;
+          const currentStart = current && current.status === 'in_progress' ? stopStart(current) : null;
+          return (
+            <div style={{ marginTop: 18 }}>
+              {/* Keep the office view breathing while a trip is live. */}
+              <AutoRefresh />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6, gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--ink-3)' }}>
+                  {packet.contractor ? `${packet.contractor.full_name} · ` : ''}{doneCount} of {packet.stops.length} stops done
+                  {closedMins > 0 && <span style={{ color: 'var(--ink-4)' }}> · {closedMins} min on site so far</span>}
+                </span>
+                <span style={{ color: packet.status === 'in_progress' ? 'var(--tide-deep)' : 'var(--ink-4)' }}>
+                  {currentStart ? (
+                    <>at {current!.property.name} · <OnSite startIso={currentStart} endIso={null} live /></>
+                  ) : packet.status === 'in_progress' ? (
+                    'between stops'
+                  ) : (
+                    'claimed · not started'
+                  )}
+                </span>
+              </div>
+              <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ height: '100%', width: `${trackPct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
+              </div>
+              <PacketRouteMap stops={routeStops} />
             </div>
-            <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${trackPct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {review.length > 0 && (
           <div style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
@@ -406,6 +468,25 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                   {s.property.address} · {windowLabel(s)} · {dollars(s.base_price_cents)}
                 </div>
+                {/* The visit ledger: when they got in (door-verified when the
+                    lock saw their code) and how long they were inside. */}
+                {(() => {
+                  const start = stopStart(s);
+                  if (!start) return null;
+                  const mins = stopMins(s);
+                  const live = s.status === 'in_progress' && !s.departed_at;
+                  return (
+                    <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                      <span style={{ color: 'var(--ink-3)' }}>arrived {fmtClock(start)}</span>
+                      {s.arrived_verified_at && <span style={{ color: 'var(--positive)' }}>✓ door verified</span>}
+                      {live ? (
+                        <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}><OnSite startIso={start} endIso={null} live /></span>
+                      ) : mins != null ? (
+                        <span style={{ color: 'var(--ink-4)' }}>· {mins} min on site</span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
                 <StopAttachments
                   packetId={packet.id}
                   stopId={s.id}

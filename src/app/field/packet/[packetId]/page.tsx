@@ -15,6 +15,7 @@ import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
 import { PhotoThumbs } from '@/components/PhotoUploader';
+import { AutoRefresh } from '@/components/AutoRefresh';
 
 // Office phone for the door-side "stuck? call us" fallbacks.
 const OFFICE_TEL = '+19788652387';
@@ -520,6 +521,9 @@ export default async function PacketPage({
         </div>
       )}
 
+      {/* While the trip is live, keep this view current without a manual
+          reload — arrivals stamped by the door show up within ~20s. */}
+      {working && !preview && <AutoRefresh />}
       {working && packet.entry_code && (
         <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.06)', padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
