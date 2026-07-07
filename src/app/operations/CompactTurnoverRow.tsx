@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { channelAccent } from '@/lib/channel-style';
+import { SubmitButton } from '@/components/SubmitButton';
 import type { Turnover } from '@/lib/operations';
 import { TurnoverRail } from './TurnoverRail';
 import { PlanButton } from './PlanButton';
@@ -265,9 +266,12 @@ export function CompactTurnoverRow({
                 <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
                 <input type="hidden" name="reservation_id" value={t.reservationId} />
                 <input type="hidden" name="guest_name" value={t.guestName ?? ''} />
-                <button type="submit" style={{ ...chipLink, background: 'none', border: 'none', borderBottom: '1px dashed var(--ink-4)', cursor: 'pointer', padding: 0 }}>
-                  ✓ Mark done
-                </button>
+                <SubmitButton
+                  label="✓ Mark done"
+                  busyLabel="Marking…"
+                  spinnerTone="ink"
+                  style={{ ...chipLink, background: 'none', border: 'none', borderBottom: '1px dashed var(--ink-4)', cursor: 'pointer', padding: 0 }}
+                />
               </form>
             </div>
           )}
@@ -327,9 +331,12 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
         <form action={unmarkTurnoverComplete} style={{ margin: 0 }}>
           <input type="hidden" name="property_id" value={t.propertyId} />
           <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
-          <button type="submit" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, color: 'var(--ink-3)', borderBottom: '1px dashed var(--ink-4)', whiteSpace: 'nowrap' }}>
-            Undo →
-          </button>
+          <SubmitButton
+            label="Undo →"
+            busyLabel="Undoing…"
+            spinnerTone="ink"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, color: 'var(--ink-3)', borderBottom: '1px dashed var(--ink-4)', whiteSpace: 'nowrap' }}
+          />
         </form>
       );
     }
@@ -354,9 +361,7 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
   return (
     <form action={startInspection} style={{ margin: 0 }}>
       <input type="hidden" name="property_id" value={t.propertyId} />
-      <button type="submit" className="rt-tn-start">
-        Start
-      </button>
+      <SubmitButton label="Start" busyLabel="Starting…" className="rt-tn-start" />
     </form>
   );
 }

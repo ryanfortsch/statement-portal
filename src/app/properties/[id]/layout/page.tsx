@@ -87,7 +87,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
 
       <div className="max-w-[820px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
         <Link
-          href={`/properties/${property.id}`}
+          href={`/properties/${property.id}?tab=operations`}
           style={{
             fontSize: 11,
             letterSpacing: '.18em',

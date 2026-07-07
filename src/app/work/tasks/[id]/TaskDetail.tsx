@@ -24,8 +24,9 @@ type Props = {
 
 export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
@@ -101,11 +102,15 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
 
   function handleDelete() {
     if (!confirm('Delete this task and its comments? This cannot be undone.')) return;
+    // Dedicated flag: the shared transition also covers comment removal,
+    // and the Delete button shouldn't read "Deleting…" during those.
+    setDeleting(true);
     startTransition(async () => {
       try {
         await deleteTask({ id: task.id });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to delete');
+        setDeleting(false);
       }
     });
   }
@@ -344,8 +349,8 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
           borderTop: '1px solid var(--ink)',
         }}
       >
-        <button type="button" onClick={handleDelete} style={dangerBtn()}>
-          Delete task
+        <button type="button" onClick={handleDelete} disabled={deleting || isPending} style={dangerBtn()}>
+          {deleting ? 'Deleting…' : 'Delete task'}
         </button>
         <div className="flex items-center gap-3">
           {savedAt && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Saved {savedAt}</span>}

@@ -153,7 +153,7 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
           <button type="submit" disabled={pending} style={primaryButtonStyle}>
             {pending ? 'Drafting…' : copy ? 'Regenerate' : 'Generate listing copy'}
           </button>
-          <Link href={`/properties/${propertyId}`} style={secondaryLinkStyle}>
+          <Link href={`/properties/${propertyId}?tab=growth`} style={secondaryLinkStyle}>
             Back to {propertyName}
           </Link>
         </div>

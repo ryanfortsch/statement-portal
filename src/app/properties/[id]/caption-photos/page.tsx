@@ -38,7 +38,7 @@ export default async function CaptionPhotosPage({
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
         <Link
-          href={`/properties/${p.id}`}
+          href={`/properties/${p.id}?tab=growth`}
           style={{
             fontSize: 11,
             letterSpacing: '.18em',

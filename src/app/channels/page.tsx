@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { SubmitButton } from '@/components/SubmitButton';
 import { isConfigured } from '@/lib/supabase';
 import {
   getChannelStats,
@@ -14,6 +15,7 @@ import {
 } from '@/lib/channels';
 import { CHANNEL_LABELS, type Booking } from '@/lib/channels-types';
 import { setBookingStatus } from './inquiry-actions';
+import { SyncNowButton, BackfillButton } from './SyncButtons';
 import { PROPERTIES } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';
@@ -221,34 +223,10 @@ function ActionsBar({ listingsCount }: { listingsCount: number }) {
         <Link href="/channels/bookings/new?type=block" style={secondaryButtonStyle}>
           + Block
         </Link>
-        <SyncNowButton />
-        <BackfillButton />
+        <SyncNowButton style={secondaryButtonStyle} />
+        <BackfillButton style={ghostBtn} />
       </div>
     </section>
-  );
-}
-
-function SyncNowButton() {
-  return (
-    <form action="/api/channels/sync" method="post">
-      <button type="submit" style={secondaryButtonStyle}>
-        Run sync now
-      </button>
-    </form>
-  );
-}
-
-function BackfillButton() {
-  return (
-    <form
-      action="/api/channels/backfill-from-guesty"
-      method="post"
-      title="One-time copy of every guesty_reservations row into the new bookings table. Idempotent."
-    >
-      <button type="submit" style={ghostBtn}>
-        Backfill from Guesty
-      </button>
-    </form>
   );
 }
 
@@ -431,15 +409,15 @@ function InquiriesBlock({ inquiries }: { inquiries: Booking[] }) {
                 {b.guest_email ?? ''}{b.guest_phone ? ` · ${b.guest_phone}` : ''}
               </span>
               <span style={{ display: 'inline-flex', gap: 6 }}>
-                <form action={setBookingStatus}>
+                <form action={setBookingStatus} title="Confirm this booking">
                   <input type="hidden" name="id" value={b.id} />
                   <input type="hidden" name="status" value="confirmed" />
-                  <button type="submit" title="Confirm this booking" style={chipPrimary}>Confirm</button>
+                  <SubmitButton label="Confirm" busyLabel="Confirming…" style={chipPrimary} />
                 </form>
-                <form action={setBookingStatus}>
+                <form action={setBookingStatus} title="Decline / cancel this inquiry">
                   <input type="hidden" name="id" value={b.id} />
                   <input type="hidden" name="status" value="cancelled" />
-                  <button type="submit" title="Decline / cancel this inquiry" style={chipGhost}>Decline</button>
+                  <SubmitButton label="Decline" busyLabel="Declining…" spinnerTone="ink" style={chipGhost} />
                 </form>
               </span>
             </div>

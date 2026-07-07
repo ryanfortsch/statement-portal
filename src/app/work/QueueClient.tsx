@@ -901,7 +901,7 @@ function WorkSlipRowItem({
   commentCount: number;
   isSupply?: boolean;
 }) {
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
 
@@ -987,6 +987,7 @@ function WorkSlipRowItem({
       <button
         type="button"
         onClick={markDone}
+        disabled={isPending}
         className="rt-no-print"
         style={{
           background: 'none',
@@ -996,11 +997,12 @@ function WorkSlipRowItem({
           letterSpacing: '.16em',
           textTransform: 'uppercase',
           color: 'var(--positive)',
-          cursor: 'pointer',
+          cursor: isPending ? 'wait' : 'pointer',
+          opacity: isPending ? 0.6 : 1,
           flexShrink: 0,
         }}
       >
-        ✓ Done
+        {isPending ? 'Saving…' : '✓ Done'}
       </button>
     </div>
   );
@@ -1017,7 +1019,7 @@ function TaskRowItem({
   onToggleSelect: (id: string) => void;
   commentCount: number;
 }) {
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const isOverdue = !!task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
 
@@ -1103,6 +1105,7 @@ function TaskRowItem({
       <button
         type="button"
         onClick={markDone}
+        disabled={isPending}
         style={{
           background: 'none',
           border: '1px solid var(--rule)',
@@ -1111,11 +1114,12 @@ function TaskRowItem({
           letterSpacing: '.16em',
           textTransform: 'uppercase',
           color: 'var(--positive)',
-          cursor: 'pointer',
+          cursor: isPending ? 'wait' : 'pointer',
+          opacity: isPending ? 0.6 : 1,
           flexShrink: 0,
         }}
       >
-        ✓ Done
+        {isPending ? 'Saving…' : '✓ Done'}
       </button>
     </div>
   );
@@ -1194,7 +1198,7 @@ function WorkSlipModal({
       return;
     }
     onClose();
-    router.refresh();
+    router.push(`/work/${res.id}`);
   }
 
   return (
@@ -1407,7 +1411,7 @@ function TaskModal({
       return;
     }
     onClose();
-    router.refresh();
+    router.push(`/work/tasks/${res.id}`);
   }
 
   return (

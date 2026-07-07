@@ -6,6 +6,7 @@ import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { submitOnboarding } from '@/app/projections/actions';
 import { OnboardingAutoSave } from '@/components/onboarding/OnboardingAutoSave';
+import { SubmitButton } from '@/components/SubmitButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -380,7 +381,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           </Section>
 
           <div className="rt-pub-submit">
-            <button type="submit">Submit form</button>
+            <SubmitButton label="Submit form" busyLabel="Submitting…" />
             <p>Once you submit, we&rsquo;ll take it from here. Questions? Reach Allie at <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or (978) 865-2387.</p>
           </div>
         </form>

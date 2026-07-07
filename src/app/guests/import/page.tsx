@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { importContactsFromCsv } from '../actions';
+import { SubmitButton } from '@/components/SubmitButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,8 +58,9 @@ export default function GuestImportPage() {
             />
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button
-              type="submit"
+            <SubmitButton
+              label="Import →"
+              busyLabel="Importing…"
               style={{
                 background: 'var(--ink)',
                 color: 'var(--paper)',
@@ -70,9 +72,7 @@ export default function GuestImportPage() {
                 border: 'none',
                 cursor: 'pointer',
               }}
-            >
-              Import →
-            </button>
+            />
             <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
               Cancel
             </Link>

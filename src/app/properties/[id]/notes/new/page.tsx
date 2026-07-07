@@ -41,7 +41,7 @@ export default async function NewPropertyNotePage({
 
       <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
         <Link
-          href={`/properties/${p.id}`}
+          href={`/properties/${p.id}?tab=operations`}
           style={{
             fontSize: 11,
             letterSpacing: '.18em',

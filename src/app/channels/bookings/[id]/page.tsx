@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { SubmitButton } from '@/components/SubmitButton';
 import {
   BOOKING_CHANNELS,
   BOOKING_STATUSES,
@@ -11,7 +12,8 @@ import {
   type Booking,
 } from '@/lib/channels-types';
 import { PROPERTIES } from '@/lib/properties';
-import { updateBooking, deleteBooking } from './actions';
+import { updateBooking } from './actions';
+import { DeleteBookingButton } from './DeleteBookingButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,10 +110,10 @@ export default async function BookingDetailPage({
           </Field>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <button type="submit" style={primaryButton}>Save</button>
+            <SubmitButton label="Save" busyLabel="Saving…" formAction={updateBooking} style={primaryButton} />
             <Link href="/channels/bookings" style={secondaryButton}>Cancel</Link>
             <span style={{ flex: 1 }} />
-            <DeleteForm id={booking.id} />
+            <DeleteBookingButton />
           </div>
         </form>
 
@@ -120,31 +122,6 @@ export default async function BookingDetailPage({
 
       <HelmFooter module="Channels · Booking" right={`source: ${booking.source}`} />
     </div>
-  );
-}
-
-function DeleteForm({ id }: { id: string }) {
-  return (
-    <form action={deleteBooking}>
-      <input type="hidden" name="id" value={id} />
-      <button
-        type="submit"
-        title="Permanently delete this booking record"
-        style={{
-          background: 'transparent',
-          color: 'var(--negative)',
-          fontSize: 11,
-          letterSpacing: '.06em',
-          textTransform: 'uppercase',
-          fontWeight: 500,
-          padding: '10px 18px',
-          border: '1px solid var(--negative)',
-          cursor: 'pointer',
-        }}
-      >
-        Delete
-      </button>
-    </form>
   );
 }
 

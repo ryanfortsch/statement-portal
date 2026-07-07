@@ -334,7 +334,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <span style={{ color: 'var(--ink-4)' }}>$</span>
                     <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
-                    <button type="submit" style={btnGhost}>Update price</button>
+                    <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
                   </form>
                   <form action={publishPacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
@@ -412,12 +412,21 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
                         <input type="hidden" name="contractor_id" value={c.id} />
-                        <button type="submit" style={menuRow}>
-                          <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
-                          <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
-                            {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
-                          </span>
-                        </button>
+                        <PendingButton
+                          busyLabel="Assigning…"
+                          spinnerTone="ink"
+                          style={menuRow}
+                          label={
+                            // Inner wrapper keeps the name / tier space-between layout —
+                            // the shared button centers its own children.
+                            <span style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
+                              <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
+                              <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                                {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
+                              </span>
+                            </span>
+                          }
+                        />
                       </form>
                     ))}
                   </div>
@@ -430,7 +439,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
-                      <button type="submit" style={btnGhost}>Set</button>
+                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
                     </form>
                   </div>
                 </details>
@@ -438,19 +447,19 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               {packet.status === 'published' && (
                 <form action={unpublishPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <button type="submit" style={quietCtl}>Unpublish</button>
+                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" />
                 </form>
               )}
               {packet.status === 'claimed' && (
-                <form action={releasePacket} style={{ margin: 0 }}>
+                <form action={releasePacket} style={{ margin: 0 }} title="Release back to the open marketplace and re-notify inspectors">
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <button type="submit" style={quietCtl} title="Release back to the open marketplace and re-notify inspectors">Release claim</button>
+                  <PendingButton label="Release claim" busyLabel="Releasing…" style={quietCtl} spinnerTone="ink" />
                 </form>
               )}
               {packet.status !== 'submitted' && (
                 <form action={cancelPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <button type="submit" style={{ ...quietCtl, color: 'var(--signal)' }}>Cancel packet</button>
+                  <PendingButton label="Cancel packet" busyLabel="Cancelling…" style={{ ...quietCtl, color: 'var(--signal)' }} spinnerTone="ink" />
                 </form>
               )}
             </div>
@@ -509,7 +518,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <form action={removeStop} style={{ marginTop: 4 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="stop_id" value={s.id} />
-                    <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline' }}>remove</button>
+                    <PendingButton label="remove" busyLabel="removing…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline' }} spinnerTone="ink" />
                   </form>
                 )}
               </div>

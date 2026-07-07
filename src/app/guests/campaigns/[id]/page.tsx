@@ -13,6 +13,7 @@ import {
   sendCampaignTest,
   sendCampaign,
 } from '../actions';
+import { SubmitButton } from '@/components/SubmitButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,21 +231,20 @@ export default async function CampaignDetailPage({
               <div style={{ display: 'grid', gap: 10, padding: '14px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)' }}>
                 <div className="eyebrow">Send</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    type="submit"
+                  <SubmitButton
                     formAction={sendCampaignTest}
                     style={secondaryButtonStyle}
-                  >
-                    Send test to me
-                  </button>
-                  <button
-                    type="submit"
+                    spinnerTone="ink"
+                    label="Send test to me"
+                    busyLabel="Sending test…"
+                  />
+                  <SubmitButton
                     formAction={sendCampaign}
                     style={dangerButtonStyle}
                     disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}
-                  >
-                    Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →
-                  </button>
+                    label={<>Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →</>}
+                    busyLabel="Sending…"
+                  />
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
                   Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign. Both buttons use the latest values in this form. No separate Save click needed.
@@ -268,9 +268,7 @@ export default async function CampaignDetailPage({
 
             {isDraft && (
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button type="submit" style={primaryButtonStyle}>
-                  Save draft
-                </button>
+                <SubmitButton label="Save draft" busyLabel="Saving…" formAction={updateDraftCampaign} style={primaryButtonStyle} />
               </div>
             )}
           </form>

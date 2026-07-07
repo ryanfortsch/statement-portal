@@ -1,6 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
+import { SubmitButton } from '@/components/SubmitButton';
 import Link from 'next/link';
 import { CopyableUrl } from './CopyableUrl';
 import { listChannelListingsByProperty, listPropertyExportTokens } from '@/lib/channels';
@@ -196,7 +197,7 @@ function ChannelRow({ property, channel, listing }: { property: Property; channe
           />
           <SyncStatus listing={listing} />
           <div style={{ display: 'flex', gap: 6 }}>
-            <button type="submit" style={smallPrimary}>Save</button>
+            <SubmitButton label="Save" busyLabel="Saving…" style={smallPrimary} />
           </div>
         </form>
       )}
@@ -216,7 +217,7 @@ function SyncStatus({ listing }: { listing?: ChannelListing }) {
       <form action={syncOneListing} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <input type="hidden" name="id" value={listing.id} />
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>configured · </span>
-        <button type="submit" style={linkButton}>sync now</button>
+        <SubmitButton label="sync now" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
       </form>
     );
   }
@@ -227,7 +228,7 @@ function SyncStatus({ listing }: { listing?: ChannelListing }) {
       <span title={listing.last_import_error ?? undefined} style={{ fontSize: 11, color: isError ? 'var(--negative)' : 'var(--positive)' }}>
         {isError ? 'error' : 'ok'} · {formatRelative(listing.last_imported_at)} · {listing.last_import_event_count ?? 0} events
       </span>
-      <button type="submit" style={linkButton}>resync</button>
+      <SubmitButton label="resync" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
     </form>
   );
 }

@@ -112,7 +112,7 @@ export async function updateProperty(id: string, formData: FormData) {
   const result = await performPropertyUpdate(id, formData);
   if (result.error) throw new Error(result.error);
 
-  redirect(`/properties/${id}`);
+  redirect(`/properties/${id}?tab=operations`);
 }
 
 /**
@@ -135,7 +135,7 @@ export async function updatePropertyWithState(
   const result = await performPropertyUpdate(id, formData);
   if (result.error) return { error: result.error };
 
-  redirect(`/properties/${id}`);
+  redirect(`/properties/${id}?tab=operations`);
 }
 
 /** Shared core: build payload, write via service role, revalidate.
@@ -372,7 +372,7 @@ export async function updateHomeGuideOverrides(id: string, formData: FormData) {
 
   revalidatePath(`/properties/${id}`);
   revalidatePath(`/properties/${id}/home-guide`);
-  redirect(`/properties/${id}#home-guide-customize`);
+  redirect(`/properties/${id}?tab=records#home-guide-customize`);
 }
 
 export type OwnerContactChannel = 'email' | 'phone' | 'sms' | 'in_person' | 'other';
@@ -632,13 +632,16 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { error } = await getServiceClient()
+  const { data: created, error } = await getServiceClient()
     .from('property_notices')
-    .insert({ property_id: propertyId, ...payload });
+    .insert({ property_id: propertyId, ...payload })
+    .select('id')
+    .single();
   if (error) throw new Error(error.message);
+  if (!created) throw new Error('Notice insert returned no row.');
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=records#notice-${created.id}`);
 }
 
 /**
@@ -662,7 +665,7 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=records#notice-${noticeId}`);
 }
 
 /**
@@ -682,7 +685,7 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=records#guest-placards`);
 }
 
 /**
@@ -725,7 +728,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
 }
 
 export async function updatePropertyNote(propertyId: string, noteId: string, formData: FormData) {
@@ -743,7 +746,7 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
 }
 
 export async function deletePropertyNote(propertyId: string, noteId: string) {
@@ -758,7 +761,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
 }
 
 /**

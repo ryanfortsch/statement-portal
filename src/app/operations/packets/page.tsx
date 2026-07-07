@@ -6,6 +6,7 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
+import { SubmitButton } from '@/components/SubmitButton';
 
 type Who = { name: string; photoUrl: string | null } | null;
 import { InspectionCalendar } from './InspectionCalendar';
@@ -277,11 +278,11 @@ function DraftRow({ p }: { p: PacketRow }) {
       </Link>
       <form action={publishPacket} style={{ margin: 0 }}>
         <input type="hidden" name="packet_id" value={p.id} />
-        <button type="submit" style={btnDark}>Publish</button>
+        <SubmitButton label="Publish" busyLabel="Publishing…" style={btnDark} />
       </form>
-      <form action={cancelPacket} style={{ margin: 0 }}>
+      <form action={cancelPacket} style={{ margin: 0 }} title="Dismiss this suggestion">
         <input type="hidden" name="packet_id" value={p.id} />
-        <button type="submit" style={btnGhost} title="Dismiss this suggestion">Dismiss</button>
+        <SubmitButton label="Dismiss" busyLabel="Dismissing…" style={btnGhost} spinnerTone="ink" />
       </form>
     </div>
   );
@@ -330,21 +331,21 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
         </div>
       </div>
       {p.status === 'claimed' && (
-        <form action={releasePacket} style={{ margin: 0 }}>
+        <form action={releasePacket} style={{ margin: 0 }} title="Release back to the open marketplace and re-notify inspectors">
           <input type="hidden" name="packet_id" value={p.id} />
-          <button type="submit" style={btnGhost} title="Release back to the open marketplace and re-notify inspectors">Release</button>
+          <SubmitButton label="Release" busyLabel="Releasing…" style={btnGhost} spinnerTone="ink" />
         </form>
       )}
       {p.status === 'submitted' && (
         <form action={approvePacket} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
-          <button type="submit" style={btnDark}>Approve</button>
+          <SubmitButton label="Approve" busyLabel="Approving…" style={btnDark} />
         </form>
       )}
       {p.status === 'approved' && !p.paid_at && (
         <form action={markPacketPaid} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
-          <button type="submit" style={btnGhost}>Mark paid</button>
+          <SubmitButton label="Mark paid" busyLabel="Recording…" style={btnGhost} spinnerTone="ink" />
         </form>
       )}
     </div>

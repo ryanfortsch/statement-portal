@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SubmitButton } from '@/components/SubmitButton';
 
 /**
  * Shared form for creating + editing an internal property note. Server
@@ -98,10 +99,8 @@ export function NoteEditorForm({
       </label>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
-        <button type="submit" style={primaryButtonStyle}>
-          {submitLabel}
-        </button>
-        <Link href={`/properties/${propertyId}`} style={secondaryLinkStyle}>
+        <SubmitButton label={submitLabel} busyLabel="Saving…" style={primaryButtonStyle} />
+        <Link href={`/properties/${propertyId}?tab=operations`} style={secondaryLinkStyle}>
           Cancel
         </Link>
       </div>
