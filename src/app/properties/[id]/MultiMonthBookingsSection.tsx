@@ -93,6 +93,8 @@ function fmtDate(iso: string): string {
 export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }) {
   const [bookings, setBookings] = useState<GuestyRow[] | null>(null);
   const [splitsByCode, setSplitsByCode] = useState<Map<string, Installment[]>>(new Map());
+  const [dismissedCodes, setDismissedCodes] = useState<Set<string>>(new Set());
+  const [showDismissed, setShowDismissed] = useState(false);
   const [editingCode, setEditingCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -109,10 +111,16 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
 
     if (filtered.length > 0) {
       const codes = filtered.map(r => r.confirmation_code).filter(Boolean);
-      const { data: installRows } = await supabase
-        .from('reservation_installments')
-        .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at')
-        .in('confirmation_code', codes);
+      const [{ data: installRows }, { data: dismissRows }] = await Promise.all([
+        supabase
+          .from('reservation_installments')
+          .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at')
+          .in('confirmation_code', codes),
+        supabase
+          .from('installment_suggestion_dismissals')
+          .select('confirmation_code')
+          .in('confirmation_code', codes),
+      ]);
       const m = new Map<string, Installment[]>();
       ((installRows || []) as Installment[]).forEach(r => {
         const list = m.get(r.confirmation_code) || [];
@@ -120,8 +128,33 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
         m.set(r.confirmation_code, list);
       });
       setSplitsByCode(m);
+      setDismissedCodes(
+        new Set(((dismissRows || []) as { confirmation_code: string }[]).map(d => d.confirmation_code)),
+      );
     }
   }, [propertyId]);
+
+  // Dismissal is global per booking (team-wide), stored in
+  // installment_suggestion_dismissals; restore deletes the row. Optimistic
+  // local update so the row disappears/reappears instantly, then reload to
+  // reconcile.
+  const dismiss = useCallback(async (code: string) => {
+    setDismissedCodes(prev => new Set(prev).add(code));
+    await supabase
+      .from('installment_suggestion_dismissals')
+      .upsert({ confirmation_code: code, property_id: propertyId }, { onConflict: 'confirmation_code' });
+    load();
+  }, [propertyId, load]);
+
+  const restore = useCallback(async (code: string) => {
+    setDismissedCodes(prev => {
+      const next = new Set(prev);
+      next.delete(code);
+      return next;
+    });
+    await supabase.from('installment_suggestion_dismissals').delete().eq('confirmation_code', code);
+    load();
+  }, [load]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -129,14 +162,44 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
   if (bookings === null) return null; // still loading -- render nothing rather than a flash
   if (bookings.length === 0) return null; // no qualifying bookings on this property
 
+  // A dismissed suggestion hides unless the operator flips "show dismissed".
+  // A booking that already HAS a split always shows (its row is status, not
+  // a suggestion) regardless of any stale dismissal.
+  const isVisible = (b: GuestyRow) =>
+    (splitsByCode.get(b.confirmation_code) || []).length > 0 ||
+    !dismissedCodes.has(b.confirmation_code) ||
+    showDismissed;
+  const shown = bookings.filter(isVisible);
+  const hiddenCount = bookings.length - shown.length;
+
   const editingBooking = editingCode
     ? bookings.find(b => b.confirmation_code === editingCode)
     : null;
 
+  // Everything dismissed: keep a one-line footprint (with the restore path)
+  // instead of the full card, so the section stops shouting but a mistaken
+  // dismiss is still recoverable.
+  if (shown.length === 0) {
+    return (
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+          {hiddenCount} multi-month booking suggestion{hiddenCount === 1 ? '' : 's'} dismissed &middot;{' '}
+          <button
+            type="button"
+            onClick={() => setShowDismissed(true)}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+          >
+            show
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
       <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--signal)' }}>
-        Multi-month bookings &middot; {bookings.length}
+        Multi-month bookings &middot; {shown.length}
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12, lineHeight: 1.5, maxWidth: 720 }}>
         Bookings that span 2+ calendar months. Without a split, owner revenue from these stays recognizes
@@ -146,10 +209,11 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
       </div>
 
       <div style={{ border: '1px solid var(--rule)' }}>
-        {bookings.map((b, idx) => {
+        {shown.map((b, idx) => {
           const adjusted = computeAdjustedRevenue(b);
           const split = splitsByCode.get(b.confirmation_code) || [];
           const isSplit = split.length > 0;
+          const isDismissed = dismissedCodes.has(b.confirmation_code);
           const splitSum = split.reduce((s, i) => s + Number(i.installment_revenue || 0), 0);
           const platform = b.channel || b.guesty_channel_id || 'Direct';
           return (
@@ -159,6 +223,7 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
                 padding: '12px 16px',
                 borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none',
                 background: idx % 2 === 0 ? 'var(--paper)' : 'var(--paper-2)',
+                opacity: isDismissed && !isSplit ? 0.55 : 1,
               }}
             >
               <div className="flex items-baseline justify-between" style={{ gap: 12, flexWrap: 'wrap' }}>
@@ -170,19 +235,44 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
                     {fmtDate(b.check_in)} &rarr; {fmtDate(b.check_out)} &middot; {b.nights} nights &middot; {platform} &middot; <span className="tabular-nums">${fmtMoney(adjusted)}</span> net
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingCode(b.confirmation_code)}
-                  style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-                    color: isSplit ? 'var(--ink-3)' : 'var(--paper)',
-                    background: isSplit ? 'transparent' : 'var(--ink)',
-                    border: '1px solid var(--ink)',
-                    padding: '7px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {isSplit ? 'Edit split' : 'Split into installments'}
-                </button>
+                <div className="flex items-baseline" style={{ gap: 14, flexShrink: 0 }}>
+                  {/* Dismiss only makes sense on an un-split suggestion; a
+                      split booking's row is status, not a nag. Restore undoes
+                      a dismissal in place. */}
+                  {!isSplit && (
+                    isDismissed ? (
+                      <button
+                        type="button"
+                        onClick={() => restore(b.confirmation_code)}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 2, whiteSpace: 'nowrap' }}
+                      >
+                        Restore
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => dismiss(b.confirmation_code)}
+                        title="Hide this suggestion (e.g. an owner stay that doesn't need a split). Restorable."
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 2, whiteSpace: 'nowrap' }}
+                      >
+                        Dismiss
+                      </button>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditingCode(b.confirmation_code)}
+                    style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
+                      color: isSplit ? 'var(--ink-3)' : 'var(--paper)',
+                      background: isSplit ? 'transparent' : 'var(--ink)',
+                      border: '1px solid var(--ink)',
+                      padding: '7px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isSplit ? 'Edit split' : 'Split into installments'}
+                  </button>
+                </div>
               </div>
 
               {isSplit && (
@@ -210,6 +300,31 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
           );
         })}
       </div>
+
+      {(hiddenCount > 0 || (showDismissed && dismissedCodes.size > 0)) && (
+        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
+          {showDismissed ? (
+            <button
+              type="button"
+              onClick={() => setShowDismissed(false)}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+            >
+              Hide dismissed
+            </button>
+          ) : (
+            <>
+              {hiddenCount} dismissed &middot;{' '}
+              <button
+                type="button"
+                onClick={() => setShowDismissed(true)}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+              >
+                show
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {editingBooking && (() => {
         const totalPaid = Number(editingBooking.total_paid || 0);
