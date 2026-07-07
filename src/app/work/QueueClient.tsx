@@ -24,6 +24,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { suppliesLabel } from '@/lib/inspection-supplies';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyForPicker = {
   id: string;
@@ -68,6 +69,7 @@ const INITIAL_TASK_LIMIT = 5;
 
 export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
   const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -187,7 +189,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         return;
       }
       clearSelection();
-      router.refresh();
+      softRefresh();
     });
   }
 
@@ -902,13 +904,13 @@ function WorkSlipRowItem({
   isSupply?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
 
   function markDone() {
     startTransition(async () => {
       await updateWorkSlipStatus({ id: slip.id, status: 'done' });
-      router.refresh();
+      softRefresh();
     });
   }
 
@@ -1020,13 +1022,13 @@ function TaskRowItem({
   commentCount: number;
 }) {
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const isOverdue = !!task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
 
   function markDone() {
     startTransition(async () => {
       await updateTaskStatus({ id: task.id, status: 'done' });
-      router.refresh();
+      softRefresh();
     });
   }
 

@@ -18,6 +18,7 @@ import {
 import { SyncGmailButton } from './SyncGmailButton';
 import { SyncQuoButton } from './SyncQuoButton';
 import { SyncQuoContactsButton } from './SyncQuoContactsButton';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyMini = { id: string; name: string };
 
@@ -34,6 +35,7 @@ type FilterId = 'all' | ContactType;
 
 export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, suggestions }: Props) {
   const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [filter, setFilter] = useState<FilterId>('all');
   const [query, setQuery] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -73,7 +75,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
     setBusyPhone(null);
     if (res.ok) {
       setHidden((h) => new Set(h).add(phone));
-      router.refresh();
+      softRefresh();
     }
   }
 
@@ -86,7 +88,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
     if (res.ok) {
       if (res.filled) {
         setHidden((h) => new Set(h).add(phone));
-        router.refresh();
+        softRefresh();
       } else {
         // Linked, but the contact already had a different primary number, so
         // this one won't auto-recognize. Keep the row visible with a note.
@@ -116,7 +118,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
       return;
     }
     setHiddenSuggestions((h) => new Set(h).add(s.id));
-    router.refresh();
+    softRefresh();
     if (res.contactId) router.push(`/crm/${res.contactId}`);
   }
 

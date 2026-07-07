@@ -1,7 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Hits POST /api/sync-prospect-mail to scan Allie's sent folder for each
@@ -9,7 +9,7 @@ import { useState } from 'react';
  * server component on completion so the badges re-render with the new state.
  */
 export function SyncGmailButton({ projectionId }: { projectionId?: string }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [busy, setBusy] = useState(false);
 
   return (
@@ -29,7 +29,7 @@ export function SyncGmailButton({ projectionId }: { projectionId?: string }) {
             try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
             throw new Error(msg);
           }
-          router.refresh();
+          softRefresh();
         } catch (err) {
           alert(`Sync failed: ${err instanceof Error ? err.message : err}`);
         } finally {

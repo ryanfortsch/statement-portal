@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { fetchStats } from './stats-action';
 import {
@@ -13,6 +12,7 @@ import {
 import { prettifySlug } from './format';
 import { TrendChart } from './TrendChart';
 import type { MessagingStats, Fact, TimeseriesPoint, TopicRollup } from '@/lib/stay-concierge';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   initialStats: MessagingStats | null;
@@ -661,7 +661,7 @@ function LearningSection({
 }
 
 function FactCard({ fact }: { fact: Fact }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [showSource, setShowSource] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(fact.fact);
@@ -677,7 +677,7 @@ function FactCard({ fact }: { fact: Fact }) {
         return;
       }
       setEditing(false);
-      router.refresh();
+      softRefresh();
     });
   };
 
@@ -689,7 +689,7 @@ function FactCard({ fact }: { fact: Fact }) {
         setError(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   };
 
@@ -701,7 +701,7 @@ function FactCard({ fact }: { fact: Fact }) {
         setError(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   };
 
@@ -900,7 +900,7 @@ function FactCard({ fact }: { fact: Fact }) {
 }
 
 function AddFactButton() {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [fact, setFact] = useState('');
   const [scope, setScope] = useState('');
@@ -920,7 +920,7 @@ function AddFactButton() {
       setFact('');
       setScope('');
       setTopic('');
-      router.refresh();
+      softRefresh();
     });
   };
 

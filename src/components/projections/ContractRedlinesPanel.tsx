@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { proposeContractRedlines, applyContractRedlines } from '@/app/projections/actions';
 import {
   ACTION_LABELS,
@@ -15,6 +14,7 @@ import {
   type RedlinePosition,
 } from '@/lib/projection-redlines';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Mode = 'interpret' | 'precise';
 type Step = 'input' | 'preview' | 'applied';
@@ -32,7 +32,7 @@ type Acceptance = {
 const EDITABLE_FIELDS: readonly EditableField[] = Object.keys(FIELD_DESCRIPTORS) as EditableField[];
 
 export function ContractRedlinesPanel({ projection }: { projection: ProjectionRow }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [mode, setMode] = useState<Mode>('interpret');
   const [step, setStep] = useState<Step>('input');
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +144,7 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         setError(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
       setLastApplied({
         at: new Date(),
         edits: filtered,

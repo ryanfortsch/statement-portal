@@ -111,7 +111,7 @@ export function MessagingQueue({ initialPending }: Props) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {ordered.map((approval) => (
-          <ApprovalCard key={approval.id} approval={approval} onResolved={() => router.refresh()} />
+          <ApprovalCard key={approval.id} approval={approval} onResolved={softRefresh} />
         ))}
       </div>
     </Section>

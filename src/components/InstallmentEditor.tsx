@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { computeNightsInMonthSplit, type Installment, type InstallmentDraft } from '@/lib/installments';
 import { effectiveCommission, wasCommissionStripped } from '@/lib/revenue-math';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Inline editor for a cross-month booking's installment split.
@@ -70,7 +70,7 @@ export function InstallmentEditor({
   open: boolean;
   onClose: () => void;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [drafts, setDrafts] = useState<InstallmentDraft[]>([]);
   const [existing, setExisting] = useState<Installment[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -214,7 +214,7 @@ export function InstallmentEditor({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       onClose();
-      router.refresh();
+      softRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -230,7 +230,7 @@ export function InstallmentEditor({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Clear failed');
       onClose();
-      router.refresh();
+      softRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Clear failed');
     } finally {

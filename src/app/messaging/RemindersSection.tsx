@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { ReservationPick, RecurringMessage } from '@/lib/stay-concierge';
 import {
@@ -11,6 +10,7 @@ import {
   endReminderAction,
   polishProactiveAction,
 } from './reminders-actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 const WEEKDAYS = [
   { v: '0', label: 'Mon' },
@@ -146,7 +146,7 @@ function ActiveList({
   recurring: RecurringMessage[];
   onChanged: () => void;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -167,7 +167,7 @@ function ActiveList({
         return;
       }
       onChanged();
-      router.refresh();
+      softRefresh();
     });
   };
 
@@ -243,7 +243,7 @@ function CreateForm({
   reservationsLoaded: boolean;
   onCreated: () => void;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
   const [polishing, startPolish] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -324,7 +324,7 @@ function CreateForm({
       setDays(new Set());
       setFireDate('');
       onCreated();
-      router.refresh();
+      softRefresh();
     });
   };
 
