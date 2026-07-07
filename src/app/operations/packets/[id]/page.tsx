@@ -10,6 +10,9 @@ import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
 import { canClaim, type ContractorRow } from '@/lib/field-types';
+import { loadPaymentSummaries } from '@/lib/field-pay';
+import { RevealPay } from '../../contractors/RevealPay';
+import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +63,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
     .order('created_at', { ascending: false })
     .limit(8);
   const events = (evData ?? []) as { event_type: string; actor_email: string | null; created_at: string }[];
+
+  // How the awarded inspector wants to be paid — surfaced beside Mark paid so
+  // the operator doesn't have to dig through the roster to send the money.
+  const paySummary = packet.awarded_contractor_id
+    ? (await loadPaymentSummaries()).get(packet.awarded_contractor_id) ?? null
+    : null;
 
   const editable = packet.status === 'draft';
   const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
@@ -267,7 +276,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   </form>
                   <form action={publishPacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
-                    <button type="submit" style={btnDark}>Publish to contractors</button>
+                    <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" style={btnDark} />
                   </form>
                 </>
               )}
@@ -275,21 +284,44 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <>
                   <form action={approvePacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
-                    <button type="submit" style={btnDark}>Approve packet</button>
+                    <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
                   </form>
                   <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-                    <button type="submit" style={btnGhost}>Request changes</button>
+                    <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
                   </form>
                 </>
               )}
               {packet.status === 'approved' && !packet.paid_at && (
-                <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-                  <button type="submit" style={btnDark}>Mark paid · {dollars(packet.posted_price_cents)}</button>
-                </form>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* The actual payment happens outside Helm — say exactly where
+                      to send it, then record it here. */}
+                  <div style={{ fontSize: 13, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    {paySummary ? (
+                      <>
+                        <span>
+                          Pay {packet.contractor?.full_name ?? 'the inspector'} via{' '}
+                          <strong style={{ color: 'var(--ink)' }}>{paySummary.method}</strong>
+                          {paySummary.hint ? <span className="font-mono" style={{ color: 'var(--ink)' }}> · {paySummary.hint}</span> : null}
+                        </span>
+                        {paySummary.hasDetails && paySummary.method === 'Direct deposit (ACH)' && packet.awarded_contractor_id && (
+                          <RevealPay contractorId={packet.awarded_contractor_id} />
+                        )}
+                        <span style={{ color: 'var(--ink-4)' }}>then record it:</span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--signal)' }}>
+                        No payout method on file — <Link href="/operations/contractors" style={{ color: 'var(--signal)' }}>check the roster</Link>, then record it:
+                      </span>
+                    )}
+                  </div>
+                  <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
+                    <PendingButton label={`Mark paid · ${dollars(packet.posted_price_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                  </form>
+                </div>
               )}
             </div>
           )}
