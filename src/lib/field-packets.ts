@@ -1800,8 +1800,20 @@ export async function loadInspectionCalendar(
     const uncovered = pb.filter(
       (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
     );
-    if (uncovered.length === 0) continue;
-    const nextDeadline = uncovered.map((b) => b.check_in).sort()[0];
+    // A home whose next check-in falls just PAST the window still needs a row
+    // when a guest checks out inside it: those open days are prime inspection
+    // time (e.g. checkout Wed, next arrival a day after the window ends -- it
+    // used to vanish from the board entirely). Bookings are fetched 30 days
+    // past the window, so the later check-in is available as the deadline.
+    const checkoutInWindow = pb.some(
+      (b) => isGuestStay(b) && b.check_out >= windowStart && b.check_out <= windowEnd,
+    );
+    const uncoveredAfter = checkoutInWindow && uncovered.length === 0
+      ? pb.filter((b) => isGuestStay(b) && b.check_in > windowEnd && !coveredBookings.has(b.id))
+      : [];
+    const anchor = uncovered.length > 0 ? uncovered : uncoveredAfter;
+    if (anchor.length === 0) continue;
+    const nextDeadline = anchor.map((b) => b.check_in).sort()[0];
 
     const cells: CalCell[] = days.map((D) => {
       const guestOccupied = pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out);
