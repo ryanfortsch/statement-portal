@@ -47,15 +47,20 @@ function btn(href: string, label: string): string {
 function tradeWord(trade: string | null | undefined): string {
   if (trade === 'maintenance') return 'maintenance';
   if (trade === 'cleaning') return 'cleaning';
+  if (trade === 'creative') return 'content';
   return 'inspection';
 }
 
 export async function sendInviteEmail(contractor: ContractorRow): Promise<boolean> {
   const link = `${fieldBaseUrl()}/field/${contractor.portal_token}`;
   const word = tradeWord(contractor.trade);
+  const creative = contractor.trade === 'creative';
+  const secondLine = creative
+    ? "you've been invited to create content for Rising Tide. Open your portal to set up your account (W-9 + agreement), and we'll line up your first shoot and assets from there."
+    : `you've been invited to pick up ${word} work near Gloucester. Open your portal to set up your account, then browse and claim paid packets.`;
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You're invited to ${word} work with Rising Tide</h1>
-    <p>Hi ${contractor.full_name.split(' ')[0]}, you've been invited to pick up ${word} work near Gloucester. Open your portal to set up your account, then browse and claim paid packets.</p>
+    <p>Hi ${contractor.full_name.split(' ')[0]}, ${secondLine}</p>
     ${btn(link, 'Open my portal')}
     <p style="font-size:12px;color:#7a8a90;margin:6px 0 0;">Or paste this link into your browser:<br><a href="${link}" style="color:#1e2e34;word-break:break-all;">${link}</a></p>
     <p style="font-size:12px;color:#7a8a90;">This link is personal to you. Please don't forward it.</p>
@@ -65,7 +70,9 @@ export async function sendInviteEmail(contractor: ContractorRow): Promise<boolea
     subject: 'Your Rising Tide Field portal',
     fromName: FROM_NAME,
     html,
-    text: `Open your Rising Tide Field portal to claim ${word} work: ${link}`,
+    text: creative
+      ? `Open your Rising Tide Field portal to get started: ${link}`
+      : `Open your Rising Tide Field portal to claim ${word} work: ${link}`,
   });
 }
 

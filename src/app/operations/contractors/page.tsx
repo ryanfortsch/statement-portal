@@ -8,7 +8,7 @@ import { getContractorPayStats, getContractorReliability, loadApplications } fro
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
-import { dollars, type ContractorRow } from '@/lib/field-types';
+import { dollars, parseTrade, TRADE_META, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -72,7 +72,13 @@ type W9Val = MapValue<Awaited<ReturnType<typeof loadW9Summaries>>>;
 type PayMethodVal = MapValue<Awaited<ReturnType<typeof loadPaymentSummaries>>>;
 type BooksVal = { ytd: number; w9: boolean; over: boolean };
 
-export default async function ContractorsPage() {
+export default async function ContractorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ trade?: string }>;
+}) {
+  const trade = parseTrade((await searchParams).trade);
+  const meta = TRADE_META[trade];
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -88,7 +94,7 @@ export default async function ContractorsPage() {
     .from('contractors')
     .select('*')
     .order('created_at', { ascending: false });
-  const contractors = (data ?? []) as ContractorRow[];
+  const contractors = ((data ?? []) as ContractorRow[]).filter((c) => (c.trade ?? 'inspection') === trade);
   const base = fieldBaseUrl();
 
   // Field's own payout ledger + the books/1099 rollup for reconciliation. The
@@ -104,7 +110,9 @@ export default async function ContractorsPage() {
     loadPaymentSummaries(),
     loadApplications().catch(() => []),
   ]);
-  const newApplicants = applications.filter((a) => a.status === 'new' || a.status === 'reviewing').length;
+  const newApplicants = applications.filter(
+    (a) => (a.status === 'new' || a.status === 'reviewing') && (a.trade ?? 'inspection') === trade,
+  ).length;
   const booksByKey = new Map<string, BooksVal>();
   if (report) {
     for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
@@ -132,18 +140,20 @@ export default async function ContractorsPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
-      <FieldTabs current="contractors" />
+      <FieldTabs current="contractors" trade={trade} />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
-          <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Contractors</div>
-          <Link href="/operations/contractors/applicants" style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
+          <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{meta.label}</div>
+          <Link href={`/operations/contractors/applicants?trade=${trade}`} style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
             Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
           </Link>
         </div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20 }}>
-          Invite an inspector and we email them a personal portal link. They set up their account (W-9 +
-          agreement) before they can claim paid work.
+          Invite {trade === 'creative' ? 'a contributor' : `a ${meta.singular}`} and we email them a personal portal
+          link. They set up their account (W-9 + agreement) before they can {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
         </p>
+
+        {trade === 'creative' && <CreativeIntro base={base} />}
 
         {/* Invite form */}
         <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 26 }}>
@@ -161,17 +171,18 @@ export default async function ContractorsPage() {
           </label>
           <label style={lbl}>
             Trade
-            <select name="trade" defaultValue="inspection" style={inp}>
+            <select name="trade" defaultValue={trade} style={inp}>
               <option value="inspection">Inspection</option>
               <option value="maintenance">Maintenance</option>
               <option value="cleaning">Cleaning</option>
+              <option value="creative">Creative</option>
             </select>
           </label>
           <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
         </form>
 
         {contractors.length === 0 ? (
-          <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No contractors yet.</p>
+          <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No {meta.label.toLowerCase()} yet.</p>
         ) : (
           ordered.map((c) => (
             <ContractorCard
@@ -189,7 +200,51 @@ export default async function ContractorsPage() {
           ))
         )}
       </section>
-      <HelmFooter module="Field" right="Contractor roster" />
+      <HelmFooter module="Field" right={`${meta.label} roster`} />
+    </div>
+  );
+}
+
+/** Reference panel on the Creative roster: this trade has no packet board, so
+ *  the office needs the role + pay model + apply link where the people are. */
+function CreativeIntro({ base }: { base: string }) {
+  const rates: [string, string][] = [
+    ['Reel, full', '$95'],
+    ['Carousel', '$45'],
+    ['Story set', '$30'],
+    ['Property capture', '$250'],
+    ['Monthly plan', '$175'],
+  ];
+  return (
+    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '16px 18px', marginBottom: 22 }}>
+      <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
+        Pay per delivered asset
+      </div>
+      <div className="font-serif" style={{ fontSize: 18, marginTop: 4 }}>Social Media Contributor</div>
+      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 6, marginBottom: 12, maxWidth: 560 }}>
+        A content role, not a route. They shoot and edit at our homes and deliver ready-to-post assets for Stay Cape
+        Ann and Rising Tide. No packets: you approve delivered assets and pay monthly against the rate card.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        {rates.map(([k, v]) => (
+          <span key={k} style={{ fontSize: 12, color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 999, padding: '3px 10px' }}>
+            {k} <strong style={{ color: 'var(--ink)' }}>{v}</strong>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+        <span style={{ color: 'var(--ink-4)' }}>Public application</span>
+        <CopyCode value={`${base}/field/apply?trade=creative`} mono={false} />
+        <span style={{ color: 'var(--rule)' }}>·</span>
+        <a
+          href="https://claude.ai/code/artifact/b7d40497-85f6-4d06-8cb7-e94bb347a540"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}
+        >
+          Full hiring package ↗
+        </a>
+      </div>
     </div>
   );
 }

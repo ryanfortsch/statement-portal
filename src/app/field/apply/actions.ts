@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { fieldDb } from '@/lib/field-db';
 import { sendNewApplicantEmail } from '@/lib/field-notify';
 import { screenApplication } from '@/lib/ai/screen-applicant';
+import { parseTrade } from '@/lib/field-types';
 
 export type ApplyState = { error: string };
 
@@ -26,8 +27,7 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
   if (phone.length < 7) return { error: 'Please add a phone number we can reach you at.' };
   if (area.length < 2) return { error: 'Please tell us where you’re based.' };
 
-  const trd = String(formData.get('trade') || 'inspection');
-  const trade = trd === 'maintenance' || trd === 'cleaning' ? trd : 'inspection';
+  const trade = parseTrade(formData.get('trade') as string | null);
 
   // Vehicle is now a deliberate Yes/No radio (was a pre-checked box). 'yes' →
   // true, 'no' → false, anything else → null (unanswered).

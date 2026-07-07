@@ -86,12 +86,14 @@ function InlineError({ error }: { error: string }) {
   );
 }
 
-export function ApplyForm({ source }: { source: string }) {
+export function ApplyForm({ source, trade = 'inspection' }: { source: string; trade?: string }) {
   const [state, formAction] = useActionState<ApplyState, FormData>(submitApplication, { error: '' });
+  const creative = trade === 'creative';
 
   return (
     <form action={formAction} style={{ maxWidth: 520, paddingBottom: 40 }}>
       <input type="hidden" name="source" value={source} />
+      <input type="hidden" name="trade" value={trade} />
       <label style={lbl}>
         Full name *
         <input name="full_name" required autoComplete="name" placeholder="Jordan Reed" style={input} />
@@ -123,15 +125,15 @@ export function ApplyForm({ source }: { source: string }) {
       </fieldset>
       <label style={lbl}>
         When can you work?
-        <input name="availability" placeholder="e.g. weekend afternoons (most turnovers are Wed–Sun)" style={input} />
+        <input name="availability" placeholder={creative ? 'e.g. a few shoots a month, weekends work best' : 'e.g. weekend afternoons (most turnovers are Wed–Sun)'} style={input} />
       </label>
       <label style={lbl}>
         How did you hear about us?
         <input name="heard_about" placeholder="Indeed, a friend, Facebook…" style={input} />
       </label>
       <label style={lbl}>
-        Tell us a little about yourself
-        <textarea name="about" rows={4} placeholder="Any property, hospitality, cleaning, or home-maintenance experience? Why this work?" style={{ ...input, resize: 'vertical' }} />
+        {creative ? 'Your work and handles' : 'Tell us a little about yourself'}
+        <textarea name="about" rows={4} placeholder={creative ? 'Your Instagram / portfolio, your three best pieces, what you shoot and edit with, and why this work.' : 'Any property, hospitality, cleaning, or home-maintenance experience? Why this work?'} style={{ ...input, resize: 'vertical' }} />
       </label>
       <ApplyVideo />
       <InlineError error={state.error} />
