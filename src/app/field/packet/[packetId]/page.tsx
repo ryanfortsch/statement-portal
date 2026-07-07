@@ -83,7 +83,7 @@ function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: s
   if (arriving === 0) {
     return (
       <div style={{ borderLeft: '3px solid var(--positive, #2e7d4f)', background: 'rgba(46,125,79,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-        <strong style={{ color: 'var(--ink)' }}>No guest check-ins this day — no hard finish time.</strong> Start
+        <strong style={{ color: 'var(--ink)' }}>No guest check-ins this day: no hard finish time.</strong> Start
         anytime from 11 AM.{cleanedFirst}
       </div>
     );
@@ -95,7 +95,7 @@ function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: s
           ? `Guests check in at 4 PM at ${stops.length === 1 ? 'this home' : `all ${stops.length} homes`}.`
           : `${arriving} of ${stops.length} homes ${arriving === 1 ? 'gets a guest' : 'get guests'} at 4 PM.`}
       </strong>{' '}
-      {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then — the rest are flexible.'}
+      {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then; the rest are flexible.'}
       {cleanedFirst}
     </div>
   );
