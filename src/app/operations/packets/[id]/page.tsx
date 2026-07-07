@@ -11,7 +11,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
 import { canClaim, type ContractorRow } from '@/lib/field-types';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { RevealPay } from '../../contractors/RevealPay';
@@ -175,6 +175,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{packet.status}</div>
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
+            {packet.bonus_cents > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={packet.bonus_reason ?? undefined}>
+                + {dollars(packet.bonus_cents)} bonus
+              </div>
+            )}
             {isLive && packet.entry_code && (
               <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
                 entry <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{packet.entry_code}</span>
@@ -344,9 +349,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               )}
               {packet.status === 'submitted' && (
                 <>
-                  <form action={approvePacket}>
+                  <form action={approvePacket} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
+                    {/* Above-and-beyond? Add it right here and it rides the
+                        approval: shows in their portal + approval email. */}
+                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>+ bonus $</span>
+                    <input type="number" name="bonus_dollars" min={0} step={1} placeholder="0" style={{ ...priceInput, width: 70 }} />
+                    <input name="bonus_reason" placeholder="why (they'll see this)" style={{ ...priceInput, width: 190 }} />
                   </form>
                   <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
@@ -381,7 +391,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-                    <PendingButton label={`Mark paid · ${dollars(packet.posted_price_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                    <PendingButton label={`Mark paid · ${dollars(packet.posted_price_cents + packet.bonus_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                  </form>
+                  {/* Decide-later bonus: add or adjust any time before it's paid. */}
+                  <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>bonus $</span>
+                    <input type="number" name="bonus_dollars" min={0} step={1} defaultValue={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined} placeholder="0" style={{ ...priceInput, width: 70 }} />
+                    <input name="bonus_reason" defaultValue={packet.bonus_reason ?? ''} placeholder="why (they'll see this)" style={{ ...priceInput, width: 190 }} />
+                    <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
                   </form>
                 </div>
               )}
@@ -390,7 +408,9 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
           {packet.status === 'approved' && packet.paid_at && (
             <div style={{ fontSize: 12, color: 'var(--positive)' }}>
-              Paid {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              Paid {dollars(packet.posted_price_cents + packet.bonus_cents)}
+              {packet.bonus_cents > 0 ? ` (incl. ${dollars(packet.bonus_cents)} bonus)` : ''}
+              {' '}on {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {packet.contractor ? ` to ${packet.contractor.full_name}` : ''}
               {packet.paid_method && (
                 <span style={{ color: 'var(--ink-4)' }}> · via {packet.paid_method}{packet.paid_reference ? ` · ${packet.paid_reference}` : ''}</span>

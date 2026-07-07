@@ -138,6 +138,7 @@ function InspectionScope() {
   );
 }
 
+
 /** An extra work slip the office attached to a stop: title, details, the
  *  per-attachment office note, and (for the assigned inspector, until done) a
  *  completion form keyed to the attachment, not the stop. */
@@ -496,6 +497,11 @@ export default async function PacketPage({
       </h1>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
         <span className="font-mono" style={{ fontSize: 30 }}>{dollars(packet.posted_price_cents)}</span>
+        {isMine && packet.bonus_cents > 0 && (
+          <span style={{ fontSize: 14, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
+            + {dollars(packet.bonus_cents)} bonus
+          </span>
+        )}
         <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
           {/* Count the LIVE stops, not the stored stop_count — a partial
               revalidation can leave the column ahead of reality. The per-stop
@@ -895,8 +901,14 @@ export default async function PacketPage({
           {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
             <div style={{ fontSize: 14, color: 'var(--positive)' }}>
               {packet.status === 'approved'
-                ? 'Approved. Your payout is on the way.'
+                ? `Approved. ${dollars(packet.posted_price_cents + packet.bonus_cents)} is on the way.`
                 : 'Submitted for review. Thanks!'}
+              {packet.status === 'approved' && packet.bonus_cents > 0 && (
+                <div style={{ marginTop: 8, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '10px 14px', color: 'var(--ink)', fontSize: 14, lineHeight: 1.5 }}>
+                  <strong style={{ color: 'var(--signal)' }}>+ {dollars(packet.bonus_cents)} bonus</strong>
+                  {packet.bonus_reason ? <> for {packet.bonus_reason}</> : null}. Thank you for going the extra mile.
+                </div>
+              )}
             </div>
           )}
         </div>

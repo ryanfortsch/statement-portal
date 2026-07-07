@@ -72,11 +72,18 @@ export async function sendInviteEmail(contractor: ContractorRow): Promise<boolea
 /** Contractor receipt when their submitted packet passes office review. */
 export async function sendApprovedEmail(
   contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
-  packet: Pick<PacketRow, 'title'>,
+  packet: { title: string; totalCents?: number; bonusCents?: number; bonusReason?: string | null },
 ): Promise<boolean> {
+  const bonus = packet.bonusCents ?? 0;
+  const escReason = (packet.bonusReason ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const bonusLine =
+    bonus > 0
+      ? `<p style="border-left:3px solid #c85a3a;padding:10px 14px;background:#faf3ec;"><strong>Plus a ${dollars(bonus)} bonus</strong>${escReason ? ` for ${escReason}` : ''}. ${packet.totalCents ? `Total queued: <strong>${dollars(packet.totalCents)}</strong>.` : ''}</p>`
+      : '';
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Approved — payment queued</h1>
     <p>Nice work — <strong>${packet.title}</strong> passed review. Your payment is queued; you'll get a receipt the moment it's sent.</p>
+    ${bonusLine}
     ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
   `);
   return sendTransactionalViaResend({
