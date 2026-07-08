@@ -1742,6 +1742,13 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Basement', value: p.basement },
     { label: 'Parking', value: p.parking },
     { label: 'HOA', value: p.hoa },
+    {
+      label: 'Guest gear on-site',
+      value:
+        [p.has_pack_n_play ? 'Pack-n-play' : null, p.has_high_chair ? 'High chair' : null]
+          .filter(Boolean)
+          .join(', ') || null,
+    },
   ];
   const utilities: OpRow[] = [
     { label: 'Electricity', value: p.electricity_provider },
