@@ -35,7 +35,7 @@ export function proactiveKind(
   const t = (topic || '').toLowerCase();
   if (id.startsWith('extension:') || t === 'extension_offer') return 'extension';
   if (id.startsWith('nudge:') || t === 'guest_count_nudge') return 'nudge';
-  if (id.startsWith('trash:') || t === 'trash_reminder') return 'trash';
+  if (id.startsWith('trash:') || id.startsWith('trash-manual:') || t === 'trash_reminder') return 'trash';
   if (id.startsWith('recurring:') || t === 'recurring_reminder') return 'reminder';
   if (id.startsWith('sched:')) return 'scheduled';
   if (id.startsWith('review:') || t === 'review_request') return 'review';
@@ -63,6 +63,18 @@ export function proactiveBadge(
     default:
       return null;
   }
+}
+
+/**
+ * A "copy-to-send" card: proactive text we drafted but CANNOT auto-post,
+ * because the guest is reachable only on a channel our API can't send to
+ * (direct/SCA guests are WhatsApp-only, which needs a Meta-approved template).
+ * The outbox shows these with a Copy button + "Mark sent" instead of Approve,
+ * and the backend approve endpoint refuses to post them. Tagged by the
+ * `trash-manual:` id prefix the trash sweep stamps.
+ */
+export function isManualSend(guestyMessageId: string | null | undefined): boolean {
+  return (guestyMessageId || '').toLowerCase().startsWith('trash-manual:');
 }
 
 export function prettifyTopic(topic: string): string {

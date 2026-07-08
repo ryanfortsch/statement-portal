@@ -23,6 +23,7 @@ import {
   channelTone,
   proactiveKind,
   proactiveBadge,
+  isManualSend,
   sendsInLabel,
 } from './format';
 
@@ -183,6 +184,8 @@ function ApprovalCard({
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // Copy-to-send cards: transient "Copied" confirmation on the Copy button.
+  const [copied, setCopied] = useState(false);
   // Inline edit + schedule UI. Mutually exclusive (opening one closes the
   // others) so only one drawer is ever armed at a time.
   const [editing, setEditing] = useState(false);
@@ -209,6 +212,9 @@ function ApprovalCard({
   const prevDraftRef = useRef(approval.draft);
 
   const isScheduled = approval.status === 'scheduled';
+  // Copy-to-send: drafted but not auto-postable (WhatsApp-only direct guest).
+  // The footer swaps Approve for a Copy button; approving is blocked server-side.
+  const manual = isManualSend(approval.guesty_message_id);
   // The draft changed server-side while the editor is open and the operator
   // hasn't already typed the new text: warn instead of silently overwriting.
   // While an optimistic save is still settling, the prop lags behind what we
@@ -342,6 +348,21 @@ function ApprovalCard({
       }
       onResolved();
     });
+  };
+
+  // Copy-to-send: put the drafted (or hand-edited) text on the clipboard so the
+  // operator can paste it into Guesty's WhatsApp inbox. Copies the current
+  // draft, honoring an in-progress inline edit and an optimistic save.
+  const handleCopy = async () => {
+    setError(null);
+    const text = editing ? draftText : savedDraft ?? approval.draft;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy automatically — select the message above and copy it manually.');
+    }
   };
 
   const handleCoach = () => {
@@ -802,6 +823,30 @@ function ApprovalCard({
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
               Cancel send to edit or coach
             </span>
+          </>
+        ) : manual ? (
+          <>
+            <PrimaryButton onClick={handleCopy} disabled={isPending}>
+              {copied ? 'Copied ✓' : 'Copy message'}
+            </PrimaryButton>
+            <SecondaryButton
+              onClick={handleMarkHandled}
+              disabled={isPending}
+              loading={pendingAction === 'mark-handled'}
+              loadingLabel="Marking"
+              title="You've pasted and sent this in Guesty's WhatsApp inbox. Clears it from the queue."
+            >
+              Mark sent
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={handleReject}
+              disabled={isPending}
+              loading={pendingAction === 'reject'}
+              loadingLabel="Dismissing"
+              title="Skip this trash reminder. Drops the card."
+            >
+              Dismiss
+            </SecondaryButton>
           </>
         ) : (
           <>
