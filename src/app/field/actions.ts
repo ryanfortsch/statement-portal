@@ -9,6 +9,7 @@ import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
+import { loadRecentVisits } from '@/lib/field-report';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
@@ -26,6 +27,73 @@ export async function sendContractorNote(message: string): Promise<{ ok: boolean
   if (text.length < 2) return { ok: false, error: 'Add a short message first.' };
   const sent = await sendContractorQuestionEmail(contractor, text.slice(0, 2000));
   return sent ? { ok: true } : { ok: false, error: 'Could not send just now. Give us a text or call instead.' };
+}
+
+export type ReportState = { ok: boolean; error?: string; home?: string };
+
+/** Inspector flags an issue at a home they visited in the last 72 hours. Creates
+ *  a normal OPEN work_slip (so it flows onto the /work board + property page like
+ *  any other) tagged with who reported it and from which visit. The 72h window is
+ *  RE-CHECKED here against loadRecentVisits, never trusted from the client. */
+export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData): Promise<ReportState> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+
+  const propertyId = String(formData.get('property_id') || '').trim();
+  const title = String(formData.get('title') || '').trim();
+  const location = String(formData.get('location') || '').trim();
+  const description = String(formData.get('description') || '').trim();
+  const priorityRaw = String(formData.get('priority') || 'normal');
+  const priority = (['low', 'normal', 'high'] as const).find((p) => p === priorityRaw) ?? 'normal';
+  let photoUrls: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
+    if (Array.isArray(parsed)) photoUrls = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12).map((u) => u.slice(0, 500));
+  } catch {
+    /* no photos */
+  }
+
+  if (!propertyId) return { ok: false, error: 'Pick the home you want to flag.' };
+  if (title.length < 3) return { ok: false, error: 'Add a short line on what needs attention.' };
+
+  // The real gate: the property MUST be one they actually visited in the window.
+  // The dropdown is only a convenience; this is what's enforced.
+  const visits = await loadRecentVisits(contractor.id);
+  const visit = visits.find((v) => v.propertyId === propertyId);
+  if (!visit) {
+    return { ok: false, error: "That home is past its 72-hour window now. Call the office and we'll add it." };
+  }
+
+  const { error } = await fieldDb().from('work_slips').insert({
+    property_id: propertyId,
+    title: title.slice(0, 200),
+    description: description ? description.slice(0, 4000) : null,
+    location: location ? location.slice(0, 200) : null,
+    category: 'maintenance',
+    priority,
+    status: 'open',
+    photo_urls: photoUrls,
+    created_by_email: contractor.email,
+    reported_by_contractor_id: contractor.id,
+    reported_from_packet_id: visit.packetId,
+  });
+  if (error) return { ok: false, error: 'Could not file that just now. Try again, or text the office.' };
+
+  await logEvent({
+    packetId: visit.packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId,
+    eventType: 'field_slip_reported',
+    payload: { title: title.slice(0, 200), priority },
+  });
+
+  // Refresh the report page + home so "Flag another" reflects the current
+  // window (a home whose 72h just elapsed drops out) rather than a cached list.
+  revalidatePath('/field/report');
+  revalidatePath('/field');
+
+  return { ok: true, home: visit.propertyName };
 }
 
 async function reqContext() {

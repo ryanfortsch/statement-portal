@@ -982,6 +982,9 @@ function WorkSlipRowItem({
             {slip.priority}
           </span>
         )}
+        {slip.reported_by_contractor_id && (
+          <span className="rt-no-print" style={pillTinyStyle('var(--tide-deep)')} title="Flagged by a field inspector after their visit">field</span>
+        )}
         <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
           {slip.status.replace('_', ' ')}
         </span>
