@@ -106,7 +106,7 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
               {homes > 1 ? ` · ${homes} homes` : ''}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
-              {spread > 0 ? `~${spread < 1 ? '<1' : Math.round(spread)} mi apart · ` : ''}one trip · suggested pay ${suggested}
+              {spread > 0 ? `~${spread < 1 ? '<1' : Math.round(spread)} mi apart · ` : ''}one trip · suggested pay ${suggested} · leave blank to use it
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
