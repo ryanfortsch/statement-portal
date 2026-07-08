@@ -48,7 +48,7 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   let photoUrls: string[] = [];
   try {
     const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
-    if (Array.isArray(parsed)) photoUrls = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12);
+    if (Array.isArray(parsed)) photoUrls = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12).map((u) => u.slice(0, 500));
   } catch {
     /* no photos */
   }
@@ -87,6 +87,11 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     eventType: 'field_slip_reported',
     payload: { title: title.slice(0, 200), priority },
   });
+
+  // Refresh the report page + home so "Flag another" reflects the current
+  // window (a home whose 72h just elapsed drops out) rather than a cached list.
+  revalidatePath('/field/report');
+  revalidatePath('/field');
 
   return { ok: true, home: visit.propertyName };
 }

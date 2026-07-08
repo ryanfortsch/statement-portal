@@ -30,15 +30,21 @@ export type RecentVisit = {
 type StopRow = {
   property_id: string;
   packet_id: string;
+  status: string;
   arrived_verified_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   departed_at: string | null;
 };
 
-/** The last moment we can prove they were engaged with this stop. */
+/** The last moment we can prove they were AT this stop. Own door/timing stamps
+ *  are hard proof. The packet's submitted_at is only a fallback for a genuinely
+ *  completed lockless visit (no stamps because there was no lock and no Start
+ *  tap) -- never for a SKIPPED stop, which means they were dispatched there but
+ *  never entered, so it must not count as a visit. */
 function stopVisitedAt(s: StopRow, packetSubmittedAt: string | null): string | null {
-  const stamps = [s.departed_at, s.completed_at, s.arrived_verified_at, s.started_at, packetSubmittedAt]
+  const fallback = s.status === 'complete' ? packetSubmittedAt : null;
+  const stamps = [s.departed_at, s.completed_at, s.arrived_verified_at, s.started_at, fallback]
     .filter((v): v is string => !!v)
     .sort();
   return stamps.length ? stamps[stamps.length - 1] : null;
@@ -66,7 +72,7 @@ export async function loadRecentVisits(contractorId: string, nowMs: number = Dat
 
   const { data: stopData } = await fieldDb()
     .from('packet_stops')
-    .select('property_id, packet_id, arrived_verified_at, started_at, completed_at, departed_at')
+    .select('property_id, packet_id, status, arrived_verified_at, started_at, completed_at, departed_at')
     .in('packet_id', packets.map((p) => p.id));
   const stops = (stopData ?? []) as StopRow[];
 
