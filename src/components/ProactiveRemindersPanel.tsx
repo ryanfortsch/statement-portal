@@ -42,7 +42,7 @@ export type ProactiveReminderActions = {
   >;
 };
 
-type Audience = 'cleaner' | 'owner';
+type Audience = 'cleaner' | 'owner' | 'contractor';
 
 type Props = {
   audience: Audience;
@@ -124,7 +124,9 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
   const whoBlurb =
     audience === 'cleaner'
       ? 'Send the cleaning managers a message you initiate, on a repeating cadence (a Monday supply check) or as a one-time scheduled note. Type it quick in English and the AI polishes it into Portuguese.'
-      : 'Send an owner a message you initiate, on a repeating cadence (a monthly touch-base) or as a one-time scheduled note. Type it quick and the AI polishes it into our voice.';
+      : audience === 'contractor'
+        ? 'Send a contractor a message you initiate, on a repeating cadence (a weekly walkthrough) or as a one-time scheduled note. Type it quick and the AI polishes it into our voice.'
+        : 'Send an owner a message you initiate, on a repeating cadence (a monthly touch-base) or as a one-time scheduled note. Type it quick and the AI polishes it into our voice.';
 
   return (
     <Section
@@ -352,7 +354,13 @@ function CreateForm({
     setError(null);
     setDone(false);
     if (!picked) {
-      setError(audience === 'cleaner' ? 'Pick a cleaner' : 'Pick an owner');
+      setError(
+        audience === 'cleaner'
+          ? 'Pick a cleaner'
+          : audience === 'contractor'
+            ? 'Pick a contractor'
+            : 'Pick an owner',
+      );
       return;
     }
     startTransition(async () => {
@@ -409,11 +417,14 @@ function CreateForm({
     !!body.trim() &&
     (mode === 'recurring' ? days.size > 0 : !!fireDate);
 
-  const targetLabel = audience === 'cleaner' ? 'Cleaner' : 'Owner';
+  const targetLabel =
+    audience === 'cleaner' ? 'Cleaner' : audience === 'contractor' ? 'Contractor' : 'Owner';
   const bodyPlaceholder =
     audience === 'cleaner'
       ? "Type quick in English - e.g. 'ask if we're low on towels and paper goods anywhere'. Polish turns it into Portuguese."
-      : "Type quick and dirty - e.g. 'june statement is out, strong month, call me if questions'. Then hit Polish.";
+      : audience === 'contractor'
+        ? "Type quick and dirty - e.g. 'confirm you can make the walkthrough at 21 Horton Thursday'. Then hit Polish."
+        : "Type quick and dirty - e.g. 'june statement is out, strong month, call me if questions'. Then hit Polish.";
 
   return (
     <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: 18 }}>
@@ -493,7 +504,13 @@ function CreateForm({
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={audience === 'cleaner' ? 'Supply check' : 'Monthly touch-base'}
+            placeholder={
+              audience === 'cleaner'
+                ? 'Supply check'
+                : audience === 'contractor'
+                  ? 'Walkthrough'
+                  : 'Monthly touch-base'
+            }
             style={inputStyle}
           />
         </label>

@@ -15,7 +15,7 @@ import { usePathname } from 'next/navigation';
  * reason the masthead badge does: this lives in a persistent strip and a plain
  * interval can otherwise sit stale.
  */
-export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' }) {
+export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -25,11 +25,12 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
       try {
         const res = await fetch('/api/messaging/pending-count', { cache: 'no-store' });
         if (!res.ok) return;
-        const data = (await res.json()) as { guests?: number; owners?: number; cleaners?: number };
+        const data = (await res.json()) as { guests?: number; owners?: number; cleaners?: number; contractors?: number };
         const n =
           category === 'guests' ? data.guests :
           category === 'owners' ? data.owners :
-          data.cleaners;
+          category === 'cleaners' ? data.cleaners :
+          data.contractors;
         if (!cancelled) setCount(typeof n === 'number' ? n : 0);
       } catch {
         // Silent: a network hiccup shouldn't surface as a tab error.
@@ -59,7 +60,8 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
   const background =
     category === 'guests' ? 'var(--ink)' :              // navy — brand default
     category === 'owners' ? 'var(--signal)' :           // gold — established
-    '#1f5e6b';                                          // teal — cleaners
+    category === 'cleaners' ? '#1f5e6b' :               // teal — cleaners
+    '#7a5c3a';                                          // warm brown — contractors
 
   return (
     <span

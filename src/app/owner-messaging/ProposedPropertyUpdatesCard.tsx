@@ -27,8 +27,9 @@ type Props = {
   initialError: string | null;
   properties: { id: string; name: string }[];
   /** Who shared these facts; drives the card copy only. The owner page
-   * omits it (default 'owner'); the cleaner page passes 'cleaner'. */
-  source?: 'owner' | 'cleaner';
+   * omits it (default 'owner'); the cleaner page passes 'cleaner'; the
+   * contractor page passes 'contractor'. */
+  source?: 'owner' | 'cleaner' | 'contractor';
 };
 
 export function ProposedPropertyUpdatesCard({ initial, initialError, properties, source = 'owner' }: Props) {
@@ -69,8 +70,13 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
             lineHeight: 1.6,
           }}
         >
-          Nothing to review. When {source === 'cleaner' ? 'a cleaner texts' : 'an owner texts or emails'} a
-          durable property fact (a wifi change, a code, a trash day), it shows
+          Nothing to review. When{' '}
+          {source === 'cleaner'
+            ? 'a cleaner texts'
+            : source === 'contractor'
+              ? 'a contractor texts'
+              : 'an owner texts or emails'}{' '}
+          a durable property fact (a wifi change, a code, a trash day), it shows
           up here to file in one tap.
         </div>
       ) : (
@@ -99,7 +105,7 @@ function CandidateCard({
 }: {
   candidate: ProposedPropertyUpdate;
   properties: { id: string; name: string }[];
-  source: 'owner' | 'cleaner';
+  source: 'owner' | 'cleaner' | 'contractor';
 }) {
   const softRefresh = useSoftRefresh();
   const known = properties.some((p) => p.id === candidate.property_id);
@@ -228,7 +234,12 @@ function CandidateCard({
           {candidate.category.replace(/_/g, ' ')}
         </span>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {candidate.owner_name || (source === 'cleaner' ? 'A cleaner' : 'An owner')}
+          {candidate.owner_name ||
+            (source === 'cleaner'
+              ? 'A cleaner'
+              : source === 'contractor'
+                ? 'A contractor'
+                : 'An owner')}
           {candidate.property_name ? ` · ${candidate.property_name}` : ''}
         </span>
       </div>

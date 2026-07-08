@@ -148,11 +148,13 @@ export async function applyProposedUpdate(
     warning = 'Filed, but could not clear it from the queue. If it reappears, dismiss it rather than filing again.';
   }
 
-  // Both messaging pages render this card (owner-sourced candidates on
-  // /owner-messaging, cleaner-sourced on /cleaner-messaging) through the same
-  // actions, so revalidate both; the extra one is a no-op.
+  // All three messaging pages render this card (owner-sourced candidates on
+  // /owner-messaging, cleaner-sourced on /cleaner-messaging, contractor-sourced
+  // on /contractor-messaging) through the same actions, so revalidate all
+  // three; the extra ones are no-ops.
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');
+  revalidatePath('/contractor-messaging');
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/edit`);
   return { ok: true, columns: applied.columns, notes: applied.notes, skipped: applied.skipped, warning };
@@ -166,5 +168,6 @@ export async function dismissProposedUpdate(candidateId: string): Promise<Dismis
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');
+  revalidatePath('/contractor-messaging');
   return { ok: true };
 }
