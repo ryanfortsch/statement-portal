@@ -813,6 +813,19 @@ export default async function PacketPage({
                   </div>
                 </details>
               )}
+              {/* Where this home keeps its supplies — a tap-open note for the
+                  supplies-and-inventory pass. Signal accent ties it to that
+                  pillar. Claim-gated + masked pre-claim like the rest. */}
+              {isMine && s.property.supply_closet_location && (
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--signal)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 4px', minHeight: 36 }}>
+                    📦 Supply closet
+                  </summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '8px 12px', marginTop: 4, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                    {s.property.supply_closet_location}
+                  </div>
+                </details>
+              )}
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} />
               )}
