@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
+import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings } from '@/lib/field-ratings';
 import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
@@ -321,10 +322,11 @@ export default async function FieldHome({
     );
   }
 
-  const [{ available, mine }, payStats, ratings] = await Promise.all([
+  const [{ available, mine }, payStats, ratings, recentVisits] = await Promise.all([
     loadContractorMarketplace(contractor),
     getContractorPayStats(),
     getContractorRatings(),
+    loadRecentVisits(contractor.id),
   ]);
   const pay = payStats.get(contractor.id);
   const rating = ratings.get(contractor.id);
@@ -360,6 +362,23 @@ export default async function FieldHome({
           </div>
         )}
       </div>
+
+      {/* Post-visit flag: only when a home is still in the 72h window, so the
+          affordance appears exactly when it's usable. */}
+      {recentVisits.length > 0 && (
+        <Link
+          href="/field/report"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, textDecoration: 'none', border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.05)', padding: '14px 18px', marginBottom: 32 }}
+        >
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>Spotted something after a visit?</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
+              Flag it for {recentVisits.length === 1 ? recentVisits[0].propertyName : `${recentVisits.length} homes`} you were at recently, straight to the office.
+            </div>
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>Flag an issue →</span>
+        </Link>
+      )}
 
       {/* No rating/reputation card here (the Bronze/Silver/Gold ladder was cut
           per Ryan — a number IS the reputation). The greeting's inline ★

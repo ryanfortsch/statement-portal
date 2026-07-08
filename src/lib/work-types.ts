@@ -51,6 +51,10 @@ export type WorkSlipRow = {
   snoozed_until: string | null;
   snoozed_by_email: string | null;
   snoozed_at: string | null;
+  /** Field provenance: set when a Field inspector flagged this post-visit (within
+   *  their 72h window) rather than the office or a formal inspection filing it. */
+  reported_by_contractor_id: string | null;
+  reported_from_packet_id: string | null;
   created_by_email: string;
   closed_by_email: string | null;
   created_at: string;
