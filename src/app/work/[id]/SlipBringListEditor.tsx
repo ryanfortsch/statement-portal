@@ -1,8 +1,8 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { updateWorkSlipBringList } from '../actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   slipId: string;
@@ -16,7 +16,7 @@ type Props = {
  * slip editors. Always editable (even when empty) so it's easy to add.
  */
 export function SlipBringListEditor({ slipId, initialBringList }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [value, setValue] = useState(initialBringList ?? '');
   const [draft, setDraft] = useState(initialBringList ?? '');
   const [editing, setEditing] = useState(false);
@@ -51,7 +51,7 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
         setErr(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   }
 

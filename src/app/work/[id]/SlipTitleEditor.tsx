@@ -1,8 +1,8 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { updateWorkSlipTitle } from '../actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   slipId: string;
@@ -25,7 +25,7 @@ const TITLE_STYLE: React.CSSProperties = {
  * other slip editors.
  */
 export function SlipTitleEditor({ slipId, initialTitle }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(initialTitle);
   const [draft, setDraft] = useState(initialTitle);
@@ -66,7 +66,7 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
         setErr(res.error);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   }
 

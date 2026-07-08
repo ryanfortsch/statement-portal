@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { snoozeWorkSlip } from '../actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   slipId: string;
@@ -33,7 +33,7 @@ function plus(days: number): string {
  *   * Currently snoozed: "Snoozed until <date>" with un-snooze action
  */
 export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [snoozedUntil, setSnoozedUntil] = useState<string | null>(initialSnoozedUntil);
   const [customDate, setCustomDate] = useState('');
@@ -63,7 +63,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
         setSnoozedUntil(initialSnoozedUntil);
         return;
       }
-      router.refresh();
+      softRefresh();
     });
   }
 

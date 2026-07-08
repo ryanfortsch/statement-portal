@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createWorkSlip } from '@/app/work/actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import {
@@ -9,6 +8,7 @@ import {
   type WorkSlipPriority,
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   propertyId: string;
@@ -25,7 +25,7 @@ type Props = {
  * picker since context implies it.
  */
 export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -76,7 +76,7 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
       return;
     }
     close();
-    router.refresh();
+    softRefresh();
   }
 
   return (
