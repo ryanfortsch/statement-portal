@@ -69,7 +69,7 @@ const isGuestStay = (b: { status: string | null }): boolean =>
 // they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
   'id, name, title, address, city, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
-  'guest_access_method, smart_lock_brand, parking';
+  'guest_access_method, smart_lock_brand, parking, supply_closet_location';
 
 /** Layer a property's access codes (from property_access) onto the row read
  *  from properties, producing the full FieldProperty the access bundle needs. */
@@ -442,7 +442,7 @@ export async function loadPackets(statuses?: string[]): Promise<PacketRow[]> {
  *  no name/address/title/coordinates ride along until the inspector claims the
  *  job. Town (city) is kept so the card can still say "in Gloucester". */
 function maskIdentity(p: FieldProperty): FieldProperty {
-  return { ...p, name: '', title: null, address: '', latitude: null, longitude: null };
+  return { ...p, name: '', title: null, address: '', latitude: null, longitude: null, supply_closet_location: null };
 }
 
 async function stopsWithProperties(

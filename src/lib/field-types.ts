@@ -214,6 +214,10 @@ export type FieldProperty = {
   garage_code: string | null;
   alarm_system: string | null;
   parking: string | null;
+  /** Where cleaning supplies / linens / paper goods live in the home. On-site
+   *  info for the inspector's supplies-and-inventory pass; not a secret code, so
+   *  it lives on properties, not the RLS-locked access table. */
+  supply_closet_location: string | null;
 };
 
 /** Entry/access info shown to a contractor after they claim a packet. */
