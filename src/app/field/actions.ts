@@ -82,6 +82,7 @@ export async function completeOnboarding(
 
   const signedName = String(formData.get('signed_name') || '').trim();
   const agree = formData.get('agree') === 'on';
+  const smsOptIn = formData.get('sms_opt_in') === 'on';
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const homeAddress = String(formData.get('home_address') || '').trim();
@@ -155,6 +156,7 @@ export async function completeOnboarding(
       agreement_signed_name: signedName,
       agreement_ip: ip,
       agreement_user_agent: userAgent,
+      sms_opt_in: smsOptIn,
       status: 'active',
       updated_at: new Date().toISOString(),
     })
