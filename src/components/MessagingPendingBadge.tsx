@@ -5,8 +5,13 @@ import { usePathname } from 'next/navigation';
 
 /**
  * Small pill rendered next to the Messaging tab in the masthead nav when
- * there are pending guest-message drafts. Polls /api/messaging/pending-count
- * so Dotti sees, from any module, when something needs her attention.
+ * there are unanswered GUEST drafts. Polls /api/messaging/pending-count so
+ * Dotti sees, from any module, when a guest needs attention.
+ *
+ * Deliberately GUESTS ONLY: owners and cleaners/contractors each have their
+ * own per-tab badge inside the Messaging section, but this top-nav badge
+ * (next to Work) is the fleet-wide "a guest is waiting" signal, so it reads
+ * data.guests, not the combined count.
  *
  * Renders nothing when count is 0 or the fetch failed (kept silent rather
  * than showing an error chip in the nav — that'd be more noise than signal).
@@ -28,8 +33,8 @@ export function MessagingPendingBadge() {
       try {
         const res = await fetch('/api/messaging/pending-count', { cache: 'no-store' });
         if (!res.ok) return;
-        const data = (await res.json()) as { count?: number };
-        if (!cancelled) setCount(typeof data.count === 'number' ? data.count : 0);
+        const data = (await res.json()) as { guests?: number };
+        if (!cancelled) setCount(typeof data.guests === 'number' ? data.guests : 0);
       } catch {
         // Silent: a network hiccup shouldn't surface as a nav badge error.
       }

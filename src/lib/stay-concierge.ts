@@ -242,7 +242,7 @@ export type ProactiveTarget = {
   language: string;
 };
 
-export async function listProactiveTargets(audience: 'cleaner' | 'owner') {
+export async function listProactiveTargets(audience: 'cleaner' | 'owner' | 'contractor') {
   return request<{ targets: ProactiveTarget[]; count: number }>(
     `/api/proactive-targets?audience=${audience}`,
   );
@@ -256,7 +256,7 @@ export async function listReservationsForPicker() {
 
 /** Without `audience`, returns guest rows only (the existing guest panel is
  * untouched). With it, rows filtered to that audience. */
-export async function listRecurring(audience?: 'cleaner' | 'owner') {
+export async function listRecurring(audience?: 'cleaner' | 'owner' | 'contractor') {
   const q = audience ? `?audience=${audience}` : '';
   return request<{ recurring: RecurringMessage[]; count: number }>(`/api/recurring${q}`);
 }
@@ -306,7 +306,7 @@ export async function polishProactive(reservationId: string, roughText: string) 
  * response `polished` is Portuguese (what sends) and `english` carries the EN
  * translation for the operator; for 'owner' `english` is ''. */
 export async function polishProactiveFor(
-  audience: 'cleaner' | 'owner',
+  audience: 'cleaner' | 'owner' | 'contractor',
   targetName: string,
   roughText: string,
 ) {
@@ -504,8 +504,9 @@ export type ProposedPropertyUpdatesResponse = {
 };
 
 /** Without `audience`, only NON-cleaner (owner) candidates, which keeps the
- * existing owner card unchanged. With 'cleaner', only cleaner-sourced ones. */
-export async function listProposedPropertyUpdates(audience?: 'cleaner') {
+ * existing owner card unchanged. With 'cleaner' or 'contractor', only the
+ * candidates sourced from that audience. */
+export async function listProposedPropertyUpdates(audience?: 'cleaner' | 'contractor') {
   const q = audience ? `?audience=${audience}` : '';
   return request<ProposedPropertyUpdatesResponse>(`/api/proposed-property-updates${q}`);
 }
@@ -621,6 +622,100 @@ export async function getCleanerCuratedFacts() {
 
 export async function saveCleanerCuratedFacts(content: string) {
   return request<{ ok: true; bytes: number }>('/api/cleaner-curated-facts', {
+    method: 'PUT',
+    body: { content },
+  });
+}
+
+// ── Contractor-messaging surface (English only) ────────────────────────
+// Field contractors (Delaney and the like) text in about property visits.
+// Mirrors the cleaner surface, but the pipeline is English end to end: there
+// are no PT/EN translation fields, so ContractorApproval drops
+// cleaner_text_english / inbound_language / draft_english.
+
+export type ContractorApproval = {
+  id: string;
+  short_id: string;
+  channel: string;                  // 'sms_quo'
+  contractor_contact: string;       // E.164 phone
+  contractor_name: string;
+  property_id: string;
+  property_name: string;
+  external_thread_id: string;
+  external_message_id: string;
+  contractor_text: string;          // verbatim — English
+  draft: string;                    // English — what gets sent on approve
+  topic: string;
+  status: string;
+  final_response: string;
+  created_at: string;
+  resolved_at: string | null;
+  age_minutes: number | null;
+  /** Work-slip proposal mined from the message; null when there is none.
+   * property_id/property_name above may be non-empty (inferred) for these. */
+  proposed_slip: ProposedWorkSlip | null;
+};
+
+export type ContractorApprovalsResponse = {
+  approvals: ContractorApproval[];
+  count: number;
+};
+
+export async function listContractorApprovals() {
+  return request<ContractorApprovalsResponse>('/api/contractor-approvals');
+}
+
+export async function listRecentContractorApprovals(hours = 24) {
+  return request<ContractorApprovalsResponse>(`/api/contractor-approvals/recent?hours=${hours}`);
+}
+
+/** Approve a contractor draft. `opts` carries the operator's decision on the
+ * card's proposed work slip; when omitted the backend uses the inferred
+ * defaults. JSON.stringify drops undefined keys, so only the fields the
+ * operator actually decided travel. */
+export async function approveContractorApproval(
+  id: string,
+  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+) {
+  return request<{ status: string; id: string; slip?: { id: string; deduped: boolean } | null }>(
+    `/api/contractor-approvals/${id}/approve`,
+    {
+      method: 'POST',
+      ...(opts !== undefined
+        ? { body: { file_slip: opts.fileSlip, slip_property_id: opts.slipPropertyId } }
+        : {}),
+    },
+  );
+}
+
+export async function rejectContractorApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/reject`, { method: 'POST' });
+}
+
+export async function markHandledContractorApproval(id: string) {
+  return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+export async function coachContractorApproval(id: string, feedback: string) {
+  return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/coach`, {
+    method: 'POST',
+    body: { feedback },
+    timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS,
+  });
+}
+
+export type ContractorCuratedFacts = {
+  content: string;
+  path: string;
+  bytes: number;
+};
+
+export async function getContractorCuratedFacts() {
+  return request<ContractorCuratedFacts>('/api/contractor-curated-facts');
+}
+
+export async function saveContractorCuratedFacts(content: string) {
+  return request<{ ok: true; bytes: number }>('/api/contractor-curated-facts', {
     method: 'PUT',
     body: { content },
   });
