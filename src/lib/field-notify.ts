@@ -128,7 +128,7 @@ export async function sendClaimConfirmation(
   const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
-    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>. Pay for the packet is <strong>${dollars(packet.posted_price_cents)}</strong>. Open the packet for the route, each property's window, and entry details.</p>
+    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
@@ -137,7 +137,7 @@ export async function sendClaimConfirmation(
     fromName: FROM_NAME,
     cc: OFFICE_CC,
     html,
-    text: `You claimed ${packet.title} on ${packet.visit_date} for ${dollars(packet.posted_price_cents)}. ${link}`,
+    text: `You claimed ${packet.title} on ${packet.visit_date}. Estimated pay ${dollars(packet.posted_price_cents)}, confirmed after your visit. ${link}`,
   });
 }
 
@@ -261,7 +261,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     }
     const link = `${fieldBaseUrl()}/field/${c.portal_token}`;
     const to = c.phone.startsWith('+') ? c.phone : `+1${normalizePhone(c.phone)}`;
-    const content = `Rising Tide Field: new work near you — ${headline}, ${when} · ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
+    const content = `Rising Tide Field: new work near you — ${headline}, ${when} · est. ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
     try {
       await sendMessage({ from, to, content });
       sent++;

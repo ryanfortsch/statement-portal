@@ -10,11 +10,13 @@ import { PacketRouteMap } from '@/app/field/PacketRouteMap';
 import { OnSite } from '@/app/field/packet/[packetId]/OnSite';
 import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
-import { dollars, type PacketStopDetail } from '@/lib/field-types';
+import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { loadPaymentSummaries } from '@/lib/field-pay';
+import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
+import { FinalPayoutField } from './FinalPayoutField';
 import { RevealPay } from '../../contractors/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
@@ -152,6 +154,22 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
+
+  // Finalize-payout inputs (submitted / approved-unpaid): the same pricing
+  // formula re-run on ACTUAL minutes on site, as a decision aid. Estimate =
+  // posted_price_cents; suggestion swaps size-based on-site time for the real
+  // door-to-door timestamps, drive + rush unchanged. Office-only.
+  const finalizing = packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at);
+  const stopMinsActual = packet.stops.map((s) => stopMins(s));
+  const minsTotal = stopMinsActual.reduce<number>((a, m) => a + (m ?? 0), 0);
+  const stopsTimed = stopMinsActual.filter((m) => m != null).length;
+  const suggestedCents = suggestFinalCents({
+    onSiteMinutesActual: stopMinsActual,
+    fallbackOnSiteCents: packet.stops.map((s) => s.base_price_cents),
+    spreadMiles: packet.max_pairwise_miles ?? 0,
+    center: packet.centroid_lat != null && packet.centroid_lng != null ? { lat: packet.centroid_lat, lng: packet.centroid_lng } : null,
+    isRush: isRushVisit(packet.visit_date),
+  });
   const trackPct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
 
   return (
@@ -175,7 +193,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{packet.status}</div>
-            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(packet.posted_price_cents)}</div>
+            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(effectiveBaseCents(packet))}</div>
+            <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
+              {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
+            </div>
             {packet.bonus_cents > 0 && (
               <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={packet.bonus_reason ?? undefined}>
                 + {dollars(packet.bonus_cents)} bonus
@@ -353,8 +374,17 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   {/* Approve is the one loud action. The bonus and the send-back
                       path are each one quiet click so they don't compete with it.
                       The bonus inputs still post with Approve when filled. */}
-                  <form action={approvePacket} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+                  <form action={approvePacket} style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
+                    {/* Set the final pay from actual time, then approve — one
+                        action. Left blank, the estimate stands. */}
+                    <FinalPayoutField
+                      estimateCents={packet.posted_price_cents}
+                      suggestedCents={suggestedCents}
+                      minsTotal={minsTotal}
+                      stopsTimed={stopsTimed}
+                      stopsTotal={packet.stops.length}
+                    />
                     <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
                     <details>
                       <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
@@ -373,6 +403,28 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               )}
               {packet.status === 'approved' && !packet.paid_at && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Adjust the final pay any time before it's paid (decide-later,
+                      like the bonus). Quiet once it's been set; open while it's
+                      still just the estimate so she's nudged to confirm it. */}
+                  <details open={!isPayoutFinal(packet)}>
+                    <summary style={quietSummary}>
+                      {isPayoutFinal(packet)
+                        ? `Final pay: ${dollars(effectiveBaseCents(packet))} — adjust ▾`
+                        : `Payout is still the ${dollars(packet.posted_price_cents)} estimate — set the final ▾`}
+                    </summary>
+                    <form action={finalizePacketPayout} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', marginTop: 10 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <FinalPayoutField
+                        estimateCents={packet.posted_price_cents}
+                        suggestedCents={suggestedCents}
+                        minsTotal={minsTotal}
+                        stopsTimed={stopsTimed}
+                        stopsTotal={packet.stops.length}
+                        currentFinalCents={packet.final_payout_cents}
+                      />
+                      <PendingButton label="Set final pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                    </form>
+                  </details>
                   {/* The actual payment happens outside Helm — say exactly where
                       to send it, then record it here. */}
                   <div style={{ fontSize: 13, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -397,7 +449,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-                    <PendingButton label={`Mark paid · ${dollars(packet.posted_price_cents + packet.bonus_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                    <PendingButton label={`Mark paid · ${dollars(totalPayoutCents(packet))}`} busyLabel="Recording + receipt…" style={btnDark} />
                   </form>
                   {/* Decide-later bonus: quiet by default so Mark paid stays the
                       focus; opens on its own when a bonus is already set. */}
@@ -421,7 +473,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
           {packet.status === 'approved' && packet.paid_at && (
             <div style={{ fontSize: 12, color: 'var(--positive)' }}>
-              Paid {dollars(packet.posted_price_cents + packet.bonus_cents)}
+              Paid {dollars(totalPayoutCents(packet))}
               {packet.bonus_cents > 0 ? ` (incl. ${dollars(packet.bonus_cents)} bonus)` : ''}
               {' '}on {new Date(packet.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {packet.contractor ? ` to ${packet.contractor.full_name}` : ''}

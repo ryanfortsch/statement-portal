@@ -12,6 +12,7 @@ import {
   type ContractorPayStats,
   type ReliabilityStats,
 } from '@/lib/field-packets';
+import { effectiveBaseCents } from '@/lib/field-types';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
 
 export type ContractorReview = {
@@ -112,7 +113,7 @@ async function loadContractorReviews(contractorId: string): Promise<ContractorRe
 async function loadContractorHistory(contractorId: string): Promise<ContractorHistoryItem[]> {
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .select('id, visit_date, title, trade, posted_price_cents, bonus_cents, status, paid_at')
+    .select('id, visit_date, title, trade, posted_price_cents, final_payout_cents, bonus_cents, status, paid_at')
     .eq('awarded_contractor_id', contractorId)
     .in('status', ['in_progress', 'submitted', 'approved'])
     .order('visit_date', { ascending: false })
@@ -123,6 +124,7 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
     title: string;
     trade: string;
     posted_price_cents: number;
+    final_payout_cents: number | null;
     bonus_cents: number;
     status: string;
     paid_at: string | null;
@@ -132,7 +134,7 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
     title: p.title,
     trade: p.trade,
     // Row pay includes any bonus so history lines sum to the paid/owed totals.
-    payCents: p.posted_price_cents + (p.bonus_cents || 0),
+    payCents: effectiveBaseCents(p) + (p.bonus_cents || 0),
     status: p.status,
     paid: !!p.paid_at,
   }));

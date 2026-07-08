@@ -11,7 +11,7 @@ import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
-import { canClaim, parseTrade, type PacketRow } from '@/lib/field-types';
+import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -327,6 +327,63 @@ export async function setPacketBonus(formData: FormData): Promise<void> {
   revalidatePath('/operations/contractors');
 }
 
+/** Lock in the FINAL base payout, set from actual time on site. Editable while
+ *  the packet is submitted or approved-and-unpaid (same window as the bonus).
+ *  An empty value clears it back to the estimate. Guarded to 0..3x the estimate
+ *  against a fat-finger. Methodology stays office-side; the contractor just
+ *  sees the number settle from "estimated" to final. */
+export async function finalizePacketPayout(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const raw = String(formData.get('final_dollars') ?? '').trim();
+  if (!packetId) return;
+
+  const { data: pk } = await fieldDb()
+    .from('inspection_packets')
+    .select('posted_price_cents, status, paid_at')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pk as { posted_price_cents: number; status: string; paid_at: string | null } | null;
+  if (!packet || packet.paid_at || !['submitted', 'approved'].includes(packet.status)) return;
+
+  let finalCents: number | null = null;
+  if (raw !== '') {
+    const d = Number(raw);
+    if (!Number.isFinite(d) || d < 0) return;
+    finalCents = Math.min(Math.round(d * 100), packet.posted_price_cents * 3);
+  }
+
+  // Re-guard status + paid_at on the write (the pre-read can race a concurrent
+  // mark-paid / requestChanges), audit only when a row actually changed.
+  const { data: changed } = await fieldDb()
+    .from('inspection_packets')
+    .update({
+      final_payout_cents: finalCents,
+      final_payout_by_email: finalCents != null ? email : null,
+      final_payout_at: finalCents != null ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', packetId)
+    .in('status', ['submitted', 'approved'])
+    .is('paid_at', null)
+    .select('id')
+    .maybeSingle();
+  if (changed) {
+    await fieldDb()
+      .from('packet_events')
+      .insert({
+        packet_id: packetId,
+        actor_email: email,
+        event_type: finalCents != null ? 'payout_finalized' : 'payout_reset_to_estimate',
+        payload: finalCents != null ? { final_cents: finalCents } : null,
+      })
+      .then(() => {}, () => {});
+  }
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+  revalidatePath('/operations/contractors');
+}
+
 export async function markContractorPaid(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');
@@ -346,9 +403,9 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
     .eq('awarded_contractor_id', contractorId)
     .eq('status', 'approved')
     .is('paid_at', null)
-    .select('posted_price_cents, bonus_cents');
-  const total = ((marked ?? []) as { posted_price_cents: number; bonus_cents: number }[]).reduce(
-    (a, r) => a + r.posted_price_cents + (r.bonus_cents || 0),
+    .select('posted_price_cents, final_payout_cents, bonus_cents');
+  const total = ((marked ?? []) as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number }[]).reduce(
+    (a, r) => a + effectiveBaseCents(r) + (r.bonus_cents || 0),
     0,
   );
   if (total > 0 && contractor) {
@@ -370,16 +427,16 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
     .eq('id', packetId)
     .eq('status', 'approved')
     .is('paid_at', null)
-    .select('posted_price_cents, bonus_cents, awarded_contractor_id')
+    .select('posted_price_cents, final_payout_cents, bonus_cents, awarded_contractor_id')
     .maybeSingle();
-  const paid = data as { posted_price_cents: number; bonus_cents: number; awarded_contractor_id: string | null } | null;
+  const paid = data as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; awarded_contractor_id: string | null } | null;
   if (paid?.awarded_contractor_id) {
     const { data: c } = await fieldDb().from('contractors').select('*').eq('id', paid.awarded_contractor_id).maybeSingle();
     if (c) {
       const contractor = c as ContractorRow;
       // Stamp the remittance method from what's on file, then receipt the contractor.
       await fieldDb().from('inspection_packets').update({ paid_method: contractor.payment_method ?? null }).eq('id', packetId);
-      await sendPaidEmail(contractor, paid.posted_price_cents + (paid.bonus_cents || 0), { method: contractor.payment_method, reference }).catch(() => {});
+      await sendPaidEmail(contractor, effectiveBaseCents(paid) + (paid.bonus_cents || 0), { method: contractor.payment_method, reference }).catch(() => {});
     }
   }
   revalidatePath(`/operations/packets/${packetId}`);
@@ -496,10 +553,21 @@ export async function approvePacket(formData: FormData): Promise<void> {
   const bonusDollars = Number(formData.get('bonus_dollars') || 0);
   const bonusReason = String(formData.get('bonus_reason') || '').trim().slice(0, 500) || null;
   let bonusCents = Number.isFinite(bonusDollars) && bonusDollars > 0 ? Math.round(bonusDollars * 100) : 0;
-  if (bonusCents > 0) {
+
+  // Optional final payout, set right in the approve form (the "toggle the price
+  // as I approve it" path). Empty leaves the estimate in place. Guarded 0..3x
+  // the estimate against a fat-finger.
+  const finalRaw = String(formData.get('final_dollars') ?? '').trim();
+
+  let finalCents: number | null = null;
+  if (bonusCents > 0 || finalRaw !== '') {
     const { data: pk } = await fieldDb().from('inspection_packets').select('posted_price_cents').eq('id', packetId).maybeSingle();
     const posted = (pk as { posted_price_cents: number } | null)?.posted_price_cents ?? 0;
-    bonusCents = Math.min(bonusCents, posted * 2);
+    if (bonusCents > 0) bonusCents = Math.min(bonusCents, posted * 2);
+    if (finalRaw !== '') {
+      const d = Number(finalRaw);
+      if (Number.isFinite(d) && d >= 0) finalCents = Math.min(Math.round(d * 100), posted * 3);
+    }
   }
 
   const { data: approved } = await fieldDb()
@@ -509,11 +577,12 @@ export async function approvePacket(formData: FormData): Promise<void> {
       approved_at: new Date().toISOString(),
       approved_by_email: email,
       ...(bonusCents > 0 ? { bonus_cents: bonusCents, bonus_reason: bonusReason, bonus_by_email: email } : {}),
+      ...(finalCents != null ? { final_payout_cents: finalCents, final_payout_by_email: email, final_payout_at: new Date().toISOString() } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('id', packetId)
     .eq('status', 'submitted')
-    .select('id, title, awarded_contractor_id, posted_price_cents, bonus_cents, bonus_reason')
+    .select('id, title, awarded_contractor_id, posted_price_cents, final_payout_cents, bonus_cents, bonus_reason')
     .maybeSingle();
   if (approved) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'approved' });
@@ -534,13 +603,13 @@ export async function approvePacket(formData: FormData): Promise<void> {
         .in('id', slipIds);
     }
     // Receipt the contractor: approved, payment queued (bonus celebrated).
-    const ap = approved as { title: string; awarded_contractor_id: string | null; posted_price_cents: number; bonus_cents: number; bonus_reason: string | null };
+    const ap = approved as { title: string; awarded_contractor_id: string | null; posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; bonus_reason: string | null };
     if (ap.awarded_contractor_id) {
       const { data: c } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', ap.awarded_contractor_id).maybeSingle();
       if (c) {
         await sendApprovedEmail(c as ContractorRow, {
           title: ap.title,
-          totalCents: ap.posted_price_cents + (ap.bonus_cents || 0),
+          totalCents: effectiveBaseCents(ap) + (ap.bonus_cents || 0),
           bonusCents: ap.bonus_cents || 0,
           bonusReason: ap.bonus_reason,
         }).catch(() => {});

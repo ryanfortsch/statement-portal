@@ -44,6 +44,7 @@ import {
   type ContractorRow,
   type WorkSlipLite,
   type AttachedSlip,
+  effectiveBaseCents,
 } from '@/lib/field-types';
 
 // Same exclusions the Operations turnover pipeline uses: out-of-region
@@ -1874,18 +1875,19 @@ export type ContractorPayStats = {
 export async function getContractorPayStats(): Promise<Map<string, ContractorPayStats>> {
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .select('awarded_contractor_id, posted_price_cents, bonus_cents, paid_at')
+    .select('awarded_contractor_id, posted_price_cents, final_payout_cents, bonus_cents, paid_at')
     .eq('status', 'approved')
     .not('awarded_contractor_id', 'is', null);
   const map = new Map<string, ContractorPayStats>();
   for (const r of (data ?? []) as Array<{
     awarded_contractor_id: string;
     posted_price_cents: number;
+    final_payout_cents: number | null;
     bonus_cents: number;
     paid_at: string | null;
   }>) {
     const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0 };
-    const total = r.posted_price_cents + (r.bonus_cents || 0);
+    const total = effectiveBaseCents(r) + (r.bonus_cents || 0);
     s.approvedCount++;
     if (r.paid_at) {
       s.paidCount++;

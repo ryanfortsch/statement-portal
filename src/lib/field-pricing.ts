@@ -116,3 +116,33 @@ export function priceCents(opts: {
   const total = opts.isRush ? subtotal * RUSH_MULTIPLIER : subtotal;
   return Math.round(total / 100) * 100; // whole dollars
 }
+
+/**
+ * Suggested FINAL pay once a visit is done. Identical to priceCents, except the
+ * on-site portion uses each stop's ACTUAL minutes (from the door timestamps)
+ * instead of the size-based estimate. Drive time, rush, and whole-dollar
+ * rounding are unchanged, so the suggestion is simply the same estimate re-run
+ * on real time. A stop with no recorded time (skipped, or a lockless home the
+ * inspector never Started) falls back to its estimated on-site pay, never zero.
+ *
+ * This is a decision aid for the operator only — the methodology stays
+ * office-side; the contractor just sees the number settle from estimate to
+ * final. priceCents is deliberately left untouched (the estimate must stay the
+ * agreed claim-time record).
+ */
+export function suggestFinalCents(opts: {
+  onSiteMinutesActual: Array<number | null>;
+  fallbackOnSiteCents: number[];
+  spreadMiles: number;
+  center: LatLng | null;
+  isRush?: boolean;
+}): number {
+  const onSite = opts.onSiteMinutesActual.reduce<number>((sum, mins, i) => {
+    if (mins == null) return sum + (opts.fallbackOnSiteCents[i] ?? 0);
+    return sum + Math.round(mins * PER_MINUTE_CENTS);
+  }, 0);
+  const drive = Math.round(driveMinutes(opts.center, opts.spreadMiles) * PER_MINUTE_CENTS);
+  const subtotal = onSite + drive;
+  const total = opts.isRush ? subtotal * RUSH_MULTIPLIER : subtotal;
+  return Math.round(total / 100) * 100; // whole dollars
+}

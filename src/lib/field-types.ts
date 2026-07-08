@@ -136,6 +136,13 @@ export type PacketRow = {
   // reason shown to the contractor. Total payout = posted_price_cents + bonus_cents.
   bonus_cents: number;
   bonus_reason: string | null;
+  // Final base payout the operator locks in at/after approval, computed from
+  // ACTUAL time on site (null = still an estimate; posted_price_cents is that
+  // estimate). Effective base = final_payout_cents ?? posted_price_cents; the
+  // bonus rides on top of the effective base.
+  final_payout_cents: number | null;
+  final_payout_by_email: string | null;
+  final_payout_at: string | null;
   entry_code: string | null;
   supply_run: boolean; // stop 1 bag pickup at the closet (setups default off)
   auto_generated: boolean;
@@ -299,6 +306,28 @@ export type PacketSuggestion = {
 
 export function dollars(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// ── Payout: estimate vs. locked final ─────────────────────────────────────
+// posted_price_cents is the claim-time ESTIMATE. Once the operator finalizes
+// from actual time on site, final_payout_cents holds the locked base. Total
+// owed to the contractor = effective base + any above-and-beyond bonus.
+type PayoutShape = { posted_price_cents: number; final_payout_cents: number | null; bonus_cents?: number };
+
+/** The base pay in effect: the operator's locked final once set, else the
+ *  claim-time estimate. */
+export function effectiveBaseCents(p: PayoutShape): number {
+  return p.final_payout_cents ?? p.posted_price_cents;
+}
+
+/** True once the operator has locked the final base pay from actual time. */
+export function isPayoutFinal(p: { final_payout_cents: number | null }): boolean {
+  return p.final_payout_cents != null;
+}
+
+/** Everything the contractor is owed: effective base + above-and-beyond bonus. */
+export function totalPayoutCents(p: PayoutShape): number {
+  return effectiveBaseCents(p) + (p.bonus_cents || 0);
 }
 
 /** Drop the trailing state ("Gloucester MA" -> "Gloucester") for display. */
