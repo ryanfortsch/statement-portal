@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { claimPacket, submitPacket, undoStartStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -529,22 +529,34 @@ export default async function PacketPage({
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
       </h1>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
-        <span className="font-mono" style={{ fontSize: 30 }}>{dollars(packet.posted_price_cents)}</span>
-        {isMine && packet.bonus_cents > 0 && (
-          <span style={{ fontSize: 14, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
-            + {dollars(packet.bonus_cents)} bonus
-          </span>
-        )}
-        <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-          {/* Count the LIVE stops, not the stored stop_count — a partial
-              revalidation can leave the column ahead of reality. The per-stop
-              math is claim-decision context; once it's theirs, drop it. */}
-          for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
-          {!isMine && (
-            <> · {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each</>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+          <span className="font-mono" style={{ fontSize: 30 }}>{dollars(effectiveBaseCents(packet))}</span>
+          {!isPayoutFinal(packet) && (
+            <span style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', border: '1px solid var(--rule)', borderRadius: 999, padding: '2px 9px' }}>
+              Estimated
+            </span>
           )}
-        </span>
+          {isMine && packet.bonus_cents > 0 && (
+            <span style={{ fontSize: 14, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
+              + {dollars(packet.bonus_cents)} bonus
+            </span>
+          )}
+          <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
+            {/* Count the LIVE stops, not the stored stop_count — a partial
+                revalidation can leave the column ahead of reality. The per-stop
+                math is claim-decision context; once it's theirs, drop it. */}
+            for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
+            {!isMine && (
+              <> · {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each</>
+            )}
+          </span>
+        </div>
+        {isMine && !isPayoutFinal(packet) && (
+          <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginTop: 6 }}>
+            Final pay is confirmed after your visit.
+          </div>
+        )}
       </div>
 
       {working && (
@@ -901,7 +913,7 @@ export default async function PacketPage({
             <form action={claimPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label={`Claim this packet · ${dollars(packet.posted_price_cents)}`}
+                label={`Claim this packet · est. ${dollars(packet.posted_price_cents)}`}
                 busyLabel="Claiming…"
                 style={{
                   width: '100%',

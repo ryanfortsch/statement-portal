@@ -4,7 +4,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, type PacketDetail } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { FieldPillars } from './FieldPillars';
@@ -102,7 +102,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
               above-and-beyond bonus (bonus only ever exists on the viewer's
               own packet, so open-marketplace cards are unchanged). */}
           <div className="font-mono" style={{ fontSize: 24, lineHeight: 1 }}>
-            {dollars(p.posted_price_cents + (p.bonus_cents || 0))}
+            {dollars(effectiveBaseCents(p) + (p.bonus_cents || 0))}
           </div>
           {p.bonus_cents > 0 ? (
             <div style={{ fontSize: 11, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>
@@ -110,7 +110,8 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
             </div>
           ) : (
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
-              {dollars(Math.round(p.posted_price_cents / Math.max(1, p.stop_count)))} / stop
+              {!isPayoutFinal(p) && <span style={{ letterSpacing: '0.06em' }}>est. · </span>}
+              {dollars(Math.round(effectiveBaseCents(p) / Math.max(1, p.stop_count)))} / stop
             </div>
           )}
           <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 12, fontWeight: 600 }}>View →</div>
