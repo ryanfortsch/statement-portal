@@ -5,7 +5,7 @@ import {
   parsePropertyCaptureAction,
   applyPropertyCaptureAction,
 } from '@/app/properties/actions';
-import { captureColumn, type CaptureItem } from '@/lib/property-capture-catalog';
+import { captureColumn, isHighStakesColumn, type CaptureItem } from '@/lib/property-capture-catalog';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
@@ -121,7 +121,16 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         setError('Nothing actionable found in that note. Try being more specific.');
         return;
       }
-      setItems(res.proposal.items.map((it, i) => ({ ...it, include: true, _id: i })));
+      // High-stakes entry/access fields (key/lockbox location, codes, guest
+      // access) are NOT auto-checked: a wrong value here becomes the "how to
+      // get in" a cleaner or inspector follows, so the operator must opt in.
+      setItems(
+        res.proposal.items.map((it, i) => ({
+          ...it,
+          include: !(it.target === 'column' && isHighStakesColumn(it.column)),
+          _id: i,
+        })),
+      );
       setUnrouted(res.proposal.unrouted);
       setCurrent(res.currentValues);
       setPhase('review');
@@ -445,6 +454,48 @@ function ItemCard({
                 Replaces current value: <span className="font-mono">{currentValue}</span>
               </div>
             )}
+            {isHighStakesColumn(item.column) && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: '6px 9px',
+                  borderLeft: '3px solid var(--signal)',
+                  background: 'var(--paper-2)',
+                  fontSize: 11,
+                  color: 'var(--ink-3)',
+                  lineHeight: 1.45,
+                }}
+              >
+                Becomes the entry instruction cleaners and inspectors follow. Only apply if this is the main way in. If it is a spare or backup, make it a note instead.
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() =>
+                onPatch({
+                  target: 'note',
+                  column: null,
+                  value: null,
+                  noteTitle: col?.label ?? 'Captured note',
+                  noteBody: item.value ?? item.sourceText ?? '',
+                  noteTag: null,
+                  guestFacing: false,
+                  include: true,
+                })
+              }
+              style={{
+                marginTop: 6,
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                fontSize: 11,
+                color: 'var(--tide-deep)',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              Make this a note instead
+            </button>
           </>
         ) : (
           <>

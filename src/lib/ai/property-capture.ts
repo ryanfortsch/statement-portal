@@ -55,8 +55,9 @@ const ProposalSchema = z.object({
 
 function buildSystemPrompt(): string {
   const catalog = CAPTURE_COLUMNS
-    .map((c) => `- ${c.key} (${c.section} · ${c.label}, ${c.type}): ${c.hints}`)
+    .map((c) => `- ${c.key} (${c.section} · ${c.label}, ${c.type})${c.highStakes ? ' [HIGH-STAKES ENTRY FIELD]' : ''}: ${c.hints}`)
     .join('\n');
+  const highStakesKeys = CAPTURE_COLUMNS.filter((c) => c.highStakes).map((c) => c.key).join(', ');
   return [
     'You route a property manager\'s free-form note about ONE vacation rental into structured destinations. The manager may have typed it or dictated it (so expect speech-to-text artifacts, run-ons, and filler).',
     'Split the note into discrete facts. Route EACH fact to exactly one destination:',
@@ -74,6 +75,12 @@ function buildSystemPrompt(): string {
     '- Keep values terse and clean; fix obvious dictation typos in values and notes.',
     '- No em dashes anywhere.',
     '- If a fragment is too vague to route, leave it in `unrouted`.',
+    '',
+    `HIGH-STAKES ENTRY FIELDS (${highStakesKeys}) need extra care. Downstream tools show these to cleaners and inspectors as THE way to get into the home, so a wrong value sends someone to the wrong entry method.`,
+    '- Route a fact to one of these fields ONLY when it is plainly the PRIMARY, current, normal way in.',
+    '- If the fact is about a SPARE, backup, extra, secondary, or emergency-only key/lockbox/code, or otherwise hedges that it is not the main way in ("just in case", "if the code fails", "we rarely use it"), it is NOT an entry field. Route it to an internal NOTE (target=note, guestFacing=false), never to a column.',
+    '  Example: "we keep a spare emergency lockbox on the parking post" -> internal note titled "Spare emergency lockbox" (NOT key_code_location).',
+    '- When you are unsure whether an access mention is the primary method, choose a note and set confidence "low". Never guess a high-stakes field into place.',
     '',
     'CATALOG OF COLUMN KEYS:',
     catalog,

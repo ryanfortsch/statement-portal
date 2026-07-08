@@ -13,6 +13,14 @@ export type CaptureColumn = {
   type: 'text' | 'int' | 'float' | 'phone';
   /** A couple of phrasings so the model learns the mapping. */
   hints: string;
+  /**
+   * High-consequence entry/access field: downstream tools (the field-crew
+   * packet's "HOW TO GET IN", the guest KB) render these as the PRIMARY way
+   * to get into the home. A wrong value here misleads a cleaner or inspector,
+   * so the model routes only the primary/current method here (spare/backup
+   * goes to a note), and the review UI does not auto-apply these.
+   */
+  highStakes?: boolean;
 };
 
 /**
@@ -40,13 +48,13 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
 
   // ── Access & codes ──
   { key: 'smart_lock_brand', label: 'Smart lock brand', section: 'Access & codes', type: 'text', hints: 'Yale / August / Schlage' },
-  { key: 'smart_lock_code', label: 'Smart lock code', section: 'Access & codes', type: 'text', hints: 'door lock PIN / entry code' },
-  { key: 'gate_code', label: 'Gate code', section: 'Access & codes', type: 'text', hints: 'driveway/community gate code' },
-  { key: 'garage_code', label: 'Garage code', section: 'Access & codes', type: 'text', hints: 'garage keypad code' },
-  { key: 'key_code_location', label: 'Key / code location', section: 'Access & codes', type: 'text', hints: 'where the spare key/lockbox is' },
+  { key: 'smart_lock_code', label: 'Smart lock code', section: 'Access & codes', type: 'text', hints: 'the PRIMARY door lock PIN / entry code used to get in', highStakes: true },
+  { key: 'gate_code', label: 'Gate code', section: 'Access & codes', type: 'text', hints: 'driveway/community gate code needed to reach the home', highStakes: true },
+  { key: 'garage_code', label: 'Garage code', section: 'Access & codes', type: 'text', hints: 'garage keypad code', highStakes: true },
+  { key: 'key_code_location', label: 'Key / code location', section: 'Access & codes', type: 'text', hints: 'where the PRIMARY lockbox / key is that a cleaner or inspector uses to get in. NOT a spare, backup, or emergency-only lockbox (that is a note).', highStakes: true },
   { key: 'supply_closet_location', label: 'Supply closet', section: 'Access & codes', type: 'text', hints: 'where cleaning supplies / linens / paper goods are kept' },
-  { key: 'alarm_system', label: 'Alarm system', section: 'Access & codes', type: 'text', hints: 'ADT / SimpliSafe / none' },
-  { key: 'guest_access_method', label: 'Guest access method', section: 'Access & codes', type: 'text', hints: 'how guests get in' },
+  { key: 'alarm_system', label: 'Alarm system', section: 'Access & codes', type: 'text', hints: 'ADT / SimpliSafe / none, plus how to disarm it on entry', highStakes: true },
+  { key: 'guest_access_method', label: 'Guest access method', section: 'Access & codes', type: 'text', hints: 'the normal, primary way guests get in', highStakes: true },
   { key: 'security_cameras', label: 'Security cameras', section: 'Access & codes', type: 'text', hints: 'Ring / Wyze + locations' },
 
   // ── Specs ──
@@ -87,6 +95,12 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
 export const CAPTURE_COLUMN_KEYS = new Set(CAPTURE_COLUMNS.map((c) => c.key));
 export function captureColumn(key: string): CaptureColumn | undefined {
   return CAPTURE_COLUMNS.find((c) => c.key === key);
+}
+
+/** True if `key` is a high-consequence entry/access field (drives how cleaners
+ *  and inspectors get in). Callers gate auto-apply + show a warning on these. */
+export function isHighStakesColumn(key: string | null | undefined): boolean {
+  return !!key && !!captureColumn(key)?.highStakes;
 }
 
 /** A single routed fragment in a parsed proposal. */
