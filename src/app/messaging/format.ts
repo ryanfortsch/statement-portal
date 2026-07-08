@@ -25,7 +25,7 @@ export function prettifySlug(slug: string): string {
  * backend stamps (extension: / nudge: / recurring: / sched:), with a topic
  * fallback. Mirrors the backend's stale-prune exemption for the same rows.
  */
-export type ProactiveKind = 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | null;
+export type ProactiveKind = 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | null;
 
 export function proactiveKind(
   guestyMessageId: string | null | undefined,
@@ -35,6 +35,7 @@ export function proactiveKind(
   const t = (topic || '').toLowerCase();
   if (id.startsWith('extension:') || t === 'extension_offer') return 'extension';
   if (id.startsWith('nudge:') || t === 'guest_count_nudge') return 'nudge';
+  if (id.startsWith('trash:') || t === 'trash_reminder') return 'trash';
   if (id.startsWith('recurring:') || t === 'recurring_reminder') return 'reminder';
   if (id.startsWith('sched:')) return 'scheduled';
   if (id.startsWith('review:') || t === 'review_request') return 'review';
@@ -57,6 +58,8 @@ export function proactiveBadge(
       return { label: 'Scheduled', tone: '#7a6a3a' };
     case 'review':
       return { label: 'Review request', tone: '#8a5a2b' };
+    case 'trash':
+      return { label: 'Trash day', tone: '#4a6d6a' };
     default:
       return null;
   }
