@@ -8,7 +8,7 @@ import { ReportIssueForm, type VisitOption } from './ReportIssueForm';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
-  title: 'Flag an issue · Rising Tide Field',
+  title: 'Create a work slip · Rising Tide Field',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
@@ -40,15 +40,11 @@ export default async function ReportPage() {
 
       <div style={{ margin: '14px 0 28px', maxWidth: 620 }}>
         <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 8 }}>
-          Flag an issue
+          Create a work slip
         </div>
-        <h1 className="font-serif" style={{ fontSize: 'clamp(28px,6vw,34px)', fontWeight: 300, lineHeight: 1.08, letterSpacing: '-0.01em', margin: '0 0 12px' }}>
+        <h1 className="font-serif" style={{ fontSize: 'clamp(28px,6vw,34px)', fontWeight: 300, lineHeight: 1.08, letterSpacing: '-0.01em', margin: 0 }}>
           Notice something after you left?
         </h1>
-        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-          Flag anything you spotted at a home you visited in the last {RECENT_VISIT_WINDOW_HOURS} hours: a drip, a scuff,
-          a low supply. It goes straight to the office as a work order, so nothing slips through after the walk.
-        </p>
       </div>
 
       {options.length === 0 ? (

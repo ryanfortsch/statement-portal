@@ -42,6 +42,8 @@ type Props = {
   myEmail: string;
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
+  /** contractor id -> name, for slips a field inspector flagged post-visit. */
+  reporterNames: Record<string, string>;
 };
 
 type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
@@ -67,7 +69,7 @@ function parseTab(value: string | null): TabId {
 const INITIAL_PROPERTY_LIMIT = 5;
 const INITIAL_TASK_LIMIT = 5;
 
-export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts }: Props) {
+export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const pathname = usePathname();
@@ -369,6 +371,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   selectedIds={selectedSlipIds}
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
+                  reporterNames={reporterNames}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -623,6 +626,7 @@ function PropertyGroup({
   selectedIds,
   onToggleSelect,
   commentCounts,
+  reporterNames,
   onAddSlip,
 }: {
   property: PropertyForPicker | null;
@@ -631,6 +635,7 @@ function PropertyGroup({
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   commentCounts: Record<string, number>;
+  reporterNames: Record<string, string>;
   onAddSlip: () => void;
 }) {
   // Default collapsed: with 8+ properties × ~8 slips each, the queue
@@ -870,6 +875,7 @@ function PropertyGroup({
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
               commentCount={commentCounts[s.id] ?? 0}
+              reporterName={s.reported_by_contractor_id ? reporterNames[s.reported_by_contractor_id] ?? 'a field inspector' : undefined}
             />
           ))}
           {supplySlips.length > 0 && workSlips.length > 0 && (
@@ -882,6 +888,7 @@ function PropertyGroup({
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
               commentCount={commentCounts[s.id] ?? 0}
+              reporterName={s.reported_by_contractor_id ? reporterNames[s.reported_by_contractor_id] ?? 'a field inspector' : undefined}
             />
           ))}
         </div>
@@ -895,12 +902,14 @@ function WorkSlipRowItem({
   selected,
   onToggleSelect,
   commentCount,
+  reporterName,
   isSupply = false,
 }: {
   slip: WorkSlipRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   commentCount: number;
+  reporterName?: string;
   isSupply?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -962,6 +971,7 @@ function WorkSlipRowItem({
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
             {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : 'Unclaimed')}
             {slip.location ? ` · ${slip.location}` : ''}
+            {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
           </div>
         </div>
         {commentCount > 0 && (
@@ -981,9 +991,6 @@ function WorkSlipRowItem({
           <span className="rt-no-print" style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
             {slip.priority}
           </span>
-        )}
-        {slip.reported_by_contractor_id && (
-          <span className="rt-no-print" style={pillTinyStyle('var(--tide-deep)')} title="Flagged by a field inspector after their visit">field</span>
         )}
         <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
           {slip.status.replace('_', ' ')}

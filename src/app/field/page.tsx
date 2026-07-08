@@ -371,13 +371,8 @@ export default async function FieldHome({
           href="/field/report"
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, textDecoration: 'none', border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.05)', padding: '14px 18px', marginBottom: 32 }}
         >
-          <div>
-            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>Spotted something after a visit?</div>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
-              Flag it for {recentVisits.length === 1 ? recentVisits[0].propertyName : `${recentVisits.length} homes`} you were at recently, straight to the office.
-            </div>
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>Flag an issue →</span>
+          <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>Spotted something after a visit?</div>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>Create a work slip →</span>
         </Link>
       )}
 
