@@ -337,6 +337,25 @@ function AccessLines({ a }: { a: AccessBundle }) {
   );
 }
 
+/** One alert slot with a real severity, so several messages don't all shout in
+ *  the same red. blocker = you can't proceed (only the account-paused case);
+ *  warn = attention needed but recoverable; info = FYI; office = a note from the
+ *  team. */
+type AlertTone = 'blocker' | 'warn' | 'info' | 'office';
+const ALERT_TONE: Record<AlertTone, React.CSSProperties> = {
+  blocker: { border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.07)', color: 'var(--signal)', borderRadius: 8 },
+  warn: { border: '1px solid #b5791f', background: 'rgba(181,121,31,0.09)', color: '#875a17', borderRadius: 8 },
+  info: { border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', color: 'var(--ink-2)', borderRadius: 8 },
+  office: { borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', color: 'var(--ink)' },
+};
+function Alert({ tone, children }: { tone: AlertTone; children: React.ReactNode }) {
+  return (
+    <div style={{ padding: '12px 16px', fontSize: 14, lineHeight: 1.5, marginBottom: 22, ...ALERT_TONE[tone] }}>
+      {children}
+    </div>
+  );
+}
+
 export default async function PacketPage({
   params,
   searchParams,
@@ -567,43 +586,46 @@ export default async function PacketPage({
 
       {showSupplyStop && <SupplyRunCard run={supplyRun} />}
 
-      {sp.taken && (
-        <div style={{ border: '1px solid var(--rule)', background: 'rgba(0,0,0,0.03)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
-          This packet was just claimed by another inspector. Here are others near you on the{' '}
-          <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
-        </div>
-      )}
+      {/* One prioritized alert region. Only the hard account block is red; the
+          recoverable "do something" messages are amber; an FYI is grey; a team
+          note has its own calm blue style. In practice one of these shows at a
+          time (they're mostly mutually exclusive redirect params). */}
       {sp.blocked && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+        <Alert tone="blocker">
           Claiming is paused on your account while we sort out a few recent jobs. Please reach out to the Rising Tide office.
-        </div>
-      )}
-      {sp.resetblocked && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
-          That inspection already has work in it, so it can&apos;t be reset. Finish it, or call the office and we&apos;ll sort it.
-        </div>
-      )}
-      {sp.incomplete && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
-          Finish every stop before submitting the packet.
-        </div>
+        </Alert>
       )}
       {sp.stale && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
+        <Alert tone="warn">
           A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
-        </div>
+        </Alert>
       )}
       {isMine && packet.status === 'in_progress' && packet.notes && (
-        <div style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 16px', fontSize: 14, marginBottom: 22 }}>
-          <strong style={{ color: 'var(--signal)' }}>Changes requested:</strong>{' '}
-          <span style={{ color: 'var(--ink)' }}>{packet.notes}</span> Please re-do the stops and submit again.
-        </div>
+        <Alert tone="warn">
+          <strong>Changes requested:</strong> <span style={{ color: 'var(--ink)' }}>{packet.notes}</span> Please re-do the stops and submit again.
+        </Alert>
+      )}
+      {sp.resetblocked && (
+        <Alert tone="warn">
+          That inspection already has work in it, so it can&apos;t be reset. Finish it, or call the office and we&apos;ll sort it.
+        </Alert>
+      )}
+      {sp.incomplete && (
+        <Alert tone="warn">
+          Finish every stop before submitting the packet.
+        </Alert>
+      )}
+      {sp.taken && (
+        <Alert tone="info">
+          This packet was just claimed by another inspector. Here are others near you on the{' '}
+          <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
+        </Alert>
       )}
       {isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.instructions && (
-        <div style={{ borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '12px 16px', marginBottom: 22 }}>
+        <Alert tone="office">
           <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 4 }}>From the office</div>
           <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{packet.instructions}</div>
-        </div>
+        </Alert>
       )}
 
       {isMaint && !isMine && (
