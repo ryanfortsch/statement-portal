@@ -349,20 +349,27 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 </>
               )}
               {packet.status === 'submitted' && (
-                <>
-                  <form action={approvePacket} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+                  {/* Approve is the one loud action. The bonus and the send-back
+                      path are each one quiet click so they don't compete with it.
+                      The bonus inputs still post with Approve when filled. */}
+                  <form action={approvePacket} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
-                    {/* Above-and-beyond? Add it right here and it rides the
-                        approval: shows in their portal + approval email. */}
-                    <BonusFields />
+                    <details>
+                      <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
+                      <div style={{ marginTop: 10 }}><BonusFields /></div>
+                    </details>
                   </form>
-                  <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-                    <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
-                  </form>
-                </>
+                  <details>
+                    <summary style={quietSummary}>Send back for changes instead ▾</summary>
+                    <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+                      <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
+                    </form>
+                  </details>
+                </div>
               )}
               {packet.status === 'approved' && !packet.paid_at && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -392,15 +399,21 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
                     <PendingButton label={`Mark paid · ${dollars(packet.posted_price_cents + packet.bonus_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
                   </form>
-                  {/* Decide-later bonus: add or adjust any time before it's paid. */}
-                  <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <BonusFields
-                      defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
-                      defaultReason={packet.bonus_reason}
-                    />
-                    <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
-                  </form>
+                  {/* Decide-later bonus: quiet by default so Mark paid stays the
+                      focus; opens on its own when a bonus is already set. */}
+                  <details open={packet.bonus_cents > 0}>
+                    <summary style={quietSummary}>
+                      {packet.bonus_cents > 0 ? `Bonus: ${dollars(packet.bonus_cents)} — edit ▾` : '+ Add a bonus ▾'}
+                    </summary>
+                    <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <BonusFields
+                        defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
+                        defaultReason={packet.bonus_reason}
+                      />
+                      <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
+                    </form>
+                  </details>
                 </div>
               )}
             </div>
@@ -548,17 +561,19 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         </div>
 
         {events.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Activity</h2>
-            {events.map((e, i) => (
-              <div key={i} style={{ fontSize: 12, color: 'var(--ink-3)', padding: '3px 0' }}>
-                {e.event_type.replace(/_/g, ' ')}
-                {e.actor_email ? ` · ${e.actor_email}` : ''}
-                {' · '}
-                {new Date(e.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-              </div>
-            ))}
-          </div>
+          <details style={{ marginTop: 28 }}>
+            <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>Activity</summary>
+            <div style={{ marginTop: 8 }}>
+              {events.map((e, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--ink-3)', padding: '3px 0' }}>
+                  {e.event_type.replace(/_/g, ' ')}
+                  {e.actor_email ? ` · ${e.actor_email}` : ''}
+                  {' · '}
+                  {new Date(e.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </section>
       <HelmFooter module="Field" right={packet.title} />
