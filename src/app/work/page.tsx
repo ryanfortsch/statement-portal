@@ -2,6 +2,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { fieldDb } from '@/lib/field-db';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { QueueClient } from './QueueClient';
@@ -23,6 +24,7 @@ async function getData(): Promise<{
   properties: PropertyForPicker[];
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
+  reporterNames: Record<string, string>;
 }> {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
@@ -68,6 +70,24 @@ async function getData(): Promise<{
     taskCommentCounts[row.task_id] = (taskCommentCounts[row.task_id] ?? 0) + 1;
   }
 
+  // Resolve the names of field inspectors who reported slips post-visit, so the
+  // board can say "flagged by Delaney". contractors is RLS-locked, so this reads
+  // through the service-role field client, not the anon board client.
+  const reporterNames: Record<string, string> = {};
+  const reporterIds = [
+    ...new Set(
+      [...((ws ?? []) as WorkSlipRow[]), ...((snz ?? []) as WorkSlipRow[])]
+        .map((s) => s.reported_by_contractor_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  if (reporterIds.length > 0) {
+    const { data: reporters } = await fieldDb().from('contractors').select('id, full_name').in('id', reporterIds);
+    for (const r of (reporters ?? []) as Array<{ id: string; full_name: string }>) {
+      reporterNames[r.id] = r.full_name;
+    }
+  }
+
   return {
     workSlips: (ws ?? []) as WorkSlipRow[],
     snoozedSlips: (snz ?? []) as WorkSlipRow[],
@@ -75,12 +95,13 @@ async function getData(): Promise<{
     properties: (ps ?? []) as PropertyForPicker[],
     slipCommentCounts,
     taskCommentCounts,
+    reporterNames,
   };
 }
 
 export default async function WorkQueuePage() {
   const session = await auth();
-  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts } = await getData();
+  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames } = await getData();
   const myEmail = session?.user?.email ?? '';
 
   return (
@@ -95,6 +116,7 @@ export default async function WorkQueuePage() {
         myEmail={myEmail}
         slipCommentCounts={slipCommentCounts}
         taskCommentCounts={taskCommentCounts}
+        reporterNames={reporterNames}
       />
 
       <HelmFooter module="Work Queue" right="Source: Helm" />
