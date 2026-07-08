@@ -157,6 +157,13 @@ export function OnboardingForm({
           <PaymentFields methods={paymentMethods} inputStyle={inputStyle} labelStyle={labelStyle} />
         </div>
 
+        {/* Soft opt-in (default on): let a contractor decide about work texts at
+            setup instead of a later trip to their profile. */}
+        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)', cursor: 'pointer', padding: '0 2px' }}>
+          <input type="checkbox" name="sms_opt_in" defaultChecked style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
+          <span>Text me when new work is posted near me. You can turn this off anytime from your profile.</span>
+        </label>
+
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
           <input type="checkbox" name="agree" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
           <span>I agree to perform inspections as an independent contractor under Rising Tide&apos;s standard terms, and to keep property access details confidential.</span>

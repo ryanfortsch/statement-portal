@@ -244,21 +244,24 @@ export default async function FieldHome({
 
           <JourneyRail activeIndex={activeIndex} failed={failed} />
 
+          {/* The action sits right under the rail so it's one tap, not a scroll
+              past the explainer below. Label matches onboarding's "two quick
+              things" so the rail, button, and next screen tell one story. */}
+          {!setupDone && !failed && (
+            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+              Finish setup: two quick things
+            </Link>
+          )}
+
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
             {failed ? (
               <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2387 and we&apos;ll get it sorted.</>
             ) : setupDone ? (
               <>Your setup is done. We&apos;re getting your background check underway (standard, since you&apos;ll have keys to owners&apos; homes). As soon as it&apos;s running we&apos;ll text and email you, and your first packets open up right here.</>
             ) : (
-              <>You&apos;re invited. Finish your quick setup (W-9, a short agreement, and how you want to be paid) and we&apos;ll get your background check going. Once it&apos;s underway, you can start claiming paid work near you.</>
+              <>The two things: your W-9 and how you want to be paid, plus a short agreement. Once that&apos;s in we&apos;ll get your background check going, and you can start claiming paid work near you.</>
             )}
           </p>
-
-          {!setupDone && !failed && (
-            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 20, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
-              Finish setup
-            </Link>
-          )}
         </div>
 
         {/* Who we are: the lead */}

@@ -50,8 +50,6 @@ export default async function FieldProfilePage() {
       : null;
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
-  const firstName = contractor.full_name.split(' ')[0];
-
   return (
     <FieldShell contractorName={contractor.full_name}>
       <Link href="/field" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Back to work</Link>
@@ -119,19 +117,6 @@ export default async function FieldProfilePage() {
 
       {/* Account */}
       <AccountCard contractor={contractor} />
-
-      {/* New-contractor forward nudge */}
-      {!hasActivity && (
-        <Link
-          href="/field"
-          style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--rule)', borderRadius: 12, padding: '18px 20px', background: 'var(--paper-2, #fff)', marginTop: 4 }}
-        >
-          <div className="font-serif" style={{ fontSize: 18, color: 'var(--ink)' }}>Ready when you are, {firstName}</div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-            Browse the work open near you and claim your first visit. <span style={{ color: 'var(--signal)', fontWeight: 600 }}>See open work →</span>
-          </div>
-        </Link>
-      )}
     </FieldShell>
   );
 }
