@@ -108,6 +108,13 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
             <Field name="parking" label="Parking" defaultValue={p.parking} hint="Garage / Driveway / Street" />
             <Field name="hoa" label="HOA" defaultValue={p.hoa} />
           </Row>
+          <CheckGroup
+            label="Guest gear on-site"
+            hint="Tick what the home already keeps on premises. When a guest asks, we tell them it's here instead of opening a prep slip to bring one."
+          >
+            <CheckField name="has_pack_n_play" label="Pack-n-play" checked={p.has_pack_n_play} />
+            <CheckField name="has_high_chair" label="High chair" checked={p.has_high_chair} />
+          </CheckGroup>
         </Group>
 
         {/* ── Utilities ── */}
@@ -301,6 +308,28 @@ function Field({ name, label, defaultValue, type, step, hint, textarea, id, maxL
   );
 }
 
+/** A labelled cluster of boolean checkboxes (e.g. on-site guest gear). */
+function CheckGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="rt-edit-field">
+      <span className="rt-edit-label">{label}</span>
+      <div className="rt-edit-checks">{children}</div>
+      {hint && <span className="rt-edit-hint">{hint}</span>}
+    </div>
+  );
+}
+
+/** Single checkbox. An unchecked box submits nothing, so the save action
+ *  reads absence as false — no hidden companion input needed. */
+function CheckField({ name, label, checked }: { name: string; label: string; checked: boolean }) {
+  return (
+    <label className="rt-edit-check">
+      <input type="checkbox" name={name} defaultChecked={checked} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
 const editCss = `
   .rt-edit-group { border-top: 1px solid var(--ink); padding-top: 22px; }
   .rt-edit-group-h {
@@ -357,4 +386,19 @@ const editCss = `
   .rt-edit-field input:focus,
   .rt-edit-field textarea:focus { border-color: var(--ink); }
   .rt-edit-hint { font-size: 11px; color: var(--ink-4); font-style: italic; }
+  .rt-edit-checks { display: flex; flex-wrap: wrap; gap: 20px; padding: 2px 0; }
+  .rt-edit-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rt-edit-check input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--signal);
+    cursor: pointer;
+  }
 `;

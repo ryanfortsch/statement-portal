@@ -100,6 +100,11 @@ function numOrNull(formData: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Checkbox coercion: an unchecked box submits nothing, so absence = false. */
+function boolFromCheckbox(formData: FormData, key: string): boolean {
+  return formData.get(key) != null;
+}
+
 /**
  * Update an existing property's operational + safety fields. No-ops on
  * identity columns. Auth-gated by the same Google SSO that protects the
@@ -178,6 +183,10 @@ async function performPropertyUpdate(
     basement: strOrNull(formData, 'basement'),
     parking: strOrNull(formData, 'parking'),
     hoa: strOrNull(formData, 'hoa'),
+
+    // On-site guest gear (drives the approved-gear-request -> work-slip flow).
+    has_pack_n_play: boolFromCheckbox(formData, 'has_pack_n_play'),
+    has_high_chair: boolFromCheckbox(formData, 'has_high_chair'),
 
     // Utilities
     electricity_provider: strOrNull(formData, 'electricity_provider'),

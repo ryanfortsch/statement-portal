@@ -407,6 +407,12 @@ export type HelmPropertyRow = {
   parking: string | null;
   hoa: string | null;
 
+  // On-site guest gear inventory. When the home already keeps one of these,
+  // an approved guest gear request answers "it's already here" instead of
+  // opening a prep slip to bring one (see /api/work-slips + /api/kb-facts).
+  has_pack_n_play: boolean;
+  has_high_chair: boolean;
+
   // Utilities
   electricity_provider: string | null;
   heating: string | null;

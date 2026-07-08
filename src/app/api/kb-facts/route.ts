@@ -37,6 +37,8 @@ type PropertyRow = {
   trash_day: string | null;
   recycling_day: string | null;
   trash_notes: string | null;
+  has_pack_n_play: boolean | null;
+  has_high_chair: boolean | null;
 };
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
@@ -58,7 +60,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes',
+      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair',
     )
     .eq('is_active', true);
   if (error) {
@@ -99,6 +101,10 @@ export async function GET(req: Request) {
       trash_day: clean(p.trash_day),
       recycling_day: clean(p.recycling_day),
       trash_notes: clean(p.trash_notes),
+      // On-site guest gear: lets the AI answer a pack-n-play / high-chair ask
+      // with "it's already in the home" instead of promising to bring one.
+      has_pack_n_play: p.has_pack_n_play === true,
+      has_high_chair: p.has_high_chair === true,
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),
