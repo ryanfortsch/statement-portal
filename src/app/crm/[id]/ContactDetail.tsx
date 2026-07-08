@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactTouchRow, ContactType, TouchChannel } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS, TOUCH_CHANNEL_LABELS, touchSource, TOUCH_SOURCE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
@@ -14,6 +13,7 @@ import {
   deleteContactTouch,
 } from '../actions';
 import { ContactDraftEmailButton } from './ContactDraftEmailButton';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyMini = { id: string; name: string };
 
@@ -26,7 +26,7 @@ type Props = {
 };
 
 export function ContactDetail({ contact, touches, properties, linkedSlips, myEmail }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
     }
     setSavedAt(new Date().toISOString());
     setEditing(false);
-    router.refresh();
+    softRefresh();
   }
 
   async function removeContact() {

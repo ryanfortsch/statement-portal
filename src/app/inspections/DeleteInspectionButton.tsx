@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { deleteInspection } from './actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Per-row delete control for the Recent Inspections list. Two-step inline
@@ -17,7 +17,7 @@ export function DeleteInspectionButton({
   inspectionId: string;
   label: string;
 }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function DeleteInspectionButton({
         setErr(res.error);
         setConfirming(false);
       } else {
-        router.refresh();
+        softRefresh();
       }
     });
   }

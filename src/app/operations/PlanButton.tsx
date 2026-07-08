@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
   guestyReservationId: string;
@@ -30,7 +30,7 @@ export function PlanButton({
   assignedToEmail,
   myEmail,
 }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   // Sensible default: day before check-in
   const defaultDate =
@@ -59,7 +59,7 @@ export function PlanButton({
       setErr(res.error);
     } else {
       setOpen(false);
-      startTransition(() => router.refresh());
+      softRefresh();
     }
   }
 
@@ -74,7 +74,7 @@ export function PlanButton({
         setErr(res.error);
       } else {
         setOpen(false);
-        router.refresh();
+        softRefresh();
       }
     });
   }

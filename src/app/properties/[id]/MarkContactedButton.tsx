@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { markOwnerContacted, type OwnerContactChannel } from '../actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = { propertyId: string };
 
@@ -24,7 +24,7 @@ const CHANNELS: { id: OwnerContactChannel; label: string }[] = [
  * line updates without a manual reload.
  */
 export function MarkContactedButton({ propertyId }: Props) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -51,7 +51,7 @@ export function MarkContactedButton({ propertyId }: Props) {
         return;
       }
       setSavedAt(Date.now());
-      router.refresh();
+      softRefresh();
     });
   }
 

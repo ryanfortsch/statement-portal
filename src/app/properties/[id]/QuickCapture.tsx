@@ -1,12 +1,12 @@
 'use client';
 
 import { useRef, useState, useTransition, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   parsePropertyCaptureAction,
   applyPropertyCaptureAction,
 } from '@/app/properties/actions';
 import { captureColumn, type CaptureItem } from '@/lib/property-capture-catalog';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Quick Capture — the top of the Overview tab. Type or dictate a free-form
@@ -23,7 +23,7 @@ type EditItem = CaptureItem & { include: boolean; _id: number };
 type Phase = 'input' | 'review' | 'done';
 
 export function QuickCapture({ propertyId, propertyName }: { propertyId: string; propertyName: string }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [phase, setPhase] = useState<Phase>('input');
   const [text, setText] = useState('');
   const [items, setItems] = useState<EditItem[]>([]);
@@ -164,7 +164,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       if (!res.ok) { setError(res.error); return; }
       setDoneSummary({ columns: res.columns, notes: res.notes, skipped: res.skipped });
       setPhase('done');
-      router.refresh();
+      softRefresh();
     });
   }
 

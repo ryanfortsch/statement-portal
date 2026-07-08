@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { updateWorkSlipStatus } from '@/app/work/actions';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Inline "Done" control on the property page's Open Work list. Marks the
@@ -11,11 +11,14 @@ import { updateWorkSlipStatus } from '@/app/work/actions';
  * revalidates the work board, this property, and the /properties slip
  * counts — so the slip drops out of every open-work read at once.
  *
- * Two-tap confirm so a stray click doesn't close a slip; router.refresh
- * pulls the revalidated server render once the action returns.
+ * Two-tap confirm so a stray click doesn't close a slip; softRefresh
+ * pulls the revalidated server render once the action returns, wrapped in
+ * a transition so the property page's loading skeleton never swaps in and
+ * yanks scroll to the top (you stay on the slip you just closed and can
+ * knock out the next one in place).
  */
 export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; propertyId: string }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState(false);
@@ -40,7 +43,7 @@ export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; pro
             setConfirming(false);
             return;
           }
-          router.refresh();
+          softRefresh();
         });
       }}
       title="Mark this work slip done"
