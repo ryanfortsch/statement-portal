@@ -546,7 +546,7 @@ export default async function PacketPage({
           reload — arrivals stamped by the door show up within ~20s. */}
       {working && !preview && <AutoRefresh />}
       {working && packet.entry_code && (
-        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.06)', padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'linear-gradient(rgba(58,107,138,0.08), rgba(58,107,138,0.08)), var(--paper)', padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', position: 'sticky', top: 8, zIndex: 20, boxShadow: '0 6px 18px rgba(11,37,69,0.10)' }}>
           <div>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
               Your entry code today
@@ -755,7 +755,7 @@ export default async function PacketPage({
               })()}
               {isMine && occupiedStops.has(s.id) && s.status !== 'complete' && (
                 <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
-                  A guest may be in this home today. Check with the office before you enter.
+                  A guest may be in this home today. Call the office to confirm it&apos;s safe to enter.
                   {/* The safety tap gets a real pill, not 13px inline text. */}
                   <div style={{ marginTop: 8 }}>
                     <a
@@ -770,7 +770,7 @@ export default async function PacketPage({
               {isMine && (codedProps.has(s.property_id) ? (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(46,125,79,0.06)', borderLeft: '3px solid var(--positive, #2e7d4f)' }}>
                   <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    🔒 Smart lock: your code{packet.entry_code ? <> <strong className="font-mono">{packet.entry_code}</strong></> : ''} opens this door.
+                    🔒 Smart lock: your trip code opens this door.
                   </div>
                 </div>
               ) : s.access ? (
@@ -816,11 +816,13 @@ export default async function PacketPage({
                       <form action={undoStartStop} style={{ margin: '8px 0 0', textAlign: 'center' }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
                         <input type="hidden" name="stop_id" value={s.id} />
+                        {/* A real touch target, not a stray 12px link next to the
+                            48px Start button — a gloved thumb shouldn't mis-tap. */}
                         <button
                           type="submit"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px', fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
+                          style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
                         >
-                          Started by accident? Reset this stop
+                          Reset this stop
                         </button>
                       </form>
                     )}
@@ -919,8 +921,8 @@ export default async function PacketPage({
           {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
             <div style={{ fontSize: 14, color: 'var(--positive)' }}>
               {packet.status === 'approved'
-                ? `Approved. ${dollars(packet.posted_price_cents + packet.bonus_cents)} is on the way.`
-                : 'Submitted for review. Thanks!'}
+                ? `Approved. ${dollars(packet.posted_price_cents + packet.bonus_cents)} is on its way. You'll get a receipt the moment it's sent.`
+                : "Submitted for review. We'll message you as soon as it's approved."}
               {packet.status === 'approved' && packet.bonus_cents > 0 && (
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '10px 14px', color: 'var(--ink)', fontSize: 14, lineHeight: 1.5 }}>
                   <strong style={{ color: 'var(--signal)' }}>+ {dollars(packet.bonus_cents)} bonus</strong>
