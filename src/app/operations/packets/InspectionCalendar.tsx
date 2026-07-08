@@ -244,15 +244,18 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
         </div>
       </div>
 
+      {/* Color states in one key; the check-in edge accent is a different kind
+          of mark, so it gets its own line instead of sitting among the fills. */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
         <Swatch bg="rgba(58,107,138,0.16)" label="already out to a contractor" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
         <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 4, height: 14, background: 'var(--signal)' }} /> next check-in
-        </span>
         <Swatch bg="var(--signal)" label="picked" />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
+        <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
+        A red left edge marks the day a guest checks in, the deadline to inspect by.
       </div>
 
       {selectedRows.length > 1 && (
@@ -304,7 +307,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
               {selectedRows.length} selected{area ? ` on ${area}` : ''} · {fmtDay(selDay)}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-              {spread > 0 ? `~${spread < 1 ? '<1' : Math.round(spread)} mi apart · ` : ''}one visit · suggested pay ${suggestedDollars}
+              {spread > 0 ? `~${spread < 1 ? '<1' : Math.round(spread)} mi apart · ` : ''}one visit · suggested pay ${suggestedDollars} · leave blank to use it
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

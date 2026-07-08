@@ -269,7 +269,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         {review.length > 0 && (
           <div style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
-              Review before approving
+              Inspection summary
             </div>
             {review.map((r, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--rule)' : 'none', flexWrap: 'wrap' }}>

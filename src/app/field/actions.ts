@@ -57,6 +57,18 @@ async function logEvent(args: {
   });
 }
 
+/** First real activity on a claimed packet (a stop started, a job completed)
+ *  moves it claimed -> in_progress. Guarded on the current status in the query
+ *  so it's a no-op once already in progress and can never resurrect a
+ *  submitted/approved packet. One place instead of the same block inline. */
+async function advancePacketToInProgress(packetId: string): Promise<void> {
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ status: 'in_progress' })
+    .eq('id', packetId)
+    .eq('status', 'claimed');
+}
+
 /** Finish onboarding: record W9-on-file + the signed agreement and flip the
  *  contractor to active so they can claim. */
 export type OnboardingState = { error: string };
@@ -315,9 +327,7 @@ export async function startStopInspection(formData: FormData) {
       arrival_source: stop.arrived_verified_at ? 'both' : 'self',
     })
     .eq('id', stopId);
-  if (packet.status === 'claimed') {
-    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
-  }
+  await advancePacketToInProgress(packetId);
   await logEvent({
     packetId,
     contractorId: contractor.id,
@@ -453,9 +463,7 @@ export async function completeMaintenanceStop(formData: FormData) {
     })
     .eq('id', stop.work_slip_id);
   await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
-  if (packet.status === 'claimed') {
-    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
-  }
+  await advancePacketToInProgress(packetId);
   await logEvent({
     packetId,
     contractorId: contractor.id,
@@ -520,9 +528,7 @@ export async function completeAttachedSlip(formData: FormData) {
     .update({ status: 'in_progress', resolution_notes: note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
     .eq('id', att.work_slip_id);
   await fieldDb().from('packet_stop_work_slips').update({ completed_at: new Date().toISOString() }).eq('id', attachmentId);
-  if (packet.status === 'claimed') {
-    await fieldDb().from('inspection_packets').update({ status: 'in_progress' }).eq('id', packetId);
-  }
+  await advancePacketToInProgress(packetId);
   await logEvent({
     packetId,
     contractorId: contractor.id,
