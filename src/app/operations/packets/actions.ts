@@ -12,6 +12,7 @@ import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
+import { isAssignableStatus, isPayoutAdjustableStatus } from '@/lib/field-packet-status';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -104,7 +105,7 @@ export async function assignPacket(formData: FormData): Promise<void> {
     .eq('id', packetId)
     .maybeSingle();
   const packet = pkt as { id: string; status: string; trade: string; awarded_contractor_id: string | null } | null;
-  if (!packet || !['published', 'claimed'].includes(packet.status)) return;
+  if (!packet || !isAssignableStatus(packet.status)) return;
   if (packet.awarded_contractor_id === contractorId) return; // no-op
 
   const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
@@ -296,7 +297,7 @@ export async function setPacketBonus(formData: FormData): Promise<void> {
     .eq('id', packetId)
     .maybeSingle();
   const packet = pk as { posted_price_cents: number; status: string; paid_at: string | null } | null;
-  if (!packet || packet.paid_at || !['submitted', 'approved'].includes(packet.status)) return;
+  if (!packet || packet.paid_at || !isPayoutAdjustableStatus(packet.status)) return;
 
   const bonusCents = Math.min(Math.round(bonusDollars * 100), packet.posted_price_cents * 2);
   // Re-guard status AND paid_at on the write itself (the pre-read can race a
@@ -344,7 +345,7 @@ export async function finalizePacketPayout(formData: FormData): Promise<void> {
     .eq('id', packetId)
     .maybeSingle();
   const packet = pk as { posted_price_cents: number; status: string; paid_at: string | null } | null;
-  if (!packet || packet.paid_at || !['submitted', 'approved'].includes(packet.status)) return;
+  if (!packet || packet.paid_at || !isPayoutAdjustableStatus(packet.status)) return;
 
   let finalCents: number | null = null;
   if (raw !== '') {

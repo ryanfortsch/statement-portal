@@ -8,6 +8,7 @@ import { geocodeAddress } from '@/lib/geocode';
 import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
+import { isWorkingStatus } from '@/lib/field-packet-status';
 import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
@@ -346,7 +347,7 @@ export async function startStopInspection(formData: FormData) {
     .maybeSingle();
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -427,7 +428,7 @@ export async function undoStartStop(formData: FormData) {
     .maybeSingle();
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -498,7 +499,7 @@ export async function completeMaintenanceStop(formData: FormData) {
     .maybeSingle();
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -565,7 +566,7 @@ export async function completeAttachedSlip(formData: FormData) {
     .maybeSingle();
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!['claimed', 'in_progress'].includes(packet.status)) redirect(`/field/packet/${packetId}`);
+  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
   // The attachment and its stop must belong to THIS packet (no cross-packet writes).
   const { data: aData } = await fieldDb()

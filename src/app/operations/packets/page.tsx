@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { isLiveStatus, isClosedStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -107,8 +108,8 @@ export default async function PacketsBoard({
     return c ? { name: c.full_name, photoUrl: c.photo_url } : null;
   };
 
-  const live = packets.filter((p) => ['published', 'claimed', 'in_progress', 'submitted'].includes(p.status));
-  const closed = packets.filter((p) => ['approved', 'cancelled'].includes(p.status));
+  const live = packets.filter((p) => isLiveStatus(p.status));
+  const closed = packets.filter((p) => isClosedStatus(p.status));
   // Auto-drafted routine checks for idle homes (and any hand-saved drafts),
   // soonest first — waiting for the operator to publish or dismiss.
   const drafts = packets
@@ -116,7 +117,7 @@ export default async function PacketsBoard({
     .sort((a, b) => a.visit_date.localeCompare(b.visit_date));
 
   const today = todayET();
-  const outToday = packets.filter((p) => p.visit_date === today && (p.status === 'claimed' || p.status === 'in_progress'));
+  const outToday = packets.filter((p) => p.visit_date === today && (isWorkingStatus(p.status)));
   const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
   const awaitingApproval = packets.filter((p) => p.status === 'submitted');
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
@@ -127,7 +128,7 @@ export default async function PacketsBoard({
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
   // the office can watch a visit move stop-by-stop on the board.
-  const trackIds = packets.filter((p) => p.status === 'claimed' || p.status === 'in_progress').map((p) => p.id);
+  const trackIds = packets.filter((p) => isWorkingStatus(p.status)).map((p) => p.id);
   const progress = new Map<string, number>();
   if (trackIds.length) {
     const { data: ps } = await fieldDb().from('packet_stops').select('packet_id, status').in('packet_id', trackIds);
@@ -314,7 +315,7 @@ function DraftRow({ p }: { p: PacketRow }) {
 function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
   const atRisk = p.status === 'claimed' && packetAtRiskET(p.visit_date);
-  const tracking = p.status === 'claimed' || p.status === 'in_progress';
+  const tracking = isWorkingStatus(p.status);
   return (
     <div
       style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, opacity: dim ? 0.6 : 1, flexWrap: 'wrap' }}

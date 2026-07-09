@@ -6,6 +6,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
@@ -419,7 +420,7 @@ export default async function PacketPage({
   // Reveal door/access codes only while the contractor is actively engaged
   // (claimed or in progress) — never after they submit/approve/cancel, so a
   // departed or cancelled inspector can't keep live codes for an owner's home.
-  const canSeeAccess = isMine && (packet.status === 'claimed' || packet.status === 'in_progress');
+  const canSeeAccess = isMine && (isWorkingStatus(packet.status));
   // Addresses reveal the moment the job is theirs (any awarded status); codes are
   // the tighter gate above. Non-mine (browsing) packets stay masked.
   if (isMine) {
@@ -447,7 +448,7 @@ export default async function PacketPage({
   const claimable = !isMine && packet.status === 'published' && canClaim(contractor);
   // While actively working a claimed packet, show it as a job to finish, not an
   // open-ended errand: a progress bar + live per-stop status.
-  const working = isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
+  const working = isMine && (isWorkingStatus(packet.status)) && packet.stops.length > 0;
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
@@ -633,7 +634,7 @@ export default async function PacketPage({
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       )}
-      {isMine && (packet.status === 'claimed' || packet.status === 'in_progress') && packet.instructions && (
+      {isMine && (isWorkingStatus(packet.status)) && packet.instructions && (
         <Alert tone="office">
           <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 4 }}>From the office</div>
           <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{packet.instructions}</div>
