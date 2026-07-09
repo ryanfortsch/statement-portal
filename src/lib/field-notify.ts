@@ -31,6 +31,15 @@ export function fieldBaseUrl(): string {
   ).replace(/\/$/, '');
 }
 
+/** An AUTHENTICATED deep-link to a packet: routes through the magic-link token
+ *  so it works even from a fresh browser with no session cookie yet (Quo's
+ *  in-app browser, a new phone). The token route logs them in, then bounces to
+ *  the packet. A bare /field/packet/<id> would dead-end on the logged-out
+ *  welcome page. */
+function packetLink(portalToken: string, packetId: string): string {
+  return `${fieldBaseUrl()}/field/${portalToken}?next=${encodeURIComponent(`/field/packet/${packetId}`)}`;
+}
+
 function shell(body: string): string {
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;color:#1e2e34;line-height:1.6;">
     <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#c85a3a;font-weight:600;margin-bottom:8px;">Rising Tide Field</div>
@@ -125,7 +134,7 @@ export async function sendClaimConfirmation(
   contractor: ContractorRow,
   packet: PacketRow,
 ): Promise<boolean> {
-  const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
+  const link = packetLink(contractor.portal_token, packet.id);
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
     <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
@@ -293,11 +302,11 @@ export async function renotifyDuePackets(): Promise<number> {
 /** Tell the contractor the office bounced their packet back for fixes — the one
  *  state transition that REQUIRES contractor action, so it can't be silent. */
 export async function sendChangesRequestedEmail(
-  contractor: Pick<ContractorRow, 'email' | 'full_name'>,
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
   packet: Pick<PacketRow, 'id' | 'title'>,
   note: string,
 ): Promise<boolean> {
-  const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
+  const link = packetLink(contractor.portal_token, packet.id);
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Changes requested on ${packet.title}</h1>
     <p>The office needs a few fixes before this packet is approved${note ? `:</p><p style="border-left:3px solid #c85a3a;padding-left:12px;color:#1e2e34;">${note}` : ''}</p>
@@ -331,7 +340,7 @@ export async function remindClaimedVisitsToday(): Promise<number> {
     if (!cc?.phone) continue;
     const to = cc.phone.startsWith('+') ? cc.phone : `+1${normalizePhone(cc.phone)}`;
     try {
-      await sendMessage({ from, to, content: `Rising Tide Field: your visit is today — ${p.title}. ${fieldBaseUrl()}/field/packet/${p.id}` });
+      await sendMessage({ from, to, content: `Rising Tide Field: your visit is today — ${p.title}. ${packetLink(cc.portal_token, p.id)}` });
       sent++;
     } catch {
       // swallow per-contractor send errors
