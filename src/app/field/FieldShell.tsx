@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { signOutField } from './actions';
 import { RyanContact } from './RyanContact';
+import { FieldNav } from './FieldNav';
 
 /**
  * Standalone shell for the contractor portal. Deliberately NOT the Helm
@@ -11,10 +12,12 @@ export function FieldShell({
   children,
   contractorName,
   showSignOut = true,
+  showNav = true,
 }: {
   children: React.ReactNode;
   contractorName?: string | null;
   showSignOut?: boolean;
+  showNav?: boolean;
 }) {
   return (
     <div
@@ -31,7 +34,7 @@ export function FieldShell({
           gap: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <Link href="/field" style={{ display: 'flex', alignItems: 'baseline', gap: 10, textDecoration: 'none', color: 'inherit' }}>
           <span
             className="font-serif"
             style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em' }}
@@ -49,7 +52,7 @@ export function FieldShell({
           >
             Field
           </span>
-        </div>
+        </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {contractorName && (
             <Link
@@ -82,6 +85,7 @@ export function FieldShell({
           )}
         </div>
       </header>
+      {contractorName && showNav && <FieldNav />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>
