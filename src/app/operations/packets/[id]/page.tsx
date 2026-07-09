@@ -14,6 +14,7 @@ import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type Pack
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
+import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
 import { FinalPayoutField } from './FinalPayoutField';
@@ -103,11 +104,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
     : null;
 
   const editable = packet.status === 'draft';
-  const isLive = ['published', 'claimed', 'in_progress', 'submitted'].includes(packet.status);
+  const isLive = isLiveStatus(packet.status);
 
   // Attaching work slips + instructions is allowed any time the packet is still
   // live (incl. after a contractor claims it); locked once submitted/closed.
-  const attachEditable = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
+  const attachEditable = isAttachableStatus(packet.status);
   const attachableByStop = attachEditable
     ? await Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
     : packet.stops.map(() => []);
@@ -121,7 +122,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   };
   type PoolMember = { id: string; full_name: string; tier: ReliabilityTier; score: number | null; miles: number | null; inRadius: boolean; hasPhone: boolean };
   let assignable: PoolMember[] = [];
-  if (packet.status === 'published' || packet.status === 'claimed') {
+  if (isAssignableStatus(packet.status)) {
     const [{ data: cData }, reliability] = await Promise.all([
       fieldDb()
         .from('contractors')
@@ -153,7 +154,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const showCoverage = packet.status === 'published' && !packet.awarded_contractor_id;
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
-  const tracking = (packet.status === 'claimed' || packet.status === 'in_progress') && packet.stops.length > 0;
+  const tracking = isWorkingStatus(packet.status) && packet.stops.length > 0;
 
   // Finalize-payout inputs (submitted / approved-unpaid): the same pricing
   // formula re-run on ACTUAL minutes on site, as a decision aid. Estimate =
@@ -486,7 +487,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           {/* Quiet utilities — rarely used, so they whisper. */}
           {isLive && (
             <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 14 }}>
-              {(packet.status === 'published' || packet.status === 'claimed') && assignable.length > 0 && (
+              {(isAssignableStatus(packet.status)) && assignable.length > 0 && (
                 <details style={{ position: 'relative' }}>
                   <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
                   <div style={menuCard}>
