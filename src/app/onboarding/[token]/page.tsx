@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 import type { HelmPropertyRow } from '@/lib/properties';

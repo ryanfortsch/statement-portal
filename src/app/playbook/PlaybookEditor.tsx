@@ -9,8 +9,8 @@ import {
   categoryLabel,
   type PlaybookEntryRow,
   type PlaybookStatus,
-  type PropertyOption,
 } from '@/lib/playbook';
+import type { PropertyOption } from '@/lib/playbook-properties';
 import { createEntry, updateEntry } from './actions';
 
 const FIELD: CSSProperties = {

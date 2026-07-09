@@ -6,7 +6,7 @@ import { Section } from '@/components/Section';
 import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { ArchiveTrigger } from './ArchiveTrigger';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { auth } from '@/auth';
 import { suppliesLabel } from '@/lib/inspection-supplies';

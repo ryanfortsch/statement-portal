@@ -26,7 +26,7 @@
  * with no forward bookings at all fall back to the portfolio average.
  */
 
-import { supabase } from './supabase';
+import { supabaseAdmin as supabase } from './supabase-admin';
 import {
   HISTORICAL_AVG_RECENT,
   GLOUCESTER_REVENUE_SEASONALITY,

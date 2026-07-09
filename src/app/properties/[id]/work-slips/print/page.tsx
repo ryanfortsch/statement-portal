@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';

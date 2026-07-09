@@ -13,7 +13,7 @@ import {
   listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
 import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {

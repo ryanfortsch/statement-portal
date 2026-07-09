@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { loadOwnerConfig, loadTaxCerts } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
@@ -1780,18 +1781,10 @@ function DashboardContent() {
   // without a code change. Keyed by property_id.
   const [ownerCfg, setOwnerCfg] = useState<Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }>>({});
   const loadOwnerCfg = useCallback(async () => {
-    const { data } = await supabase
-      .from('properties')
-      .select('id, name, owner_greeting, owner_full, owner_emails');
-    const map: Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }> = {};
-    (data || []).forEach((r: { id: string; name: string | null; owner_greeting: string | null; owner_full: string | null; owner_emails: string[] | null }) => {
-      map[r.id] = {
-        name: r.name || '',
-        owner_greeting: r.owner_greeting || '',
-        owner_full: r.owner_full || '',
-        owner_emails: Array.isArray(r.owner_emails) ? r.owner_emails : [],
-      };
-    });
+    // Owner emails/names are PII -- fetched server-side (service role) rather
+    // than read directly off the anon key from the browser. See
+    // src/app/statements/actions.ts.
+    const map = await loadOwnerConfig();
     setOwnerCfg(map);
   }, []);
   // DB-first owner config for a property. When the DB row exists it wins
@@ -2261,13 +2254,11 @@ function DashboardContent() {
       // DB-backed tax cert lookup. The /properties/[id] page now lets the
       // operator edit tax_cert_id in place, so the DB is authoritative;
       // lib/properties.ts stays as a fallback for properties that haven't
-      // been touched in the UI yet.
+      // been touched in the UI yet. Fetched server-side (service role) --
+      // tax_cert_id is business/financial data, not anon-key readable.
       const propIds = props.map(p => p.property_id);
-      const { data: certRows } = propIds.length
-        ? await supabase.from('properties').select('id, tax_cert_id').in('id', propIds)
-        : { data: [] as Array<{ id: string; tax_cert_id: string | null }> };
-      const certByPid = new Map<string, string | null>();
-      (certRows || []).forEach(r => certByPid.set(r.id, r.tax_cert_id));
+      const certMap = await loadTaxCerts(propIds);
+      const certByPid = new Map<string, string | null>(Object.entries(certMap));
 
       const rows = props.map(p => {
         let taxToRemit = 0;

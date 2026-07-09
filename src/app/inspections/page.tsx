@@ -4,7 +4,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { startInspection } from './actions';
 import { DeleteInspectionButton } from './DeleteInspectionButton';
 

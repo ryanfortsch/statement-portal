@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   renderPropertyPdf,
   propertyPdfFilename,
@@ -22,13 +22,12 @@ export const maxDuration = 60;
 
 const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card'];
 
-let _sb: SupabaseClient | null = null;
-function getSupabase(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  _sb = createClient(url, key);
-  return _sb;
+// Was a hand-rolled client that fell back to the anon key when
+// SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
+// singleton instead, so a missing env var fails loudly rather than silently
+// downgrading to the (soon to be locked down) anon key.
+function getSupabase() {
+  return supabaseAdmin;
 }
 
 export async function GET(request: NextRequest) {

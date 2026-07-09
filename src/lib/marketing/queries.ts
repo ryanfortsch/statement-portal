@@ -8,7 +8,7 @@
 // that site_id. Top-N tables are summed by their dimension(s) over the
 // window, then sorted desc and sliced.
 
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { findScaListingByGuestyId } from '@/lib/sca-listings';
 
 export type SiteFilter = 'all' | string;

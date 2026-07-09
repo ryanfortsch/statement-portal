@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { loadPropertyDeckItemIds } from '@/lib/inspection-cards';
 import type { HelmPropertyRow } from '@/lib/properties';

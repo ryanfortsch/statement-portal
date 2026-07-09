@@ -14,7 +14,7 @@ import {
   listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';

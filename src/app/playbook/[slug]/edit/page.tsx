@@ -2,7 +2,8 @@ import { auth } from '@/auth';
 import { notFound, redirect } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { getPlaybookEntryBySlug, getPropertyOptions } from '@/lib/playbook';
+import { getPlaybookEntryBySlug } from '@/lib/playbook';
+import { getPropertyOptions } from '@/lib/playbook-properties';
 import { PlaybookEditor } from '../../PlaybookEditor';
 
 export const dynamic = 'force-dynamic';

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { buildIcalExport } from '@/lib/ical-export';
 import type { Booking } from '@/lib/channels-types';
 
@@ -22,11 +22,12 @@ export async function GET(
   const { token } = await params;
   if (!token) return new NextResponse('Not found', { status: 404 });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return new NextResponse('Server misconfigured', { status: 500 });
-
-  const sb = createClient(url, key, { auth: { persistSession: false } });
+  // Was a hand-rolled client that fell back to the anon key when
+  // SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
+  // singleton, so a missing env var fails loudly rather than silently
+  // downgrading to the (soon to be locked down) anon key.
+  if (!isServiceConfigured) return new NextResponse('Server misconfigured', { status: 500 });
+  const sb = supabaseAdmin;
 
   const { data: prop, error: propErr } = await sb
     .from('properties')
