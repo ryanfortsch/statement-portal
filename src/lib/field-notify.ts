@@ -128,7 +128,7 @@ export async function sendClaimConfirmation(
   const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
-    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
+    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>${packet.complete_by ? `, to be <strong>completed by ${fmtVisitTime(packet.complete_by)}</strong>` : ''}. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({

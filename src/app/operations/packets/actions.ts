@@ -154,6 +154,25 @@ export async function setPacketVisitDate(formData: FormData): Promise<void> {
 }
 
 
+/** Set (or clear) the packet's hard completion deadline (time-of-day, ET on the
+ *  visit day). Unlike the start time, this is settable AFTER claim: a deadline
+ *  is exactly what the office adjusts once someone's on the hook. An empty or
+ *  malformed value clears it. Shown to the inspector; feeds the at-risk flag. */
+export async function setPacketCompleteBy(formData: FormData): Promise<void> {
+  await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  if (!packetId) return;
+  const raw = String(formData.get('complete_by') || '').trim();
+  const completeBy = /^\d{2}:\d{2}$/.test(raw) ? raw : null; // <input type=time> gives HH:MM; anything else clears
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ complete_by: completeBy, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .in('status', ['draft', 'published', 'claimed', 'in_progress']);
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
 /** Create (and optionally publish) a property-SETUP packet: staging a new home
  *  for photos + outfitting it for operations. Publishing texts the inspection
  *  contractors like any other packet. */

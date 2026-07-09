@@ -111,6 +111,10 @@ export type PacketRow = {
   visit_date: string;
   /** Optional start time (HH:MM:SS). Null = anytime that day. */
   visit_time: string | null;
+  /** Optional hard completion deadline (HH:MM:SS, ET on the visit day). Null =
+   *  no deadline. Distinct from visit_time: this is "must be done by", shown to
+   *  the inspector and used by the board's at-risk flag. */
+  complete_by: string | null;
   window_start: string;
   window_end: string;
   centroid_lat: number | null;

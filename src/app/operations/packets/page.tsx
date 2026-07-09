@@ -4,7 +4,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
-import { dollars, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { dollars, fmtVisitTime, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isClosedStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -33,6 +33,27 @@ function hourET(): number {
 function packetAtRiskET(visitDate: string): boolean {
   const days = daysUntilET(visitDate);
   return days < 0 || (days === 0 && hourET() >= 13);
+}
+/** Current wall-clock in ET as "HH:MM", for comparing against a complete_by. */
+function nowHmET(): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+}
+/** True once we're past the packet's hard deadline (visit day + complete_by, ET).
+ *  Any prior day is past; the visit day compares the clock; a future day is not. */
+function pastCompleteByET(p: PacketRow): boolean {
+  if (!p.complete_by) return false;
+  const days = daysUntilET(p.visit_date);
+  if (days < 0) return true;
+  if (days > 0) return false;
+  return nowHmET() > p.complete_by.slice(0, 5);
+}
+/** At risk = a live, unsubmitted packet that's slipping. With a hard deadline set,
+ *  that means past the deadline (started or not). Without one, fall back to the
+ *  claimed-but-never-started-past-1pm heuristic. */
+function packetAtRisk(p: PacketRow): boolean {
+  if (p.submitted_at || (p.status !== 'claimed' && p.status !== 'in_progress')) return false;
+  if (p.complete_by) return pastCompleteByET(p);
+  return p.status === 'claimed' && packetAtRiskET(p.visit_date);
 }
 
 function statusChip(status: string): { label: string; bg: string; color: string } {
@@ -123,7 +144,7 @@ export default async function PacketsBoard({
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
   // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
-  const atRiskPackets = packets.filter((p) => p.status === 'claimed' && packetAtRiskET(p.visit_date));
+  const atRiskPackets = packets.filter(packetAtRisk);
   const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
@@ -187,7 +208,7 @@ export default async function PacketsBoard({
         {hasBrief && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
             {atRiskPackets.length > 0 && (
-              <TodayStat n={atRiskPackets.length} label="at risk · not started" tone="#c0392b" />
+              <TodayStat n={atRiskPackets.length} label="at risk" tone="#c0392b" />
             )}
             {outToday.length > 0 && (
               <TodayStat n={outToday.length} label="out today" sub={`${startedToday} started`} tone="var(--tide-deep)" />
@@ -314,7 +335,8 @@ function DraftRow({ p }: { p: PacketRow }) {
 
 function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
   const c = statusChip(p.status);
-  const atRisk = p.status === 'claimed' && packetAtRiskET(p.visit_date);
+  const atRisk = packetAtRisk(p);
+  const overdue = pastCompleteByET(p);
   const tracking = isWorkingStatus(p.status);
   return (
     <div
@@ -334,13 +356,14 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
         )}
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
+          {p.complete_by ? ` · due ${fmtVisitTime(p.complete_by)}` : ''}
           {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
         </div>
       </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
         {atRisk ? (
           <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: 'rgba(192,57,43,0.14)', color: '#c0392b', whiteSpace: 'nowrap' }}>
-            At risk · not started
+            {overdue ? `Overdue · was due ${fmtVisitTime(p.complete_by)}` : 'At risk · not started'}
           </span>
         ) : (
           <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
