@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy } from '../actions';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -183,6 +183,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{packet.title}</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span>{fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · ${fmtVisitTime(packet.visit_time)}` : ''} · {packet.stop_count} stops</span>
+              {packet.complete_by && (
+                <>
+                  <span>·</span>
+                  <span style={{ color: 'var(--signal)', fontWeight: 600 }}>done by {fmtVisitTime(packet.complete_by)}</span>
+                </>
+              )}
               {packet.contractor && (
                 <>
                   <span>·</span>
@@ -528,6 +534,25 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} title="Optional start time; leave blank for anytime that day" style={{ ...priceInput, width: 110 }} />
                       <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
                     </form>
+                  </div>
+                </details>
+              )}
+              {attachEditable && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Complete by ▾</summary>
+                  <div style={menuCard}>
+                    <form action={setPacketCompleteBy} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} title="Deadline shown to the inspector; flags them late on the board if missed" style={{ ...priceInput, width: 110 }} />
+                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                    </form>
+                    {packet.complete_by && (
+                      <form action={setPacketCompleteBy} style={{ margin: '6px 0 0' }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <input type="hidden" name="complete_by" value="" />
+                        <PendingButton label="Clear deadline" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                      </form>
+                    )}
                   </div>
                 </details>
               )}

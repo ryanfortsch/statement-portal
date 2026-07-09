@@ -525,7 +525,7 @@ export default async function PacketPage({
           wrapper out of layout. */}
       <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
-        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}
+        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
@@ -586,6 +586,11 @@ export default async function PacketPage({
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
               {packet.stops.length === 1 ? 'Opens the door on this job.' : 'Works at every stop.'}
             </div>
+            {packet.complete_by && (
+              <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 5 }}>
+                Complete by {fmtVisitTime(packet.complete_by)}
+              </div>
+            )}
           </div>
           {/* Tap-to-copy like every other code — this is the one the inspector
               actually punches at every keypad, at peak stress. */}
