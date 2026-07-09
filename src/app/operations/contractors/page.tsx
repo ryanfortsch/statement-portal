@@ -137,6 +137,15 @@ export default async function ContractorsPage({
   ranked.forEach((c, i) => rankMap.set(c.id, i + 1));
   const ordered = [...ranked, ...contractors.filter((c) => !rankMap.has(c.id))];
 
+  // Active contractors still missing a W-9 (same on-file test the card uses:
+  // an in-app W-9 or the books flag). The recurring pre-1099 chore, surfaced as
+  // one workspace instead of hunting card to card.
+  const needsW9 = ordered.filter((c) => {
+    if (c.status !== 'active') return false;
+    const hasW9 = w9s.has(c.id) || !!booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))?.w9;
+    return !hasW9;
+  });
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="field" />
@@ -180,6 +189,33 @@ export default async function ContractorsPage({
           </label>
           <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
         </form>
+
+        {/* W-9 workspace: clear the recurring pre-1099 chore in one place. */}
+        {needsW9.length > 0 && (
+          <div style={{ border: '1px solid var(--signal)', borderRadius: 12, background: 'rgba(200,90,58,0.05)', padding: '14px 18px', marginBottom: 20 }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
+              W-9 needed · {needsW9.length}
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: '0 0 12px', lineHeight: 1.5 }}>
+              Active {meta.label.toLowerCase()} without a W-9 on file. You need one before issuing a 1099 — mark each as you collect it.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {needsW9.map((c) => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.full_name}</span>
+                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}> · {c.email}</span>
+                  </div>
+                  <form action={setContractorW9} style={{ margin: 0 }}>
+                    <input type="hidden" name="contractor_id" value={c.id} />
+                    <input type="hidden" name="on_file" value="true" />
+                    <SubmitButton label="Mark on file" busyLabel="Marking…" style={actBtn} spinnerTone="ink" />
+                  </form>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {contractors.length === 0 ? (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No {meta.label.toLowerCase()} yet.</p>
@@ -406,10 +442,6 @@ function ContractorCard({
             <span style={{ color: 'var(--signal)' }}>not on file</span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-          <span>Portal link</span>
-          <CopyCode value={`${base}/field/${c.portal_token}`} mono />
-        </div>
       </div>
 
       {/* Actions */}
@@ -427,6 +459,9 @@ function ContractorCard({
             ))}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {/* Their portal link, first-class next to the other row actions
+              (was buried in the quiet compliance strip below). */}
+          <CopyCode value="Copy portal link" copyValue={`${base}/field/${c.portal_token}`} mono={false} />
           {c.status === 'active' && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
