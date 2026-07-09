@@ -21,7 +21,7 @@ export default async function OnboardingPage() {
   if (onboardingComplete(contractor)) redirect('/field');
 
   return (
-    <FieldShell contractorName={contractor.full_name}>
+    <FieldShell contractorName={contractor.full_name} showNav={false}>
       <div style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 8 }}>
         Set up your account
       </div>

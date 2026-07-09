@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
@@ -52,7 +51,6 @@ export default async function FieldProfilePage() {
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <Link href="/field" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Back to work</Link>
 
       {/* Hero */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 20, margin: '16px 0 26px', flexWrap: 'wrap' }}>
