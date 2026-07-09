@@ -663,12 +663,12 @@ export async function requestChanges(formData: FormData): Promise<void> {
     if (row.awarded_contractor_id) {
       const { data: c } = await fieldDb()
         .from('contractors')
-        .select('email, full_name')
+        .select('email, full_name, portal_token')
         .eq('id', row.awarded_contractor_id)
         .maybeSingle();
       if (c) {
         await sendChangesRequestedEmail(
-          c as { email: string; full_name: string },
+          c as { email: string; full_name: string; portal_token: string },
           { id: row.id, title: row.title },
           note,
         ).catch(() => {});
