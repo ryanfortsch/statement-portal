@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, isConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import { getPropertyAccessMap } from '@/lib/property-access';
 
 /**

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import type {

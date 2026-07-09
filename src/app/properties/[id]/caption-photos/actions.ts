@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getListingPhotos, updatePhotoCaption } from '@/lib/guesty';
 import { generatePhotoCaptions, cleanCaption, type PhotoCaptionDraft } from '@/lib/ai/photo-captions';
 

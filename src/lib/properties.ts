@@ -156,7 +156,12 @@ export function getProperty(id: string): Property | undefined {
  * the new property automatically.
  */
 export async function getActivePropertiesForStatements(): Promise<Property[]> {
-  const { supabase, isConfigured } = await import('@/lib/supabase');
+  // Dynamic import (not a top-level one) on purpose: this module is also
+  // imported by client components for the static PROPERTIES const, and a
+  // top-level service-role import would risk bundling it into the browser.
+  // owner_full/owner_greeting/owner_emails/bank_last4/tax_cert_id are PII +
+  // financial data -- service role, not the anon key.
+  const { supabaseAdmin: supabase, isServiceConfigured: isConfigured } = await import('@/lib/supabase-admin');
   if (!isConfigured) return Object.values(PROPERTIES);
   const { data, error } = await supabase
     .from('properties')
@@ -197,7 +202,10 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
  *  Used by the statement renderer to hydrate `property_id → Property`
  *  without pulling every active row. */
 export async function getActivePropertyForStatements(id: string): Promise<Property | null> {
-  const { supabase, isConfigured } = await import('@/lib/supabase');
+  // Same reasoning as getActivePropertiesForStatements above: dynamic import
+  // of the service-role client, not a top-level one, to keep it out of the
+  // client bundle this module is also part of.
+  const { supabaseAdmin: supabase, isServiceConfigured: isConfigured } = await import('@/lib/supabase-admin');
   if (!isConfigured) return PROPERTIES[id] ?? null;
   const { data, error } = await supabase
     .from('properties')

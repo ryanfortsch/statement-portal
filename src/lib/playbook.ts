@@ -31,8 +31,6 @@ export type PlaybookRevisionRow = {
   created_at: string;
 };
 
-export type PropertyOption = { id: string; name: string };
-
 // ── Categories ───────────────────────────────────────────────────────────────
 // Free text in the database for flexibility, but the editor offers this curated
 // set so the list groups cleanly. Add one here and it shows up in the picker; no
@@ -146,12 +144,3 @@ export async function getEntryRevisions(entryId: string): Promise<PlaybookRevisi
   return (data ?? []) as PlaybookRevisionRow[];
 }
 
-export async function getPropertyOptions(): Promise<PropertyOption[]> {
-  if (!isConfigured) return [];
-  const { data, error } = await supabase
-    .from('properties')
-    .select('id, name')
-    .order('name');
-  if (error) return [];
-  return (data ?? []) as PropertyOption[];
-}

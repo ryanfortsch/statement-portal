@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import {
   HOME_GUIDE_CATALOG,

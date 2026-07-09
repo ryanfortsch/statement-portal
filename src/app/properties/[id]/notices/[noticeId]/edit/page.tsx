@@ -4,7 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { NoticeEditorForm } from '@/components/properties/NoticeEditorForm';
 import { DeletePropertyNoticeButton } from '@/components/properties/DeletePropertyNoticeButton';
 import { updatePropertyNotice, deletePropertyNotice } from '@/app/properties/actions';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { getPropertyNotice } from '@/lib/property-notices';
 import type { HelmPropertyRow } from '@/lib/properties';
 

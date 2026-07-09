@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { generateListingCopy, type ListingCopy, type ListingCopyFormat } from '@/lib/ai/listing-copy';
 

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { auth } from '@/auth';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { deriveStripeAccountKey, type ScaFormDraft, type ScaLaunchRow } from '@/lib/sca-launch';
 import { isGithubConfigured } from '@/lib/github';

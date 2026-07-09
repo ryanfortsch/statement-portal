@@ -7,7 +7,7 @@ import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
-import { supabase } from '@/lib/supabase';
+import { loadActiveProperties } from './actions';
 import { PROPERTIES } from '@/lib/properties';
 
 type PropertyOption = { id: string; name: string; owner: string; location: string };
@@ -446,21 +446,11 @@ function UploadPageInner() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('properties')
-        .select('id, name, owner_last, city')
-        .eq('is_active', true)
-        .order('name');
-      if (cancelled || error || !data) return;
-      const rows = data as Array<{ id: string; name: string; owner_last: string | null; city: string | null }>;
-      setProperties(rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        owner: r.owner_last ?? '',
-        // city is stored as "Gloucester, MA" — keep just the town label
-        // for the option display, matching the legacy hardcoded shape.
-        location: (r.city ?? '').split(',')[0].trim(),
-      })));
+      // Fetched server-side (service role): owner_last is owner PII, not
+      // anon-key readable. See src/app/statements/upload/actions.ts.
+      const rows = await loadActiveProperties();
+      if (cancelled || rows === null) return;
+      setProperties(rows);
     })();
     return () => { cancelled = true; };
   }, []);

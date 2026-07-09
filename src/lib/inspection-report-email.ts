@@ -6,7 +6,7 @@
  * shared `ALWAYS_CC` list; never throws — failures are logged and swallowed
  * so completion never blocks on email delivery.
  */
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import { ALWAYS_CC } from '@/lib/properties';
 import type {

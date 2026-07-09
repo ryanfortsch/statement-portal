@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { TaskRow, TaskCommentRow } from '@/lib/work-types';
 import { TaskDetail } from './TaskDetail';
 

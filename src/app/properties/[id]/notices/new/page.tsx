@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { NoticeEditorForm } from '@/components/properties/NoticeEditorForm';
 import { createPropertyNotice } from '@/app/properties/actions';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 export const dynamic = 'force-dynamic';

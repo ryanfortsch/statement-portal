@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { upsertPropertyAccess } from '@/lib/property-access';
 import type {
   OnboardingData,

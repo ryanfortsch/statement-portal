@@ -7,8 +7,8 @@ import {
   categoryLabel,
   excerptFor,
   type PlaybookEntryRow,
-  type PropertyOption,
 } from '@/lib/playbook';
+import type { PropertyOption } from '@/lib/playbook-properties';
 import { displayNameForEmail } from '@/lib/team';
 
 function formatShortDate(iso: string): string {

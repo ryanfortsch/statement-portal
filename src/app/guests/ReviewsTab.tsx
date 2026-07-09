@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Stat } from '@/components/Stat';
-import { isConfigured as isHelmConfigured, supabase } from '@/lib/supabase';
+import { isServiceConfigured as isHelmConfigured, supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   getReviewWindowStats,
   listReviews,

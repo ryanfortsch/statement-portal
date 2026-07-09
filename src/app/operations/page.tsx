@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
 import { lifecycleOf, STAGE_HUES } from './turnover-format';

@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import { resolveGuestyListingId } from '@/lib/guesty-listing-id';
 import {

@@ -2,7 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { getPropertyOptions } from '@/lib/playbook';
+import { getPropertyOptions } from '@/lib/playbook-properties';
 import { PlaybookEditor } from '../PlaybookEditor';
 
 export const dynamic = 'force-dynamic';

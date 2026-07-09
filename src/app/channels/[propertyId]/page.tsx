@@ -7,7 +7,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { CopyableUrl } from '../listings/CopyableUrl';
 import { listBookings, listChannelListings, listPropertyExportTokens } from '@/lib/channels';
 import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type Booking, type BookingChannel, type ChannelListing } from '@/lib/channels-types';
-import { supabase as helmSb, isConfigured as helmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as helmSb, isServiceConfigured as helmConfigured } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
 

@@ -7,10 +7,10 @@ import { Markdown } from '@/components/Markdown';
 import {
   getPlaybookEntryBySlug,
   getEntryRevisions,
-  getPropertyOptions,
   categoryLabel,
   STATUS_LABELS,
 } from '@/lib/playbook';
+import { getPropertyOptions } from '@/lib/playbook-properties';
 import { displayNameForEmail } from '@/lib/team';
 import { DeleteEntryButton } from './DeleteEntryButton';
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, isConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 
 /**
  * Outbound sync endpoint: returns the structured owners for every active

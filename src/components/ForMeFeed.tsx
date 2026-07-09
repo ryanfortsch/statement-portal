@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
 import { FeedClearButton } from '@/components/FeedClearButton';

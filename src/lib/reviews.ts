@@ -11,7 +11,7 @@
  *   review_created_at, synced_at
  */
 
-import { supabase, isConfigured } from './supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from './supabase-admin';
 
 export type ReviewRow = {
   id: string;

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
 import {
   WORK_SLIP_CATEGORY_LABELS,
