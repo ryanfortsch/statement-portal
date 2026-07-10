@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
 import { TeamPicker } from '@/components/TeamPicker';
-import { displayNameForEmail } from '@/lib/team';
+import { displayNameForEmail, getTeamMember } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
@@ -17,6 +17,12 @@ type Props = {
   plannedBy: string | null;
   assignedToEmail: string | null;
   myEmail: string;
+  /** 'chip' (default): the dashed "Planned Jul 10 · Ryan" line used in the
+   *  expanded affordances. 'byline': the collapsed action-column credit —
+   *  just the assignee's full name in the same serif-italic register as a
+   *  Field contractor's name, so every delegated-or-planned walk reads as
+   *  a person at a glance. Both open the same editor modal. */
+  variant?: 'chip' | 'byline';
 };
 
 export function PlanButton({
@@ -29,6 +35,7 @@ export function PlanButton({
   plannedBy,
   assignedToEmail,
   myEmail,
+  variant = 'chip',
 }: Props) {
   const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
@@ -92,6 +99,25 @@ export function PlanButton({
         inspectorLabel ? `Inspector: ${inspectorLabel}` : null,
         'Click to edit',
       ].filter(Boolean).join(' · ');
+      if (variant === 'byline') {
+        // Collapsed-row credit: the person's FULL name (matching how a Field
+        // contractor reads), or "Planned Jul 10" when nobody's assigned yet.
+        const fullName = assignedToEmail
+          ? getTeamMember(assignedToEmail)?.name ?? displayNameForEmail(assignedToEmail)
+          : null;
+        return (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="rt-tn-field"
+            title={`Planned ${formatShort(plannedForDate)} · ${fullName ?? 'unassigned'} · click to edit`}
+          >
+            <span className="rt-tn-field-p" style={{ color: 'var(--tide-deep)' }}>
+              {fullName ?? `Planned ${formatShort(plannedForDate)}`}
+            </span>
+          </button>
+        );
+      }
       return (
         <button
           type="button"
