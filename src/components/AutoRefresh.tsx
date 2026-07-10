@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
  * Quiet live-ness for a force-dynamic server page: re-fetches the RSC payload
@@ -11,20 +11,20 @@ import { useRouter } from 'next/navigation';
  * (an in-flight packet), so idle pages don't poll.
  */
 export function AutoRefresh({ intervalMs = 20000 }: { intervalMs?: number }) {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
   useEffect(() => {
     const tick = () => {
-      if (!document.hidden) router.refresh();
+      if (!document.hidden) softRefresh();
     };
     const t = setInterval(tick, intervalMs);
     const onVisible = () => {
-      if (!document.hidden) router.refresh();
+      if (!document.hidden) softRefresh();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [router, intervalMs]);
+  }, [softRefresh, intervalMs]);
   return null;
 }

@@ -59,7 +59,7 @@ export function ContractorMessagingQueue({ initialPending, properties }: Props) 
             key={approval.id}
             approval={approval}
             properties={properties}
-            onResolved={() => router.refresh()}
+            onResolved={softRefresh}
           />
         ))}
       </div>
