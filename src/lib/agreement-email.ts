@@ -36,9 +36,9 @@ function firstName(name: string | null | undefined): string {
 }
 
 const AFFILIATION_FOOT_HTML =
-  '<p style="margin-top: 28px; color: #506068; font-size: 12px;">Stay Cape Ann is the guest-facing brand of Rising Tide Property Management (Rising Tide STR, LLC). Charges may appear on your statement from Rising Tide STR.</p>';
+  '<p style="margin-top: 28px; color: #506068; font-size: 12px;">Stay Cape Ann is the guest-facing brand of Rising Tide (Rising Tide STR, LLC). Charges may appear on your statement from Rising Tide STR.</p>';
 const AFFILIATION_FOOT_TEXT =
-  'Stay Cape Ann is the guest-facing brand of Rising Tide Property Management (Rising Tide STR, LLC). Charges may appear on your statement from Rising Tide STR.';
+  'Stay Cape Ann is the guest-facing brand of Rising Tide (Rising Tide STR, LLC). Charges may appear on your statement from Rising Tide STR.';
 
 /**
  * Fetch the agreement PDF through /api/agreement-pdf over HTTP — same
@@ -85,11 +85,11 @@ export async function sendAgreementLinkEmail(args: {
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; font-size: 15px; line-height: 1.6; color: #1e2e34; max-width: 560px;">
       <p>Hi ${greeting},</p>
       <p>Here is the rental agreement for your stay at <strong>${a.property_address}, ${a.property_city}</strong> (${stayLine}).</p>
-      <p>Please review and sign it online — it takes about two minutes:</p>
+      <p>Please review and sign it online. It takes about two minutes:</p>
       <p><a href="${signUrl}" style="color: #c85a3a; font-weight: 600;">Review &amp; sign your rental agreement</a></p>
       <p>Once you sign, you'll receive a copy for your records, and we'll countersign and send the final version.</p>
       <p>Questions? Just reply to this email or call ${'978-387-1573'}.</p>
-      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide Property Management</p>
+      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide</p>
       ${AFFILIATION_FOOT_HTML}
     </div>
   `;
@@ -99,7 +99,7 @@ export async function sendAgreementLinkEmail(args: {
     `Please review and sign it online:\n${signUrl}\n\n` +
     `Once you sign, you'll receive a copy for your records, and we'll countersign and send the final version.\n\n` +
     `Questions? Just reply to this email or call 978-387-1573.\n\n` +
-    `Allie O'Brien\nStay Cape Ann · Rising Tide Property Management\n\n` +
+    `Allie O'Brien\nStay Cape Ann · Rising Tide\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
   const ok = await sendTransactionalViaResend({
@@ -140,7 +140,7 @@ export async function sendAgreementSignedCopyEmail(args: {
       <p>Thanks for signing the rental agreement for <strong>${a.property_address}</strong>. Attached is a copy showing your signature on file.</p>
       <p>We'll countersign shortly and send back the fully executed version for your records.</p>
       <p>We're looking forward to hosting you.</p>
-      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide Property Management</p>
+      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide</p>
       ${AFFILIATION_FOOT_HTML}
     </div>
   `;
@@ -149,7 +149,7 @@ export async function sendAgreementSignedCopyEmail(args: {
     `Thanks for signing the rental agreement for ${a.property_address}. Attached is a copy showing your signature on file.\n\n` +
     `We'll countersign shortly and send back the fully executed version for your records.\n\n` +
     `We're looking forward to hosting you.\n\n` +
-    `Allie O'Brien\nStay Cape Ann · Rising Tide Property Management\n\n` +
+    `Allie O'Brien\nStay Cape Ann · Rising Tide\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
   const ok = await sendTransactionalViaResend({
@@ -250,7 +250,7 @@ export async function sendAgreementExecutedEmail(args: {
       <p>Hi ${greeting},</p>
       <p>Your rental agreement for <strong>${a.property_address}</strong> is now fully executed. Attached is the final signed copy for your records.</p>
       <p>We'll be in touch before check-in on ${fmtAgreementDate(a.stay_start)} with arrival details. See you soon.</p>
-      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide Property Management</p>
+      <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide</p>
       ${AFFILIATION_FOOT_HTML}
     </div>
   `;
@@ -258,7 +258,7 @@ export async function sendAgreementExecutedEmail(args: {
     `Hi ${greeting},\n\n` +
     `Your rental agreement for ${a.property_address} is now fully executed. Attached is the final signed copy for your records.\n\n` +
     `We'll be in touch before check-in on ${fmtAgreementDate(a.stay_start)} with arrival details. See you soon.\n\n` +
-    `Allie O'Brien\nStay Cape Ann · Rising Tide Property Management\n\n` +
+    `Allie O'Brien\nStay Cape Ann · Rising Tide\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
   const ok = await sendTransactionalViaResend({

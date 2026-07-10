@@ -37,14 +37,18 @@ export type AgreementSection = {
 
 /** Guest-facing brand + operator affiliation, per Dotti 2026-07-10: make it
  *  clear the SCA brand is Rising Tide, since Rising Tide is the name on the
- *  guest's card statement. Renders on the cover and travels with the PDF. */
+ *  guest's card statement. Renders on the cover and travels with the PDF.
+ *
+ *  Naming rule (Dotti, 2026-07-10, applies everywhere forever): the company
+ *  is "Rising Tide" — never "Rising Tide Property Management". The legal
+ *  entity, where one is needed, is "Rising Tide STR, LLC". */
 export const SCA_AFFILIATION_LINE =
-  'Stay Cape Ann is the guest-facing brand of Rising Tide Property Management (Rising Tide STR, LLC). ' +
+  'Stay Cape Ann is the guest-facing brand of Rising Tide (Rising Tide STR, LLC). ' +
   'Your reservation, payments, and guest support are handled by Rising Tide, and charges may appear on ' +
   'your card or bank statement from Rising Tide STR.';
 
 export const AGREEMENT_HOST_NAME = "Allie O'Brien";
-export const AGREEMENT_HOST_ORG = 'Rising Tide Property Management';
+export const AGREEMENT_HOST_ORG = 'Rising Tide';
 export const AGREEMENT_HOST_EMAIL = 'allie@risingtidestr.com';
 export const AGREEMENT_HOST_PHONE = '978-387-1573';
 
@@ -59,16 +63,66 @@ export function agreementSubheading(a: Pick<GuestAgreementRow, 'kind'>): string 
   return a.kind === 'mid_term' ? 'Furnished Stay · No Tenancy Created' : null;
 }
 
-/** The parties + binding-acknowledgment lead-in above section 1. */
+/** The parties + binding-acknowledgment lead-in above section 1. The named
+ *  party is the LLC (enforceability), with "Rising Tide" as the defined
+ *  short form used everywhere else. */
 export function agreementIntro(a: GuestAgreementRow): string {
   const kindWord = a.kind === 'mid_term' ? 'Mid-Term' : 'Short-Term';
   return (
     `This ${kindWord} Rental Agreement ("Agreement") is entered into by and between ` +
-    `Rising Tide Property Management, operator of the Stay Cape Ann guest brand and ` +
+    `Rising Tide STR, LLC ("Rising Tide"), operator of the Stay Cape Ann guest brand and ` +
     `authorized agent for the property ("Host"), and ${a.guest_name} ("Guest"). ` +
     `By signing, Guest confirms that they have read, understood, and agreed to this ` +
-    `Agreement. This Agreement is legally binding and governs Guest's stay.`
+    `Agreement. This Agreement is legally binding and governs the stay.`
   );
+}
+
+// ─── Jurisdiction ───────────────────────────────────────────────────────────
+
+export type AgreementJurisdiction = {
+  /** "Massachusetts" */
+  name: string;
+  /** "the Commonwealth of Massachusetts" / "the State of Florida" */
+  phrase: string;
+  /** State e-signature act line for the Certificate of Completion. */
+  ueta: string;
+};
+
+const STATE_NAMES: Record<string, string> = {
+  MA: 'Massachusetts', FL: 'Florida', CT: 'Connecticut', NH: 'New Hampshire',
+  ME: 'Maine', RI: 'Rhode Island', VT: 'Vermont', NY: 'New York',
+};
+/** States styled "Commonwealth of" rather than "State of". */
+const COMMONWEALTHS = new Set(['Massachusetts', 'Virginia', 'Pennsylvania', 'Kentucky']);
+/** Exact UETA citations for the states in the portfolio; generic elsewhere. */
+const UETA_CITES: Record<string, string> = {
+  Massachusetts: 'the Massachusetts Uniform Electronic Transactions Act (Mass. Gen. Laws ch. 110G)',
+  Florida: 'the Florida Uniform Electronic Transaction Act (Fla. Stat. § 668.50)',
+};
+
+/**
+ * Derive the governing state from the snapshotted property_city ("Rockport,
+ * MA 01966", "Lighthouse Point, Florida", "Beverly, MA"). Every state-law
+ * reference in the document (no-tenancy waiver, damage deposit, governing
+ * law, UETA citation) flows from here — hardcoded Massachusetts wording was
+ * wrong the moment a Florida property issued an agreement. Defaults to
+ * Massachusetts when no state can be parsed (11 of 12 managed properties).
+ */
+export function agreementJurisdiction(propertyCity: string): AgreementJurisdiction {
+  let name = 'Massachusetts';
+  const tail = propertyCity.split(',').slice(1).join(',') || propertyCity;
+  const abbrev = tail.match(/\b([A-Z]{2})\b/);
+  if (abbrev && STATE_NAMES[abbrev[1]]) {
+    name = STATE_NAMES[abbrev[1]];
+  } else {
+    const full = Object.values(STATE_NAMES).find((n) =>
+      new RegExp(`\\b${n}\\b`, 'i').test(propertyCity),
+    );
+    if (full) name = full;
+  }
+  const phrase = COMMONWEALTHS.has(name) ? `the Commonwealth of ${name}` : `the State of ${name}`;
+  const ueta = UETA_CITES[name] ?? `the applicable state Uniform Electronic Transactions Act`;
+  return { name, phrase, ueta };
 }
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────
@@ -111,6 +165,7 @@ export function quietHoursAuthority(propertyCity: string): string {
 
 export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[] {
   const mid = a.kind === 'mid_term';
+  const juri = agreementJurisdiction(a.property_city);
   const startLong = fmtAgreementDate(a.stay_start);
   const endLong = fmtAgreementDate(a.stay_end);
   const fee = fmtAgreementMoney(a.rental_fee);
@@ -158,7 +213,7 @@ export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[]
             items: [
               'Does not create a landlord-tenant relationship',
               'Does not convey tenancy or leasehold rights',
-              'Is not governed by Massachusetts landlord-tenant law',
+              `Is not governed by ${juri.name} landlord-tenant law`,
               'Confers no right to continued occupancy beyond the approved stay dates',
             ],
           },
@@ -173,7 +228,7 @@ export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[]
             text:
               'This Agreement is a license for short-term lodging only and does not create a landlord-tenant ' +
               'relationship. Guest acknowledges they are not a tenant, waives any tenant rights, and has no right ' +
-              'to continued occupancy beyond the agreed dates. Massachusetts landlord-tenant laws do not apply ' +
+              `to continued occupancy beyond the agreed dates. ${juri.name} landlord-tenant laws do not apply ` +
               'to this stay.',
           },
         ],
@@ -234,7 +289,7 @@ export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[]
             type: 'paragraph',
             text:
               `Guest shall pay a damage deposit in the amount of ${amt}. This is not a security deposit under ` +
-              `Massachusetts law. It is a contractual damage deposit intended to cover:`,
+              `${juri.name} law. It is a contractual damage deposit intended to cover:`,
           },
           {
             type: 'bullets',
@@ -303,7 +358,7 @@ export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[]
     if (a.additional_occupants) {
       blocks.push({
         type: 'paragraph',
-        text: `Approved occupants are limited to: ${a.additional_occupants}.`,
+        text: `Approved occupants are limited to: ${a.additional_occupants.replace(/[.\s]+$/, '')}.`,
       });
     }
     if (a.max_occupancy != null) {
@@ -580,7 +635,7 @@ export function buildAgreementSections(a: GuestAgreementRow): AgreementSection[]
     blocks: [
       {
         type: 'paragraph',
-        text: 'This Agreement shall be governed by the laws of the Commonwealth of Massachusetts.',
+        text: `This Agreement shall be governed by the laws of ${juri.phrase}.`,
       },
     ],
   });

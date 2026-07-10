@@ -84,7 +84,7 @@ export default async function AgreementSignedPage({ params }: { params: Promise<
 
           <div className="sca-th-contact">
             <div>Allie O&rsquo;Brien</div>
-            <div>Stay Cape Ann &middot; Rising Tide Property Management</div>
+            <div>Stay Cape Ann &middot; Rising Tide</div>
             <div className="sca-th-line">
               <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a>
               <span>&middot;</span>
@@ -94,7 +94,7 @@ export default async function AgreementSignedPage({ params }: { params: Promise<
         </section>
 
         <footer className="sca-th-foot">
-          Stay Cape Ann &middot; a Rising Tide Property Management brand &middot; staycapeann.com
+          Stay Cape Ann &middot; a Rising Tide brand &middot; staycapeann.com
         </footer>
       </div>
     </>

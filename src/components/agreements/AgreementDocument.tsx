@@ -1,5 +1,6 @@
 import type { GuestAgreementRow } from '@/lib/agreement-types';
 import {
+  agreementJurisdiction,
   AGREEMENT_HOST_EMAIL,
   AGREEMENT_HOST_NAME,
   AGREEMENT_HOST_ORG,
@@ -40,6 +41,7 @@ export function AgreementDocument({
   const sections = buildAgreementSections(a);
   const heading = agreementHeading(a);
   const subheading = agreementSubheading(a);
+  const juri = agreementJurisdiction(a.property_city);
 
   const issuedDate = new Date(a.created_at).toLocaleDateString('en-US', {
     month: 'long',
@@ -187,7 +189,7 @@ export function AgreementDocument({
           </div>
 
           <footer className="sca-foot">
-            <span>Stay Cape Ann &middot; a Rising Tide Property Management brand &middot; staycapeann.com</span>
+            <span>Stay Cape Ann &middot; a Rising Tide brand &middot; staycapeann.com</span>
           </footer>
         </section>
 
@@ -199,8 +201,7 @@ export function AgreementDocument({
             <h2 className="sca-cert-h">Certificate of Completion</h2>
             <p className="sca-cert-lede">
               This certificate documents the electronic execution of the rental agreement under the federal
-              ESIGN Act (15 U.S.C. &sect;&nbsp;7001 et seq.) and the Massachusetts Uniform Electronic
-              Transactions Act (Mass. Gen. Laws ch.&nbsp;110G).
+              ESIGN Act (15 U.S.C. &sect;&nbsp;7001 et seq.) and {juri.ueta}.
             </p>
 
             <div className="sca-cert-block">

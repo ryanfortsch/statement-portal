@@ -60,8 +60,8 @@ function SignForm({ token, prefillName }: { token: string; prefillName: string }
         <label className="sca-sign-check">
           <input type="checkbox" name="agree" required />
           <span>
-            I have read and agree to the terms of this Rental Agreement with Rising Tide Property
-            Management, operator of Stay Cape Ann.
+            I have read and agree to the terms of this Rental Agreement with Rising Tide STR, LLC,
+            operator of Stay Cape Ann.
           </span>
         </label>
 
@@ -78,8 +78,8 @@ function SignForm({ token, prefillName }: { token: string; prefillName: string }
           />
           <span className="sca-sign-hint">
             Your typed name serves as your legally binding electronic signature. Your name, the
-            timestamp, and your IP address are recorded under the federal ESIGN Act and Massachusetts
-            UETA.
+            timestamp, and your IP address are recorded under the federal ESIGN Act and applicable
+            state electronic-transactions law (UETA).
           </span>
         </label>
 
