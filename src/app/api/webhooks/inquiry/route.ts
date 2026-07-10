@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import crypto from 'node:crypto';
 import { splitAddressLine, inferMarketFromCity } from '@/lib/inquiry-parser';
 import type { Owner } from '@/lib/projections-types';
@@ -48,13 +49,12 @@ type InquiryPayload = {
   submittedAt?: string;
 };
 
-let _sb: SupabaseClient | null = null;
+// Was a hand-rolled client that fell back to the anon key when
+// SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
+// singleton so a missing env var fails loudly rather than silently
+// downgrading to the (now locked down) anon key.
 function getSupabase(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  _sb = createClient(url, key);
-  return _sb;
+  return supabaseAdmin;
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {

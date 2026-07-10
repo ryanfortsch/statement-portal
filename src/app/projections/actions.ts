@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -49,24 +49,6 @@ async function getRequestOrigin(): Promise<string> {
   return host ? `${proto}://${host}` : '';
 }
 
-/**
- * Service-role Supabase client for writes to RLS-protected tables.
- *
- * The module-level `supabase` uses the public anon key — fine for the
- * `projections` table (permissive RLS), but `properties` has row-level
- * security that rejects anon inserts ("new row violates row-level
- * security policy"). promoteToProperty writes a new `properties` row, so
- * it needs the service role. Server-action code only — the service key
- * must never reach the browser.
- */
-function getServiceClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!url || !key) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
-  }
-  return createClient(url, key);
-}
 
 /** Pull `owners[i][field]` keys out of FormData and assemble an Owner[]. */
 function parseOwners(fd: FormData): Owner[] {
@@ -624,7 +606,7 @@ export async function promoteToProperty(projectionId: string) {
 
   // Service-role client: this action inserts a new `properties` row, and
   // that table's row-level security rejects the public anon key.
-  const sb = getServiceClient();
+  const sb = supabase; // already service-role
 
   // Pull the prospect record
   const { data: projRow, error: projErr } = await sb
@@ -1094,7 +1076,7 @@ export async function saveOnboardingDraft(
   // Property path: same column-by-column write the full submit uses, but
   // without the onboarding_submitted_at stamp or notification email.
   // Service-role client because properties RLS rejects anon writes.
-  const sb = getServiceClient();
+  const sb = supabase; // already service-role
   const { data: propHit, error: propLookupErr } = await sb
     .from('properties')
     .select('id, owner_emails, home_guide_overrides')
@@ -1198,7 +1180,7 @@ export async function submitOnboarding(formData: FormData) {
   // policy), so writes here must go through the service-role client —
   // an anon UPDATE silently affects zero rows and the owner's answers
   // would vanish without an error.
-  const sb = getServiceClient();
+  const sb = supabase; // already service-role
 
   const { data: propHit } = await sb
     .from('properties')
@@ -1296,7 +1278,7 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   // `properties` is RLS-protected — an anon UPDATE silently no-ops, which
   // would persist no token and hand back a dead onboarding link. Use the
   // service-role client for the write.
-  const sb = getServiceClient();
+  const sb = supabase; // already service-role
 
   const { data: existing, error: lookupErr } = await sb
     .from('properties')

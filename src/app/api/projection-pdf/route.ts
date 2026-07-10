@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { auth } from '@/auth';
 import {
   renderProjectionPdf,
@@ -37,13 +38,12 @@ export const maxDuration = 60;
 
 const VALID_TYPES: DeliverableType[] = ['projection', 'guide', 'contract', 'readiness'];
 
-let _sb: SupabaseClient | null = null;
+// Was a hand-rolled client that fell back to the anon key when
+// SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
+// singleton so a missing env var fails loudly rather than silently
+// downgrading to the (now locked down) anon key.
 function getSupabase(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  _sb = createClient(url, key);
-  return _sb;
+  return supabaseAdmin;
 }
 
 export async function GET(request: NextRequest) {

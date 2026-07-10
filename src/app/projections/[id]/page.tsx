@@ -18,7 +18,7 @@ import {
   gmailStatus,
   lockedReason,
 } from '@/components/projections/Pipeline';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { createClient } from '@supabase/supabase-js';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { normalizePhone } from '@/lib/quo';

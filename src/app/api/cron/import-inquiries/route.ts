@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import crypto from 'node:crypto';
 import { parseInquiryEmail, splitAddressLine, inferMarketFromCity, inquiryDedupKey } from '@/lib/inquiry-parser';
 import type { Owner } from '@/lib/projections-types';
@@ -75,13 +76,12 @@ const MAILBOXES: Mailbox[] = [
 // the label entirely — DB dedup is sufficient for RT's scale.
 const SEARCH_Q = '("firstName" OR "first name" OR "_replyto") "address" "phone" newer_than:14d in:inbox';
 
-let _sb: SupabaseClient | null = null;
+// Was a hand-rolled client that fell back to the anon key when
+// SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
+// singleton so a missing env var fails loudly rather than silently
+// downgrading to the (now locked down) anon key.
 function getSupabase(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  _sb = createClient(url, key);
-  return _sb;
+  return supabaseAdmin;
 }
 
 async function getAccessToken(mb: Mailbox): Promise<string> {

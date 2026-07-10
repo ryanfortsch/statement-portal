@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { SyncGmailButton } from '@/components/projections/SyncGmailButton';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { GmailTouchType, ProjectionRow } from '@/lib/projections-types';
 import { computeProjection, fmtMoneyRange } from '@/lib/projections-model';
 
