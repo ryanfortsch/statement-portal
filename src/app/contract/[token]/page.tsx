@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';

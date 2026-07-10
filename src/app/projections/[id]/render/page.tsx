@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { latestAirDnaMonth } from '@/lib/projections-airdna';
 import {

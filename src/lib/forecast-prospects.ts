@@ -18,7 +18,7 @@
  * ramps no longer apply because they're past their launch window.
  */
 
-import { supabase, isConfigured } from './supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from './supabase-admin';
 import { computeProjection } from './projections-model';
 import type { ProjectionRow } from './projections-types';
 
