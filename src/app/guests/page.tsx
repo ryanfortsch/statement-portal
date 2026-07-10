@@ -9,6 +9,7 @@ import { manuallyAddContact, syncFromGuesty } from './actions';
 import { SubmitButton } from '@/components/SubmitButton';
 import { GuestsTabBar } from './GuestsTabBar';
 import { ReviewsTab } from './ReviewsTab';
+import { AgreementsTab } from './AgreementsTab';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,25 @@ export default async function GuestPage({
   searchParams: Promise<SearchParams>;
 }) {
   const sp = await searchParams;
+
+  // Agreements: bespoke Stay Cape Ann rental agreements for direct and
+  // mid-term stays. Same shell, its own hero, no contacts fetch.
+  if (sp.tab === 'agreements') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+        <HelmMasthead current="guests" />
+        <HelmHero
+          eyebrow="Helm · Guests"
+          title="Signed,"
+          emphasis="before they check in."
+          description="Bespoke rental agreements for direct and mid-term stays, issued under the Stay Cape Ann brand and countersigned in Helm."
+        />
+        <GuestsTabBar active="agreements" />
+        <AgreementsTab />
+        <HelmFooter module="Guests" right="Stay Cape Ann · Rising Tide" />
+      </div>
+    );
+  }
 
   // Reviews is the DEFAULT lens for the Guests section — opening /guests
   // lands here. Contacts is the click-in (/guests?tab=contacts). Render

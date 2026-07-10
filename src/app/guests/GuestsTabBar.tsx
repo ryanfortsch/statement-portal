@@ -1,17 +1,18 @@
 import Link from 'next/link';
 
 /**
- * Underline tab bar at the top of the Guests section. Two lenses on the
- * same set of people: Contacts (the marketing list, segments, campaigns)
- * and Reviews (reputation, five-star runs, below-five follow-ups).
- * Switching tabs is a plain link nav, so server-rendered with no client
- * state.
+ * Underline tab bar at the top of the Guests section. Three lenses on the
+ * same set of people: Reviews (reputation), Contacts (the marketing list,
+ * segments, campaigns), and Agreements (bespoke Stay Cape Ann rental
+ * agreements for direct + mid-term stays). Switching tabs is a plain link
+ * nav, so server-rendered with no client state.
  */
-export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' }) {
-  // Reviews is the default lens (bare /guests); Contacts is the click-in.
+export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' | 'agreements' }) {
+  // Reviews is the default lens (bare /guests); the others are click-ins.
   const tabs = [
     { id: 'reviews', label: 'Reviews', href: '/guests' },
     { id: 'contacts', label: 'Contacts', href: '/guests?tab=contacts' },
+    { id: 'agreements', label: 'Agreements', href: '/guests?tab=agreements' },
   ] as const;
 
   return (

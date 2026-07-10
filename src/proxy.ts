@@ -23,6 +23,11 @@ const PUBLIC_PATH_PREFIXES = [
   "/statements/render",
   "/onboarding/",
   "/contract/",
+  // Guest rental agreement signing (Stay Cape Ann brand). Gated by knowledge
+  // of a per-agreement random token; guest_agreements is RLS-locked and read
+  // only through the service-role client, so the open prefix exposes nothing
+  // enumerable.
+  "/agreement/",
   // Direct booking flow lives under /book/<propertyId> and is intentionally
   // guest-facing — it's the Helm-native counterpart to a public Airbnb listing.
   "/book/",
@@ -46,6 +51,8 @@ const PUBLIC_PATH_PREFIXES = [
  *   /api/guests/resend-webhook  Resend engagement events (Svix signature)
  *   /api/projection-pdf      self-guards: Helm auth OR a valid onboarding token
  *                            (lets a prospect download their signed contract)
+ *   /api/agreement-pdf       same pattern for guest rental agreements (Helm
+ *                            auth OR the agreement's signing token)
  *   /api/archive-onboarding  fired by the public onboarding thank-you page
  *   /api/owner-outbound-quo  } the stay-concierge service authenticates to these
  *   /api/owners-sync         } with the STAY_CONCIERGE_KEY shared secret;
@@ -65,6 +72,10 @@ const PUBLIC_API_PREFIXES = [
   "/api/guests/unsubscribe",
   "/api/guests/resend-webhook",
   "/api/projection-pdf",
+  // Same self-guarding pattern for guest agreements: Helm auth OR the
+  // agreement's signing token (lets the guest download their signed copy,
+  // and lets server actions fetch the email attachment session-less).
+  "/api/agreement-pdf",
   "/api/archive-onboarding",
   "/api/owner-outbound-quo",
   "/api/owners-sync",
