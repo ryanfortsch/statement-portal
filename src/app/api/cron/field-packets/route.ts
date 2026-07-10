@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePublishedPackets, suggestRecurringInspections } from '@/lib/field-packets';
+import { revalidatePublishedPackets, resyncLivePacketBookings, suggestRecurringInspections } from '@/lib/field-packets';
 import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest } from '@/lib/field-notify';
 
 export const maxDuration = 300;
@@ -27,13 +27,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const revalidated = await revalidatePublishedPackets();
+    // Heal stale packet->booking links: re-point live packets' stops to the
+    // current nearest upcoming check-in, so a turnover that gained a nearer
+    // guest after the packet was built still shows as covered on the board.
+    const resynced = await resyncLivePacketBookings().catch(() => ({ checked: 0, updated: 0 }));
     const renotified = await renotifyDuePackets();
     // Draft routine checks for idle homes; the operator publishes them.
     const drafted = await suggestRecurringInspections().catch(() => 0);
     // Remind contractors with a visit today; brief the office on what needs them.
     const reminded = await remindClaimedVisitsToday().catch(() => 0);
     const digest = await sendOfficeFieldDigest().catch(() => false);
-    return NextResponse.json({ ok: true, revalidated, renotified, drafted, reminded, digest });
+    return NextResponse.json({ ok: true, revalidated, resynced, renotified, drafted, reminded, digest });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
