@@ -1,6 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { PROPERTIES } from '@/lib/properties';
 
 export type OwnerConfigRow = {
   name: string;
@@ -45,4 +46,40 @@ export async function loadTaxCerts(propIds: string[]): Promise<Record<string, st
     map[r.id] = r.tax_cert_id;
   });
   return map;
+}
+
+/**
+ * Open owner-action work slips, counted per LEGACY statement property id.
+ * Was a client-side embedded-join read (`work_slips.select('property_id,
+ * properties!inner(name)')`) -- PostgREST embedded resource expansion still
+ * requires SELECT on `properties` even though the literal `.from()` target is
+ * `work_slips`, so this was a real anon-key properties read that a plain
+ * `.from('properties')` grep doesn't catch. Moved the whole computation
+ * (including the name -> legacy-id reverse lookup) server-side; same status /
+ * owner_action_required / snoozed filters, same shape.
+ */
+export async function loadOwnerActionCounts(): Promise<Record<string, number>> {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabaseAdmin
+    .from('work_slips')
+    .select('property_id, properties!inner(name)')
+    .in('status', ['open', 'in_progress', 'scheduled'])
+    .eq('owner_action_required', true)
+    .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`);
+  if (error) return {};
+
+  const nameToLegacy = new Map<string, string>();
+  for (const [legacyId, p] of Object.entries(PROPERTIES)) {
+    nameToLegacy.set(p.name.toLowerCase().trim(), legacyId);
+  }
+
+  const counts: Record<string, number> = {};
+  for (const row of (data ?? []) as Array<{ properties: { name: string } | { name: string }[] | null }>) {
+    const pname = Array.isArray(row.properties) ? row.properties[0]?.name : row.properties?.name;
+    if (!pname) continue;
+    const legacyId = nameToLegacy.get(pname.toLowerCase().trim());
+    if (!legacyId) continue;
+    counts[legacyId] = (counts[legacyId] ?? 0) + 1;
+  }
+  return counts;
 }
