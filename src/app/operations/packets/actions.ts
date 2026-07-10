@@ -563,6 +563,24 @@ export async function releasePacket(formData: FormData): Promise<void> {
   revalidatePath(`/operations/packets/${packetId}`);
 }
 
+/** The ATTACHED slips (extra tasks riding on a stop, in packet_stop_work_slips
+ *  — NOT the stop's own packet_stops.work_slip_id) that the inspector marked
+ *  done on this packet. Their underlying work_slips sit at 'in_progress' until
+ *  the office resolves the packet: approve closes them, request-changes
+ *  reopens them. Returns both ids so callers can touch the attachment and the
+ *  slip. */
+async function completedAttachmentsForPacket(packetId: string): Promise<{ id: string; work_slip_id: string }[]> {
+  const { data: stops } = await fieldDb().from('packet_stops').select('id').eq('packet_id', packetId);
+  const stopIds = ((stops ?? []) as { id: string }[]).map((s) => s.id);
+  if (!stopIds.length) return [];
+  const { data: atts } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id, work_slip_id')
+    .in('stop_id', stopIds)
+    .not('completed_at', 'is', null);
+  return ((atts ?? []) as { id: string; work_slip_id: string }[]);
+}
+
 export async function approvePacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
@@ -622,6 +640,17 @@ export async function approvePacket(formData: FormData): Promise<void> {
         .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .in('id', slipIds);
     }
+    // Same for the ATTACHED slips the inspector completed (they live in
+    // packet_stop_work_slips, so the block above misses them) — otherwise a
+    // restock / gear task stays stuck at 'in_progress' on the work board after
+    // the packet is approved.
+    const attWorkSlipIds = (await completedAttachmentsForPacket(packetId)).map((a) => a.work_slip_id);
+    if (attWorkSlipIds.length) {
+      await fieldDb()
+        .from('work_slips')
+        .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .in('id', attWorkSlipIds);
+    }
     // Receipt the contractor: approved, payment queued (bonus celebrated).
     const ap = approved as { title: string; awarded_contractor_id: string | null; posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; bonus_reason: string | null };
     if (ap.awarded_contractor_id) {
@@ -668,6 +697,16 @@ export async function requestChanges(formData: FormData): Promise<void> {
         .from('work_slips')
         .update({ status: 'open', completed_at: null, resolution_notes: null, updated_at: new Date().toISOString() })
         .in('id', slipIds);
+    }
+    // Reopen the ATTACHED slips too (parity with the stop slips): clear the
+    // attachment completion and revert the underlying slip so the redo is clean.
+    const atts = await completedAttachmentsForPacket(packetId);
+    if (atts.length) {
+      await fieldDb().from('packet_stop_work_slips').update({ completed_at: null }).in('id', atts.map((a) => a.id));
+      await fieldDb()
+        .from('work_slips')
+        .update({ status: 'open', completed_at: null, resolution_notes: null, updated_at: new Date().toISOString() })
+        .in('id', atts.map((a) => a.work_slip_id));
     }
     await fieldDb().from('packet_stops').update({ status: 'pending', inspection_id: null }).eq('packet_id', packetId);
     const row = data as { id: string; title: string; awarded_contractor_id: string | null };
