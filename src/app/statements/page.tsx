@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { loadOwnerConfig, loadTaxCerts } from './actions';
+import { loadOwnerConfig, loadTaxCerts, loadOwnerActionCounts as loadOwnerActionCountsAction } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
@@ -1937,32 +1937,12 @@ function DashboardContent() {
   // lookup against PROPERTIES, so PropertyCard can look up its count
   // by prop.property_id directly.
   const loadOwnerActionCounts = useCallback(async () => {
+    // Fetched server-side (service role): this embedded-join query touches
+    // `properties` (PostgREST resource expansion requires SELECT on it even
+    // though the literal .from() target is work_slips), same as the owner
+    // PII/financial reads above. See src/app/statements/actions.ts.
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from('work_slips')
-        .select('property_id, properties!inner(name)')
-        .in('status', ['open', 'in_progress', 'scheduled'])
-        .eq('owner_action_required', true)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`);
-      if (error) throw error;
-
-      // Build a name → legacy_id reverse map from the legacy PROPERTIES
-      // constant (lower-cased + trimmed for safety against minor casing
-      // drift between systems).
-      const nameToLegacy = new Map<string, string>();
-      for (const [legacyId, p] of Object.entries(PROPERTIES)) {
-        nameToLegacy.set(p.name.toLowerCase().trim(), legacyId);
-      }
-
-      const counts: Record<string, number> = {};
-      for (const row of (data ?? []) as Array<{ properties: { name: string } | { name: string }[] | null }>) {
-        const pname = Array.isArray(row.properties) ? row.properties[0]?.name : row.properties?.name;
-        if (!pname) continue;
-        const legacyId = nameToLegacy.get(pname.toLowerCase().trim());
-        if (!legacyId) continue;
-        counts[legacyId] = (counts[legacyId] ?? 0) + 1;
-      }
+      const counts = await loadOwnerActionCountsAction();
       setOwnerActionCounts(counts);
     } catch {
       // Non-fatal: the badge just won't appear. Avoid surfacing this in
