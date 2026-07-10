@@ -115,7 +115,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
         </div>
         <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)', maxWidth: 640, lineHeight: 1.55 }}>
           Signing link: <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11 }}>{signPath}</span>
-          {' '}— anyone with the link can view and sign this agreement, so share it only with the guest.
+          . Anyone with the link can view and sign this agreement, so share it only with the guest.
         </p>
       </section>
 
@@ -169,7 +169,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
             done={!!a.countersigned_at}
             label={
               a.countersigned_at
-                ? `Countersigned ${fmtStamp(a.countersigned_at)} — executed PDF ${a.executed_email_sent_at ? 'emailed to the guest' : 'email pending'}`
+                ? `Countersigned ${fmtStamp(a.countersigned_at)}. Executed PDF ${a.executed_email_sent_at ? 'emailed to the guest' : 'email pending'}.`
                 : 'Countersign to execute (emails the final PDF + archives to Drive)'
             }
           >
@@ -189,7 +189,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
         {a.voided_at ? (
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600 }}>
-              Voided {fmtStamp(a.voided_at)} — the signing link is dead.
+              Voided {fmtStamp(a.voided_at)}. The signing link is dead.
             </span>
             <form action={unvoidAgreement}>
               <input type="hidden" name="id" value={a.id} />
@@ -203,7 +203,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
               <SubmitButton label="Void agreement" busyLabel="Voiding…" style={actionDanger} spinnerTone="ink" />
             </form>
             <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 480, lineHeight: 1.5 }}>
-              Kills the signing link. Use for superseded terms — then create a fresh agreement
+              Kills the signing link. Use for superseded terms, then create a fresh agreement
               {a.guest_signed_at ? ' (this one is signed, so it can no longer be edited)' : ''}.
             </span>
           </div>
