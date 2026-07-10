@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
 import { dollars, fmtVisitTime, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
-import { isLiveStatus, isClosedStatus, isWorkingStatus } from '@/lib/field-packet-status';
+import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -130,7 +130,14 @@ export default async function PacketsBoard({
   };
 
   const live = packets.filter((p) => isLiveStatus(p.status));
-  const closed = packets.filter((p) => isClosedStatus(p.status));
+  // Split the old lump "Closed" so finished work reads clean and cancellations
+  // (the noise) collapse away. Both most-recent first.
+  const completed = packets
+    .filter((p) => p.status === 'approved')
+    .sort((a, b) => (b.approved_at ?? b.paid_at ?? b.visit_date).localeCompare(a.approved_at ?? a.paid_at ?? a.visit_date));
+  const cancelled = packets
+    .filter((p) => p.status === 'cancelled')
+    .sort((a, b) => (b.updated_at ?? b.visit_date).localeCompare(a.updated_at ?? a.visit_date));
   // Auto-drafted routine checks for idle homes (and any hand-saved drafts),
   // soonest first — waiting for the operator to publish or dismiss.
   const drafts = packets
@@ -279,20 +286,36 @@ export default async function PacketsBoard({
           </div>
         )}
 
-        {closed.length > 0 && (
+        {completed.length > 0 && (
           <div style={{ marginTop: 32 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
-              Closed · {closed.length}
+              Completed · {completed.length}
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
-              {closed.slice(0, 25).map((p) => (
+              {completed.slice(0, 25).map((p) => (
                 <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
               ))}
             </div>
-            {closed.length > 25 && (
-              <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>Showing the 25 most recent of {closed.length}.</div>
+            {completed.length > 25 && (
+              <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>Showing the 25 most recent of {completed.length}.</div>
             )}
           </div>
+        )}
+
+        {cancelled.length > 0 && (
+          <details style={{ marginTop: 32 }}>
+            <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', listStyle: 'none' }}>
+              Cancelled · {cancelled.length} ▾
+            </summary>
+            <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
+              {cancelled.slice(0, 25).map((p) => (
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
+              ))}
+            </div>
+            {cancelled.length > 25 && (
+              <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>Showing the 25 most recent of {cancelled.length}.</div>
+            )}
+          </details>
         )}
       </section>
       <HelmFooter module="Field" right="Inspection packets" />
