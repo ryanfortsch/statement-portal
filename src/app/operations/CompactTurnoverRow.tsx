@@ -105,6 +105,13 @@ export function CompactTurnoverRow({
 
   const batteryLow = t.lockBattery?.isLow;
 
+  // The prep window is live: something is actively happening (lc.active) or
+  // check-in is within ~36h. Gates the planned-name byline back to START —
+  // same horizon lifecycleOf uses for "due".
+  const due =
+    lc.active !== null ||
+    Date.parse(`${t.checkIn.slice(0, 10)}T16:00:00`) - now < 36 * 3_600_000;
+
   return (
     <div
       id={`turnover-${t.propertyId}-${t.reservationId}`}
@@ -194,7 +201,7 @@ export function CompactTurnoverRow({
       </div>
 
       <div className="rt-tn-act" onClick={(e) => e.stopPropagation()}>
-        <PrimaryAction t={t} isDone={isDone} />
+        <PrimaryAction t={t} isDone={isDone} due={due} myEmail={myEmail} />
       </div>
 
       {open && (
@@ -317,7 +324,19 @@ function MicroRail({ pips, overdue, haloRef }: { pips: StageCls[]; overdue: bool
   );
 }
 
-function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
+function PrimaryAction({
+  t,
+  isDone,
+  due,
+  myEmail,
+}: {
+  t: Turnover;
+  isDone: boolean;
+  /** The prep window is live (previous guest out / check-in within ~36h) —
+   *  day-of, the START action outranks the planned-name attribution. */
+  due: boolean;
+  myEmail: string;
+}) {
   if (isDone) {
     if (t.inspectionStatus === 'complete' && t.inspection) {
       return (
@@ -358,6 +377,27 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
   if (t.fieldPacket && t.fieldPacket.status !== 'draft') {
     return <FieldCredit fp={t.fieldPacket} />;
   }
+  // A planned staff walk that isn't due yet: the assignee's name is the
+  // collapsed indicator, in the same byline register as a Field claim —
+  // every delegated-or-planned walk reads as a person. Tapping the name
+  // opens the plan editor. Once the prep window is live, START returns:
+  // day-of you need the action, the plan has served its purpose.
+  if (t.plan?.planned_for_date && !due) {
+    return (
+      <PlanButton
+        variant="byline"
+        guestyReservationId={t.reservationId}
+        propertyId={t.propertyId}
+        checkInDate={t.checkIn.slice(0, 10)}
+        checkOutDate={t.checkOut.slice(0, 10)}
+        planId={t.plan.id}
+        plannedForDate={t.plan.planned_for_date}
+        plannedBy={t.plan.planned_by_email}
+        assignedToEmail={t.plan.assigned_to_email}
+        myEmail={myEmail}
+      />
+    );
+  }
   return (
     <form action={startInspection} style={{ margin: 0 }}>
       <input type="hidden" name="property_id" value={t.propertyId} />
@@ -368,16 +408,16 @@ function PrimaryAction({ t, isDone }: { t: Turnover; isDone: boolean }) {
 
 /**
  * The Field byline — who has this walk, as editorial attribution rather than
- * chrome. A two-line right-aligned credit in the action column: an uppercase
- * micro-kicker (FIELD, or ON SITE once the contractor starts) over the
- * payload in Fraunces italic. Typographically the opposite pole from the
- * solid navy START button, so delegation reads as a state, not an action.
- * The whole stack links to the packet.
+ * chrome. A single line in the action column: just the person's name in
+ * Fraunces italic (no FIELD label — the name IS the indicator, same as a
+ * planned staff walk). Typographically the opposite pole from the solid navy
+ * START button, so delegation reads as a state, not an action. Links to the
+ * packet; the tooltip carries the field context, walk date, and status.
  *
  *   published            claimed / in_progress      submitted
- *   FIELD                FIELD | ON SITE            FIELD
  *   Open for claim       Delaney Jordan             Review →
- *   (gold: unassigned)   (tide-deep: delegated)     (ink: operator to-do)
+ *   (gold: unassigned)   (tide-deep; gold while     (ink: operator to-do)
+ *                         actually on site)
  */
 function FieldCredit({ fp }: { fp: NonNullable<Turnover['fieldPacket']> }) {
   if (fp.status === 'approved') return null; // done path renders elsewhere
@@ -387,21 +427,23 @@ function FieldCredit({ fp }: { fp: NonNullable<Turnover['fieldPacket']> }) {
     : fp.status === 'published'
       ? 'Open for claim'
       : 'Review →';
-  const color = claimed ? 'var(--tide-deep)' : fp.status === 'published' ? 'var(--signal)' : 'var(--ink)';
+  // "On site" (contractor physically AT this house) shifts the name to
+  // signal gold — the label is gone, the color carries the live state.
+  const color = claimed
+    ? fp.stopActive
+      ? 'var(--signal)'
+      : 'var(--tide-deep)'
+    : fp.status === 'published'
+      ? 'var(--signal)'
+      : 'var(--ink)';
   const walkDay = fp.visitDate ? ` · walks ${formatDateShort(fp.visitDate)}` : '';
   const title = claimed
-    ? `Field packet · ${fp.contractorName ?? 'claimed'}${walkDay}`
+    ? `Field packet · ${fp.contractorName ?? 'claimed'}${fp.stopActive ? ' · on site now' : walkDay}`
     : fp.status === 'published'
       ? `Field packet · open for claim${walkDay}`
       : `Field packet · submitted for review`;
   return (
     <Link href={`/operations/packets/${fp.packetId}`} className="rt-tn-field" title={title}>
-      {/* "On site" only when the contractor is actually AT this house — the
-          packet going in_progress means they're somewhere on the route, and
-          printing "On site" on every covered row (even walks days out) misled. */}
-      <span className="rt-tn-field-k" style={fp.stopActive ? { color: 'var(--signal)' } : undefined}>
-        {fp.stopActive ? 'On site' : 'Field'}
-      </span>
       <span className="rt-tn-field-p" style={{ color, fontWeight: fp.status === 'submitted' ? 500 : 400 }}>
         {payload}
       </span>
