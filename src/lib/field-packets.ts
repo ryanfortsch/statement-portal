@@ -770,6 +770,107 @@ export async function loadPacketStatusByBooking(
   return map;
 }
 
+/**
+ * Re-point a packet's stop booking links to the CURRENT nearest upcoming guest
+ * check-in. packet_stops.booking_id (+ next_checkin / prior_checkout) is a
+ * snapshot frozen at packet creation; when a nearer guest is booked afterward,
+ * the stop keeps pointing at the old, farther reservation, and the turnover
+ * board can no longer see that the packet covers the imminent turnover (it
+ * renders the row as an uncovered "START"). This heals that by re-deriving via
+ * the EXACT creation rule (candidatesForDay) and updating in place.
+ *
+ * Deliberately conservative (from the coverage-logic review):
+ *  - Inspection packets only; never setup / maintenance / cleaning / cancelled.
+ *  - Never touches a TERMINAL stop (status complete | skipped) or one the
+ *    inspector has already STARTED, so completed-inspection review attribution
+ *    (field-ratings / field-profile) and the on-site deadline hint never shift.
+ *  - Never CLEARS a link: if the property is occupied / blocked on the visit
+ *    day or has no successor guest, candidatesForDay yields no usable booking
+ *    and the stale-but-inert pointer is left as-is (a null write would make the
+ *    work-first board double-count the turnover as uncovered).
+ *  - Never re-points onto a booking another LIVE stop already holds (that would
+ *    double-credit two contractors for one guest's review).
+ * Price and stop membership never change, so it is pay-safe even past claim.
+ */
+export async function resyncPacketStopBookings(packetId: string): Promise<{ updated: number }> {
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, visit_date, trade, kind')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; visit_date: string; trade: string; kind: string } | null;
+  if (!packet || packet.status === 'cancelled' || packet.kind === 'setup' || packet.trade !== 'inspection') {
+    return { updated: 0 };
+  }
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id, status, started_at, booking_id, next_checkin, prior_checkout')
+    .eq('packet_id', packetId);
+  const stops = (sData ?? []) as Array<{
+    id: string; property_id: string; status: string; started_at: string | null;
+    booking_id: string | null; next_checkin: string | null; prior_checkout: string | null;
+  }>;
+  // Only re-point genuinely untouched stops: not terminal, not started.
+  const movable = stops.filter((s) => s.status !== 'complete' && s.status !== 'skipped' && !s.started_at);
+  if (!movable.length) return { updated: 0 };
+
+  // candidatesForDay only reads .id off each property.
+  const propIds = [...new Set(movable.map((s) => s.property_id))];
+  const candidates = await candidatesForDay(propIds.map((id) => ({ id }) as unknown as FieldProperty), packet.visit_date);
+
+  // Collision guard: booking_ids already held by ANY OTHER live packet stop, so
+  // resync can never converge two contractors onto the same guest's turnover.
+  const { data: liveData } = await fieldDb()
+    .from('packet_stops')
+    .select('booking_id, inspection_packets!inner(status)')
+    .neq('packet_id', packetId)
+    .in('property_id', propIds)
+    .not('booking_id', 'is', null);
+  const taken = new Set(
+    ((liveData ?? []) as unknown as Array<{ booking_id: string; inspection_packets: { status: string } }>)
+      .filter((r) => ['published', 'claimed', 'in_progress'].includes(r.inspection_packets?.status))
+      .map((r) => r.booking_id),
+  );
+
+  let updated = 0;
+  for (const stop of movable) {
+    const cand = candidates.get(stop.property_id);
+    if (!cand || !cand.bookingId) continue;            // occupied / blocked / no successor -> leave inert, NEVER null
+    if (cand.bookingId === stop.booking_id) continue;  // already correct
+    if (taken.has(cand.bookingId)) continue;           // another live stop owns it
+    await fieldDb()
+      .from('packet_stops')
+      .update({ booking_id: cand.bookingId, next_checkin: cand.nextCheckin, prior_checkout: cand.priorCheckout })
+      .eq('id', stop.id);
+    taken.add(cand.bookingId); // guard against two movable stops converging this run
+    updated++;
+  }
+  return { updated };
+}
+
+/** Sweep: re-point booking links for every non-cancelled LIVE inspection packet
+ *  (past claim too, since re-pointing is pay-safe). Optionally scoped to packets
+ *  touching a set of properties. Runs nightly from the field cron. */
+export async function resyncLivePacketBookings(opts?: { propertyIds?: string[] }): Promise<{ checked: number; updated: number }> {
+  let q = fieldDb()
+    .from('inspection_packets')
+    .select('id, packet_stops!inner(property_id)')
+    .in('status', ['published', 'claimed', 'in_progress'])
+    .eq('trade', 'inspection');
+  if (opts?.propertyIds?.length) {
+    q = q.in('packet_stops.property_id', opts.propertyIds);
+  }
+  const { data } = await q;
+  const ids = [...new Set(((data ?? []) as Array<{ id: string }>).map((r) => r.id))];
+  let updated = 0;
+  for (const id of ids) {
+    const r = await resyncPacketStopBookings(id).catch(() => ({ updated: 0 }));
+    updated += r.updated;
+  }
+  return { checked: ids.length, updated };
+}
+
 // ── Work-first board: inspections needing coverage ───────────────────
 export type WorkItem = {
   propertyId: string;
