@@ -669,4 +669,33 @@ const agreementCss = `
   .sca-cert-event-num { font-family: var(--font-mono), monospace; font-size: 10px; color: var(--ink-4); letter-spacing: 0.1em; }
   .sca-cert-event-label { font-size: 12px; font-weight: 600; color: var(--ink); }
   .sca-cert-foot { margin-top: 28px; font-size: 11px; line-height: 1.6; color: var(--ink-3); max-width: 560px; }
+
+  /* Mobile: guests sign on their phones. The fixed 816px paper sheet
+     clipped on narrow screens (flex-centering makes the left overflow
+     unreachable), so below tablet width the sheet reflows to full width
+     with tightened indents and the two-column grids stack. Screen-only:
+     print/PDF geometry (816px, Letter) is untouched. MUST stay the last
+     block in this stylesheet: the overrides tie the base rules on
+     specificity, so they only win by source order. */
+  @media screen and (max-width: 880px) {
+    .sca-doc { padding: 0; gap: 10px; }
+    .sca-sheet {
+      width: 100%;
+      min-height: 0;
+      padding: 28px 20px 40px;
+      box-shadow: none;
+    }
+    .sca-h1 { font-size: 38px; margin-top: 26px; }
+    .sca-property-address { font-size: 19px; }
+    .sca-meta-row { grid-template-columns: 84px 1fr; }
+    .sca-body { padding-left: 0; }
+    .sca-bullets { padding-left: 22px; }
+    .sca-parties-grid { grid-template-columns: 1fr; gap: 22px; }
+    .sca-sig-grid { grid-template-columns: 1fr; gap: 36px; }
+    .sca-cert { padding: 40px 20px 48px; }
+    .sca-cert-kv { grid-template-columns: 104px 1fr; }
+    /* The document UUID is one unbroken token; let it wrap instead of
+       pushing the certificate grid past the viewport. */
+    .sca-cert-mono { word-break: break-all; }
+  }
 `;

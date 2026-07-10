@@ -185,4 +185,11 @@ const thanksCss = `
     text-transform: uppercase;
     color: var(--ink-4);
   }
+
+  /* Mobile: same audience as the signing page. */
+  @media screen and (max-width: 640px) {
+    .sca-thanks-page { padding: 0 18px 56px; }
+    .sca-th-card { margin-top: 28px; padding: 32px 0; }
+    .sca-th-card h1 { font-size: 38px; }
+  }
 `;
