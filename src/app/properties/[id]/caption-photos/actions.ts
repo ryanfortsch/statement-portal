@@ -280,8 +280,9 @@ export async function saveCaptionAction(
   const beforeByKey = new Map(before.map((p) => [keyOf(p), norm(p.caption)]));
 
   // 2. write (isolated so a write failure reads as "nothing changed").
+  let writeEcho: Pic[] | null = null;
   try {
-    await updatePhotoCaption(listingId, photoId, clean);
+    writeEcho = await updatePhotoCaption(listingId, photoId, clean);
   } catch (err) {
     return { ok: false, error: `Guesty rejected the caption write: ${errMsg(err)}. Nothing changed.` };
   }
@@ -327,6 +328,29 @@ export async function saveCaptionAction(
 
   // 5. did OUR caption actually land?
   if (targetCaptionAt(after) !== clean) {
+    // Diagnostic only (this is a known-possible outcome, not an exception):
+    // the property-photos write is keyed by what we assume is the Guesty
+    // PROPERTY id (propertyPhotosPath's comment flags this as an
+    // assumption for "single-unit STR listings" — listing _id doubling as
+    // property id). If that assumption is wrong for this listing, Guesty
+    // can accept + echo back a 201 against a property-photos record that
+    // isn't the one backing this listing's `pictures` array, and the
+    // re-read here would never see the change. Logging the raw echo lets
+    // us tell that apart from a genuine propagation delay or a dead write.
+    console.error('[saveCaptionAction] write not reflected', {
+      listingId,
+      photoId,
+      targetKey,
+      sentCaption: clean,
+      beforeCaption: beforeByKey.get(targetKey),
+      afterCaption: targetCaptionAt(after),
+      writeEchoPhotoCount: writeEcho?.length ?? null,
+      writeEchoTargetCaption:
+        writeEcho?.find((p) => p._id === photoId)?.caption ??
+        writeEcho?.find((p) => keyOf(p) === targetKey)?.caption ??
+        null,
+      writeEchoSampleIds: writeEcho?.slice(0, 3).map((p) => p._id) ?? null,
+    });
     return {
       ok: false,
       error:
