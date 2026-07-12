@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate } from '../actions';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -553,6 +553,22 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         <PendingButton label="Clear deadline" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
                       </form>
                     )}
+                  </div>
+                </details>
+              )}
+              {(packet.status === 'claimed' || packet.status === 'in_progress') && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Adjust estimate ▾</summary>
+                  <div style={menuCard}>
+                    <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
+                      <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={{ ...priceInput, width: 90 }} />
+                      <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                    </form>
+                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, maxWidth: 230, lineHeight: 1.45 }}>
+                      Raise only — {dollars(packet.posted_price_cents)} is what {packet.contractor?.full_name ?? 'the contractor'} agreed to, and we&apos;ll email them the new amount. To lower it, release the claim first.
+                    </div>
                   </div>
                 </details>
               )}

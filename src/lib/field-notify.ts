@@ -130,6 +130,29 @@ export async function sendReassignedEmail(
   });
 }
 
+/** Contractor notice when the office RAISES the agreed price on a packet they
+ *  already hold (scope grew, etc.). Only ever an increase, so it's good news. */
+export async function sendEstimateRaisedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
+  packet: Pick<PacketRow, 'id' | 'title' | 'posted_price_cents'>,
+  oldCents: number,
+): Promise<boolean> {
+  const link = packetLink(contractor.portal_token, packet.id);
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your pay went up on ${packet.title}</h1>
+    <p>Good news — we raised the estimate on <strong>${packet.title}</strong> from ${dollars(oldCents)} to <strong>${dollars(packet.posted_price_cents)}</strong>. Same job, more pay; nothing else changes, still confirmed after your visit.</p>
+    ${btn(link, 'View packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Pay raised to ${dollars(packet.posted_price_cents)}: ${packet.title}`,
+    fromName: FROM_NAME,
+    cc: OFFICE_CC,
+    html,
+    text: `Good news — we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}. ${link}`,
+  });
+}
+
 export async function sendClaimConfirmation(
   contractor: ContractorRow,
   packet: PacketRow,
