@@ -9,7 +9,7 @@ import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromP
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus } from '@/lib/field-packet-status';
@@ -293,6 +293,60 @@ export async function setPacketPrice(formData: FormData): Promise<void> {
     .update({ posted_price_cents: Math.round(dollarsValue * 100), updated_at: new Date().toISOString() })
     .eq('id', packetId)
     .eq('status', 'draft');
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Raise the agreed estimate on a CLAIMED / in-progress packet. Raise-only on
+ *  purpose: bumping pay is always safe for the contractor, but lowering an
+ *  agreed price out from under someone isn't (that still needs a release). The
+ *  contractor is re-notified of the new number. Once the packet is submitted,
+ *  the final-payout flow owns the dollars instead. */
+export async function raisePacketEstimate(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const dollarsValue = Number(formData.get('price_dollars') || 0);
+  if (!packetId || !Number.isFinite(dollarsValue) || dollarsValue <= 0) return;
+  const newCents = Math.round(dollarsValue * 100);
+
+  const { data: pk } = await fieldDb()
+    .from('inspection_packets')
+    .select('posted_price_cents, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pk as { posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || !['claimed', 'in_progress'].includes(packet.status) || newCents <= packet.posted_price_cents) return;
+  const oldCents = packet.posted_price_cents;
+
+  // Re-guard status AND raise-only on the write, so a race can't lower the price
+  // or move it on a packet that just got submitted/released.
+  const { data: changed } = await fieldDb()
+    .from('inspection_packets')
+    .update({ posted_price_cents: newCents, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .in('status', ['claimed', 'in_progress'])
+    .lt('posted_price_cents', newCents)
+    .select('id, title, posted_price_cents')
+    .maybeSingle();
+  if (!changed) {
+    revalidatePath(`/operations/packets/${packetId}`);
+    return;
+  }
+
+  await fieldDb().from('packet_events').insert({
+    packet_id: packetId,
+    contractor_id: packet.awarded_contractor_id,
+    actor_email: email,
+    event_type: 'estimate_raised',
+    payload: { from_cents: oldCents, to_cents: newCents },
+  });
+
+  // Tell the contractor their agreed pay went up (best-effort).
+  if (packet.awarded_contractor_id) {
+    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
+    if (c) await sendEstimateRaisedEmail(c as ContractorRow, changed as { id: string; title: string; posted_price_cents: number }, oldCents).catch(() => {});
+  }
+
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
