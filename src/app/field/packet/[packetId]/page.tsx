@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForPacket, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop } from '../../actions';
@@ -99,6 +99,45 @@ function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: s
       </strong>{' '}
       {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then; the rest are flexible.'}
       {cleanedFirst}
+    </div>
+  );
+}
+
+/** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
+ *  server's UTC clock never shifts what the inspector reads. */
+function fmtClockET(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+  } catch {
+    return '';
+  }
+}
+
+/** Cleaner status for a turnover stop, distinct from the inspector's own
+ *  progress. "Keyed in" is a confirmed door event; the finish time is usually a
+ *  system estimate, so it's labeled as such. Null status = nobody's keyed in. */
+function CleanerStatus({ status }: { status: CleaningStatus | undefined }) {
+  if (!status) {
+    return (
+      <div style={{ fontSize: 13, marginTop: 4 }}>
+        <span aria-hidden>🧹</span>{' '}
+        <span style={{ color: 'var(--ink-4)' }}>No cleaning signal yet today</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ fontSize: 13, marginTop: 4 }}>
+      <span aria-hidden>🧹</span>{' '}
+      <span style={{ color: 'var(--ink)' }}>Cleaner keyed in {fmtClockET(status.enteredAt)}</span>
+      {status.finishedAt ? (
+        <span style={{ color: 'var(--ink-4)' }}>
+          {status.finishEstimated
+            ? ` · finished ~${fmtClockET(status.finishedAt)} (estimated)`
+            : ` · finished ${fmtClockET(status.finishedAt)}`}
+        </span>
+      ) : (
+        <span style={{ color: 'var(--tide-deep)' }}> · on site now</span>
+      )}
     </div>
   );
 }
@@ -406,6 +445,15 @@ export default async function PacketPage({
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
   const isSetup = packet.kind === 'setup';
+  // Cleaner status for this packet's turnover stops (Seam lock-entry signal),
+  // so the inspector knows if a home's been cleaned yet. Loaded only for the
+  // assigned inspector, only when there's a turnover in the packet.
+  const cleaning = isMine && packet.stops.some((s) => s.window_basis === 'checkout_day')
+    ? await loadCleaningStatusForPacket(
+        packet.stops.filter((s) => s.window_basis === 'checkout_day').map((s) => s.property_id),
+        packet.visit_date,
+      )
+    : new Map<string, CleaningStatus>();
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -767,6 +815,9 @@ export default async function PacketPage({
                       </span>
                     );
                   })()}
+                  {/* Cleaner status (🧹), kept visually distinct from the
+                      inspector's own progress above. Turnover stops only. */}
+                  {s.window_basis === 'checkout_day' && <CleanerStatus status={cleaning.get(s.property_id)} />}
                 </div>
               ) : (
                 (() => {

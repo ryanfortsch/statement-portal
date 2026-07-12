@@ -1261,6 +1261,51 @@ export type SupplyRun = { bins: SupplyRunStop[]; jobs: SupplyRunJob[] };
  *    (category 'inventory') flagged as "bring extra".
  *  - jobs: the operator-authored bring_list for every work slip on the packet,
  *    so the inspector grabs the parts to finish each job in the same trip. */
+/** Cleaner activity for a turnover, from the Seam lock-entry signal
+ *  (cleaning_sessions). `enteredAt` is a confirmed door event; `finishedAt` is
+ *  usually a system ESTIMATE (finishEstimated true) because the "done" ping is
+ *  unreliable, so callers label it as estimated. */
+export type CleaningStatus = {
+  enteredAt: string;
+  finishedAt: string | null;
+  finishEstimated: boolean;
+};
+
+/** Cleaner status for a packet's turnover stops on the visit day, keyed by
+ *  property_id. Reads the lock-driven cleaning_sessions (checkout_date = the
+ *  turnover day) via the service-role client; latest entry wins per property.
+ *  Empty map when nothing keyed in. */
+export async function loadCleaningStatusForPacket(
+  propertyIds: string[],
+  visitDate: string,
+): Promise<Map<string, CleaningStatus>> {
+  const map = new Map<string, CleaningStatus>();
+  const ids = [...new Set((propertyIds ?? []).filter(Boolean))];
+  if (ids.length === 0) return map;
+  const { data } = await fieldDb()
+    .from('cleaning_sessions')
+    .select('property_id, entered_at, finished_at, finish_estimated')
+    .in('property_id', ids)
+    .eq('checkout_date', visitDate);
+  for (const r of (data ?? []) as Array<{
+    property_id: string;
+    entered_at: string | null;
+    finished_at: string | null;
+    finish_estimated: boolean | null;
+  }>) {
+    if (!r.entered_at) continue;
+    const prev = map.get(r.property_id);
+    if (!prev || r.entered_at > prev.enteredAt) {
+      map.set(r.property_id, {
+        enteredAt: r.entered_at,
+        finishedAt: r.finished_at,
+        finishEstimated: !!r.finish_estimated,
+      });
+    }
+  }
+  return map;
+}
+
 export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> {
   const { data: sData } = await fieldDb()
     .from('packet_stops')
