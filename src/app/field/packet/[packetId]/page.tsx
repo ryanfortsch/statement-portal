@@ -74,7 +74,7 @@ function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; ur
 /** The one question an inspector has before anything else: "do I have a hard
  *  finish time today?" Answered up front instead of leaving her to guess
  *  (Delaney had no way to know there were no check-ins on her visit day). */
-function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: string }) {
+function DayPlan({ stops, visitDate, completeBy }: { stops: PacketStopDetail[]; visitDate: string; completeBy: string | null }) {
   if (stops.length === 0) return null;
   const arriving = stops.filter((s) => s.next_checkin === visitDate).length;
   const turnovers = stops.filter((s) => s.window_basis === 'checkout_day').length;
@@ -82,11 +82,24 @@ function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: s
     turnovers > 0 && turnovers < stops.length
       ? ' Do the already-cleaned homes first, then swing back to the turnover after the cleaner wraps.'
       : '';
+  // The office target (complete_by) is a nudge; the hard wall, when there is
+  // one, is a guest checking in that day at 4 PM. When no one checks in there's
+  // no hard cutoff, so say so plainly instead of contradicting the target.
+  const target = completeBy ? fmtVisitTime(completeBy) : null;
   if (arriving === 0) {
     return (
       <div style={{ borderLeft: '3px solid var(--positive, #2e7d4f)', background: 'rgba(46,125,79,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-        <strong style={{ color: 'var(--ink)' }}>No guest check-ins this day: no hard finish time.</strong> Start
-        anytime from 11 AM.{cleanedFirst}
+        {target ? (
+          <>
+            <strong style={{ color: 'var(--ink)' }}>Aim to finish by {target}.</strong> No guest checks in today, so
+            it&apos;s not a hard cutoff — if a home needs a little longer, take the time. Start anytime from 11 AM.{cleanedFirst}
+          </>
+        ) : (
+          <>
+            <strong style={{ color: 'var(--ink)' }}>No guest checks in today, so no hard finish time.</strong> Start
+            anytime from 11 AM.{cleanedFirst}
+          </>
+        )}
       </div>
     );
   }
@@ -98,6 +111,7 @@ function DayPlan({ stops, visitDate }: { stops: PacketStopDetail[]; visitDate: s
           : `${arriving} of ${stops.length} homes ${arriving === 1 ? 'gets a guest' : 'get guests'} at 4 PM.`}
       </strong>{' '}
       {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then; the rest are flexible.'}
+      {target ? ` Aim to wrap by ${target} to leave a buffer.` : ''}
       {cleanedFirst}
     </div>
   );
@@ -181,7 +195,7 @@ function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: 
       )}
       {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={56} />}
       {isMine && !done && (
-        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" />
+        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" photoNudge />
       )}
     </div>
   );
@@ -525,7 +539,7 @@ export default async function PacketPage({
           wrapper out of layout. */}
       <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
-        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
+        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by ? ` · target ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
@@ -553,11 +567,6 @@ export default async function PacketPage({
             )}
           </span>
         </div>
-        {isMine && !isPayoutFinal(packet) && (
-          <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginTop: 6 }}>
-            Final pay is confirmed after your visit.
-          </div>
-        )}
       </div>
 
       {working && (
@@ -583,12 +592,9 @@ export default async function PacketPage({
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
               Your entry code today
             </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-              {packet.stops.length === 1 ? 'Opens the door on this job.' : 'Works at every stop.'}
-            </div>
             {packet.complete_by && (
-              <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 5 }}>
-                Complete by {fmtVisitTime(packet.complete_by)}
+              <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>
+                Aim to finish by {fmtVisitTime(packet.complete_by)}
               </div>
             )}
           </div>
@@ -600,7 +606,7 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMaint && !isSetup && <DayPlan stops={packet.stops} visitDate={packet.visit_date} />}
+      {!isMaint && !isSetup && <DayPlan stops={packet.stops} visitDate={packet.visit_date} completeBy={packet.complete_by} />}
 
       {showSupplyStop && <SupplyRunCard run={supplyRun} />}
 
@@ -845,7 +851,7 @@ export default async function PacketPage({
                 </details>
               )}
               {isMine && s.workSlip && s.status !== 'complete' && (
-                <MaintenanceComplete packetId={packet.id} stopId={s.id} />
+                <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
               )}
               {isMine && s.attachedSlips.length > 0 && (
                 <div style={{ marginTop: 14 }}>

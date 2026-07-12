@@ -31,12 +31,16 @@ export function MaintenanceComplete({
   attachmentId,
   label = 'Mark done',
   placeholder,
+  photoNudge = false,
 }: {
   packetId: string;
   stopId?: string;
   attachmentId?: string;
   label?: string;
   placeholder?: string;
+  /** For real repair/task work slips: lead with a photo prompt of the FINISHED
+   *  work (still optional — Mark done never blocks on it). */
+  photoNudge?: boolean;
 }) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [showDetail, setShowDetail] = useState(false);
@@ -53,18 +57,21 @@ export function MaintenanceComplete({
 
       {showDetail && (
         <div style={{ marginBottom: 10 }}>
+          {photoNudge && (
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tide-deep)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              📷 Snap a photo of the finished work
+            </div>
+          )}
+          {/* /api/upload accepts the contractor cookie too (dual-plane) and
+              honors the folder hint — /api/field/upload is avatar-specific
+              and filed these under field-avatars/. Photo first when nudging. */}
+          <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
           <textarea
             name="resolution"
             rows={2}
             placeholder={placeholder ?? 'What you did (optional)'}
-            style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical' }}
+            style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
           />
-          <div style={{ marginTop: 8 }}>
-            {/* /api/upload accepts the contractor cookie too (dual-plane) and
-                honors the folder hint — /api/field/upload is avatar-specific
-                and filed these under field-avatars/. */}
-            <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
-          </div>
         </div>
       )}
 
@@ -74,9 +81,13 @@ export function MaintenanceComplete({
           <button
             type="button"
             onClick={() => setShowDetail(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
+            style={
+              photoNudge
+                ? { background: 'var(--paper)', border: '1px solid var(--tide)', borderRadius: 999, cursor: 'pointer', padding: '9px 15px', minHeight: 40, fontSize: 12.5, fontWeight: 600, color: 'var(--tide-deep)', display: 'inline-flex', alignItems: 'center', gap: 6 }
+                : { background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }
+            }
           >
-            + add note or photo
+            {photoNudge ? '📷 Add a photo of your work' : '+ add note or photo'}
           </button>
         )}
       </div>
