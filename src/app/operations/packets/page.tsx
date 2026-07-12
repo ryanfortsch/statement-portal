@@ -82,6 +82,20 @@ function fmtDate(d: string): string {
     return d;
   }
 }
+/** Same short format for a full ISO timestamp (e.g. approved_at), pinned to ET. */
+function fmtStampDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+/** When a packet was completed: office approval, else the paid/submitted stamp,
+ *  else the visit day. ISO timestamps sort chronologically as plain text, so this
+ *  doubles as the sort key for the Completed section. */
+function completedAt(p: PacketRow): string {
+  return p.approved_at ?? p.paid_at ?? p.submitted_at ?? `${p.visit_date}T00:00:00`;
+}
 function todayStr(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -134,7 +148,7 @@ export default async function PacketsBoard({
   // (the noise) collapse away. Both most-recent first.
   const completed = packets
     .filter((p) => p.status === 'approved')
-    .sort((a, b) => (b.approved_at ?? b.paid_at ?? b.visit_date).localeCompare(a.approved_at ?? a.paid_at ?? a.visit_date));
+    .sort((a, b) => completedAt(b).localeCompare(completedAt(a)));
   const cancelled = packets
     .filter((p) => p.status === 'cancelled')
     .sort((a, b) => (b.updated_at ?? b.visit_date).localeCompare(a.updated_at ?? a.visit_date));
@@ -378,7 +392,11 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
           </span>
         )}
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
-          {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
+          {/* Completed rows lead with the completion date (what the section is
+              sorted by); everything else leads with the visit date. */}
+          {p.status === 'approved' && (p.approved_at ?? p.paid_at ?? p.submitted_at)
+            ? `Completed ${fmtStampDate((p.approved_at ?? p.paid_at ?? p.submitted_at)!)}`
+            : fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
           {p.complete_by ? ` · due ${fmtVisitTime(p.complete_by)}` : ''}
           {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
         </div>
