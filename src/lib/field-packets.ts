@@ -1275,28 +1275,35 @@ export type CleaningStatus = {
  *  property_id. Reads the lock-driven cleaning_sessions (checkout_date = the
  *  turnover day) via the service-role client; latest entry wins per property.
  *  Empty map when nothing keyed in. */
-export async function loadCleaningStatusForPacket(
-  propertyIds: string[],
-  visitDate: string,
+export async function loadCleaningStatusForStops(
+  stops: Array<{ property_id: string; checkoutDate: string | null }>,
 ): Promise<Map<string, CleaningStatus>> {
+  // Keyed by `${property_id}|${checkout_date}` so each stop looks up the
+  // cleaning for ITS OWN turnover — a same-day checkout uses the visit day, a
+  // recently-vacated home uses its prior checkout. A blank result for a recent
+  // checkout is the real signal ("no cleaning recorded yet"), not an assumption.
   const map = new Map<string, CleaningStatus>();
-  const ids = [...new Set((propertyIds ?? []).filter(Boolean))];
-  if (ids.length === 0) return map;
+  const rows = (stops ?? []).filter((r) => r.property_id && r.checkoutDate);
+  if (rows.length === 0) return map;
+  const ids = [...new Set(rows.map((r) => r.property_id))];
+  const dates = [...new Set(rows.map((r) => r.checkoutDate as string))];
   const { data } = await fieldDb()
     .from('cleaning_sessions')
-    .select('property_id, entered_at, finished_at, finish_estimated')
+    .select('property_id, checkout_date, entered_at, finished_at, finish_estimated')
     .in('property_id', ids)
-    .eq('checkout_date', visitDate);
+    .in('checkout_date', dates);
   for (const r of (data ?? []) as Array<{
     property_id: string;
+    checkout_date: string;
     entered_at: string | null;
     finished_at: string | null;
     finish_estimated: boolean | null;
   }>) {
     if (!r.entered_at) continue;
-    const prev = map.get(r.property_id);
+    const key = `${r.property_id}|${r.checkout_date}`;
+    const prev = map.get(key);
     if (!prev || r.entered_at > prev.enteredAt) {
-      map.set(r.property_id, {
+      map.set(key, {
         enteredAt: r.entered_at,
         finishedAt: r.finished_at,
         finishEstimated: !!r.finish_estimated,

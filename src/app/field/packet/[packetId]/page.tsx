@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForPacket, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop } from '../../actions';
@@ -59,12 +59,12 @@ function fmtShortDate(d: string): string {
 /** Per-stop timing truth, driven by the bookings — not a fixed window. The day
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
  *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
- *  the inspector goes after. Already-cleaned homes are open from 11. */
+ *  the inspector goes after. Vacant homes are open from 11. */
 function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean } {
   // Two facts, no coaching: did a guest check out today, and when's the next
   // check-in. The sequencing advice lives in the DayPlan banner up top; per
   // Dotti, the per-stop line stays this simple.
-  const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Already cleaned';
+  const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Vacant';
   if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, urgent: false };
   const today = s.next_checkin === visitDate;
   const when = today ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`;
@@ -80,7 +80,7 @@ function DayPlan({ stops, visitDate, completeBy }: { stops: PacketStopDetail[]; 
   const turnovers = stops.filter((s) => s.window_basis === 'checkout_day').length;
   const cleanedFirst =
     turnovers > 0 && turnovers < stops.length
-      ? ' Do the already-cleaned homes first, then swing back to the turnover after the cleaner wraps.'
+      ? ' Do the vacant homes first; the same-day turnover is not ready until the cleaner wraps.'
       : '';
   // The office target (complete_by) is a nudge; the hard wall, when there is
   // one, is a guest checking in that day at 4 PM. When no one checks in there's
@@ -127,18 +127,54 @@ function fmtClockET(iso: string): string {
   }
 }
 
+/** An ISO instant as a short ET date (e.g. "Sun, Jul 12"). */
+function fmtDateET(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+  } catch {
+    return '';
+  }
+}
+
+/** Whole days from `from` to `to` (both YYYY-MM-DD). */
+function dayGap(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00`) - Date.parse(`${from}T00:00:00`)) / 86_400_000);
+}
+
+// A checkout within this many days of the visit is a live turnover worth
+// verifying the cleaning on. Older than that, the home has sat idle and we
+// don't nag about a missing signal.
+const CLEAN_LOOKBACK_DAYS = 4;
+
 /** Cleaner status for a turnover stop, distinct from the inspector's own
  *  progress. "Keyed in" is a confirmed door event; the finish time is usually a
  *  system estimate, so it's labeled as such. Null status = nobody's keyed in. */
-function CleanerStatus({ status }: { status: CleaningStatus | undefined }) {
+function CleanerStatus({ status, sameDay, checkoutDate }: { status: CleaningStatus | undefined; sameDay: boolean; checkoutDate: string | null }) {
+  // No record. Same-day: the cleaner may still be coming. Prior checkout: a
+  // turnover we have NO evidence happened — the important warning (this is the
+  // "36 Granite looked already-cleaned but wasn't" case).
   if (!status) {
     return (
       <div style={{ fontSize: 13, marginTop: 4 }}>
         <span aria-hidden>🧹</span>{' '}
-        <span style={{ color: 'var(--ink-4)' }}>No cleaning signal yet today</span>
+        <span style={{ color: sameDay ? 'var(--ink-4)' : 'var(--signal)', fontWeight: sameDay ? 400 : 600 }}>
+          {sameDay
+            ? 'No cleaning signal yet today'
+            : `No cleaning signal since the ${checkoutDate ? fmtShortDate(checkoutDate) : 'last'} checkout`}
+        </span>
       </div>
     );
   }
+  // A prior-checkout turnover that WAS serviced: just say when.
+  if (!sameDay) {
+    return (
+      <div style={{ fontSize: 13, marginTop: 4 }}>
+        <span aria-hidden>🧹</span>{' '}
+        <span style={{ color: 'var(--positive)' }}>Cleaned {fmtDateET(status.enteredAt)}</span>
+      </div>
+    );
+  }
+  // Today's turnover: live entry, with the estimated-finish caveat.
   return (
     <div style={{ fontSize: 13, marginTop: 4 }}>
       <span aria-hidden>🧹</span>{' '}
@@ -462,10 +498,15 @@ export default async function PacketPage({
   // Cleaner status for this packet's turnover stops (Seam lock-entry signal),
   // so the inspector knows if a home's been cleaned yet. Loaded only for the
   // assigned inspector, only when there's a turnover in the packet.
-  const cleaning = isMine && packet.stops.some((s) => s.window_basis === 'checkout_day')
-    ? await loadCleaningStatusForPacket(
-        packet.stops.filter((s) => s.window_basis === 'checkout_day').map((s) => s.property_id),
-        packet.visit_date,
+  // Cleaner status per stop, keyed on the stop's OWN turnover date: a same-day
+  // checkout uses the visit day, a recently-vacated home its prior checkout.
+  const visitDate = packet.visit_date; // const so it narrows inside the map closure
+  const cleaning = isMine
+    ? await loadCleaningStatusForStops(
+        packet.stops.map((s) => ({
+          property_id: s.property_id,
+          checkoutDate: s.window_basis === 'checkout_day' ? visitDate : s.prior_checkout,
+        })),
       )
     : new Map<string, CleaningStatus>();
   // One consistent label per stop — never the guest-facing listing title.
@@ -823,7 +864,15 @@ export default async function PacketPage({
                   })()}
                   {/* Cleaner status (🧹), kept visually distinct from the
                       inspector's own progress above. Turnover stops only. */}
-                  {s.window_basis === 'checkout_day' && <CleanerStatus status={cleaning.get(s.property_id)} />}
+                  {(() => {
+                    const sameDay = s.window_basis === 'checkout_day';
+                    const checkoutDate = sameDay ? packet.visit_date : s.prior_checkout;
+                    // Same-day turnover always; a vacated home only when its
+                    // checkout is recent enough to still owe a cleaning.
+                    const recent = !!checkoutDate && dayGap(checkoutDate, packet.visit_date) >= 0 && dayGap(checkoutDate, packet.visit_date) <= CLEAN_LOOKBACK_DAYS;
+                    if (!sameDay && !recent) return null;
+                    return <CleanerStatus status={cleaning.get(`${s.property_id}|${checkoutDate}`)} sameDay={sameDay} checkoutDate={checkoutDate} />;
+                  })()}
                 </div>
               ) : (
                 (() => {
