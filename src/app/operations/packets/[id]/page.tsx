@@ -690,11 +690,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 ) : (
                   <span style={{ color: 'var(--ink-4)' }}>{s.status}</span>
                 )}
-                {editable && packet.stop_count > 1 && (
+                {attachEditable && packet.stop_count > 1 && s.status === 'pending' && !s.started_at && (
                   <form action={removeStop} style={{ marginTop: 4 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="stop_id" value={s.id} />
-                    <PendingButton label="remove" busyLabel="removing…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline' }} spinnerTone="ink" />
+                    <PendingButton label="remove stop" busyLabel="removing…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11, textDecoration: 'underline' }} spinnerTone="ink" />
                   </form>
                 )}
               </div>

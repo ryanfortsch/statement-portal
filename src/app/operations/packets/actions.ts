@@ -6,13 +6,13 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
-import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
+import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
-import { isAssignableStatus, isPayoutAdjustableStatus } from '@/lib/field-packet-status';
+import { isAssignableStatus, isPayoutAdjustableStatus, isAttachableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -1004,49 +1004,78 @@ export async function requestChanges(formData: FormData): Promise<void> {
 }
 
 export async function removeStop(formData: FormData): Promise<void> {
-  await staffEmail();
+  const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
   const stopId = String(formData.get('stop_id') || '');
-  // Only reshape drafts — never strand a claimed/live packet (or empty it to a
-  // zombie 0-stop packet someone already claimed).
-  const { data: pre } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
-  if ((pre as { status: string } | null)?.status !== 'draft') return;
-  const { data: stop } = await fieldDb()
-    .from('packet_stops')
-    .select('base_price_cents')
-    .eq('id', stopId)
+
+  const { data: pre } = await fieldDb()
+    .from('inspection_packets')
+    .select('title, status, posted_price_cents, awarded_contractor_id')
+    .eq('id', packetId)
     .maybeSingle();
-  // Already gone — a double-submitted remove (the link has no pending state).
-  // Bail before touching the packet row: blindly decrementing stop_count on
-  // the second fire is how a 2-row packet gets stored as "1 stop".
+  const packet = pre as { title: string; status: string; posted_price_cents: number; awarded_contractor_id: string | null } | null;
+  // Removable while the trip is still editable (draft through in-progress) —
+  // same window as add-a-stop. Never on a submitted/closed trip.
+  if (!packet || !isAttachableStatus(packet.status)) return;
+
+  const { data: stopRow } = await fieldDb()
+    .from('packet_stops')
+    .select('base_price_cents, property_id, status, started_at')
+    .eq('id', stopId)
+    .eq('packet_id', packetId)
+    .maybeSingle();
+  const stop = stopRow as { base_price_cents: number; property_id: string; status: string; started_at: string | null } | null;
+  // Gone already (double-submit — the link has no pending state), or the
+  // inspector has already started/finished it (removing would lose their work).
   if (!stop) return;
+  if (stop.started_at || !['pending'].includes(stop.status)) return;
+
+  // Never empty the trip to a zombie 0-stop packet — that's what Cancel is for.
+  const { count: before } = await fieldDb()
+    .from('packet_stops')
+    .select('id', { count: 'exact', head: true })
+    .eq('packet_id', packetId);
+  if ((before ?? 0) <= 1) return;
+
   await fieldDb().from('packet_stops').delete().eq('id', stopId).eq('packet_id', packetId);
-  // Count the SURVIVING rows instead of decrementing the column, so the stored
-  // count can never drift from reality. The price stays a subtraction (not a
-  // recompute from bases) to preserve any operator-set posted price.
+
+  // Recount SURVIVING rows (never drift the stored count) + subtract this stop's
+  // pay (preserving any operator-set total), mirroring add-a-stop in reverse.
   const { count: liveCount } = await fieldDb()
     .from('packet_stops')
     .select('id', { count: 'exact', head: true })
     .eq('packet_id', packetId);
-  const { data: pkt } = await fieldDb()
+  const base = stop.base_price_cents ?? 0;
+  const newTotal = Math.max(0, packet.posted_price_cents - base);
+  await fieldDb()
     .from('inspection_packets')
-    .select('posted_price_cents')
-    .eq('id', packetId)
-    .maybeSingle();
-  if (pkt) {
-    const base = (stop as { base_price_cents: number }).base_price_cents ?? 0;
-    const p = pkt as { posted_price_cents: number };
-    await fieldDb()
-      .from('inspection_packets')
-      .update({
-        posted_price_cents: Math.max(0, p.posted_price_cents - base),
-        stop_count: liveCount ?? 0,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', packetId);
-    await regeneratePacketTitle(packetId);
+    .update({ posted_price_cents: newTotal, stop_count: liveCount ?? 0, updated_at: new Date().toISOString() })
+    .eq('id', packetId);
+  await regeneratePacketTitle(packetId);
+
+  await fieldDb()
+    .from('packet_events')
+    .insert({ packet_id: packetId, contractor_id: packet.awarded_contractor_id, actor_email: email, event_type: 'stop_removed', payload: { property_id: stop.property_id } })
+    .then(() => {}, () => {});
+
+  // On a live (claimed/in-progress) trip: pull the code off that door so it no
+  // longer opens for the contractor, and tell them the stop is gone so they
+  // don't drive to it. Best-effort — neither should block the remove.
+  if (isWorkingStatus(packet.status)) {
+    await revokePacketPropertyCode(packetId, stop.property_id).catch(() => {});
+    if (packet.awarded_contractor_id) {
+      const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', stop.property_id).maybeSingle();
+      const p = prop as { name: string | null; address: string | null } | null;
+      const label = p?.name || p?.address || 'a stop';
+      const { data: c } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', packet.awarded_contractor_id).maybeSingle();
+      if (c) {
+        await sendTripStopRemovedEmail(c as ContractorRow, { id: packetId, title: packet.title, posted_price_cents: newTotal }, label).catch(() => {});
+      }
+    }
   }
+
   revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
 }
 
 /** Invite a contractor: create the row + email their personal portal link. */

@@ -180,6 +180,28 @@ export async function sendTripStopAddedEmail(
   });
 }
 
+export async function sendTripStopRemovedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
+  packet: Pick<PacketRow, 'id' | 'title' | 'posted_price_cents'>,
+  stopLabel: string,
+): Promise<boolean> {
+  const link = packetLink(contractor.portal_token, packet.id);
+  const esc = stopLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">A stop was removed from ${packet.title}</h1>
+    <p>We took <strong>${esc}</strong> off your trip — you can skip it. Your estimated pay is now <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the updated route.</p>
+    ${btn(link, 'View packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `Stop removed: ${packet.title}`,
+    fromName: FROM_NAME,
+    cc: OFFICE_CC,
+    html,
+    text: `We removed ${stopLabel} from your trip — skip it. New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
+  });
+}
+
 export async function sendClaimConfirmation(
   contractor: ContractorRow,
   packet: PacketRow,
