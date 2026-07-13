@@ -467,6 +467,14 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     payload: { property_id: propertyId, added_cents: addedCents, instructions },
   });
 
+  // On a claimed/in-progress trip, program the contractor's existing trip code
+  // onto the new stop's lock BEFORE telling them about it — "works at every
+  // stop" must be true by the time the email lands. Idempotent: only doors
+  // missing the code get programmed.
+  if (['claimed', 'in_progress'].includes(packet.status)) {
+    await programPacketCodes(packetId).catch(() => {});
+  }
+
   // On a claimed/in-progress trip, tell the contractor it grew (best-effort).
   if (packet.awarded_contractor_id) {
     const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
@@ -541,6 +549,11 @@ export async function syncPacketWindows(formData: FormData): Promise<void> {
   // Also refresh the denormalized title (count + towns), so a packet edited
   // before this shipped gets corrected on the same click.
   await regeneratePacketTitle(packetId);
+  // And make sure the trip code is on every stop's mapped lock — the backstop
+  // for stops added before add-stop programmed codes itself. Idempotent.
+  if (['claimed', 'in_progress'].includes(packet.status)) {
+    await programPacketCodes(packetId).catch(() => {});
+  }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
