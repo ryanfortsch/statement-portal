@@ -306,7 +306,12 @@ function SupplyClosetCode() {
  *  is packed for and lists the job-specific parts so nothing's left behind. */
 function SupplyRunCard({ run }: { run: SupplyRun }) {
   const homes = run.bins.map((b) => b.propertyName);
-  const restock = [...new Set(run.bins.flatMap((b) => b.lowItems))];
+  // Restock stays grouped BY HOME (Delaney's ask): a flattened dedup'd list
+  // reads fine but packs wrong — two homes both low on paper towels means
+  // grab two, and she can't know that without the per-home split.
+  const restockBins = run.bins
+    .map((b) => ({ name: b.propertyName, items: [...new Set(b.lowItems)] }))
+    .filter((b) => b.items.length > 0);
   // No early return: the kit pickup is stop 1 of EVERY route, even when
   // nothing specific is flagged — the bag itself always gets grabbed.
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
@@ -327,16 +332,24 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
       <SupplyClosetCode />
 
       {homes.length > 0 && (
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: restock.length > 0 || run.jobs.length > 0 ? 12 : 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: restockBins.length > 0 || run.jobs.length > 0 ? 12 : 0 }}>
           <span style={{ color: 'var(--ink-4)' }}>Packed for: </span>
           <span style={{ color: 'var(--ink)' }}>{homes.join(' · ')}</span>
         </div>
       )}
 
-      {restock.length > 0 && (
+      {restockBins.length > 0 && (
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: run.jobs.length > 0 ? 12 : 0 }}>
-          <span style={{ color: 'var(--ink-4)' }}>Also restocking: </span>
-          <span style={{ color: 'var(--signal)' }}>{restock.join(', ')}</span>
+          <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Restocking, by home</div>
+          <div style={{ display: 'grid', gap: 5 }}>
+            {restockBins.map((b) => (
+              <div key={b.name}>
+                <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{b.name}</span>
+                <span style={{ color: 'var(--ink-4)' }}> · </span>
+                <span style={{ color: 'var(--signal)' }}>{b.items.join(', ')}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
