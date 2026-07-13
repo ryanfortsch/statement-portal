@@ -12,7 +12,8 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate, addPacketStop, movePacketStop, syncPacketWindows } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows } from '../actions';
+import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -636,30 +637,17 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           )}
         </div>
 
-        {/* Stops */}
+        {/* Stops — StopList owns the order (drag ⋮⋮ to reorder, optimistic);
+            each row's content stays server-rendered and is passed in by id. */}
         <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
           <PacketInstructions packetId={packet.id} instructions={packet.instructions} editable={attachEditable} />
-          {packet.stops.map((s, i) => (
-            <div key={s.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 1 }}>
-                {canAddStop && packet.stops.length > 1 && (
-                  <form action={movePacketStop} style={{ margin: 0, lineHeight: 0 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input type="hidden" name="stop_id" value={s.id} />
-                    <input type="hidden" name="direction" value="up" />
-                    <button type="submit" title="Move earlier" disabled={i === 0} style={{ ...arrowBtn, opacity: i === 0 ? 0.2 : 1, cursor: i === 0 ? 'default' : 'pointer' }}>▲</button>
-                  </form>
-                )}
-                <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>{i + 1}</span>
-                {canAddStop && packet.stops.length > 1 && (
-                  <form action={movePacketStop} style={{ margin: 0, lineHeight: 0 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input type="hidden" name="stop_id" value={s.id} />
-                    <input type="hidden" name="direction" value="down" />
-                    <button type="submit" title="Move later" disabled={i === packet.stops.length - 1} style={{ ...arrowBtn, opacity: i === packet.stops.length - 1 ? 0.2 : 1, cursor: i === packet.stops.length - 1 ? 'default' : 'pointer' }}>▼</button>
-                  </form>
-                )}
-              </div>
+          <StopList
+            packetId={packet.id}
+            canReorder={canAddStop}
+            items={packet.stops.map((s, i) => ({
+              id: s.id,
+              node: (
+            <>
               <div style={{ flex: 1 }}>
                 <div className="font-serif" style={{ fontSize: 16 }}>{s.property.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
@@ -710,8 +698,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   </form>
                 )}
               </div>
-            </div>
-          ))}
+            </>
+              ),
+            }))}
+          />
         </div>
 
         {events.length > 0 && (
@@ -743,14 +733,6 @@ const priceInput: React.CSSProperties = {
   border: '1px solid var(--rule)',
   padding: '6px 8px',
   width: 90,
-};
-const arrowBtn: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  padding: 0,
-  fontSize: 9,
-  color: 'var(--ink-4)',
-  lineHeight: 1,
 };
 const btnDark: React.CSSProperties = {
   background: 'var(--ink)',
