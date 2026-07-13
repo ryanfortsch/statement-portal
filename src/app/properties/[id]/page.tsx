@@ -1197,6 +1197,9 @@ export default async function PropertyDetailPage({
           propertyId={p.id}
           initialToken={p.onboarding_token}
           submittedAt={p.onboarding_submitted_at}
+          ownerEmails={p.owner_emails ?? []}
+          ownerGreeting={p.owner_greeting ?? null}
+          propertyName={p.name}
         />
       </CollapsibleSection>
 
