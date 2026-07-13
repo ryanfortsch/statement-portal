@@ -120,6 +120,33 @@ export async function programPacketCodes(packetId: string): Promise<string | nul
 }
 
 /** Remove every live programmed code for a packet (submit / release / cancel). */
+/** Revoke the packet's code from ONE property's lock — used when a stop is
+ *  removed from a live trip, so the contractor's code stops opening a door they
+ *  no longer visit. No-op when Seam is dark or the property had no mapped lock. */
+export async function revokePacketPropertyCode(packetId: string, propertyId: string): Promise<void> {
+  if (!seamConfigured()) return;
+  const db = fieldDb();
+  const { data: codes } = await db
+    .from('packet_access_codes')
+    .select('id, device_id, seam_access_code_id')
+    .eq('packet_id', packetId)
+    .eq('property_id', propertyId)
+    .is('removed_at', null);
+  for (const r of (codes ?? []) as { id: string; device_id: string | null; seam_access_code_id: string | null }[]) {
+    if (r.seam_access_code_id) {
+      try {
+        await deleteAccessCode(r.seam_access_code_id);
+      } catch {
+        // already removed/expired upstream
+      }
+      if (r.device_id) {
+        await db.from('lock_access_codes').delete().eq('device_id', r.device_id).eq('access_code_id', r.seam_access_code_id);
+      }
+    }
+    await db.from('packet_access_codes').update({ removed_at: new Date().toISOString() }).eq('id', r.id);
+  }
+}
+
 export async function revokePacketCodes(packetId: string): Promise<void> {
   if (!seamConfigured()) return;
   const db = fieldDb();
