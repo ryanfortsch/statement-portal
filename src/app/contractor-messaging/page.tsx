@@ -15,6 +15,7 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ContractorMessagingQueue } from './ContractorMessagingQueue';
+import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
 import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
@@ -88,9 +89,13 @@ async function QueueSection() {
     loadProperties(),
   ]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} />;
+  // Infer the work-slip property from the sender's Field run (stay-concierge
+  // can't — it has no Field data), so the office isn't handed a blank dropdown.
+  const propertyNames = new Map(properties.map((p) => [p.id, p.name]));
+  const approvalContext = await loadContractorApprovalContext(pending.data.approvals, propertyNames).catch(() => ({}));
   return (
     <>
-      <ContractorMessagingQueue initialPending={pending.data.approvals} properties={properties} />
+      <ContractorMessagingQueue initialPending={pending.data.approvals} properties={properties} context={approvalContext} />
       <ProactiveRemindersPanel
         audience="contractor"
         actions={{
