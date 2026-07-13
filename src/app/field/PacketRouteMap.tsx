@@ -46,11 +46,23 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
   const inst = useRef<any>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
 
+  // A change to any of these must redraw the map: a stop added / removed /
+  // reordered, or a live arrival-state change. Recomputed each render; cheap.
+  const routeKey = stops
+    .map((s) => `${s.lat},${s.lng},${s.order},${s.num ?? ''},${s.state ?? ''},${s.pin === false ? 0 : 1},${s.verified ? 1 : 0}`)
+    .join('|');
+
   useEffect(() => {
     const valid = stops
       .filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))
       .sort((a, b) => a.order - b.order);
-    if (!mapRef.current || inst.current || valid.length === 0) return;
+    if (!mapRef.current || valid.length === 0) return;
+    // Tear down any existing map first, so a changed stop list redraws instead of
+    // being ignored (the old guard bailed once a map existed, stranding new stops).
+    if (inst.current) {
+      try { inst.current.remove(); } catch { /* already gone */ }
+      inst.current = null;
+    }
 
     if (!document.querySelector('link[href*="leaflet"]')) {
       const link = document.createElement('link');
@@ -125,7 +137,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [routeKey]);
 
   const hasCoords = stops.some((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
   if (!hasCoords) return null;
