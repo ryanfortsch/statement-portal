@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate, addPacketStop } from '../actions';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -112,6 +112,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const attachableByStop = attachEditable
     ? await Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
     : packet.stops.map(() => []);
+
+  // Properties you can drop onto this trip as another stop (an inspection or a
+  // task). Only while the trip can still take one; exclude homes already on it.
+  const canAddStop = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
+  const onTrip = new Set(packet.stops.map((s) => s.property_id));
+  const addableProps = canAddStop
+    ? (((await fieldDb().from('properties').select('id, name, address').order('name')).data ?? []) as { id: string; name: string | null; address: string | null }[]).filter((p) => !onTrip.has(p.id))
+    : [];
 
   // The claimable pool for this packet (active, onboarded, cleared, same trade),
   // ranked the way the SMS blast ranks it — reliability first, then distance —
@@ -570,6 +578,33 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, maxWidth: 230, lineHeight: 1.45 }}>
                       Raise only — {dollars(packet.posted_price_cents)} is what {packet.contractor?.full_name ?? 'the contractor'} agreed to, and we&apos;ll email them the new amount. To lower it, release the claim first.
                     </div>
+                  </div>
+                </details>
+              )}
+              {canAddStop && addableProps.length > 0 && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Add a stop ▾</summary>
+                  <div style={menuCard}>
+                    <form action={addPacketStop} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
+                        <option value="" disabled>Choose a property…</option>
+                        {addableProps.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name || p.address}</option>
+                        ))}
+                      </select>
+                      <input name="instructions" placeholder="What to do (blank = full inspection)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
+                        <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required style={{ ...priceInput, width: 80 }} />
+                        <PendingButton label="Add stop" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
+                      </div>
+                      {(packet.status === 'claimed' || packet.status === 'in_progress') && (
+                        <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
+                          Adds to {packet.contractor?.full_name ?? 'the contractor'}&apos;s route and pay; we&apos;ll email them the change.
+                        </div>
+                      )}
+                    </form>
                   </div>
                 </details>
               )}
