@@ -543,7 +543,7 @@ export function Stepper({
           </div>
         )}
         <div className="eyebrow" style={{ marginBottom: 12 }}>
-          {(activeCard.item_category || 'EVERY_TIME').replaceAll('_', ' ')} &middot; {activeCard.category}
+          {activeCard.category}
         </div>
         <h1
           className="font-serif"
