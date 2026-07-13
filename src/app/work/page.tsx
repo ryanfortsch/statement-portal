@@ -1,5 +1,6 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
+import { WorkTabs } from '@/components/WorkTabs';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
@@ -107,6 +108,7 @@ export default async function WorkQueuePage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
+      <WorkTabs current="work" />
 
       <QueueClient
         workSlips={workSlips}

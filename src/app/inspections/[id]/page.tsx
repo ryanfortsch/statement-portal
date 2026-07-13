@@ -160,7 +160,7 @@ export default async function InspectionInProgressPage({
   if (inspection.completed_at) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="operations" />
+        <HelmMasthead current="work" />
         <HelmHero
           eyebrow="Inspection complete"
           title="This inspection is"

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { WorkTabs } from '@/components/WorkTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
@@ -174,7 +175,8 @@ export default async function PropertiesPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="properties" />
+      <HelmMasthead current="work" />
+      <WorkTabs current="properties" />
 
       <HelmHero
         eyebrow="Helm · Properties"

@@ -78,7 +78,7 @@ export default async function BedroomPhotosPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="properties" />
+      <HelmMasthead current="work" />
 
       <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
         <Link

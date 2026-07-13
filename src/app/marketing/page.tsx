@@ -1,4 +1,5 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { HelmHero } from '@/components/HelmHero';
 import {
   getStatTotals,
@@ -52,6 +53,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="marketing" />
+      <MarketingTabs current="marketing" />
 
       <HelmHero
         eyebrow="Helm · Marketing"
@@ -407,6 +409,7 @@ function ConfigError() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="marketing" />
+      <MarketingTabs current="marketing" />
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 80, width: '100%' }}>
         <div className="eyebrow">Helm &middot; Marketing</div>
         <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, marginTop: 12 }}>Not configured.</h1>

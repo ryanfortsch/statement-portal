@@ -83,7 +83,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="properties" />
+      <HelmMasthead current="work" />
 
       <div className="max-w-[820px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
         <Link

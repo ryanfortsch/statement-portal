@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export default function GuestImportPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="guests" />
+      <HelmMasthead current="marketing" />
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>

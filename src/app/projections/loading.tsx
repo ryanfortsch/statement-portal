@@ -1,5 +1,5 @@
 import { HelmLoading } from '@/components/HelmLoading';
 
 export default function ProspectsLoading() {
-  return <HelmLoading current="properties" eyebrow="Helm · Prospects" headlineWidth={400} contentRows={5} />;
+  return <HelmLoading current="work" eyebrow="Helm · Prospects" headlineWidth={400} contentRows={5} />;
 }
