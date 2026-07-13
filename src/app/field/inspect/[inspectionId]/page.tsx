@@ -13,7 +13,8 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
-import { Stepper } from '@/app/inspections/[id]/Stepper';
+import { Stepper, type TrailingTask } from '@/app/inspections/[id]/Stepper';
+import { completeAttachedSlipInFlow } from '@/app/field/actions';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -38,11 +39,11 @@ export default async function FieldInspectPage({
   // contractor.
   const { data: stopRow } = await fieldDb()
     .from('packet_stops')
-    .select('packet_id, inspection_packets!inner(awarded_contractor_id)')
+    .select('id, packet_id, inspection_packets!inner(awarded_contractor_id)')
     .eq('inspection_id', inspectionId)
     .maybeSingle();
   const stop = stopRow as
-    | { packet_id: string; inspection_packets: { awarded_contractor_id: string | null } }
+    | { id: string; packet_id: string; inspection_packets: { awarded_contractor_id: string | null } }
     | null;
   if (!stop || stop.inspection_packets?.awarded_contractor_id !== contractor.id) {
     redirect('/field');
@@ -164,6 +165,31 @@ export default async function FieldInspectPage({
     photo_urls: ws.photo_urls ?? [],
   }));
 
+  // One-off tasks attached to THIS stop and not yet done — woven into the deck
+  // as trailing cards so the inspector handles them in-flow. Recomputed each
+  // load, so a task completed mid-deck never reappears on resume.
+  const { data: attachRows } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id, office_note, created_at, work_slips(id, title, description, bring_list, location, photo_urls)')
+    .eq('stop_id', stop.id)
+    .is('completed_at', null)
+    .order('created_at');
+  const trailingTasks: TrailingTask[] = ((attachRows ?? []) as unknown as Array<{
+    id: string;
+    office_note: string | null;
+    work_slips: { id: string; title: string; description: string | null; bring_list: string | null; location: string | null; photo_urls: string[] | null } | null;
+  }>)
+    .filter((r) => r.work_slips)
+    .map((r) => ({
+      attachmentId: r.id,
+      title: r.work_slips!.title,
+      description: r.work_slips!.description,
+      location: r.work_slips!.location,
+      bringList: r.work_slips!.bring_list,
+      officeNote: r.office_note,
+      photoUrls: r.work_slips!.photo_urls ?? [],
+    }));
+
   return (
     <Stepper
       inspectionId={inspectionId}
@@ -179,6 +205,9 @@ export default async function FieldInspectPage({
         return { item_id: rr.item_id, zone_id: rr.property_zone_id, status: rr.status, notes: rr.notes, photo_urls: rr.photo_urls ?? [] };
       })}
       exitHref={`/field/packet/${stop.packet_id}`}
+      trailingTasks={trailingTasks}
+      packetId={stop.packet_id}
+      onCompleteTask={completeAttachedSlipInFlow}
     />
   );
 }
