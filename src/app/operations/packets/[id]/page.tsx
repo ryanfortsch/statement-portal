@@ -651,7 +651,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               <div style={{ flex: 1 }}>
                 <div className="font-serif" style={{ fontSize: 16 }}>{s.property.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
-                  {s.property.address} · {windowLabel(s)} · {dollars(s.base_price_cents)}
+                  {s.property.address} · {windowLabel(s)}
                 </div>
                 {/* The visit ledger: when they got in (door-verified when the
                     lock saw their code) and how long they were inside. */}
