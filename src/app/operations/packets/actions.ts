@@ -492,34 +492,32 @@ export async function addPacketStop(formData: FormData): Promise<void> {
   revalidatePath('/operations/packets');
 }
 
-/** Reorder a stop within a trip (one step earlier or later). Works after the
- *  packet is issued — sequence is route/display only, not the deal — and
- *  reindexes walk_order 0..n-1 so the numbering never drifts. */
-export async function movePacketStop(formData: FormData): Promise<void> {
+/** Persist a full stop order for a trip (from the drag-reorder UI). Works after
+ *  the packet is issued — sequence is route/display only, not the deal. The
+ *  client sends the complete ordered id list; we only accept an exact
+ *  permutation of the live stop set (a stale tab can't drop or invent stops)
+ *  and write walk_order = index, so numbering never drifts. */
+export async function reorderPacketStops(packetId: string, orderedIds: string[]): Promise<void> {
   const email = await staffEmail();
-  const packetId = String(formData.get('packet_id') || '');
-  const stopId = String(formData.get('stop_id') || '');
-  const dir = String(formData.get('direction') || '');
-  if (!packetId || !stopId || (dir !== 'up' && dir !== 'down')) return;
+  if (!packetId || !Array.isArray(orderedIds) || orderedIds.length === 0) return;
   const { data: pkt } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
   if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return;
 
-  const { data: sData } = await fieldDb()
-    .from('packet_stops')
-    .select('id, walk_order')
-    .eq('packet_id', packetId)
-    .order('walk_order', { ascending: true });
-  const arr = (sData ?? []) as { id: string; walk_order: number }[];
-  const idx = arr.findIndex((s) => s.id === stopId);
-  if (idx < 0) return;
-  const swap = dir === 'up' ? idx - 1 : idx + 1;
-  if (swap < 0 || swap >= arr.length) return; // already at an end
-  [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
-  // Reindex contiguous by new position (no unique constraint on walk_order).
-  const updates = arr
-    .map((s, i) => ({ s, i }))
-    .filter(({ s, i }) => s.walk_order !== i)
-    .map(({ s, i }) => fieldDb().from('packet_stops').update({ walk_order: i }).eq('id', s.id));
+  const { data: sData } = await fieldDb().from('packet_stops').select('id, walk_order').eq('packet_id', packetId);
+  const rows = (sData ?? []) as { id: string; walk_order: number }[];
+  const live = new Set(rows.map((r) => r.id));
+  const isPermutation =
+    orderedIds.length === rows.length &&
+    new Set(orderedIds).size === orderedIds.length &&
+    orderedIds.every((id) => live.has(id));
+  if (!isPermutation) return;
+
+  const currentOrder = new Map(rows.map((r) => [r.id, r.walk_order]));
+  const updates = orderedIds
+    .map((id, i) => ({ id, i }))
+    .filter(({ id, i }) => currentOrder.get(id) !== i)
+    .map(({ id, i }) => fieldDb().from('packet_stops').update({ walk_order: i }).eq('id', id).eq('packet_id', packetId));
+  if (updates.length === 0) return;
   await Promise.all(updates);
   await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'stops_reordered' });
   revalidatePath(`/operations/packets/${packetId}`);
