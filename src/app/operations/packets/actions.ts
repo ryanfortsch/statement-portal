@@ -9,7 +9,7 @@ import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromP
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus } from '@/lib/field-packet-status';
@@ -346,6 +346,95 @@ export async function raisePacketEstimate(formData: FormData): Promise<void> {
   if (packet.awarded_contractor_id) {
     const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
     if (c) await sendEstimateRaisedEmail(c as ContractorRow, changed as { id: string; title: string; posted_price_cents: number }, oldCents, reason).catch(() => {});
+  }
+
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Add a stop to a trip: another property inspection, or a specific task at one
+ *  of our homes (pick the property, describe what to do, set the pay). Allowed
+ *  on draft/published/claimed/in-progress; once submitted, the payout flow owns
+ *  the dollars. On a claimed trip it grows the pay and re-notifies the
+ *  contractor, same handshake as raising the estimate. */
+export async function addPacketStop(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const propertyId = String(formData.get('property_id') || '');
+  const instructions = String(formData.get('instructions') || '').trim().slice(0, 500) || null;
+  const dollarsValue = Number(formData.get('price_dollars') || 0);
+  if (!packetId || !propertyId || !Number.isFinite(dollarsValue) || dollarsValue <= 0) return;
+  const addedCents = Math.round(dollarsValue * 100);
+
+  const { data: pk } = await fieldDb()
+    .from('inspection_packets')
+    .select('title, posted_price_cents, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pk as { title: string; posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
+
+  // Append to the end of the route.
+  const { data: last } = await fieldDb()
+    .from('packet_stops')
+    .select('walk_order')
+    .eq('packet_id', packetId)
+    .order('walk_order', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextOrder = ((last as { walk_order: number } | null)?.walk_order ?? -1) + 1;
+
+  // Manually-added stop: no booking window, so it's "vacant all day" (go anytime
+  // on the trip). instructions blank = a full inspection; filled = a task.
+  const { error: insErr } = await fieldDb().from('packet_stops').insert({
+    packet_id: packetId,
+    property_id: propertyId,
+    window_basis: 'vacant',
+    base_price_cents: addedCents,
+    walk_order: nextOrder,
+    instructions,
+  });
+  if (insErr) {
+    revalidatePath(`/operations/packets/${packetId}`);
+    return;
+  }
+
+  // Recount surviving stops (never drift the stored count) + add the stop's pay
+  // to the posted price, preserving any operator-set total.
+  const { count: liveCount } = await fieldDb()
+    .from('packet_stops')
+    .select('id', { count: 'exact', head: true })
+    .eq('packet_id', packetId);
+  const newTotal = packet.posted_price_cents + addedCents;
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ stop_count: liveCount ?? 1, posted_price_cents: newTotal, updated_at: new Date().toISOString() })
+    .eq('id', packetId);
+
+  const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
+  const p = prop as { name: string | null; address: string | null } | null;
+  const propName = p?.name || p?.address || 'a stop';
+  const label = instructions ? `${propName} (${instructions})` : propName;
+
+  await fieldDb().from('packet_events').insert({
+    packet_id: packetId,
+    contractor_id: packet.awarded_contractor_id,
+    actor_email: email,
+    event_type: 'stop_added',
+    payload: { property_id: propertyId, added_cents: addedCents, instructions },
+  });
+
+  // On a claimed/in-progress trip, tell the contractor it grew (best-effort).
+  if (packet.awarded_contractor_id) {
+    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
+    if (c) {
+      await sendTripStopAddedEmail(
+        c as ContractorRow,
+        { id: packetId, title: packet.title, posted_price_cents: newTotal },
+        label,
+        addedCents,
+      ).catch(() => {});
+    }
   }
 
   revalidatePath(`/operations/packets/${packetId}`);

@@ -155,6 +155,31 @@ export async function sendEstimateRaisedEmail(
   });
 }
 
+/** Contractor notice when the office ADDS a stop to a trip they already hold.
+ *  More work, more pay — names the added stop and the new estimated total. */
+export async function sendTripStopAddedEmail(
+  contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
+  packet: Pick<PacketRow, 'id' | 'title' | 'posted_price_cents'>,
+  stopLabel: string,
+  addedCents: number,
+): Promise<boolean> {
+  const link = packetLink(contractor.portal_token, packet.id);
+  const esc = stopLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">A stop was added to ${packet.title}</h1>
+    <p>We added <strong>${esc}</strong> to your trip (+${dollars(addedCents)}). Your estimated pay is now <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the updated route and details.</p>
+    ${btn(link, 'View packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: `New stop added: ${packet.title}`,
+    fromName: FROM_NAME,
+    cc: OFFICE_CC,
+    html,
+    text: `We added ${stopLabel} to your trip (+${dollars(addedCents)}). New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
+  });
+}
+
 export async function sendClaimConfirmation(
   contractor: ContractorRow,
   packet: PacketRow,
