@@ -271,6 +271,49 @@ function clusterName(props: FieldProperty[]): string {
   return townsLabel(props.map((p) => p.city)) || cityShort(props[0].city) || props[0].name;
 }
 
+/** The right window for a stop, from the property's guest bookings on the visit
+ *  day: a checkout that day means go after it; a check-in that day means go
+ *  before it; otherwise the home is vacant. Used when a stop is added by hand or
+ *  when re-syncing a trip's windows to current bookings. */
+export async function deriveStopWindow(
+  propertyId: string,
+  visitDate: string,
+): Promise<{ window_basis: WindowBasis; prior_checkout: string | null; next_checkin: string | null }> {
+  const { data } = await fieldDb()
+    .from('bookings')
+    .select('check_in, check_out, status')
+    .eq('property_id', propertyId)
+    .is('duplicate_of', null)
+    .or(`check_out.eq.${visitDate},check_in.eq.${visitDate}`);
+  const rows = ((data ?? []) as { check_in: string; check_out: string; status: string | null }[]).filter(isGuestStay);
+  const checkoutToday = rows.find((b) => b.check_out === visitDate);
+  const checkinToday = rows.find((b) => b.check_in === visitDate);
+  if (checkoutToday) return { window_basis: 'checkout_day', prior_checkout: visitDate, next_checkin: checkinToday?.check_in ?? null };
+  if (checkinToday) return { window_basis: 'pre_checkin', prior_checkout: null, next_checkin: visitDate };
+  return { window_basis: 'vacant', prior_checkout: null, next_checkin: null };
+}
+
+/** Rebuild the stored title after the stop set changes, so list views (which
+ *  read the denormalized title, not the computed headline) show the right count
+ *  and towns. Standard inspection packets only; setup/maintenance keep their own
+ *  title shape. */
+export async function regeneratePacketTitle(packetId: string): Promise<void> {
+  const { data: pkt } = await fieldDb().from('inspection_packets').select('kind, trade').eq('id', packetId).maybeSingle();
+  const meta = pkt as { kind: string; trade: string } | null;
+  if (!meta || meta.kind !== 'standard' || meta.trade !== 'inspection') return;
+  const { data: sData } = await fieldDb().from('packet_stops').select('property_id').eq('packet_id', packetId);
+  const rows = (sData ?? []) as { property_id: string }[];
+  if (rows.length === 0) return;
+  const ids = [...new Set(rows.map((r) => r.property_id))];
+  const { data: pData } = await fieldDb().from('properties').select('id, name, city').in('id', ids);
+  const byId = new Map(((pData ?? []) as { id: string; name: string | null; city: string | null }[]).map((p) => [p.id, p]));
+  const cities = rows.map((r) => byId.get(r.property_id)?.city ?? null);
+  const first = byId.get(rows[0].property_id);
+  const label = townsLabel(cities) || cityShort(first?.city ?? null) || first?.name || 'Trip';
+  const title = `${label} · ${rows.length} ${rows.length === 1 ? 'stop' : 'stops'}`;
+  await fieldDb().from('inspection_packets').update({ title, updated_at: new Date().toISOString() }).eq('id', packetId);
+}
+
 /**
  * Suggest packets across a date window. Greedy: each property is assigned to
  * its EARLIEST feasible day, then properties inspectable that day are
@@ -529,7 +572,7 @@ export async function loadPacketDetail(
     .maybeSingle();
   const packet = (pData as PacketRow | null) ?? null;
   if (!packet) return null;
-  const { data: sData } = await fieldDb().from('packet_stops').select('*').eq('packet_id', packetId);
+  const { data: sData } = await fieldDb().from('packet_stops').select('*').eq('packet_id', packetId).order('walk_order', { ascending: true });
   // Identity is revealed by default (office/internal views); contractor
   // marketplace + pre-claim views pass revealIdentity:false to mask addresses.
   const stops = await stopsWithProperties(
