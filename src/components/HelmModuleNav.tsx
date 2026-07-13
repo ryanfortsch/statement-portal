@@ -34,12 +34,21 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
   // any module when a draft is waiting. The badge is silent at 0.
   const badge = m.id === 'messaging' ? <MessagingPendingBadge /> : null;
 
+  // Active still links to the module's own href (its "home" page), not just a
+  // static label -- this module now covers several nested routes (e.g. Work
+  // also covers Turnovers/Field/Properties/Today), so "active" doesn't mean
+  // "I am exactly on this page," it means "I am somewhere in this section."
+  // A plain span here would strand anyone on a nested page with no way back
+  // to the section's own home via the masthead.
   if (active) {
     return (
-      <span style={{ color: 'var(--ink)', display: 'inline-flex', alignItems: 'center' }}>
+      <Link
+        href={m.href}
+        style={{ color: 'var(--ink)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+      >
         {m.title}
         {badge}
-      </span>
+      </Link>
     );
   }
 
