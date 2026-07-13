@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
@@ -40,7 +41,8 @@ export default async function GuestPage({
   if (sp.tab === 'agreements') {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="guests" />
+        <HelmMasthead current="marketing" />
+        <MarketingTabs current="guests" />
         <HelmHero
           eyebrow="Helm · Guests"
           title="Signed,"
@@ -61,7 +63,8 @@ export default async function GuestPage({
   if (sp.tab !== 'contacts') {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="guests" />
+        <HelmMasthead current="marketing" />
+        <MarketingTabs current="guests" />
         <HelmHero
           eyebrow="Helm · Guests"
           title="Five-star,"
@@ -97,7 +100,8 @@ export default async function GuestPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="guests" />
+      <HelmMasthead current="marketing" />
+      <MarketingTabs current="guests" />
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>

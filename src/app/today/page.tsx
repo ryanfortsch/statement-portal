@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { WorkTabs } from '@/components/WorkTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
 import {
@@ -308,7 +309,8 @@ export default async function TodayPage() {
   if (!isHelmConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="today" />
+        <HelmMasthead current="work" />
+        <WorkTabs current="today" />
         <main className="max-w-[720px] mx-auto px-10 py-12 flex-1">
           <p>Supabase is not configured.</p>
         </main>
@@ -513,7 +515,8 @@ export default async function TodayPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="today" />
+      <HelmMasthead current="work" />
+      <WorkTabs current="today" />
 
       <main className="max-w-[720px] mx-auto px-10 py-12 flex-1 w-full">
         <header className="mb-14">

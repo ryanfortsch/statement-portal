@@ -65,7 +65,7 @@ export default async function ApplicantsPage({
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="operations" />
+        <HelmMasthead current="work" />
         <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <p style={{ color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
         </section>
@@ -91,7 +91,7 @@ export default async function ApplicantsPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="field" />
+      <HelmMasthead current="work" />
       <FieldTabs current="hiring" trade={trade} />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>{meta.label}</div>

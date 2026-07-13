@@ -40,7 +40,7 @@ export default async function EditPropertyNoticePage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="properties" />
+      <HelmMasthead current="work" />
 
       <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
         <Link

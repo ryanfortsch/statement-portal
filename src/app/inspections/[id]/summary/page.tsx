@@ -220,7 +220,7 @@ export default async function InspectionSummaryPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="operations" />
+      <HelmMasthead current="work" />
 
       {/* HEADER */}
       <section

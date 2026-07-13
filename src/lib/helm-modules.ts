@@ -90,6 +90,10 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
   },
+  // Turnovers is now a TAB inside Work (see WorkTabs), same pattern as
+  // Statements/Revenue/Forecast under Financials. Hidden from the nav lists
+  // so it doesn't duplicate the Work entry; current="work" highlights the
+  // parent on this and every nested page. Route + search still resolve.
   {
     id: 'operations',
     href: '/operations',
@@ -97,9 +101,13 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Turnovers',
     description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
     status: 'active',
-    primary: true,
+    primary: false,
+    hidden: true,
     group: 'operations',
   },
+  // Field is a TAB inside Work (see WorkTabs). Hidden from the nav lists for
+  // the same reason as Turnovers above; FieldTabs still handles its own
+  // job-type/lens sub-navigation underneath.
   {
     id: 'field',
     href: '/operations/packets',
@@ -108,6 +116,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'operations',
   },
   {
@@ -134,6 +143,9 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'operations',
   },
+  // Properties is a TAB inside Work (see WorkTabs), same reasoning as
+  // Turnovers/Field above. PropertiesTabBar still handles the Prospects
+  // sub-tab underneath.
   {
     id: 'properties',
     href: '/properties',
@@ -142,6 +154,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'relationships',
   },
   // Prospects is now a TAB inside Properties (the Prospects tab at
@@ -187,6 +200,9 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'relationships',
   },
+  // Cleaner Messaging is a TAB inside Messaging (see MessagingTabs), same as
+  // Owner Messaging above. Hidden from the nav lists so it doesn't duplicate
+  // the Messaging entry; route + search still resolve.
   {
     id: 'cleaner-messaging',
     href: '/cleaner-messaging',
@@ -195,6 +211,8 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Bilingual reply drafts for Rosa and Nina. Portuguese draft + English translation side-by-side, plus translation of their inbound message. Approve, reject, or coach the AI from Helm.',
     status: 'active',
     primary: false,
+    hidden: true,
+    group: 'relationships',
   },
   {
     id: 'revenue',
@@ -258,6 +276,9 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
   },
+  // Guests is now a TAB inside Marketing (see MarketingTabs). Hidden from the
+  // nav lists so it doesn't duplicate the Marketing entry; GuestsTabBar still
+  // handles the Reviews/Contacts/Agreements sub-tabs underneath.
   {
     id: 'guests',
     href: '/guests',
@@ -266,6 +287,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'growth',
   },
   // Reviews is not a module of its own — it's the "Reviews" tab inside
@@ -298,6 +320,8 @@ export const HELM_MODULES: HelmModule[] = [
     // deeper. Un-parked because the morning SMS already links here, so the
     // parked status was a mismatch. /me was folded into the home feed in
     // the same pass and now redirects to /.
+    // Now a TAB inside Work (see WorkTabs); hidden from the nav lists for
+    // the same reason as Turnovers/Field/Properties above.
     id: 'today',
     href: '/today',
     number: '00',
@@ -305,6 +329,7 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Daily brief. Replies waiting, turnovers, work slips, drafts. The full-expansion view of the home feed; texted every morning.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'operations',
   },
   {
@@ -352,14 +377,14 @@ export const HELM_MODULES: HelmModule[] = [
 
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
- * array order so the master list can stay in module-number order while
- * the nav shows the daily-flow tabs in the order Dotti reads them
- * left-to-right: Turnovers (the ops pipeline), Work (the persistent
- * backlog board), and Messaging (the guest-reply queue, which carries a
- * pending-count badge so she can see at a glance whether anything's
- * waiting).
+ * array order so the master list can stay in module-number order while the
+ * nav shows the daily-flow tabs in the order Dotti reads them left-to-right:
+ * Work (the persistent backlog board — now also home to the Turnovers/Field/
+ * Properties/Today tabs, see WorkTabs) and Messaging (the guest-reply queue,
+ * which carries a pending-count badge so she can see at a glance whether
+ * anything's waiting).
  */
-const PRIMARY_ORDER: string[] = ['operations', 'work', 'messaging'];
+const PRIMARY_ORDER: string[] = ['work', 'messaging'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
@@ -409,9 +434,11 @@ export function getGroupedOverflowModules(): { group: HelmGroup; label: string; 
 }
 
 // Pinned to the top of the "More" menu in this exact order, regardless of
-// group. Per Dotti: Properties, then Field, then Financials lead; everything
-// else follows in its grouped order.
-const OVERFLOW_PRIORITY = ['properties', 'field', 'financials'];
+// group. Per Dotti: Financials leads; everything else follows in its
+// grouped order. (Properties and Field used to lead too, but both are now
+// tabs inside Work — see WorkTabs — so they've dropped out of the overflow
+// list entirely.)
+const OVERFLOW_PRIORITY = ['financials'];
 
 /**
  * The flat "More" menu list both the desktop dropdown and the mobile sheet

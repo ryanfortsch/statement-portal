@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { WorkTabs } from '@/components/WorkTabs';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
@@ -113,7 +114,8 @@ export default async function PacketsBoard({
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="field" />
+        <HelmMasthead current="work" />
+        <WorkTabs current="field" />
         <section className="max-w-[1000px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Field packets</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
@@ -181,7 +183,8 @@ export default async function PacketsBoard({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="field" />
+      <HelmMasthead current="work" />
+      <WorkTabs current="field" />
       <FieldTabs current="packets" trade={trade} />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         {/* One calm header: title + subtitle left, the two CREATE actions right.
