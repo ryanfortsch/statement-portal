@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -405,10 +405,10 @@ export async function addPacketStop(formData: FormData): Promise<void> {
 
   const { data: pk } = await fieldDb()
     .from('inspection_packets')
-    .select('title, posted_price_cents, status, awarded_contractor_id')
+    .select('title, visit_date, posted_price_cents, status, awarded_contractor_id')
     .eq('id', packetId)
     .maybeSingle();
-  const packet = pk as { title: string; posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
+  const packet = pk as { title: string; visit_date: string; posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
 
   // Append to the end of the route.
@@ -421,12 +421,16 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     .maybeSingle();
   const nextOrder = ((last as { walk_order: number } | null)?.walk_order ?? -1) + 1;
 
-  // Manually-added stop: no booking window, so it's "vacant all day" (go anytime
-  // on the trip). instructions blank = a full inspection; filled = a task.
+  // Window reflects the home's real bookings on the visit day (a checkout that
+  // day = go after it, not "vacant"). instructions blank = a full inspection;
+  // filled = a specific task.
+  const win = await deriveStopWindow(propertyId, packet.visit_date);
   const { error: insErr } = await fieldDb().from('packet_stops').insert({
     packet_id: packetId,
     property_id: propertyId,
-    window_basis: 'vacant',
+    window_basis: win.window_basis,
+    prior_checkout: win.prior_checkout,
+    next_checkin: win.next_checkin,
     base_price_cents: addedCents,
     walk_order: nextOrder,
     instructions,
@@ -447,6 +451,8 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     .from('inspection_packets')
     .update({ stop_count: liveCount ?? 1, posted_price_cents: newTotal, updated_at: new Date().toISOString() })
     .eq('id', packetId);
+  // Keep the denormalized title honest (count + towns) after the stop set grows.
+  await regeneratePacketTitle(packetId);
 
   const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
   const p = prop as { name: string | null; address: string | null } | null;
@@ -474,6 +480,67 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     }
   }
 
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Reorder a stop within a trip (one step earlier or later). Works after the
+ *  packet is issued — sequence is route/display only, not the deal — and
+ *  reindexes walk_order 0..n-1 so the numbering never drifts. */
+export async function movePacketStop(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const stopId = String(formData.get('stop_id') || '');
+  const dir = String(formData.get('direction') || '');
+  if (!packetId || !stopId || (dir !== 'up' && dir !== 'down')) return;
+  const { data: pkt } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
+  if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return;
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, walk_order')
+    .eq('packet_id', packetId)
+    .order('walk_order', { ascending: true });
+  const arr = (sData ?? []) as { id: string; walk_order: number }[];
+  const idx = arr.findIndex((s) => s.id === stopId);
+  if (idx < 0) return;
+  const swap = dir === 'up' ? idx - 1 : idx + 1;
+  if (swap < 0 || swap >= arr.length) return; // already at an end
+  [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+  // Reindex contiguous by new position (no unique constraint on walk_order).
+  const updates = arr
+    .map((s, i) => ({ s, i }))
+    .filter(({ s, i }) => s.walk_order !== i)
+    .map(({ s, i }) => fieldDb().from('packet_stops').update({ walk_order: i }).eq('id', s.id));
+  await Promise.all(updates);
+  await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'stops_reordered' });
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
+/** Re-derive every stop's window from current bookings — fixes a stop stored as
+ *  "vacant" that actually has a checkout that day (and the reverse). */
+export async function syncPacketWindows(formData: FormData): Promise<void> {
+  await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  if (!packetId) return;
+  const { data: pkt } = await fieldDb().from('inspection_packets').select('visit_date, status').eq('id', packetId).maybeSingle();
+  const packet = pkt as { visit_date: string; status: string } | null;
+  if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
+  const { data: sData } = await fieldDb().from('packet_stops').select('id, property_id').eq('packet_id', packetId);
+  const stops = (sData ?? []) as { id: string; property_id: string }[];
+  await Promise.all(
+    stops.map(async (s) => {
+      const win = await deriveStopWindow(s.property_id, packet.visit_date);
+      await fieldDb()
+        .from('packet_stops')
+        .update({ window_basis: win.window_basis, prior_checkout: win.prior_checkout, next_checkin: win.next_checkin })
+        .eq('id', s.id);
+    }),
+  );
+  // Also refresh the denormalized title (count + towns), so a packet edited
+  // before this shipped gets corrected on the same click.
+  await regeneratePacketTitle(packetId);
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
 }
@@ -959,6 +1026,7 @@ export async function removeStop(formData: FormData): Promise<void> {
         updated_at: new Date().toISOString(),
       })
       .eq('id', packetId);
+    await regeneratePacketTitle(packetId);
   }
   revalidatePath(`/operations/packets/${packetId}`);
 }
