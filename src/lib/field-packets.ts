@@ -884,7 +884,9 @@ export async function resyncPacketStopBookings(packetId: string): Promise<{ upda
     if (taken.has(cand.bookingId)) continue;           // another live stop owns it
     await fieldDb()
       .from('packet_stops')
-      .update({ booking_id: cand.bookingId, next_checkin: cand.nextCheckin, prior_checkout: cand.priorCheckout })
+      // window_basis rides along with the booking: a stop re-pointed to a real
+      // checkout must stop reading "vacant all day" and show "after checkout".
+      .update({ booking_id: cand.bookingId, next_checkin: cand.nextCheckin, prior_checkout: cand.priorCheckout, window_basis: cand.basis })
       .eq('id', stop.id);
     taken.add(cand.bookingId); // guard against two movable stops converging this run
     updated++;
