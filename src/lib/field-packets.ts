@@ -1326,6 +1326,25 @@ export type CleaningStatus = {
  *  property_id. Reads the lock-driven cleaning_sessions (checkout_date = the
  *  turnover day) via the service-role client; latest entry wins per property.
  *  Empty map when nothing keyed in. */
+/** Property ids with an ACTIVE Seam lock mapped — homes that CAN produce a
+ *  cleaner lock-entry signal. A home on a physical lockbox is absent here, so
+ *  callers know a blank cleaning signal is EXPECTED (not a warning worth
+ *  showing). */
+export async function loadLockEquippedPropertyIds(propertyIds: string[]): Promise<Set<string>> {
+  const set = new Set<string>();
+  const ids = [...new Set((propertyIds ?? []).filter(Boolean))];
+  if (ids.length === 0) return set;
+  const { data } = await fieldDb()
+    .from('lock_devices')
+    .select('property_id')
+    .in('property_id', ids)
+    .eq('active', true);
+  for (const r of (data ?? []) as Array<{ property_id: string | null }>) {
+    if (r.property_id) set.add(r.property_id);
+  }
+  return set;
+}
+
 export async function loadCleaningStatusForStops(
   stops: Array<{ property_id: string; checkoutDate: string | null }>,
 ): Promise<Map<string, CleaningStatus>> {

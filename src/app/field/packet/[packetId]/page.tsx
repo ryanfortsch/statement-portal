@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop } from '../../actions';
@@ -521,6 +521,11 @@ export default async function PacketPage({
         })),
       )
     : new Map<string, CleaningStatus>();
+  // Homes that CAN report a cleaner (active Seam lock). A lockbox home can't, so
+  // its blank cleaning signal is expected — we suppress the warning there.
+  const locked = isMine
+    ? await loadLockEquippedPropertyIds(packet.stops.map((s) => s.property_id))
+    : new Set<string>();
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -848,7 +853,7 @@ export default async function PacketPage({
                           : 'var(--ink-4)',
                   }}
                 >
-                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : 'Not started'}
+                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : preview ? 'Not started' : null}
                   {/* Time at property, driven by the door: live-ticking while
                       they're inside, fixed once they've left. */}
                   {(() => {
@@ -871,7 +876,7 @@ export default async function PacketPage({
                     const t = stopTiming(s, packet.visit_date);
                     return (
                       <span style={{ color: t.urgent ? 'var(--signal)' : 'var(--ink-4)', fontWeight: t.urgent ? 600 : 400 }}>
-                        {' · '}{t.label}
+                        {s.status === 'in_progress' || preview ? ' · ' : ''}{t.label}
                       </span>
                     );
                   })()}
@@ -884,7 +889,13 @@ export default async function PacketPage({
                     // checkout is recent enough to still owe a cleaning.
                     const recent = !!checkoutDate && dayGap(checkoutDate, packet.visit_date) >= 0 && dayGap(checkoutDate, packet.visit_date) <= CLEAN_LOOKBACK_DAYS;
                     if (!sameDay && !recent) return null;
-                    return <CleanerStatus status={cleaning.get(`${s.property_id}|${checkoutDate}`)} sameDay={sameDay} checkoutDate={checkoutDate} />;
+                    const status = cleaning.get(`${s.property_id}|${checkoutDate}`);
+                    // Lockbox home (no Seam lock) can never report a cleaning —
+                    // an absent signal is expected, so say nothing rather than
+                    // cry "no cleaning signal". Warn only when the home HAS a
+                    // lock (or we actually captured a session).
+                    if (!status && !locked.has(s.property_id)) return null;
+                    return <CleanerStatus status={status} sameDay={sameDay} checkoutDate={checkoutDate} />;
                   })()}
                 </div>
               ) : (
