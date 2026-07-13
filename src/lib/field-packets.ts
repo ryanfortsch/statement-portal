@@ -1098,8 +1098,14 @@ async function candidatesForDay(
   for (const p of properties) {
     if (blocked.has(p.id)) continue;
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
-    if (pb.some((b) => b.check_in <= day && day < b.check_out)) continue; // occupied overnight (guest or owner block)
-    const next = pb.find((b) => isGuestStay(b) && b.check_in > day) ?? null; // next GUEST arrival to prep for
+    // Next GUEST arrival to prep for — a 4 PM arrival TODAY counts (that's the
+    // same-day turnover, the most urgent inspection there is).
+    const next = pb.find((b) => isGuestStay(b) && b.check_in >= day) ?? null;
+    // An occupied night kills the day, EXCEPT the prepped stay's own check-in
+    // day (the tight pre-arrival window) — the same rule deriveDayCandidates
+    // uses. The old unconditional `check_in <= day` test made every same-day
+    // turnover invisible here: never bundleable, never booking-linked.
+    if (pb.some((b) => b.check_in <= day && day < b.check_out) && !(next && next.check_in === day)) continue;
     const priorCheckout = pb.filter((b) => b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
     let basis: WindowBasis = 'vacant';
     if (priorCheckout && day === priorCheckout) basis = 'checkout_day';
