@@ -560,10 +560,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <details style={{ position: 'relative' }}>
                   <summary style={quietSummary}>Adjust estimate ▾</summary>
                   <div style={menuCard}>
-                    <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
                       <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={{ ...priceInput, width: 90 }} />
+                      <input name="reason" placeholder="reason (optional)" maxLength={500} style={{ ...priceInput, width: 150 }} />
                       <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                     </form>
                     <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, maxWidth: 230, lineHeight: 1.45 }}>

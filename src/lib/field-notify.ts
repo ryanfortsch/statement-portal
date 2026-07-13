@@ -136,11 +136,13 @@ export async function sendEstimateRaisedEmail(
   contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
   packet: Pick<PacketRow, 'id' | 'title' | 'posted_price_cents'>,
   oldCents: number,
+  reason?: string | null,
 ): Promise<boolean> {
   const link = packetLink(contractor.portal_token, packet.id);
+  const escReason = (reason ?? '').trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your pay went up on ${packet.title}</h1>
-    <p>Good news — we raised the estimate on <strong>${packet.title}</strong> from ${dollars(oldCents)} to <strong>${dollars(packet.posted_price_cents)}</strong>. Same job, more pay; nothing else changes, still confirmed after your visit.</p>
+    <p>Good news — we raised the estimate on <strong>${packet.title}</strong> from ${dollars(oldCents)} to <strong>${dollars(packet.posted_price_cents)}</strong>${escReason ? ` — ${escReason}` : ''}. Same job, more pay; nothing else changes, still confirmed after your visit.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
@@ -149,7 +151,7 @@ export async function sendEstimateRaisedEmail(
     fromName: FROM_NAME,
     cc: OFFICE_CC,
     html,
-    text: `Good news — we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}. ${link}`,
+    text: `Good news — we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}${reason && reason.trim() ? ` — ${reason.trim()}` : ''}. ${link}`,
   });
 }
 
