@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -453,6 +453,10 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     .eq('id', packetId);
   // Keep the denormalized title honest (count + towns) after the stop set grows.
   await regeneratePacketTitle(packetId);
+  // Link each untouched stop (incl. the one just added) to the stay it preps —
+  // this booking link is what the Turnovers rail keys on to credit the trip
+  // ("Field · <contractor>") instead of showing a bare Start button.
+  await resyncPacketStopBookings(packetId).catch(() => {});
 
   const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
   const p = prop as { name: string | null; address: string | null } | null;
@@ -533,6 +537,9 @@ export async function syncPacketWindows(formData: FormData): Promise<void> {
   const { data: pkt } = await fieldDb().from('inspection_packets').select('visit_date, status').eq('id', packetId).maybeSingle();
   const packet = pkt as { visit_date: string; status: string } | null;
   if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
+  // First re-point each untouched stop at the stay it preps (the booking link
+  // the Turnovers rail keys on to credit this trip), then re-derive windows.
+  await resyncPacketStopBookings(packetId).catch(() => {});
   const { data: sData } = await fieldDb().from('packet_stops').select('id, property_id').eq('packet_id', packetId);
   const stops = (sData ?? []) as { id: string; property_id: string }[];
   await Promise.all(
