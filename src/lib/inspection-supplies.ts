@@ -39,8 +39,10 @@ export const INSPECTION_SUPPLIES: readonly InspectionSupply[] = [
   { key: 'toilet_paper', label: 'Toilet paper', par: (b) => rolls(perBedroom(4, b)) },
   { key: 'sponges', label: 'Sponges', par: (b) => `at least ${perBedroom(8, b)}` },
   { key: 'laundry_detergent', label: 'Laundry detergent', par: () => 'at least half a bag' },
+  { key: 'dryer_sheets', label: 'Dryer sheets', par: () => 'at least 1 full box' },
   { key: 'dishwasher_detergent', label: 'Dishwasher detergent', par: () => 'at least 1 unopened bag' },
   { key: 'trash_bags', label: 'Trash bags', par: () => 'at least 1 full box' },
+  { key: 'coffee_pods', label: 'Coffee pods', par: () => 'at least 2 boxes' },
 ];
 
 const LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
