@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { ContractorApproval } from '@/lib/stay-concierge';
+import type { ApprovalContext } from '@/lib/contractor-approval-context';
 import {
   approveContractorDraft,
   rejectContractorDraft,
@@ -16,6 +17,7 @@ type PropertyOption = { id: string; name: string };
 
 type Props = {
   initialPending: ContractorApproval[];
+  context?: Record<string, ApprovalContext>;
   /** Helm property list for the proposed-slip selector on each card. */
   properties: PropertyOption[];
 };
@@ -26,7 +28,7 @@ const REFRESH_MS = 15_000;
 // distinct from both the draft (ink) and error/stale (signal) tones.
 const SLIP_TONE = '#1f5e6b';
 
-export function ContractorMessagingQueue({ initialPending, properties }: Props) {
+export function ContractorMessagingQueue({ initialPending, properties, context }: Props) {
   const router = useRouter();
   // Refresh inside a transition. A bare router.refresh() re-suspends the
   // queue's Suspense boundary, which swaps in the skeleton and UNMOUNTS
@@ -59,6 +61,7 @@ export function ContractorMessagingQueue({ initialPending, properties }: Props) 
             key={approval.id}
             approval={approval}
             properties={properties}
+            ctx={context?.[approval.id]}
             onResolved={softRefresh}
           />
         ))}
@@ -109,10 +112,12 @@ type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
 function ContractorApprovalCard({
   approval,
   properties,
+  ctx,
   onResolved,
 }: {
   approval: ContractorApproval;
   properties: PropertyOption[];
+  ctx?: ApprovalContext;
   onResolved: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -126,8 +131,12 @@ function ContractorApprovalCard({
   // approve. Default the select to the inferred property when Helm knows it.
   const slip = approval.proposed_slip ?? null;
   const inferredKnown = properties.some((p) => p.id === approval.property_id);
+  // stay-concierge's own inference wins if it named a known home; otherwise fall
+  // back to Helm's run-derived guess (the home she'd just finished, or the one
+  // she already flagged in an inspection).
+  const runKnown = ctx?.suggestedPropertyId && properties.some((p) => p.id === ctx.suggestedPropertyId);
   const [slipPropertyId, setSlipPropertyId] = useState(
-    slip && inferredKnown ? approval.property_id : '',
+    slip && inferredKnown ? approval.property_id : slip && runKnown ? (ctx!.suggestedPropertyId as string) : '',
   );
   const [fileSlip, setFileSlip] = useState(true);
   // Filing needs a destination: block approve rather than silently dropping
@@ -256,11 +265,18 @@ function ContractorApprovalCard({
               }}
             >
               <option value="">Select property…</option>
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              {ctx && ctx.runProperties.length > 0 && (
+                <optgroup label="On their run today">
+                  {ctx.runProperties.map((p) => (
+                    <option key={`run-${p.id}`} value={p.id}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label={ctx && ctx.runProperties.length > 0 ? 'Other properties' : 'Properties'}>
+                {properties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </optgroup>
             </select>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--ink-2)', cursor: 'pointer' }}>
               <input
@@ -272,6 +288,11 @@ function ContractorApprovalCard({
               File this slip when I approve
             </label>
           </div>
+          {ctx && ctx.alreadyFiled.length > 0 && (
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>
+              Heads up: they already filed {ctx.alreadyFiled.map((f) => `"${f.title}" at ${f.name}`).join(' and ')} during today&apos;s inspection — filing here may duplicate it. Untick if so.
+            </p>
+          )}
           {slipBlocked && (
             <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>
               Pick a property for the slip (or untick it).
