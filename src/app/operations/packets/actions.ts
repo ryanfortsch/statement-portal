@@ -306,6 +306,7 @@ export async function raisePacketEstimate(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
   const dollarsValue = Number(formData.get('price_dollars') || 0);
+  const reason = String(formData.get('reason') || '').trim().slice(0, 500) || null;
   if (!packetId || !Number.isFinite(dollarsValue) || dollarsValue <= 0) return;
   const newCents = Math.round(dollarsValue * 100);
 
@@ -338,13 +339,13 @@ export async function raisePacketEstimate(formData: FormData): Promise<void> {
     contractor_id: packet.awarded_contractor_id,
     actor_email: email,
     event_type: 'estimate_raised',
-    payload: { from_cents: oldCents, to_cents: newCents },
+    payload: { from_cents: oldCents, to_cents: newCents, reason },
   });
 
   // Tell the contractor their agreed pay went up (best-effort).
   if (packet.awarded_contractor_id) {
     const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
-    if (c) await sendEstimateRaisedEmail(c as ContractorRow, changed as { id: string; title: string; posted_price_cents: number }, oldCents).catch(() => {});
+    if (c) await sendEstimateRaisedEmail(c as ContractorRow, changed as { id: string; title: string; posted_price_cents: number }, oldCents, reason).catch(() => {});
   }
 
   revalidatePath(`/operations/packets/${packetId}`);
