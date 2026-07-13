@@ -242,6 +242,17 @@ function SetupScope() {
   );
 }
 
+/** A standalone one-off job: not a full inspection, just the task on the job
+ *  card below. Frames it so the inspector doesn't run the guest-readiness deck. */
+function AdhocScope() {
+  return (
+    <div style={{ borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+      <strong style={{ color: 'var(--ink)' }}>One-off job.</strong> Not a full inspection — just the task below.
+      Do it, mark it done with a photo if it helps, and you&apos;re set. Anything unclear, call the office.
+    </div>
+  );
+}
+
 /** An extra work slip the office attached to a stop: title, details, the
  *  per-attachment office note, and (for the assigned inspector, until done) a
  *  completion form keyed to the attachment, not the stop. */
@@ -495,6 +506,7 @@ export default async function PacketPage({
   const isMine = packet.awarded_contractor_id === contractor.id;
   const isMaint = packet.trade === 'maintenance';
   const isSetup = packet.kind === 'setup';
+  const isAdhoc = packet.kind === 'adhoc';
   // Cleaner status for this packet's turnover stops (Seam lock-entry signal),
   // so the inspector knows if a home's been cleaned yet. Loaded only for the
   // assigned inspector, only when there's a turnover in the packet.
@@ -695,7 +707,7 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMaint && !isSetup && <DayPlan stops={packet.stops} visitDate={packet.visit_date} completeBy={packet.complete_by} />}
+      {!isMaint && !isSetup && !isAdhoc && <DayPlan stops={packet.stops} visitDate={packet.visit_date} completeBy={packet.complete_by} />}
 
       {showSupplyStop && <SupplyRunCard run={supplyRun} />}
 
@@ -750,8 +762,9 @@ export default async function PacketPage({
       {/* The three-pillar scope sells the standard BEFORE claiming. Once the
           packet is theirs (working, submitted, approved) it's ~300px of
           scrolling between the inspector and their stops — drop it. */}
-      {!isMaint && !isSetup && !isMine && <InspectionScope />}
+      {!isMaint && !isSetup && !isAdhoc && !isMine && <InspectionScope />}
       {isSetup && <SetupScope />}
+      {isAdhoc && <AdhocScope />}
       {!isMine && (
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520, margin: '0 0 24px' }}>
           Every route starts and ends at our supply closet ({SUPPLY_CLOSET}): grab your kit on the way out, drop it

@@ -288,7 +288,8 @@ export async function suggestPackets(
   const { data: activeStops } = await fieldDb()
     .from('packet_stops')
     .select('property_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved'])
+    .not('booking_id', 'is', null);
   const committed = new Set(((activeStops ?? []) as { property_id: string }[]).map((s) => s.property_id));
 
   const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
@@ -611,10 +612,15 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 // point of the visit window.
 export async function staleStopIds(
   visitDate: string,
-  stops: Array<{ id: string; property_id: string }>,
+  stops: Array<{ id: string; property_id: string | null; work_slip_id?: string | null }>,
 ): Promise<Set<string>> {
   if (stops.length === 0) return new Set();
-  const ids = [...new Set(stops.map((s) => s.property_id))];
+  // A work_slip-backed stop is a TASK (setup / ad hoc / maintenance), routinely
+  // done with a guest in-house, and a location-less errand has no property at
+  // all — the vacancy test applies to neither, so never sweep them.
+  const testable = stops.filter((s) => !s.work_slip_id && s.property_id);
+  if (testable.length === 0) return new Set();
+  const ids = [...new Set(testable.map((s) => s.property_id as string))];
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('property_id')
@@ -631,8 +637,8 @@ export async function staleStopIds(
     .in('property_id', ids);
   const blocked = new Set(((blkData ?? []) as { property_id: string }[]).map((r) => r.property_id));
   const stale = new Set<string>();
-  for (const s of stops) {
-    if (occupied.has(s.property_id) || blocked.has(s.property_id)) stale.add(s.id);
+  for (const s of testable) {
+    if (occupied.has(s.property_id as string) || blocked.has(s.property_id as string)) stale.add(s.id);
   }
   return stale;
 }
@@ -677,9 +683,9 @@ export async function revalidatePacket(
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('id, property_id, base_price_cents')
+    .select('id, property_id, base_price_cents, work_slip_id')
     .eq('packet_id', packetId);
-  const stops = (sData ?? []) as Array<{ id: string; property_id: string; base_price_cents: number }>;
+  const stops = (sData ?? []) as Array<{ id: string; property_id: string | null; base_price_cents: number; work_slip_id: string | null }>;
   const stale = await staleStopIds(packet.visit_date, stops);
   if (stale.size === 0) return { removed: 0, remaining: stops.length, emptied: false };
 
@@ -805,14 +811,14 @@ export async function resyncPacketStopBookings(packetId: string): Promise<{ upda
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('id, property_id, status, started_at, booking_id, next_checkin, prior_checkout')
+    .select('id, property_id, status, started_at, booking_id, next_checkin, prior_checkout, work_slip_id')
     .eq('packet_id', packetId);
   const stops = (sData ?? []) as Array<{
     id: string; property_id: string; status: string; started_at: string | null;
-    booking_id: string | null; next_checkin: string | null; prior_checkout: string | null;
+    booking_id: string | null; next_checkin: string | null; prior_checkout: string | null; work_slip_id: string | null;
   }>;
   // Only re-point genuinely untouched stops: not terminal, not started.
-  const movable = stops.filter((s) => s.status !== 'complete' && s.status !== 'skipped' && !s.started_at);
+  const movable = stops.filter((s) => s.status !== 'complete' && s.status !== 'skipped' && !s.started_at && !s.work_slip_id);
   if (!movable.length) return { updated: 0 };
 
   // candidatesForDay only reads .id off each property.
@@ -1643,6 +1649,100 @@ export async function createSetupPacket(args: {
   return packetId;
 }
 
+/**
+ * Create a STANDALONE ad hoc one-off job — a single work_slip-backed stop on a
+ * kind='adhoc' packet, riding the exact same rails as a setup packet (claim ->
+ * MaintenanceComplete note+photo -> approve-closes-slip -> pay). The operator
+ * sets the title, scope, and pay; category 'ad_hoc' keeps the slip out of the
+ * maintenance bundling pool. v1 anchors every job to a property; location-less
+ * errands land in a later slice. Rolls back the slip/packet on any insert error.
+ */
+export async function createAdHocPacket(args: {
+  propertyId: string;
+  visitDate: string;
+  visitTime?: string;
+  title: string;
+  scope: string;
+  bringList?: string;
+  priceCents: number;
+  supplyRun?: boolean;
+  createdByEmail: string;
+  publish: boolean;
+}): Promise<string | null> {
+  const properties = await loadFieldProperties();
+  const prop = properties.find((p) => p.id === args.propertyId);
+  if (!prop) return null;
+
+  const title = args.title.trim().slice(0, 200) || 'One-off job';
+  const posted = Math.max(0, Math.round(args.priceCents));
+
+  const { data: slip, error: slipErr } = await fieldDb()
+    .from('work_slips')
+    .insert({
+      property_id: prop.id,
+      title,
+      description: args.scope.trim().slice(0, 4000) || null,
+      bring_list: args.bringList?.trim().slice(0, 2000) || null,
+      category: 'ad_hoc',
+      priority: 'normal',
+      status: 'open',
+      assigned_to_type: 'unassigned',
+      created_by_email: args.createdByEmail,
+    })
+    .select('id')
+    .single();
+  if (slipErr || !slip) return null;
+  const slipId = (slip as { id: string }).id;
+
+  const { data: packet, error } = await fieldDb()
+    .from('inspection_packets')
+    .insert({
+      title,
+      status: args.publish ? 'published' : 'draft',
+      trade: 'inspection',
+      kind: 'adhoc',
+      supply_run: !!args.supplyRun,
+      visit_date: args.visitDate,
+      visit_time: args.visitTime || null,
+      window_start: args.visitDate,
+      window_end: args.visitDate,
+      claim_deadline: args.visitDate,
+      centroid_lat: prop.latitude,
+      centroid_lng: prop.longitude,
+      max_pairwise_miles: 0,
+      stop_count: 1,
+      posted_price_cents: posted,
+      auto_generated: false,
+      suggestion_key: null,
+      created_by_email: args.createdByEmail,
+      published_at: args.publish ? new Date().toISOString() : null,
+    })
+    .select('id')
+    .single();
+  if (error || !packet) {
+    await fieldDb().from('work_slips').delete().eq('id', slipId);
+    return null;
+  }
+  const packetId = (packet as { id: string }).id;
+  const { error: stopErr } = await fieldDb().from('packet_stops').insert({
+    packet_id: packetId,
+    property_id: prop.id,
+    booking_id: null,
+    work_slip_id: slipId,
+    window_basis: 'vacant' as WindowBasis,
+    prior_checkout: null,
+    next_checkin: null,
+    base_price_cents: posted,
+    walk_order: 0,
+  });
+  if (stopErr) {
+    await fieldDb().from('inspection_packets').delete().eq('id', packetId);
+    await fieldDb().from('work_slips').delete().eq('id', slipId);
+    return null;
+  }
+  return packetId;
+}
+
 // ── Recurring off-season inspections ──────────────────────────────────
 // A home with no upcoming guest never triggers a turnover inspection, so it can
 // go un-walked for months. This auto-DRAFTS a single-stop check for any idle
@@ -1714,7 +1814,7 @@ export async function suggestRecurringInspections(): Promise<number> {
   const liveIds = ((livePkts ?? []) as { id: string }[]).map((p) => p.id);
   const covered = new Set<string>();
   if (liveIds.length) {
-    const { data: stops } = await fieldDb().from('packet_stops').select('property_id').in('packet_id', liveIds);
+    const { data: stops } = await fieldDb().from('packet_stops').select('property_id').in('packet_id', liveIds).not('booking_id', 'is', null);
     for (const s of (stops ?? []) as { property_id: string }[]) covered.add(s.property_id);
   }
 

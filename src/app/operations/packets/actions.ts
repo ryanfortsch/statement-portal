@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, autoAttachInventorySlips } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -193,6 +193,43 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
     visitTime: visitTime || undefined,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     scope,
+    supplyRun,
+    createdByEmail: email,
+    publish,
+  });
+  if (!packetId) return;
+  if (publish) {
+    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    notifyContractorsOfPacket(packetId).catch(() => {});
+  }
+  revalidatePath('/operations/packets');
+  redirect(`/operations/packets/${packetId}`);
+}
+
+/** Create a STANDALONE ad hoc one-off job. Priced up front (the estimate the
+ *  finalize flow later locks); publishing sends it to the specialists to claim
+ *  like any packet. */
+export async function createAdHocPacketAction(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const propertyId = String(formData.get('property_id') || '');
+  const visitDate = String(formData.get('visit_date') || '');
+  const visitTime = String(formData.get('visit_time') || '');
+  const title = String(formData.get('title') || '');
+  const scope = String(formData.get('scope') || '');
+  const bringList = String(formData.get('bring_list') || '');
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  const publish = String(formData.get('mode') || 'publish') !== 'draft';
+  const supplyRun = formData.get('supply_run') === 'on';
+  if (!propertyId || !visitDate || !title.trim() || !Number.isFinite(priceDollars) || priceDollars <= 0) return;
+
+  const packetId = await createAdHocPacket({
+    propertyId,
+    visitDate,
+    visitTime: visitTime || undefined,
+    title,
+    scope,
+    bringList: bringList || undefined,
+    priceCents: Math.round(priceDollars * 100),
     supplyRun,
     createdByEmail: email,
     publish,

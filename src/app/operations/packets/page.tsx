@@ -197,6 +197,7 @@ export default async function PacketsBoard({
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/operations/packets/setup" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Property setup</Link>
+            <Link href="/operations/packets/adhoc" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ One-off job</Link>
             <Link href="/operations/packets/maintenance" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Maintenance run</Link>
           </div>
         </div>
