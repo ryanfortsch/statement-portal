@@ -552,33 +552,72 @@ export async function completeMaintenanceStop(formData: FormData) {
  *  approval) and stamps the attachment's completed_at. Decoupled from
  *  packet_stops.status, so it never closes the stop or skips the inspection, and
  *  several attached slips complete independently. Advisory: does NOT gate submit. */
+/** The shared body behind completing an attached one-off task: ownership +
+ *  cross-packet IDOR guards, photo MERGE (never destroy the office's reference
+ *  photos), slip -> in_progress + resolution, and a stamp on the attachment.
+ *  Idempotent: an already-completed attachment (e.g. a stale packet-page tab
+ *  firing after the in-flow card) is a no-op, never a clobber. Both the
+ *  packet-page FormData action and the in-flow (Stepper) action call this. */
+async function applyAttachedSlipCompletion(args: {
+  contractor: { id: string; email: string };
+  packetId: string;
+  attachmentId: string;
+  note: string;
+  photoUrls: string[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', args.packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== args.contractor.id) return { ok: false, error: 'not-your-packet' };
+  if (!isWorkingStatus(packet.status)) return { ok: false, error: 'packet-not-live' };
+
+  const { data: aData } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id, work_slip_id, completed_at, packet_stops!inner(packet_id, property_id)')
+    .eq('id', args.attachmentId)
+    .maybeSingle();
+  const att = aData as { id: string; work_slip_id: string; completed_at: string | null; packet_stops: { packet_id: string; property_id: string } } | null;
+  if (!att || att.packet_stops.packet_id !== args.packetId) return { ok: false, error: 'bad-attachment' };
+  if (att.completed_at) return { ok: true }; // already done — idempotent no-op
+
+  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
+  const mergedPhotos = [...new Set([...existing, ...args.photoUrls])];
+  await fieldDb()
+    .from('work_slips')
+    .update({ status: 'in_progress', resolution_notes: args.note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
+    .eq('id', att.work_slip_id);
+  // Guard the stamp so a race (two submits both seeing null) can't double-fire
+  // the packet bump + audit event.
+  const { data: stamped } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .update({ completed_at: new Date().toISOString() })
+    .eq('id', args.attachmentId)
+    .is('completed_at', null)
+    .select('id')
+    .maybeSingle();
+  if (!stamped) return { ok: true }; // lost the race; already stamped elsewhere
+  await advancePacketToInProgress(args.packetId);
+  await logEvent({
+    packetId: args.packetId,
+    contractorId: args.contractor.id,
+    actorEmail: args.contractor.email,
+    eventType: 'attached_slip_completed',
+    propertyId: att.packet_stops.property_id,
+    payload: { attachment_id: args.attachmentId, work_slip_id: att.work_slip_id },
+  });
+  return { ok: true };
+}
+
 export async function completeAttachedSlip(formData: FormData) {
   const packetId = String(formData.get('packet_id') || '');
   const attachmentId = String(formData.get('attachment_id') || '');
   const note = String(formData.get('resolution') || '').trim();
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
-
-  const { data: pData } = await fieldDb()
-    .from('inspection_packets')
-    .select('id, status, awarded_contractor_id')
-    .eq('id', packetId)
-    .maybeSingle();
-  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
-  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
-
-  // The attachment and its stop must belong to THIS packet (no cross-packet writes).
-  const { data: aData } = await fieldDb()
-    .from('packet_stop_work_slips')
-    .select('id, work_slip_id, packet_stops!inner(packet_id, property_id)')
-    .eq('id', attachmentId)
-    .maybeSingle();
-  const att = aData as { id: string; work_slip_id: string; packet_stops: { packet_id: string; property_id: string } } | null;
-  if (!att || att.packet_stops.packet_id !== packetId) redirect(`/field/packet/${packetId}`);
-  // A completion note is optional now — a restock or a quick fix shouldn't be
-  // gated on writing a paragraph. resolution_notes just stores whatever's there.
-
   const photos = (() => {
     try {
       const v = JSON.parse(String(formData.get('photo_urls') || '[]'));
@@ -587,29 +626,31 @@ export async function completeAttachedSlip(formData: FormData) {
       return [];
     }
   })();
-
-  // APPEND the inspector's completion photos to the slip's existing ones rather
-  // than overwrite: an attached slip often carries the office's reference photos
-  // ("here's the broken thing"), which we must not destroy.
-  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
-  const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
-  const mergedPhotos = [...new Set([...existing, ...photos])];
-  await fieldDb()
-    .from('work_slips')
-    .update({ status: 'in_progress', resolution_notes: note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
-    .eq('id', att.work_slip_id);
-  await fieldDb().from('packet_stop_work_slips').update({ completed_at: new Date().toISOString() }).eq('id', attachmentId);
-  await advancePacketToInProgress(packetId);
-  await logEvent({
-    packetId,
-    contractorId: contractor.id,
-    actorEmail: contractor.email,
-    eventType: 'attached_slip_completed',
-    propertyId: att.packet_stops.property_id,
-    payload: { attachment_id: attachmentId, work_slip_id: att.work_slip_id },
-  });
+  await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos });
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
+}
+
+/** Non-redirecting twin used INSIDE the inspection Stepper: an attached task
+ *  woven into the deck as a trailing card is marked done here without ejecting
+ *  the inspector back to the packet page. Returns a result the client reacts to. */
+export async function completeAttachedSlipInFlow(input: {
+  packetId: string;
+  attachmentId: string;
+  note: string;
+  photoUrls: string[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'not-signed-in' };
+  const res = await applyAttachedSlipCompletion({
+    contractor: { id: contractor.id, email: contractor.email },
+    packetId: input.packetId,
+    attachmentId: input.attachmentId,
+    note: (input.note || '').trim(),
+    photoUrls: Array.isArray(input.photoUrls) ? input.photoUrls.filter((x): x is string => typeof x === 'string') : [],
+  });
+  if (res.ok) revalidatePath(`/field/packet/${input.packetId}`);
+  return res;
 }
 
 /** Submit the whole packet for office review once every stop is complete. */

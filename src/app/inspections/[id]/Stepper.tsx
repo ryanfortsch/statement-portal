@@ -36,6 +36,19 @@ type StepperCard = {
   walkOrder: number | null;
 };
 
+/** A one-off task attached to this stop, woven into the deck as a trailing card
+ *  (field only). Not an inspection item — it saves to the work slip via
+ *  onCompleteTask, never to inspection_results. */
+export type TrailingTask = {
+  attachmentId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  bringList: string | null;
+  officeNote: string | null;
+  photoUrls: string[];
+};
+
 type StepperResult = {
   item_id: string;
   zone_id: string | null;
@@ -82,6 +95,11 @@ type Props = {
    *  contractor entry (/field/inspect) passes its packet page — the staff
    *  route is behind Helm SSO and would bounce a contractor to sign-in. */
   exitHref?: string;
+  /** Field-only: one-off tasks attached to this stop, shown as trailing cards
+   *  after the last inspection item. Omitted by staff (deck is byte-identical). */
+  trailingTasks?: TrailingTask[];
+  packetId?: string;
+  onCompleteTask?: (input: { packetId: string; attachmentId: string; note: string; photoUrls: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
 };
 
 export function Stepper({
@@ -95,6 +113,9 @@ export function Stepper({
   initialNotes = [],
   initialWorkSlips = [],
   exitHref = '/inspections',
+  trailingTasks = [],
+  packetId,
+  onCompleteTask,
 }: Props) {
   const router = useRouter();
   const [results, setResults] = useState<Map<string, StepperResult>>(
@@ -146,9 +167,15 @@ export function Stepper({
   }
 
   const total = cards.length;
+  const taskCount = trailingTasks.length;
+  const deckLength = total + taskCount;
   const markedCount = results.size;
-  const showReview = activeIdx >= total;
-  const activeCard = !showReview ? cards[activeIdx] : null;
+  // Trailing one-off task cards sit at indices [total, deckLength). With no
+  // tasks (staff, or none attached) deckLength === total and every value below
+  // is identical to before.
+  const activeTaskIdx = activeIdx >= total && activeIdx < deckLength ? activeIdx - total : -1;
+  const showReview = activeIdx >= deckLength;
+  const activeCard = !showReview && activeTaskIdx < 0 ? cards[activeIdx] : null;
   const activeResult = activeCard ? results.get(activeCard.cardKey) : null;
 
   // Notes / work slips for the active card. Keyed by inspection_item_id
@@ -336,6 +363,34 @@ export function Stepper({
     if (activeIdx < total) setActiveIdx(activeIdx + 1);
   }
 
+  // ─── Trailing one-off task cards (field only) ──────────────────────
+  // Kept entirely out of results/saveState: tasks are work slips, not
+  // inspection_results. Local state per attachment; completion goes through the
+  // passed-in onCompleteTask (completeAttachedSlipInFlow), never saveResult.
+  type TaskLocal = { done: boolean; saving: boolean; note: string; photos: string[]; error: string | null };
+  const emptyTask: TaskLocal = { done: false, saving: false, note: '', photos: [], error: null };
+  const [taskState, setTaskState] = useState<Map<string, TaskLocal>>(new Map());
+  function patchTask(id: string, patch: Partial<TaskLocal>) {
+    setTaskState((prev) => {
+      const m = new Map(prev);
+      m.set(id, { ...(m.get(id) ?? emptyTask), ...patch });
+      return m;
+    });
+  }
+  async function markTaskDone(task: TrailingTask) {
+    if (!onCompleteTask || !packetId) return;
+    const cur = taskState.get(task.attachmentId) ?? emptyTask;
+    patchTask(task.attachmentId, { saving: true, error: null });
+    const res = await onCompleteTask({ packetId, attachmentId: task.attachmentId, note: cur.note, photoUrls: cur.photos });
+    if (res.ok) {
+      patchTask(task.attachmentId, { saving: false, done: true });
+      setActiveIdx((i) => Math.min(i + 1, deckLength));
+    } else {
+      patchTask(task.attachmentId, { saving: false, error: res.error || 'Could not save. Try again.' });
+    }
+  }
+  const undoneTasks = trailingTasks.filter((t) => !taskState.get(t.attachmentId)?.done);
+
   async function complete() {
     setError(null);
     setIsCompleting(true);
@@ -460,6 +515,22 @@ export function Stepper({
             </div>
           )}
 
+          {undoneTasks.length > 0 && (
+            <div style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)' }}>
+              {undoneTasks.length} one-off {undoneTasks.length === 1 ? 'task is' : 'tasks are'} still open.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  const first = trailingTasks.findIndex((t) => !taskState.get(t.attachmentId)?.done);
+                  if (first >= 0) setActiveIdx(total + first);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline' }}
+              >
+                Do them now →
+              </button>
+            </div>
+          )}
+
           {error && <ErrorBlock error={error} />}
 
           {/* Wrap-up actions sit inline at the end of the page — deliberately
@@ -487,6 +558,26 @@ export function Stepper({
           </div>
         </section>
       </div>
+    );
+  }
+
+  // ─── Trailing one-off task card (field only) ───────────────────────
+  if (activeTaskIdx >= 0) {
+    const task = trailingTasks[activeTaskIdx];
+    const st = taskState.get(task.attachmentId) ?? emptyTask;
+    return (
+      <TaskCardScreen
+        task={task}
+        idx={activeTaskIdx}
+        count={taskCount}
+        state={st}
+        onNote={(v) => patchTask(task.attachmentId, { note: v })}
+        onPhotos={(v) => patchTask(task.attachmentId, { photos: v })}
+        onDone={() => markTaskDone(task)}
+        onBack={() => setActiveIdx((i) => Math.max(0, i - 1))}
+        onNext={() => setActiveIdx((i) => Math.min(i + 1, deckLength))}
+        onExit={exitStepper}
+      />
     );
   }
 
@@ -784,6 +875,91 @@ export function Stepper({
 }
 
 // ─── Sub-components ────────────────────────────────────────────────
+
+function TaskCardScreen({
+  task,
+  idx,
+  count,
+  state,
+  onNote,
+  onPhotos,
+  onDone,
+  onBack,
+  onNext,
+  onExit,
+}: {
+  task: TrailingTask;
+  idx: number;
+  count: number;
+  state: { done: boolean; saving: boolean; note: string; photos: string[]; error: string | null };
+  onNote: (v: string) => void;
+  onPhotos: (v: string[]) => void;
+  onDone: () => void;
+  onBack: () => void;
+  onNext: () => void;
+  onExit: () => void;
+}) {
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      {/* Task cards get a minimal bar — never the item TopBar's Pass/Issue triad,
+          so a one-off can never write an inspection_result. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--paper)', borderBottom: '1px solid var(--rule)', padding: '12px clamp(16px,5vw,24px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <button type="button" onClick={onExit} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)' }}>← Exit</button>
+        <span style={{ fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
+          Extra task{count > 1 ? ` · ${idx + 1} of ${count}` : ''}
+        </span>
+      </div>
+
+      <section className="max-w-[760px] mx-auto px-6 sm:px-10" style={{ paddingTop: 32, paddingBottom: 160, width: '100%', flex: 1 }}>
+        <div style={{ fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 8 }}>One-off job</div>
+        <h1 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: '0 0 14px', lineHeight: 1.2 }}>{task.title}</h1>
+        {task.description && <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>{task.description}</p>}
+        {task.location && <div style={{ fontSize: 13.5, color: 'var(--ink-3)', marginBottom: 6 }}><strong style={{ color: 'var(--ink)' }}>Where:</strong> {task.location}</div>}
+        {task.bringList && <div style={{ fontSize: 13.5, color: 'var(--ink-3)', marginBottom: 6 }}><strong style={{ color: 'var(--ink)' }}>Bring:</strong> {task.bringList}</div>}
+        {task.officeNote && (
+          <div style={{ borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px', fontSize: 13.5, color: 'var(--ink)', margin: '10px 0', whiteSpace: 'pre-wrap' }}>{task.officeNote}</div>
+        )}
+        {task.photoUrls.length > 0 && (
+          <div style={{ margin: '12px 0' }}><PhotoThumbs urls={task.photoUrls} /></div>
+        )}
+
+        {state.done ? (
+          <div style={{ marginTop: 22, fontSize: 15, color: 'var(--positive)', fontWeight: 600 }}>✓ Done</div>
+        ) : (
+          <div style={{ marginTop: 22 }}>
+            <textarea
+              value={state.note}
+              onChange={(e) => onNote(e.target.value)}
+              rows={2}
+              placeholder="What you did (optional)"
+              style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
+            />
+            <div style={{ marginTop: 10 }}>
+              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" />
+            </div>
+          </div>
+        )}
+        {state.error && <div style={{ marginTop: 12 }}><ErrorBlock error={state.error} /></div>}
+
+        <div style={{ marginTop: 28, display: 'flex', gap: 10, alignItems: 'stretch' }}>
+          <button type="button" onClick={onBack} disabled={state.saving} style={ghostBtn()}>← Back</button>
+          {state.done ? (
+            <button type="button" onClick={onNext} style={primaryBtn()}>Next →</button>
+          ) : (
+            <button type="button" onClick={onDone} disabled={state.saving} style={{ ...primaryBtn(), opacity: state.saving ? 0.5 : 1 }}>
+              {state.saving ? 'Saving…' : 'Mark done →'}
+            </button>
+          )}
+        </div>
+        {!state.done && (
+          <button type="button" onClick={onNext} style={{ marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline' }}>
+            Skip for now
+          </button>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function TopBar({
   markedCount,
