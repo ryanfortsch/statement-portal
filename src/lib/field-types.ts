@@ -100,7 +100,7 @@ export function canClaim(
  *  every turnover-inspection and maintenance packet; 'setup' = staging a new
  *  property for photos + outfitting it for operations (2 to 4 hours, one home,
  *  done by inspection-trade specialists). */
-export type PacketKind = 'standard' | 'setup';
+export type PacketKind = 'standard' | 'setup' | 'adhoc';
 
 export type PacketRow = {
   id: string;
@@ -396,6 +396,15 @@ export function packetHeadline(p: PacketDetail): string {
     if (nm) return `Set up ${nm}`;
     const c = cityShort(p.stops[0]?.property.city ?? null);
     return c ? `Property setup in ${c}` : 'Property setup';
+  }
+  // Ad hoc one-off: name the job (its stop's work slip), not the property, so a
+  // "drop off keys" reads as itself rather than "1 inspection in Gloucester".
+  if (p.kind === 'adhoc') {
+    const t = p.stops[0]?.workSlip?.title;
+    if (t) return t;
+    const nm = p.stops[0]?.property?.name;
+    if (nm) return `One-off at ${nm}`;
+    return 'One-off job';
   }
   // Maintenance/cleaning count JOBS, and several jobs can share one home — so
   // label by distinct homes, never by a "shared street" (which falsely implies
