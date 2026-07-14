@@ -588,17 +588,25 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <div style={menuCard}>
                     <form action={addPacketStop} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
+                      <select name="stop_kind" defaultValue="inspection" style={{ ...priceInput, width: '100%' }}>
+                        <option value="inspection">Full inspection</option>
+                        <option value="adhoc">One-off job</option>
+                        <option value="setup">Property setup</option>
+                      </select>
                       <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
                         <option value="" disabled>Choose a property…</option>
                         {addableProps.map((p) => (
                           <option key={p.id} value={p.id}>{p.name || p.address}</option>
                         ))}
                       </select>
-                      <input name="instructions" placeholder="What to do (blank = full inspection)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
+                      <input name="instructions" placeholder="What to do (inspection: blank = full walk)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
                         <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required style={{ ...priceInput, width: 80 }} />
                         <PendingButton label="Add stop" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
+                        A one-off or setup rides as a task the contractor marks done with a photo, not a full inspection.
                       </div>
                       {(packet.status === 'claimed' || packet.status === 'in_progress') && (
                         <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
