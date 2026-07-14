@@ -32,6 +32,9 @@ type Props = {
 export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload' }: Props) {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Same fullscreen viewer the read-only strips use — an uploaded photo you
+  // can't open is half a photo (you can't check what you just shot).
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(rawFile: File) {
@@ -100,12 +103,28 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
                 overflow: 'hidden',
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={url}
-                alt={`Photo ${i + 1}`}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
+              {/* Anchor (not button) so it stays clickable inside the office
+                  preview's disabled <fieldset>; plain click opens the viewer,
+                  cmd/middle-click opens the raw file in a new tab. */}
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open photo ${i + 1} of ${value.length}`}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+                  e.preventDefault();
+                  setLightboxIndex(i);
+                }}
+                style={{ display: 'block', width: '100%', height: '100%', cursor: 'zoom-in' }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={url}
+                  alt={`Photo ${i + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </a>
               <button
                 type="button"
                 onClick={() => removeAt(i)}
@@ -170,6 +189,10 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
         >
           {err}
         </div>
+      )}
+
+      {lightboxIndex !== null && (
+        <Lightbox urls={value} startIndex={Math.min(lightboxIndex, value.length - 1)} onClose={() => setLightboxIndex(null)} />
       )}
     </div>
   );
