@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePublishedPackets, resyncLivePacketBookings, suggestRecurringInspections } from '@/lib/field-packets';
+import { revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
 import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest } from '@/lib/field-notify';
 
 export const maxDuration = 300;
@@ -9,9 +9,8 @@ export const maxDuration = 300;
  *
  * Nightly Field maintenance (schedule in vercel.json): re-validate every
  * published packet against current bookings/blocks so the marketplace never
- * shows a packet a guest has since moved into, re-ping inspectors about
- * unclaimed-but-due packets, and draft routine checks for idle homes (the
- * operator reviews + publishes those from the board).
+ * shows a packet a guest has since moved into, and re-ping inspectors about
+ * unclaimed-but-due packets.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -32,12 +31,10 @@ export async function GET(request: NextRequest) {
     // guest after the packet was built still shows as covered on the board.
     const resynced = await resyncLivePacketBookings().catch(() => ({ checked: 0, updated: 0 }));
     const renotified = await renotifyDuePackets();
-    // Draft routine checks for idle homes; the operator publishes them.
-    const drafted = await suggestRecurringInspections().catch(() => 0);
     // Remind contractors with a visit today; brief the office on what needs them.
     const reminded = await remindClaimedVisitsToday().catch(() => 0);
     const digest = await sendOfficeFieldDigest().catch(() => false);
-    return NextResponse.json({ ok: true, revalidated, resynced, renotified, drafted, reminded, digest });
+    return NextResponse.json({ ok: true, revalidated, resynced, renotified, reminded, digest });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until

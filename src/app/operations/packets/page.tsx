@@ -154,10 +154,11 @@ export default async function PacketsBoard({
   const cancelled = packets
     .filter((p) => p.status === 'cancelled')
     .sort((a, b) => (b.updated_at ?? b.visit_date).localeCompare(a.updated_at ?? a.visit_date));
-  // Auto-drafted routine checks for idle homes (and any hand-saved drafts),
-  // soonest first — waiting for the operator to publish or dismiss.
+  // Hand-saved drafts (a setup, one-off, or inspection saved but not yet
+  // published), soonest first. Auto-suggested routine checks were retired, so
+  // only the operator's own drafts land here now.
   const drafts = packets
-    .filter((p) => p.status === 'draft')
+    .filter((p) => p.status === 'draft' && !p.auto_generated)
     .sort((a, b) => a.visit_date.localeCompare(b.visit_date));
 
   const today = todayET();
@@ -273,10 +274,10 @@ export default async function PacketsBoard({
         {drafts.length > 0 && (
           <div style={{ marginTop: 40 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
-              Suggested · {drafts.length}
+              Drafts · {drafts.length}
             </h2>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>
-              Routine checks for idle homes. Publish to send to inspectors, or dismiss.
+              Saved but not published yet. Publish to send to inspectors, or dismiss.
             </div>
             <div style={{ border: '1px dashed var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {drafts.map((p) => (
