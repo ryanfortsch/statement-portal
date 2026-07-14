@@ -289,6 +289,34 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
   redirect('/operations/packets?sent=0');
 }
 
+/** Bundle the selected properties into a DRAFT (not published) and open the
+ *  packet, so the operator can add a property-setup or one-off job stop before
+ *  sending. Same clustering + pricing as bundleAndSend; publishing happens
+ *  later from the packet page. */
+export async function bundleAsDraft(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const visitDate = String(formData.get('visit_date') || '');
+  const ids = String(formData.get('property_ids') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  if (!visitDate || ids.length === 0) redirect('/operations/packets?sent=0');
+  const packetId = await createPacketFromProperties({
+    propertyIds: ids,
+    visitDate,
+    priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+    createdByEmail: email,
+    publish: false,
+  });
+  if (packetId) {
+    revalidatePath('/operations/packets');
+    redirect(`/operations/packets/${packetId}`);
+  }
+  revalidatePath('/operations/packets');
+  redirect('/operations/packets?sent=0');
+}
+
 /** Bundle selected open maintenance work slips into a published maintenance
  *  packet and text the maintenance contractors. */
 export async function bundleMaintenanceAndSend(formData: FormData): Promise<void> {
