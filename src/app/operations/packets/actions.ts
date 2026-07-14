@@ -399,6 +399,8 @@ export async function addPacketStop(formData: FormData): Promise<void> {
   const packetId = String(formData.get('packet_id') || '');
   const propertyId = String(formData.get('property_id') || '');
   const instructions = String(formData.get('instructions') || '').trim().slice(0, 500) || null;
+  const rawKind = String(formData.get('stop_kind') || 'inspection');
+  const kind: 'inspection' | 'adhoc' | 'setup' = rawKind === 'setup' ? 'setup' : rawKind === 'adhoc' ? 'adhoc' : 'inspection';
   const dollarsValue = Number(formData.get('price_dollars') || 0);
   if (!packetId || !propertyId || !Number.isFinite(dollarsValue) || dollarsValue <= 0) return;
   const addedCents = Math.round(dollarsValue * 100);
@@ -421,10 +423,46 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     .maybeSingle();
   const nextOrder = ((last as { walk_order: number } | null)?.walk_order ?? -1) + 1;
 
-  // Window reflects the home's real bookings on the visit day (a checkout that
-  // day = go after it, not "vacant"). instructions blank = a full inspection;
-  // filled = a specific task.
-  const win = await deriveStopWindow(propertyId, packet.visit_date);
+  // Load the property up front — its name titles a task slip, and labels the
+  // notification either way.
+  const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
+  const p = prop as { name: string | null; address: string | null } | null;
+  const propName = p?.name || p?.address || 'a stop';
+
+  // A one-off or setup is a TASK, not an inspection: it rides as a work slip so
+  // the contractor marks it done with a photo (no guest-readiness deck), the
+  // Approve screen reads it back, and pay closes it — the same rail a setup or
+  // maintenance packet already uses. A setup has no turnover window; a one-off
+  // honors the home's real bookings on the day like an inspection does.
+  const win: { window_basis: string; prior_checkout: string | null; next_checkin: string | null } =
+    kind === 'setup'
+      ? { window_basis: 'vacant', prior_checkout: null, next_checkin: null }
+      : await deriveStopWindow(propertyId, packet.visit_date);
+
+  let workSlipId: string | null = null;
+  if (kind === 'setup' || kind === 'adhoc') {
+    const slipTitle =
+      kind === 'setup' ? `Set up ${propName} for launch` : instructions?.slice(0, 120) || `One-off task at ${propName}`;
+    const slipDesc =
+      kind === 'setup' ? instructions || 'Stage the home for photos and outfit it for guests.' : instructions;
+    const { data: slip } = await fieldDb()
+      .from('work_slips')
+      .insert({
+        property_id: propertyId,
+        title: slipTitle,
+        description: slipDesc,
+        category: 'rising_tide',
+        priority: kind === 'setup' ? 'high' : 'normal',
+        status: 'open',
+        assigned_to_type: 'unassigned',
+        created_by_email: email,
+      })
+      .select('id')
+      .single();
+    workSlipId = (slip as { id: string } | null)?.id ?? null;
+    if (!workSlipId) return; // never add a task stop with no slip to render
+  }
+
   const { error: insErr } = await fieldDb().from('packet_stops').insert({
     packet_id: packetId,
     property_id: propertyId,
@@ -433,7 +471,10 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     next_checkin: win.next_checkin,
     base_price_cents: addedCents,
     walk_order: nextOrder,
-    instructions,
+    work_slip_id: workSlipId,
+    // An inspection stop keeps the free-form note; a task stop carries it as the
+    // work slip instead (so it doesn't double as a "from the office" line too).
+    instructions: kind === 'inspection' ? instructions : null,
   });
   if (insErr) {
     revalidatePath(`/operations/packets/${packetId}`);
@@ -458,10 +499,8 @@ export async function addPacketStop(formData: FormData): Promise<void> {
   // ("Field · <contractor>") instead of showing a bare Start button.
   await resyncPacketStopBookings(packetId).catch(() => {});
 
-  const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
-  const p = prop as { name: string | null; address: string | null } | null;
-  const propName = p?.name || p?.address || 'a stop';
-  const label = instructions ? `${propName} (${instructions})` : propName;
+  const label =
+    kind === 'setup' ? `Set up ${propName}` : instructions ? `${propName} (${instructions})` : propName;
 
   await fieldDb().from('packet_events').insert({
     packet_id: packetId,
