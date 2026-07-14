@@ -60,6 +60,14 @@ function parseTab(value: string | null): TabId {
   if (!value) return 'all';
   return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
 }
+function parseOpen(value: string | null): Set<string> {
+  return new Set((value ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+}
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
 
 // Property Work and Team Tasks both dump every item by default, which
 // turned the board into a wall of property names + task cards once the
@@ -79,6 +87,10 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const initialTab = parseTab(searchParams.get('tab'));
   const [tab, setTabState] = useState<TabId>(initialTab);
   const [filter, setFilterState] = useState<FilterId>(initialFilter);
+  // Which property groups are expanded, mirrored to ?open= so the state
+  // survives the trip into a slip and back, a browser refresh, and any
+  // board remount — mid-triage you land back on the property you had open.
+  const [openProps, setOpenProps] = useState<Set<string>>(() => parseOpen(searchParams.get('open')));
 
   // Keep state in sync if the URL changes (e.g. browser back/forward, or
   // landing on the page from a deep link with a different filter/tab).
@@ -87,12 +99,32 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     setFilterState((curr) => (curr === nextFilter ? curr : nextFilter));
     const nextTab = parseTab(searchParams.get('tab'));
     setTabState((curr) => (curr === nextTab ? curr : nextTab));
+    const nextOpen = parseOpen(searchParams.get('open'));
+    setOpenProps((curr) => (sameSet(curr, nextOpen) ? curr : nextOpen));
+  }, [searchParams]);
+
+  // Landing from a slip's "← All Work" link (/work?open=X#prop-X): the
+  // loading skeleton means the browser's native anchor scroll fires before
+  // the real board exists, so scroll to the group once it has mounted.
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#prop-')) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' });
+  }, []);
+
+  // Remember the board's full URL (filter + tab + open groups) so the slip
+  // detail page's "← All Work" link can bring you back to this exact view
+  // instead of a fresh board. Session-scoped on purpose.
+  useEffect(() => {
+    sessionStorage.setItem('helm:work-board-url', window.location.pathname + window.location.search);
   }, [searchParams]);
 
   // URL writer used by both setters. router.replace keeps the queue from
-  // piling up history entries on every pill toggle.
+  // piling up history entries on every pill toggle. Reads the LIVE URL
+  // (not the useSearchParams snapshot) so a pill click right after a group
+  // toggle can't rebuild the query from a stale snapshot and drop ?open=.
   function writeUrl(nextFilter: FilterId, nextTab: TabId) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     if (nextFilter === 'all') params.delete('filter');
     else params.set('filter', nextFilter);
     if (nextTab === 'all') params.delete('tab');
@@ -107,6 +139,23 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   function setTab(next: TabId) {
     setTabState(next);
     writeUrl(filter, next);
+  }
+  // Mirrors the expanded set to ?open=, same idiom as writeUrl above.
+  // Deliberately router.replace and NOT window.history.replaceState: a raw
+  // replaceState leaves the router's canonical URL behind, and the next
+  // server-action revalidation (e.g. ✓ Done) then treats its refresh as a
+  // real navigation to the "changed" URL and scrolls to the top — the
+  // exact yank this board just got rid of. Verified empirically on 16.2.4.
+  function toggleOpenProp(propId: string) {
+    const next = new Set(openProps);
+    if (next.has(propId)) next.delete(propId);
+    else next.add(propId);
+    setOpenProps(next);
+    const params = new URLSearchParams(window.location.search);
+    if (next.size === 0) params.delete('open');
+    else params.set('open', [...next].join(','));
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
   const [showSlipModal, setShowSlipModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -362,12 +411,16 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               items={slipsByProperty}
               initial={INITIAL_PROPERTY_LIMIT}
               moreLabel={(n) => `Show ${n} more propert${n === 1 ? 'y' : 'ies'}`}
+              defaultExpanded={slipsByProperty.slice(INITIAL_PROPERTY_LIMIT).some(([pid]) => openProps.has(pid))}
               renderItem={([propId, list]) => (
                 <PropertyGroup
                   key={propId}
+                  propId={propId}
                   property={propertyMap.get(propId) ?? null}
                   slips={list}
                   myEmail={myEmail}
+                  expanded={openProps.has(propId)}
+                  onToggleExpanded={() => toggleOpenProp(propId)}
                   selectedIds={selectedSlipIds}
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
@@ -464,14 +517,18 @@ function CollapsibleList<T>({
   moreLabel,
   renderItem,
   keyFor,
+  defaultExpanded = false,
 }: {
   items: T[];
   initial: number;
   moreLabel: (n: number) => string;
   renderItem: (item: T) => React.ReactNode;
   keyFor: (item: T) => string;
+  /** Start with the tail shown — e.g. when a ?open= property group would
+   *  otherwise be hidden behind the "Show more" fold on a return visit. */
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const visible = expanded ? items : items.slice(0, initial);
   const hiddenCount = Math.max(0, items.length - initial);
   return (
@@ -621,28 +678,33 @@ function SlipGroupLabel({ text, color }: { text: string; color: string }) {
 }
 
 function PropertyGroup({
+  propId,
   property,
   slips,
+  expanded,
+  onToggleExpanded,
   selectedIds,
   onToggleSelect,
   commentCounts,
   reporterNames,
   onAddSlip,
 }: {
+  propId: string;
   property: PropertyForPicker | null;
   slips: WorkSlipRow[];
   myEmail: string;
+  /** Expansion is owned by QueueClient (mirrored to ?open=) so it survives
+   *  navigating into a slip and back. Default collapsed: with 8+ properties
+   *  × ~8 slips each, the queue is a long scroll if every group renders
+   *  expanded — triage starts from the header (count, HIGH badge). */
+  expanded: boolean;
+  onToggleExpanded: () => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   commentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
   onAddSlip: () => void;
 }) {
-  // Default collapsed: with 8+ properties × ~8 slips each, the queue
-  // is a long scroll if every group renders expanded. Triaging starts
-  // with "which property has the most work" — that's all in the
-  // header (count, high-priority badge). Click a group to drill in.
-  const [expanded, setExpanded] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
   const highCount = slips.filter((s) => s.priority === 'high').length;
@@ -691,7 +753,9 @@ function PropertyGroup({
   }
 
   return (
-    <div style={{ borderBottom: '1px solid var(--rule)' }}>
+    // Anchor target for /work?open=X#prop-X (the slip page's back link);
+    // scrollMarginTop keeps the header clear of the masthead on landing.
+    <div id={`prop-${propId}`} style={{ borderBottom: '1px solid var(--rule)', scrollMarginTop: 96 }}>
       <div
         style={{
           display: 'flex',
@@ -708,7 +772,7 @@ function PropertyGroup({
         <div style={{ flex: 1, minWidth: 160 }}>
           <button
             type="button"
-            onClick={() => setExpanded((e) => !e)}
+            onClick={onToggleExpanded}
             style={{
               background: 'none',
               border: 'none',
@@ -967,6 +1031,28 @@ function WorkSlipRowItem({
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+          {/* The detail is what you triage on — surface it right on the row
+              (one clamped line, full text on hover) so you don't have to
+              open the slip just to see what it's about. Assignment info
+              stays, demoted to the meta line below. Supply/restock rows
+              skip it: their auto-generated description is boilerplate. */}
+          {!isSupply && (slip.action_summary || slip.description) && (
+            <div
+              style={{
+                marginTop: 3,
+                fontSize: 12,
+                color: 'var(--ink-3)',
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={slip.action_summary || slip.description || undefined}
+            >
+              {slip.action_summary || slip.description}
+            </div>
+          )}
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
             {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : 'Unclaimed')}

@@ -8,6 +8,7 @@ import {
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
 import { StatusChanger } from './StatusChanger';
+import { BackToBoardLink } from './BackToBoardLink';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipComments } from './SlipComments';
@@ -100,24 +101,24 @@ export default async function WorkSlipDetailPage({
     slip.status === 'dismissed'   ? 'var(--ink-4)' :
     'var(--ink-3)';
 
+  // Cold-load back target: open this property's group on the board. A
+  // snoozed slip's group only renders under the Snoozed pill, so carry
+  // that filter too or the anchor would point at nothing.
+  const isSnoozed = !!slip.snoozed_until && slip.snoozed_until > new Date().toISOString().slice(0, 10);
+  const backFallbackHref = `/work?open=${slip.property_id}${isSnoozed ? '&filter=snoozed' : ''}#prop-${slip.property_id}`;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
 
-      {/* BACK */}
+      {/* BACK — returns to the board as you left it (filter/tab/expanded
+          groups restored from the board's own URL mirror), with this slip's
+          property group opened and scrolled into view. */}
       <div className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
-        <Link
-          href="/work"
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← All Work
-        </Link>
+        <BackToBoardLink
+          fallbackHref={backFallbackHref}
+          propertyId={slip.property_id}
+        />
       </div>
 
       {/* HERO */}
