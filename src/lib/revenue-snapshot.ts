@@ -40,6 +40,12 @@ export type PropertyRevenueMetrics = {
   nightsSold: number;
   totalRevenue: number | null;
   ADR: number | null;
+  /**
+   * Physical calendar occupancy: nights actually occupied within the range
+   * over bookable nights. Unlike the money metrics (checkout-attributed,
+   * Statement methodology), a stay straddling month-end counts its in-range
+   * nights here even though its revenue belongs to the checkout month.
+   */
   occupancyPct: number | null;
   managementFee: number | null;
   cleaningCost: number | null;
@@ -235,9 +241,16 @@ type PropertyMonthBuckets = {
   /**
    * Physical nights this property was occupied in the given YYYY-MM
    * (calendar attribution). Used as the pacing %'s numerator; NOT used
-   * for revenue or any display metric.
+   * for revenue or any money metric.
    */
   calendarNightsByMonth: Map<string, number>;
+  /**
+   * Physical nights occupied within the requested range (calendar
+   * attribution, clipped to the range and activation date). Numerator for
+   * the displayed occupancy % — occupancy is a physical question, so it
+   * uses calendar nights even though money stays checkout-attributed.
+   */
+  calendarNightsInRange: number;
   /**
    * Nights blocked by zero-payout reservations (owner stays, holds,
    * cancelled-but-not-deleted rows). These represent inventory that's
@@ -530,11 +543,13 @@ export async function computeRevenueSnapshot(
     const staysByMonth = new Map<string, number>();
     const cleaningByMonth = new Map<string, number>();
 
-    // Calendar-attributed nights, kept separately for the pacing multiplier
-    // only. Pacing % is a physical-occupancy question ("what fraction of
-    // nights in this month are booked"), so it stays calendar-based even
-    // though the display metrics use checkout attribution.
+    // Calendar-attributed nights, kept separately from the checkout-
+    // attributed money metrics. Pacing % and the displayed occupancy % are
+    // physical-occupancy questions ("what fraction of nights in this month
+    // are booked"), so they stay calendar-based even though the money
+    // metrics use checkout attribution.
     const calendarNightsByMonth = new Map<string, number>();
+    let calendarNightsInRange = 0;
     // Unavailable nights bucketed by month. Sources:
     //   (1) Calendar-driven blocks (Guesty calendar status='blocked'):
     //       seasonal closures, manual date blocks. Seeded here.
@@ -587,11 +602,16 @@ export async function computeRevenueSnapshot(
         continue;
       }
 
-      // Pacing-only bookkeeping: walk the calendar months this stay
+      // Physical-occupancy bookkeeping: walk the calendar months this stay
       // physically occupies, regardless of where the checkout falls.
       {
         const physicalStart = checkIn > propStart ? checkIn : propStart;
         const physicalEnd = checkOut;
+        // Occupancy numerator: only the nights inside the requested range.
+        const inRangeEnd = physicalEnd < periodEndExclusive ? physicalEnd : periodEndExclusive;
+        if (physicalStart < inRangeEnd) {
+          calendarNightsInRange += nightsBetween(physicalStart, inRangeEnd);
+        }
         let cursor = physicalStart;
         while (cursor < physicalEnd) {
           const cy = parseInt(cursor.slice(0, 4), 10);
@@ -674,6 +694,7 @@ export async function computeRevenueSnapshot(
       staysByMonth,
       cleaningByMonth,
       calendarNightsByMonth,
+      calendarNightsInRange,
       blockedNightsByMonth,
     });
 
@@ -686,8 +707,14 @@ export async function computeRevenueSnapshot(
     let propBlockedNights = 0;
     for (const v of blockedNightsByMonth.values()) propBlockedNights += v;
     const propBookableNights = Math.max(0, propTotalNights - propBlockedNights);
+    // Physical calendar occupancy (nights occupied in range), NOT the
+    // checkout-attributed nightsSold — a stay straddling month-end counts
+    // its in-range nights here while its money belongs to the checkout
+    // month. Capped at 100 (overlapping rows or blocks can overshoot).
     const occupancyPct =
-      propBookableNights > 0 ? (nightsSold / propBookableNights) * 100 : null;
+      propBookableNights > 0
+        ? Math.min(100, (calendarNightsInRange / propBookableNights) * 100)
+        : null;
 
     return {
       propertyId: prop.id,
@@ -763,13 +790,20 @@ export async function computeRevenueSnapshot(
     }
   }
   // Subtract owner-block nights so portfolio occupancy reads against
-  // bookable inventory.
+  // bookable inventory. Numerator is physical calendar nights (same basis
+  // as the per-property occupancy and the pacing %), not the
+  // checkout-attributed totalNights that feeds ADR.
   let totalBlockedNights = 0;
+  let totalCalendarNights = 0;
   for (const buckets of monthBucketsByProperty.values()) {
     for (const v of buckets.blockedNightsByMonth.values()) totalBlockedNights += v;
+    totalCalendarNights += buckets.calendarNightsInRange;
   }
   totalPossibleNights = Math.max(0, totalPossibleNights - totalBlockedNights);
-  const avgOccupancy = totalPossibleNights > 0 ? (totalNights / totalPossibleNights) * 100 : null;
+  const avgOccupancy =
+    totalPossibleNights > 0
+      ? Math.min(100, (totalCalendarNights / totalPossibleNights) * 100)
+      : null;
 
   return {
     rangeStart,
@@ -1011,16 +1045,6 @@ async function applyStatementsAndPacing(
     const newPayout =
       newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) - repairsTaxDelta : null;
     const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
-    const propBuckets = monthBucketsByProperty.get(s.propertyId);
-    let propBlocked = 0;
-    if (propBuckets) {
-      for (const v of propBuckets.blockedNightsByMonth.values()) propBlocked += v;
-    }
-    const occDenom = Math.max(
-      0,
-      totalNightsForOccupancy(rangeStart, rangeEnd, prop?.activated_at ?? null) - propBlocked,
-    );
-    const newOccupancy = occDenom > 0 ? (newNights / occDenom) * 100 : null;
 
     const source: SnapshotSource =
       // Multi-month with at least one Statement-overridden month: prefer the
@@ -1042,7 +1066,10 @@ async function applyStatementsAndPacing(
         nightsSold: newNights,
         totalRevenue: newRevenue != null && newRevenue > 0 ? round2(newRevenue) : null,
         ADR: newADR !== null ? round2(newADR) : null,
-        occupancyPct: newOccupancy !== null ? round1(newOccupancy) : null,
+        // Occupancy is physical calendar occupancy from the base pass.
+        // Statement swaps and pacing multipliers move money and
+        // checkout-attributed nights, not what nights were slept in.
+        occupancyPct: baseM.occupancyPct,
         managementFee: newMgmtFee && newMgmtFee > 0 ? round2(newMgmtFee) : (newRevenue ? 0 : null),
         cleaningCost: newCleaning && newCleaning > 0 ? round2(newCleaning) : null,
         projectedOwnerPayout: newPayout && newPayout > 0 ? round2(newPayout) : null,
@@ -1051,18 +1078,6 @@ async function applyStatementsAndPacing(
   });
 
   return { snapshots, pacing: headline };
-}
-
-/**
- * Nights between rangeStart and rangeEnd, clipped to a property's activation
- * date. Used as the denominator for per-property occupancy% when the range
- * may straddle a property's go-live date.
- */
-function totalNightsForOccupancy(rangeStart: string, rangeEnd: string, activatedAt: string | null): number {
-  const start = activatedAt
-    ? (activatedAt.slice(0, 10) > rangeStart ? activatedAt.slice(0, 10) : rangeStart)
-    : rangeStart;
-  return nightsBetween(start, dayAfter(rangeEnd));
 }
 
 type StatementRow = {
