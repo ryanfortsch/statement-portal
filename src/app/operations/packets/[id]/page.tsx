@@ -87,40 +87,47 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const packet = await loadPacketDetail(id, { revealAccess: true });
   if (!packet) notFound();
 
-  const review =
-    packet.status === 'submitted' || packet.status === 'approved' ? await loadPacketReview(id) : [];
-
-  const { data: evData } = await fieldDb()
-    .from('packet_events')
-    .select('event_type, actor_email, created_at')
-    .eq('packet_id', id)
-    .order('created_at', { ascending: false })
-    .limit(8);
-  const events = (evData ?? []) as { event_type: string; actor_email: string | null; created_at: string }[];
-
-  // How the awarded inspector wants to be paid — surfaced beside Mark paid so
-  // the operator doesn't have to dig through the roster to send the money.
-  const paySummary = packet.awarded_contractor_id
-    ? (await loadPaymentSummaries()).get(packet.awarded_contractor_id) ?? null
-    : null;
-
   const editable = packet.status === 'draft';
   const isLive = isLiveStatus(packet.status);
-
   // Attaching work slips + instructions is allowed any time the packet is still
   // live (incl. after a contractor claims it); locked once submitted/closed.
   const attachEditable = isAttachableStatus(packet.status);
-  const attachableByStop = attachEditable
-    ? await Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
-    : packet.stops.map(() => []);
-
-  // Properties you can drop onto this trip as another stop (an inspection or a
-  // task). Only while the trip can still take one; exclude homes already on it.
+  // Add a stop while the trip can still take one; exclude homes already on it.
   const canAddStop = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
   const onTrip = new Set(packet.stops.map((s) => s.property_id));
-  const addableProps = canAddStop
-    ? (((await fieldDb().from('properties').select('id, name, address').order('name')).data ?? []) as { id: string; name: string | null; address: string | null }[]).filter((p) => !onTrip.has(p.id))
-    : [];
+
+  // None of these depend on one another. Fetch them in ONE parallel batch: every
+  // autosave in the stop editor fires a revalidation (a full re-render of this
+  // page), and the "Saving…" indicator waits on it — batching turns ~five serial
+  // DB round-trips into one, so the save clears far quicker.
+  const [review, events, paySummary, attachableByStop, addableProps] = await Promise.all([
+    packet.status === 'submitted' || packet.status === 'approved'
+      ? loadPacketReview(id)
+      : Promise.resolve([] as Awaited<ReturnType<typeof loadPacketReview>>),
+    fieldDb()
+      .from('packet_events')
+      .select('event_type, actor_email, created_at')
+      .eq('packet_id', id)
+      .order('created_at', { ascending: false })
+      .limit(8)
+      .then(({ data }) => (data ?? []) as { event_type: string; actor_email: string | null; created_at: string }[]),
+    // How the awarded inspector wants to be paid — shown beside Mark paid.
+    packet.awarded_contractor_id
+      ? loadPaymentSummaries().then((m) => m.get(packet.awarded_contractor_id!) ?? null)
+      : Promise.resolve(null),
+    attachEditable
+      ? Promise.all(packet.stops.map((s) => loadAttachableSlips(s.property_id)))
+      : Promise.resolve(packet.stops.map(() => [] as Awaited<ReturnType<typeof loadAttachableSlips>>)),
+    canAddStop
+      ? fieldDb()
+          .from('properties')
+          .select('id, name, address')
+          .order('name')
+          .then(({ data }) =>
+            ((data ?? []) as { id: string; name: string | null; address: string | null }[]).filter((p) => !onTrip.has(p.id)),
+          )
+      : Promise.resolve([] as { id: string; name: string | null; address: string | null }[]),
+  ]);
 
   // The claimable pool for this packet (active, onboarded, cleared, same trade),
   // ranked the way the SMS blast ranks it — reliability first, then distance —
