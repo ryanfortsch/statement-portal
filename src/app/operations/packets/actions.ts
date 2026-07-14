@@ -433,27 +433,27 @@ export async function addPacketStop(formData: FormData): Promise<void> {
   if (!packetId || !propertyId || !Number.isFinite(dollarsValue) || dollarsValue <= 0) return;
   const addedCents = Math.round(dollarsValue * 100);
 
-  const { data: pk } = await fieldDb()
-    .from('inspection_packets')
-    .select('title, visit_date, posted_price_cents, status, awarded_contractor_id')
-    .eq('id', packetId)
-    .maybeSingle();
+  // Three independent reads in one round-trip instead of three: the packet, the
+  // last walk order (to append), and the property (its name titles a task slip
+  // and labels the notice).
+  const [{ data: pk }, { data: last }, { data: prop }] = await Promise.all([
+    fieldDb()
+      .from('inspection_packets')
+      .select('title, visit_date, posted_price_cents, status, awarded_contractor_id')
+      .eq('id', packetId)
+      .maybeSingle(),
+    fieldDb()
+      .from('packet_stops')
+      .select('walk_order')
+      .eq('packet_id', packetId)
+      .order('walk_order', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle(),
+  ]);
   const packet = pk as { title: string; visit_date: string; posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
-
-  // Append to the end of the route.
-  const { data: last } = await fieldDb()
-    .from('packet_stops')
-    .select('walk_order')
-    .eq('packet_id', packetId)
-    .order('walk_order', { ascending: false })
-    .limit(1)
-    .maybeSingle();
   const nextOrder = ((last as { walk_order: number } | null)?.walk_order ?? -1) + 1;
-
-  // Load the property up front — its name titles a task slip, and labels the
-  // notification either way.
-  const { data: prop } = await fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle();
   const p = prop as { name: string | null; address: string | null } | null;
   const propName = p?.name || p?.address || 'a stop';
 
@@ -520,23 +520,23 @@ export async function addPacketStop(formData: FormData): Promise<void> {
     .from('inspection_packets')
     .update({ stop_count: liveCount ?? 1, posted_price_cents: newTotal, updated_at: new Date().toISOString() })
     .eq('id', packetId);
-  // Keep the denormalized title honest (count + towns) after the stop set grows.
-  await regeneratePacketTitle(packetId);
-  // Link each untouched stop (incl. the one just added) to the stay it preps —
-  // this booking link is what the Turnovers rail keys on to credit the trip
-  // ("Field · <contractor>") instead of showing a bare Start button.
-  await resyncPacketStopBookings(packetId).catch(() => {});
-
   const label =
     kind === 'setup' ? `Set up ${propName}` : instructions ? `${propName} (${instructions})` : propName;
 
-  await fieldDb().from('packet_events').insert({
-    packet_id: packetId,
-    contractor_id: packet.awarded_contractor_id,
-    actor_email: email,
-    event_type: 'stop_added',
-    payload: { property_id: propertyId, added_cents: addedCents, instructions },
-  });
+  // Independent post-writes, run together instead of in series: refresh the
+  // denormalized title (count + towns), re-link each stop to the stay it preps
+  // (the Turnovers rail keys on this), and log the audit event.
+  await Promise.all([
+    regeneratePacketTitle(packetId),
+    resyncPacketStopBookings(packetId).catch(() => {}),
+    fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      contractor_id: packet.awarded_contractor_id,
+      actor_email: email,
+      event_type: 'stop_added',
+      payload: { property_id: propertyId, added_cents: addedCents, instructions },
+    }),
+  ]);
 
   // On a claimed/in-progress trip, program the contractor's existing trip code
   // onto the new stop's lock BEFORE telling them about it — "works at every
