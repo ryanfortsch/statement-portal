@@ -154,8 +154,6 @@ export async function completeOnboarding(
   const smsOptIn = formData.get('sms_opt_in') === 'on';
   const phone = String(formData.get('phone') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
-  const homeAddress = String(formData.get('home_address') || '').trim();
-  if (homeAddress.length < 2) return { error: 'Add your home base (the town or ZIP you work from).' };
   if (!agree) return { error: 'Check the box agreeing to the contractor terms.' };
   if (signedName.length < 3) return { error: 'Type your full name at the bottom to sign.' };
 
@@ -185,28 +183,27 @@ export async function completeOnboarding(
   );
   if (payErr) return { error: payErr };
 
-  // Geocode their home base so the marketplace can rank packets "near you".
-  // Best-effort: a failed lookup just leaves coords null (no ranking).
-  // A bare town like "Gloucester" can geocode to another state's Gloucester
-  // (one real inspector landed 472 mi away), so bias to the service area:
-  // try as typed, retry with ", MA" if the hit is far, keep whichever is
-  // closer to HQ, and store nothing rather than an absurd mis-geocode.
+  // Geocode a home base for the marketplace's "near you" ranking, derived
+  // from the W-9 city/state/ZIP the contractor just entered — the form used
+  // to ask for a separate "home base (town or ZIP)" that duplicated it.
+  // Deliberately town-level (no street line): coarse coords are all ranking
+  // needs, and we don't store house-precision coordinates on the contractor
+  // row. Best-effort: a failed lookup just leaves coords null (no ranking),
+  // and an implausible hit (>150 mi from HQ) stores nothing rather than an
+  // absurd mis-geocode — city+state+ZIP make the old wrong-state problem
+  // (one real inspector's bare town landed 472 mi away) unlikely, but the
+  // guard stays.
   const HQ = { lat: 42.6209, lng: -70.645 };
   const PLAUSIBLE_COMMUTE_MILES = 150;
   let homeLat = contractor.home_lat;
   let homeLng = contractor.home_lng;
-  if (homeAddress) {
-    let best = await geocodeAddress(homeAddress);
-    let bestMiles = best ? haversineMiles(HQ, best) : Infinity;
-    if (bestMiles > PLAUSIBLE_COMMUTE_MILES && !/,|\d{5}/.test(homeAddress)) {
-      const retry = await geocodeAddress(`${homeAddress}, MA`);
-      const retryMiles = retry ? haversineMiles(HQ, retry) : Infinity;
-      if (retryMiles < bestMiles) {
-        best = retry;
-        bestMiles = retryMiles;
-      }
-    }
-    if (best && bestMiles <= PLAUSIBLE_COMMUTE_MILES) {
+  const homeTown = [
+    String(formData.get('w9_city') || '').trim(),
+    `${String(formData.get('w9_state') || '').trim()} ${String(formData.get('w9_zip') || '').trim()}`.trim(),
+  ].filter(Boolean).join(', ');
+  if (homeTown) {
+    const best = await geocodeAddress(homeTown);
+    if (best && haversineMiles(HQ, best) <= PLAUSIBLE_COMMUTE_MILES) {
       homeLat = best.lat;
       homeLng = best.lng;
     }
