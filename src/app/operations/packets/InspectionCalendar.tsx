@@ -5,7 +5,7 @@ import { centroid, maxPairwiseMiles } from '@/lib/proximity';
 import { PROXIMITY_MILES, MAX_STOPS, priceCents, isRushVisit } from '@/lib/field-pricing';
 import type { CalRow, InspectionCalendarData } from '@/lib/field-packets';
 import { PacketRouteMap } from '@/app/field/PacketRouteMap';
-import { bundleAndSend } from './actions';
+import { bundleAndSend, bundleAsDraft } from './actions';
 
 // Greedy proximity clusters of the properties open (inspectable) on a given
 // day. Each cluster is one feasible "one visit"; the largest is the best bundle.
@@ -276,12 +276,18 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
           action={async (fd: FormData) => {
             setSending(true);
             try {
-              await bundleAndSend(fd);
-              // Clear the picked day/properties so the board shows the fresh
-              // packet under "Out to contractors" instead of staying stuck.
-              setSelProps([]);
-              setSelDay(null);
-              setPriceStr('');
+              if (fd.get('mode') === 'draft') {
+                // Save a draft and jump to the packet page to add a setup /
+                // one-off before publishing (bundleAsDraft redirects there).
+                await bundleAsDraft(fd);
+              } else {
+                await bundleAndSend(fd);
+                // Clear the picked day/properties so the board shows the fresh
+                // packet under "Out to contractors" instead of staying stuck.
+                setSelProps([]);
+                setSelDay(null);
+                setPriceStr('');
+              }
             } finally {
               setSending(false);
             }
@@ -326,6 +332,31 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
             </div>
             <button
               type="submit"
+              name="mode"
+              value="draft"
+              disabled={sending}
+              title="Save as a draft and open it, so you can add a property setup or one-off job before publishing"
+              style={{
+                background: 'var(--paper-2, #fff)',
+                color: 'var(--ink-3)',
+                border: '1px solid var(--rule)',
+                borderRadius: 8,
+                cursor: sending ? 'default' : 'pointer',
+                opacity: sending ? 0.6 : 1,
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                padding: '11px 16px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Review &amp; add-ons
+            </button>
+            <button
+              type="submit"
+              name="mode"
+              value="send"
               disabled={sending}
               style={{
                 background: 'var(--signal)',
