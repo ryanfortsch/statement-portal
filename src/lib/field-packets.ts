@@ -2076,8 +2076,9 @@ export type InspectionCalendarData = {
  * The calendar-of-open-windows board: each property that needs inspecting in
  * the window gets a row of day cells — occupied / blocked / open — with the
  * next check-in marked as the deadline. An open day is "inspectable" when the
- * next guest after it is real and not already covered, so the operator can
- * inspect on ANY open day before the deadline, not just the checkout day.
+ * next guest from that day on (including one arriving THAT day — the same-day
+ * turnover) is real and not already covered, so the operator can inspect on
+ * ANY open day up to and including the deadline, not just the checkout day.
  */
 export async function loadInspectionCalendar(
   windowStart: string = todayStr(),
@@ -2150,12 +2151,22 @@ export async function loadInspectionCalendar(
     const nextDeadline = anchor.map((b) => b.check_in).sort()[0];
 
     const cells: CalCell[] = days.map((D) => {
-      const guestOccupied = pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out);
+      // Next guest arrival to prep for — an arrival ON D counts (same-day
+      // turnover: previous guest out in the morning, next in at 4 PM; the
+      // tight midday window is the most urgent inspection there is).
+      const next = pb.find((b) => isGuestStay(b) && b.check_in >= D);
+      // An occupied night kills the day, EXCEPT the prepped stay's own
+      // check-in day — the same rule candidatesForDay / deriveDayCandidates
+      // use (#1049). The old unconditional `check_in <= D` test painted every
+      // same-day turnover "guest in house", so its ONLY feasible inspection
+      // day was unclickable here while the bundle path would happily take it.
+      const guestOccupied =
+        pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out) &&
+        !(next && next.check_in === D);
       const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
       const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied;
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
       const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
-      const next = pb.find((b) => isGuestStay(b) && b.check_in > D);
       const nextCovered = !!next && coveredBookings.has(next.id);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
       const covered = state === 'open' && nextCovered;
