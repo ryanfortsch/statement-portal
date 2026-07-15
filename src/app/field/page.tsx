@@ -379,14 +379,52 @@ export default async function FieldHome({
       {/* No rating/reputation card here (the Bronze/Silver/Gold ladder was cut
           per Ryan — a number IS the reputation). The greeting's inline ★
           average answers "how am I doing"; /field/profile has the reviews. */}
-      {mine.length > 0 && (
-        <section style={{ marginBottom: 40 }}>
-          <SectionHeader title="Your packets" />
-          {mine.map((p) => (
-            <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
-          ))}
-        </section>
-      )}
+      {mine.length > 0 && (() => {
+        // Live trips first (soonest on top — that's the work still to do),
+        // then only the two most recent finished packets. The rest of the
+        // history folds into a native <details> so "Available now" isn't a
+        // whole season's scroll away once a contractor has a track record.
+        const live = mine.filter((p) => p.status === 'claimed' || p.status === 'in_progress');
+        const finished = mine
+          .filter((p) => p.status === 'submitted' || p.status === 'approved')
+          .sort((a, b) => (b.visit_date ?? '').localeCompare(a.visit_date ?? ''));
+        const recent = finished.slice(0, 2);
+        const older = finished.slice(2);
+        return (
+          <section style={{ marginBottom: 40 }}>
+            <SectionHeader title="Your packets" />
+            {live.map((p) => (
+              <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
+            ))}
+            {recent.map((p) => (
+              <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
+            ))}
+            {older.length > 0 && (
+              <details>
+                <summary
+                  className="rt-fold-summary"
+                  style={{
+                    listStyle: 'none',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-4)',
+                    padding: '10px 2px',
+                    userSelect: 'none',
+                  }}
+                >
+                  ▾ Earlier packets · {older.length}
+                </summary>
+                {older.map((p) => (
+                  <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
+                ))}
+              </details>
+            )}
+          </section>
+        );
+      })()}
 
       {available.length > 0 && (
         <section>
