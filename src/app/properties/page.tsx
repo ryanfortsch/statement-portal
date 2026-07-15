@@ -8,6 +8,8 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { ProspectsPanel } from '@/components/projections/ProspectsPanel';
+import { SubmitButton } from '@/components/SubmitButton';
+import { createProspectProperty } from './actions';
 import type { ReactNode } from 'react';
 
 export const dynamic = 'force-dynamic';
@@ -87,9 +89,13 @@ export default async function PropertiesPage({
       getWorkCountsByProperty(),
     ]);
     const active = properties.filter((p) => p.is_active);
+    // Non-managed work locations (HQ, prospect homes) ride is_active=false but
+    // aren't "inactive rentals" — count them by what they are.
     const inactive = properties.filter((p) => !p.is_active);
+    const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
+    const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
     heroDescription = !error
-      ? `${active.length} active${inactive.length ? `, ${inactive.length} inactive` : ''}. Helm-native data.`
+      ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}. Helm-native data.`
       : undefined;
     body = (
       <>
@@ -152,7 +158,9 @@ export default async function PropertiesPage({
 
               {inactive.length > 0 && (
                 <div style={{ marginTop: 56 }}>
-                  <div className="eyebrow" style={{ marginBottom: 18 }}>Inactive</div>
+                  <div className="eyebrow" style={{ marginBottom: 18 }}>
+                    {inactive.some((p) => p.kind !== 'managed') ? 'Prospects, HQ & inactive' : 'Inactive'}
+                  </div>
                   <div style={{ borderTop: '1px solid var(--rule)' }}>
                     {inactive.map((p, i) => (
                       <PropertyRow
@@ -166,6 +174,8 @@ export default async function PropertiesPage({
                   </div>
                 </div>
               )}
+
+              <AddProspectForm />
             </>
           )}
         </section>
@@ -349,7 +359,7 @@ function PropertyRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {p.is_active ? `${p.management_fee_pct}% →` : 'Inactive'}
+          {p.is_active ? `${p.management_fee_pct}% →` : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : 'Inactive'}
         </span>
       </div>
     </Link>
@@ -392,5 +402,46 @@ function EmptyBlock() {
         Helm&apos;s Supabase SQL Editor to seed the table.
       </p>
     </div>
+  );
+}
+
+/** Quiet create form for a PROSPECT property: a home we may sign, so the office
+ *  can point Field packets and work slips at it before onboarding. Lands on the
+ *  new property's page (add photos, coords tweaks, notes there). Invisible to
+ *  statements / owners / operations until real onboarding activates it. */
+function AddProspectForm() {
+  const lbl: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
+  const inp: React.CSSProperties = {
+    font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)',
+    border: '1px solid var(--rule)', padding: '8px 10px', minWidth: 170, borderRadius: 6,
+  };
+  return (
+    <details style={{ marginTop: 44, maxWidth: 640 }}>
+      <summary style={{ cursor: 'pointer', fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 }}>
+        + Add a prospective property
+      </summary>
+      <form
+        action={createProspectProperty}
+        style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}
+      >
+        <label style={lbl}>
+          Name
+          <input name="name" required placeholder="12 Marmion" style={inp} />
+        </label>
+        <label style={lbl}>
+          Address
+          <input name="address" required placeholder="12 Marmion Way" style={inp} />
+        </label>
+        <label style={lbl}>
+          Town
+          <input name="city" placeholder="Rockport" style={inp} />
+        </label>
+        <SubmitButton label="Add prospect" busyLabel="Adding…" style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '10px 18px', borderRadius: 6 }} />
+        <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, width: '100%' }}>
+          A home we may sign. You can point Field packets and work slips at it right away; it stays out of
+          statements, owner tools, and the turnover board until it&apos;s onboarded for real.
+        </div>
+      </form>
+    </details>
   );
 }

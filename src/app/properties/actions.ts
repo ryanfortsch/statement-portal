@@ -6,6 +6,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
 import { formatUsPhone } from '@/lib/phone';
+import { geocodeAddress } from '@/lib/geocode';
 import { upsertPropertyAccess, getPropertyAccess, ACCESS_COLUMNS, type PropertyAccess } from '@/lib/property-access';
 import type { DocumentCategory } from '@/lib/property-documents';
 import {
@@ -1135,4 +1136,51 @@ export async function applyPropertyCaptureAction(
   }
 
   return { ok: true, columns: columnsApplied, notes: notesApplied, skipped };
+}
+
+/** Create a PROSPECT property: a home we may sign, targetable by Field packets
+ *  and work slips before onboarding. Seeded is_active=false (so statements /
+ *  operations / revenue surfaces never see it) with kind='prospect'. Address is
+ *  geocoded best-effort so the home can join route maps and bundles right away.
+ *  Owner columns are NOT NULL on properties; they stay empty strings until the
+ *  home actually signs (real onboarding fills them). */
+export async function createProspectProperty(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const name = String(formData.get('name') || '').trim().slice(0, 80);
+  const address = String(formData.get('address') || '').trim().slice(0, 160);
+  const city = String(formData.get('city') || '').trim().slice(0, 80) || 'Gloucester';
+  if (name.length < 2 || address.length < 3) redirect('/properties?prospect=err');
+
+  const db = getServiceClient();
+  const base =
+    name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'prospect';
+  let id = base;
+  for (let n = 2; n <= 9; n++) {
+    const { data: exists } = await db.from('properties').select('id').eq('id', id).maybeSingle();
+    if (!exists) break;
+    id = `${base}_${n}`;
+  }
+
+  const coords = await geocodeAddress(`${address}, ${city} MA`).catch(() => null);
+
+  const { error } = await db.from('properties').insert({
+    id,
+    name,
+    address,
+    city,
+    latitude: coords?.lat ?? null,
+    longitude: coords?.lng ?? null,
+    is_active: false,
+    kind: 'prospect',
+    owner_last: '',
+    owner_full: '',
+    owner_greeting: '',
+    management_fee_pct: 0,
+  });
+  if (error) redirect('/properties?prospect=err');
+
+  revalidatePath('/properties');
+  redirect(`/properties/${id}`);
 }
