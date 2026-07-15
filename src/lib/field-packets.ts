@@ -69,7 +69,7 @@ const isGuestStay = (b: { status: string | null }): boolean =>
 // garage_code, alarm_system) moved to the RLS-locked property_access table;
 // they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
-  'id, name, title, address, city, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
+  'id, name, title, address, city, kind, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
   'guest_access_method, smart_lock_brand, parking, supply_closet_location';
 
 /** Layer a property's access codes (from property_access) onto the row read
@@ -110,10 +110,15 @@ function daysBetween(a: string, b: string): string[] {
 }
 
 export async function loadFieldProperties(): Promise<FieldProperty[]> {
+  // Active managed rentals PLUS every non-managed work location (HQ, prospect
+  // homes) — those are seeded is_active=false so revenue/ops surfaces skip
+  // them, and the Field module is the one place that opts them in. Callers
+  // that only make sense for rentals (routine-check suggestions, the office
+  // inspection calendar) filter kind === 'managed' themselves.
   const { data } = await fieldDb()
     .from('properties')
     .select(PROPERTY_COLS)
-    .eq('is_active', true);
+    .or('is_active.eq.true,kind.neq.managed');
   const rows = ((data ?? []) as unknown as FieldProperty[]).filter(
     (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id),
   );
@@ -1833,7 +1838,11 @@ export async function suggestRecurringInspections(): Promise<number> {
   const horizonEnd = addDays(today, RECURRING_LEAD_DAYS + RECURRING_HORIZON_DAYS);
   const cadenceEnd = addDays(today, RECURRING_CADENCE_DAYS);
 
-  const properties = (await loadFieldProperties()).filter((p) => p.latitude != null && p.longitude != null);
+  // Managed rentals only: HQ and prospect homes have no guests, so "idle too
+  // long" means nothing there — routine checks would be pure noise.
+  const properties = (await loadFieldProperties()).filter(
+    (p) => p.kind === 'managed' && p.latitude != null && p.longitude != null,
+  );
   if (properties.length === 0) return 0;
   const propIds = new Set(properties.map((p) => p.id));
 
@@ -2084,7 +2093,9 @@ export async function loadInspectionCalendar(
   windowStart: string = todayStr(),
   windowEnd: string = addDays(todayStr(), 14),
 ): Promise<InspectionCalendarData> {
-  const properties = await loadFieldProperties();
+  // Managed rentals only: the calendar is turnover coverage, and HQ/prospect
+  // rows (no bookings, ever) would just be permanent empty lanes.
+  const properties = (await loadFieldProperties()).filter((p) => p.kind === 'managed');
   const withCoords = properties.filter((p) => p.latitude != null && p.longitude != null);
   const propIds = withCoords.map((p) => p.id);
 

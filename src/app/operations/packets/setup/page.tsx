@@ -45,6 +45,7 @@ export default async function SetupPacketPage() {
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {p.kind === 'prospect' ? ' · prospect' : ''}
                   {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
                   {` · suggested $${Math.round(setupPriceCents(p.bedrooms) / 100)} (~${Math.round(setupMinutes(p.bedrooms) / 60 * 10) / 10}h)`}
                 </option>

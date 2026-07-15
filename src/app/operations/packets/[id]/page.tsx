@@ -121,12 +121,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
     canAddStop
       ? fieldDb()
           .from('properties')
-          .select('id, name, address')
+          .select('id, name, address, kind')
           .order('name')
           .then(({ data }) =>
-            ((data ?? []) as { id: string; name: string | null; address: string | null }[]).filter((p) => !onTrip.has(p.id)),
+            ((data ?? []) as { id: string; name: string | null; address: string | null; kind: string | null }[]).filter((p) => !onTrip.has(p.id)),
           )
-      : Promise.resolve([] as { id: string; name: string | null; address: string | null }[]),
+      : Promise.resolve([] as { id: string; name: string | null; address: string | null; kind: string | null }[]),
   ]);
 
   // The claimable pool for this packet (active, onboarded, cleared, same trade),
@@ -603,7 +603,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
                         <option value="" disabled>Choose a property…</option>
                         {addableProps.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name || p.address}</option>
+                          <option key={p.id} value={p.id}>
+                            {p.name || p.address}
+                            {p.kind === 'prospect' ? ' · prospect' : ''}
+                          </option>
                         ))}
                       </select>
                       <input name="instructions" placeholder="What to do (inspection: blank = full walk)" maxLength={500} style={{ ...priceInput, width: '100%' }} />

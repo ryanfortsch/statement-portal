@@ -379,6 +379,10 @@ export type HelmPropertyRow = {
   longitude: number | null;
   timezone: string | null;
   is_active: boolean;
+  /** 'managed' rental (default) | 'prospect' home we may sign | 'hq' (85 Eastern).
+   *  Non-managed rows ride is_active=false so revenue/ops surfaces skip them;
+   *  the Field module targets them for packets and work slips. */
+  kind: 'managed' | 'prospect' | 'hq';
   is_rising_tide_owned: boolean;
   activated_at: string | null;
   deactivated_at: string | null;
