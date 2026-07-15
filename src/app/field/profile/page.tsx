@@ -38,16 +38,6 @@ function stars(n: number): string {
   const full = Math.max(0, Math.min(5, Math.round(n)));
   return '★★★★★'.slice(0, full) + '☆☆☆☆☆'.slice(0, 5 - full);
 }
-/** A punchy pull-quote length for the featured review; the full text still
- *  shows in the reviews list below. Cuts on a sentence boundary when it can. */
-function excerpt(t: string, max = 240): string {
-  const clean = t.trim();
-  if (clean.length <= max) return clean;
-  const cut = clean.slice(0, max);
-  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
-  return stop > max * 0.5 ? cut.slice(0, stop + 1) : `${cut.trim()}…`;
-}
-
 const eyebrow: React.CSSProperties = {
   fontSize: 11,
   letterSpacing: '0.18em',
@@ -72,39 +62,33 @@ export default async function FieldProfilePage() {
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
   const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
-
-  // Her best review leads the page: highest stars, then the fullest note.
-  const featured =
-    [...reviews]
-      .filter((r) => r.text && r.text.trim())
-      .sort((a, b) => b.rating - a.rating || (b.text?.length ?? 0) - (a.text?.length ?? 0))[0] ?? null;
-  const restReviews = reviews.filter((r) => r !== featured);
-
   const firstName = contractor.full_name.split(' ')[0];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      {/* Hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20, margin: '16px 0 24px', flexWrap: 'wrap' }}>
-        <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} size={76} stacked />
-        <div style={{ minWidth: 0 }}>
-          <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0, lineHeight: 1.1 }}>{contractor.full_name}</h1>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span>{roleLabel}</span>
-            {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
-          </div>
-          {rating?.rated && rating.avg != null && (
-            <div style={{ marginTop: 7, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ color: GOLD, fontSize: 15, letterSpacing: 1.5 }}>{stars(rating.avg)}</span>
-              <span className="font-mono" style={{ fontSize: 14, color: GOLD }}>{rating.avg.toFixed(2)}</span>
-              <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>· {rating.count} guest {rating.count === 1 ? 'review' : 'reviews'}</span>
+      {/* Hero — name on the left, the overall guest rating prominent on the right. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, margin: '16px 0 26px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0 }}>
+          <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} size={76} stacked />
+          <div style={{ minWidth: 0 }}>
+            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0, lineHeight: 1.1 }}>{contractor.full_name}</h1>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>{roleLabel}</span>
+              {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
             </div>
-          )}
+          </div>
         </div>
+        {rating?.rated && rating.avg != null && (
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ color: GOLD, fontSize: 17, letterSpacing: 2 }}>{stars(rating.avg)}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, justifyContent: 'flex-end', marginTop: 3 }}>
+              <span className="font-mono" style={{ fontSize: 27, color: GOLD, fontWeight: 500, lineHeight: 1 }}>{rating.avg.toFixed(2)}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>/ 5</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>{rating.count} {rating.count === 1 ? 'review' : 'reviews'}</div>
+          </div>
+        )}
       </div>
-
-      {/* Featured review — the most prominent thing on the page. */}
-      {featured && featured.text && <FeaturedReview r={featured} />}
 
       {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses. */}
       <StreakBar streak={streak} firstName={firstName} />
@@ -119,13 +103,28 @@ export default async function FieldProfilePage() {
         </div>
       )}
 
-      {/* The rest of the guest reviews (the featured one already led the page). */}
-      {restReviews.length > 0 && (
-        <Section title={`More guest reviews · ${restReviews.length}`}>
-          {restReviews.map((r, i) => (
-            <ReviewRow key={i} r={r} />
-          ))}
-        </Section>
+      {/* Guest reviews — the most recent 3, the rest one tap away. */}
+      {reviews.length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ ...eyebrow, marginBottom: 12 }}>Guest reviews · {reviews.length}</h2>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {reviews.slice(0, 3).map((r, i) => (
+              <ReviewCard key={i} r={r} />
+            ))}
+          </div>
+          {reviews.length > 3 && (
+            <details style={{ marginTop: 12 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
+                Show {reviews.length - 3} more {reviews.length - 3 === 1 ? 'review' : 'reviews'} ▾
+              </summary>
+              <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+                {reviews.slice(3).map((r, i) => (
+                  <ReviewCard key={i} r={r} />
+                ))}
+              </div>
+            </details>
+          )}
+        </section>
       )}
 
       {/* Work history */}
@@ -154,39 +153,6 @@ export default async function FieldProfilePage() {
       {/* Account */}
       <AccountCard contractor={contractor} />
     </FieldShell>
-  );
-}
-
-/** The lead review, as an editorial pull-quote. */
-function FeaturedReview({ r }: { r: ContractorReview }) {
-  return (
-    <div
-      style={{
-        position: 'relative',
-        background: 'var(--paper-2, #fff)',
-        border: '1px solid var(--rule)',
-        borderRadius: 16,
-        padding: '26px 28px 22px',
-        marginBottom: 30,
-        overflow: 'hidden',
-      }}
-    >
-      <div aria-hidden className="font-serif" style={{ position: 'absolute', top: -24, left: 12, fontSize: 130, lineHeight: 1, color: 'var(--tide)', opacity: 0.1, pointerEvents: 'none' }}>
-        &ldquo;
-      </div>
-      <div style={{ position: 'relative' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <span style={{ color: GOLD, fontSize: 16, letterSpacing: 2 }}>{stars(r.rating)}</span>
-          <span style={{ fontSize: 10.5, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Guest review</span>
-        </div>
-        <p className="font-serif" style={{ fontSize: 19, lineHeight: 1.5, color: 'var(--ink)', margin: 0, fontWeight: 300 }}>
-          {excerpt(r.text ?? '')}
-        </p>
-        <div style={{ fontSize: 11.5, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 16 }}>
-          A guest at {r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -292,14 +258,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function ReviewRow({ r }: { r: ContractorReview }) {
+function ReviewCard({ r }: { r: ContractorReview }) {
   return (
-    <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0' }}>
+    <div style={{ background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 12, padding: '14px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <span style={{ color: GOLD, fontSize: 14, letterSpacing: 1 }}>{stars(r.rating)}</span>
-        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}</span>
+        <span style={{ color: GOLD, fontSize: 14, letterSpacing: 1.5 }}>{stars(r.rating)}</span>
+        <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>{r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}</span>
       </div>
-      {r.text && <p style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55, margin: '6px 0 0', fontStyle: 'italic' }}>&ldquo;{r.text}&rdquo;</p>}
+      {r.text && <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '8px 0 0' }}>&ldquo;{r.text}&rdquo;</p>}
     </div>
   );
 }
