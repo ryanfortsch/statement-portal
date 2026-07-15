@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { fieldDb } from '@/lib/field-db';
+import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { geocodeAddress } from '@/lib/geocode';
 import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
@@ -16,7 +17,7 @@ import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
 
 /** "Send a note" from the portal's Reach-out affordance. Auth'd by the
  *  contractor cookie so we know who is asking; emails Ryan with reply-to set to
@@ -692,6 +693,17 @@ export async function submitPacket(formData: FormData) {
     actorEmail: contractor.email,
     eventType: 'submitted',
   });
+  // Streak check: if this submit lands on day 5/10 of a consecutive-days run,
+  // the bonus stamps onto THIS packet and the office gets a heads-up. Guarded
+  // so a streak hiccup can never block a submit.
+  try {
+    const award = await maybeAwardStreakBonus(packetId);
+    if (award) {
+      await sendStreakBonusOfficeEmail(contractor, { id: packetId, title: packet.title }, award).catch(() => {});
+    }
+  } catch {
+    // best-effort only
+  }
   await sendPacketSubmittedEmail(contractor, packet).catch(() => {});
   // Work is in for review — pull the inspector's door codes back off the locks.
   await revokePacketCodes(packetId).catch(() => {});

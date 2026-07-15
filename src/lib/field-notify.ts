@@ -238,6 +238,28 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
   });
 }
 
+/** Office heads-up the moment a streak bonus lands on a submitted packet, so
+ *  the payout line at approve time is never a surprise. */
+export async function sendStreakBonusOfficeEmail(
+  contractor: ContractorRow,
+  packet: { id: string; title: string },
+  award: { days: number; bonusCents: number },
+): Promise<boolean> {
+  const amount = dollars(award.bonusCents);
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${contractor.full_name} hit a ${award.days}-day streak</h1>
+    <p>${contractor.full_name} just submitted <strong>${packet.title}</strong>, their ${award.days}th day of field work in a row. A <strong>${amount} streak bonus</strong> was added to this packet automatically; it rides the normal approve-and-pay flow, so the payout you see at approval already includes it.</p>
+    ${btn(`${fieldBaseUrl()}/operations/packets/${packet.id}`, 'Review the packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: OFFICE_CC,
+    subject: `Field: ${contractor.full_name} hit a ${award.days}-day streak (+${amount} on ${packet.title})`,
+    fromName: FROM_NAME,
+    html,
+    text: `${contractor.full_name} hit a ${award.days}-day work streak. ${amount} was added to ${packet.title} automatically and rides the normal approve/pay flow.`,
+  });
+}
+
 export async function sendPaidEmail(
   contractor: ContractorRow,
   amountCents: number,

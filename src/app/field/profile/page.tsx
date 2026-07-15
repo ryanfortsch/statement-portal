@@ -38,7 +38,7 @@ export default async function FieldProfilePage() {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { payStats, reliability, rating, reviews, history } = await loadContractorProfile(contractor.id);
+  const { payStats, reliability, rating, reviews, history, streak } = await loadContractorProfile(contractor.id);
 
   const paidCents = payStats?.paidCents ?? 0;
   const owedCents = payStats?.owedCents ?? 0;
@@ -80,6 +80,14 @@ export default async function FieldProfilePage() {
         </div>
       )}
 
+
+      {/* Streak note: one quiet line, per Ryan. The bonus itself lands on the
+          milestone-day packet automatically, so this is awareness, not a rail. */}
+      <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 28, lineHeight: 1.5 }}>
+        {streak
+          ? `You've worked ${streak.days} days in a row. ${streak.nextIn} more ${streak.nextIn === 1 ? 'day' : 'days'} and a ${dollars(streak.nextBonusCents)} streak bonus lands on that day's packet.`
+          : `Streak bonus: work 5 days in a row and day 5 pays an extra $50; make it 10 and day 10 adds $100.`}
+      </div>
 
       {/* Guest reviews */}
       {reviews.length > 0 && (
