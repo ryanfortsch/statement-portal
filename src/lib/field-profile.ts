@@ -14,6 +14,7 @@ import {
 } from '@/lib/field-packets';
 import { effectiveBaseCents } from '@/lib/field-types';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
+import { getStreakInfo, type StreakInfo } from '@/lib/field-streaks';
 
 export type ContractorReview = {
   rating: number;
@@ -37,6 +38,8 @@ export type ContractorProfile = {
   reliability: ReliabilityStats | undefined;
   rating: ContractorRating | undefined;
   reviews: ContractorReview[];
+  /** Live consecutive-days streak (null under 2 days). Quiet note only. */
+  streak: StreakInfo | null;
   history: ContractorHistoryItem[];
 };
 
@@ -141,12 +144,13 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
 }
 
 export async function loadContractorProfile(contractorId: string): Promise<ContractorProfile> {
-  const [payMap, relMap, ratingMap, reviews, history] = await Promise.all([
+  const [payMap, relMap, ratingMap, reviews, history, streak] = await Promise.all([
     getContractorPayStats(),
     getContractorReliability(),
     getContractorRatings(),
     loadContractorReviews(contractorId),
     loadContractorHistory(contractorId),
+    getStreakInfo(contractorId).catch(() => null),
   ]);
   return {
     payStats: payMap.get(contractorId),
@@ -154,5 +158,6 @@ export async function loadContractorProfile(contractorId: string): Promise<Contr
     rating: ratingMap.get(contractorId),
     reviews,
     history,
+    streak,
   };
 }
