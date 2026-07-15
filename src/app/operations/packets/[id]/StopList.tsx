@@ -20,6 +20,22 @@ import { reorderPacketStops } from '../actions';
 
 type Item = { id: string; node: React.ReactNode };
 
+/** Compact up/down control — the reliable reorder path on touch, where the
+ *  drag grip is finicky. Greyed + inert at the ends of the list. */
+function arrowBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    background: 'none',
+    border: 'none',
+    cursor: disabled ? 'default' : 'pointer',
+    color: disabled ? 'var(--rule)' : 'var(--tide-deep)',
+    fontSize: 11,
+    lineHeight: 1,
+    padding: '7px 8px',
+    opacity: disabled ? 0.45 : 1,
+    touchAction: 'manipulation',
+  };
+}
+
 export function StopList({ packetId, items, canReorder }: { packetId: string; items: Item[]; canReorder: boolean }) {
   const byId = new Map(items.map((it) => [it.id, it]));
   // Props are the server truth; local `order` is the optimistic view. When the
@@ -88,11 +104,32 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
     window.addEventListener('pointercancel', up);
   }
 
+  // Tap-to-reorder: swap a stop with its neighbor. Same optimistic-then-save
+  // path as the drag, so mobile gets a working reorder without the finicky
+  // touch-drag. Snaps back if the save fails.
+  function moveStop(id: string, dir: -1 | 1) {
+    const cur = orderRef.current;
+    const from = cur.indexOf(id);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= cur.length) return;
+    const startOrder = [...cur];
+    const next = [...cur];
+    [next[from], next[to]] = [next[to], next[from]];
+    setOrder(next);
+    startTransition(async () => {
+      try {
+        await reorderPacketStops(packetId, next);
+      } catch {
+        setOrder(startOrder);
+      }
+    });
+  }
+
   return (
     <div style={{ userSelect: dragId ? 'none' : undefined }}>
       {draggable && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 2 }}>
-          Drag <span style={{ letterSpacing: '-0.12em' }}>⋮⋮</span> to set the visit order — 1 is first.
+          Drag <span style={{ letterSpacing: '-0.12em' }}>⋮⋮</span> or tap the arrows to set the visit order — 1 is first.
         </div>
       )}
       {order.map((id, i) => {
@@ -119,24 +156,32 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
               opacity: dragging ? 0.95 : undefined,
             }}
           >
-            <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 1 }}>
+            <div style={{ width: 30, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, paddingTop: 1 }}>
               <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>{i + 1}</span>
               {draggable && (
-                <span
-                  onPointerDown={(e) => onGripDown(e, id)}
-                  title="Drag to reorder"
-                  style={{
-                    touchAction: 'none',
-                    cursor: dragging ? 'grabbing' : 'grab',
-                    color: 'var(--ink-4)',
-                    fontSize: 13,
-                    letterSpacing: '-0.12em',
-                    lineHeight: 1,
-                    padding: '2px 4px',
-                  }}
-                >
-                  ⋮⋮
-                </span>
+                <>
+                  <button type="button" onClick={() => moveStop(id, -1)} disabled={i === 0 || isPending} aria-label="Move up" title="Move up" style={arrowBtnStyle(i === 0)}>
+                    ▲
+                  </button>
+                  <span
+                    onPointerDown={(e) => onGripDown(e, id)}
+                    title="Drag to reorder"
+                    style={{
+                      touchAction: 'none',
+                      cursor: dragging ? 'grabbing' : 'grab',
+                      color: 'var(--ink-4)',
+                      fontSize: 12,
+                      letterSpacing: '-0.12em',
+                      lineHeight: 1,
+                      padding: '1px 4px',
+                    }}
+                  >
+                    ⋮⋮
+                  </span>
+                  <button type="button" onClick={() => moveStop(id, 1)} disabled={i === order.length - 1 || isPending} aria-label="Move down" title="Move down" style={arrowBtnStyle(i === order.length - 1)}>
+                    ▼
+                  </button>
+                </>
               )}
             </div>
             {it.node}
