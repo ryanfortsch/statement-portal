@@ -23,11 +23,17 @@ function monthYear(d: string | null): string {
 }
 function shortDate(d: string | null): string {
   if (!d) return '';
-  try {
-    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return d;
-  }
+  // Accept a bare YYYY-MM-DD (visit dates) OR a full timestamp (review times,
+  // e.g. "2026-07-14 13:30:42.499+00"). The old code appended `T00:00:00`
+  // blindly, which mangled a timestamp into an invalid Date — and
+  // toLocaleDateString renders that as the literal "Invalid Date" rather than
+  // throwing, so the catch never fired. Pull the leading date part and format
+  // that; never render "Invalid Date".
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(d);
+  if (!m) return '';
+  const dt = new Date(`${m[1]}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 function stars(n: number): string {
   const full = Math.max(0, Math.min(5, Math.round(n)));
