@@ -1,7 +1,7 @@
 /**
  * Streak bonuses for field contractors: work 5 days in a row and the day-5
- * packet earns a $50 bonus; make it 10 and day 10 adds $100. Past 10 the cycle
- * restarts (day 15 pays $50 again, day 20 pays $100), so sustained work keeps
+ * packet earns a $100 bonus; make it 10 and day 10 adds $250. Past 10 the cycle
+ * restarts (day 15 pays $100 again, day 20 pays $250), so sustained work keeps
  * paying. Deliberately quiet in the product: the award lands as the packet's
  * ordinary bonus (bonus_cents + reason), one line on the profile, one email to
  * the office. No ladders, no badges.
@@ -14,8 +14,15 @@
 import { fieldDb } from '@/lib/field-db';
 
 const DAY_MS = 86_400_000;
-const CYCLE_DAYS = 10;
-const MILESTONES: Record<number, number> = { 5: 5000, 10: 10000 }; // cycle day -> cents
+export const STREAK_CYCLE_DAYS = 10;
+/** The milestone ladder within one 10-day cycle: cycle day -> bonus cents.
+ *  Single source of truth for the award, the profile note, and the streak bar. */
+export const STREAK_MILESTONES: { day: number; cents: number }[] = [
+  { day: 5, cents: 10000 },
+  { day: 10, cents: 25000 },
+];
+const CYCLE_DAYS = STREAK_CYCLE_DAYS;
+const MILESTONES: Record<number, number> = Object.fromEntries(STREAK_MILESTONES.map((m) => [m.day, m.cents]));
 
 export type StreakAward = {
   days: number; // raw streak length on award day (e.g. 15)
@@ -27,6 +34,9 @@ export type StreakInfo = {
   /** Consecutive worked days ending today or yesterday (a streak is still
    *  alive the morning after; it breaks once a full day passes unworked). */
   days: number;
+  /** Position within the repeating 10-day cycle (1..10) — what the streak bar
+   *  fills to. */
+  cyclePos: number;
   /** Days until the next milestone in the current cycle, with its payout. */
   nextIn: number;
   nextBonusCents: number;
@@ -151,6 +161,6 @@ export async function getStreakInfo(contractorId: string): Promise<StreakInfo | 
   if (n < 2) return null;
   const cyclePos = ((n - 1) % CYCLE_DAYS) + 1;
   const next = cyclePos < 5 ? 5 : cyclePos < 10 ? 10 : 15; // 15 = next cycle's day 5
-  const nextBonusCents = next === 10 ? 10000 : 5000;
-  return { days: n, nextIn: next - cyclePos, nextBonusCents };
+  const nextBonusCents = MILESTONES[next === 15 ? 5 : next];
+  return { days: n, cyclePos, nextIn: next - cyclePos, nextBonusCents };
 }

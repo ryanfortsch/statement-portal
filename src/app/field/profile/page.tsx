@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
-import { dollars, type ContractorRow } from '@/lib/field-types';
+import { dollars, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/field-streaks';
 import { FieldShell } from '../FieldShell';
 import { ProfilePhoto } from '../ProfilePhoto';
 import { SmsToggle } from '../SmsToggle';
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
   title: 'Your profile · Rising Tide Field',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
+
+const GOLD = '#b8860b';
 
 function monthYear(d: string | null): string {
   if (!d) return '';
@@ -23,12 +26,8 @@ function monthYear(d: string | null): string {
 }
 function shortDate(d: string | null): string {
   if (!d) return '';
-  // Accept a bare YYYY-MM-DD (visit dates) OR a full timestamp (review times,
-  // e.g. "2026-07-14 13:30:42.499+00"). The old code appended `T00:00:00`
-  // blindly, which mangled a timestamp into an invalid Date — and
-  // toLocaleDateString renders that as the literal "Invalid Date" rather than
-  // throwing, so the catch never fired. Pull the leading date part and format
-  // that; never render "Invalid Date".
+  // Accept a bare YYYY-MM-DD (visit dates) OR a full timestamp (review times).
+  // Pull the leading date part and format that; never render "Invalid Date".
   const m = /^(\d{4}-\d{2}-\d{2})/.exec(d);
   if (!m) return '';
   const dt = new Date(`${m[1]}T00:00:00`);
@@ -39,6 +38,23 @@ function stars(n: number): string {
   const full = Math.max(0, Math.min(5, Math.round(n)));
   return '★★★★★'.slice(0, full) + '☆☆☆☆☆'.slice(0, 5 - full);
 }
+/** A punchy pull-quote length for the featured review; the full text still
+ *  shows in the reviews list below. Cuts on a sentence boundary when it can. */
+function excerpt(t: string, max = 240): string {
+  const clean = t.trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return stop > max * 0.5 ? cut.slice(0, stop + 1) : `${cut.trim()}…`;
+}
+
+const eyebrow: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: '0.18em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-4)',
+  margin: 0,
+};
 
 export default async function FieldProfilePage() {
   const contractor = await resolveContractorFromCookie();
@@ -55,50 +71,58 @@ export default async function FieldProfilePage() {
       : null;
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
+  const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
+
+  // Her best review leads the page: highest stars, then the fullest note.
+  const featured =
+    [...reviews]
+      .filter((r) => r.text && r.text.trim())
+      .sort((a, b) => b.rating - a.rating || (b.text?.length ?? 0) - (a.text?.length ?? 0))[0] ?? null;
+  const restReviews = reviews.filter((r) => r !== featured);
+
+  const firstName = contractor.full_name.split(' ')[0];
+
   return (
     <FieldShell contractorName={contractor.full_name}>
-
       {/* Hero */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20, margin: '16px 0 26px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, margin: '16px 0 24px', flexWrap: 'wrap' }}>
         <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} size={76} stacked />
         <div style={{ minWidth: 0 }}>
           <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0, lineHeight: 1.1 }}>{contractor.full_name}</h1>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ textTransform: 'capitalize' }}>{contractor.trade}</span>
+            <span>{roleLabel}</span>
             {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
           </div>
           {rating?.rated && rating.avg != null && (
-            <div style={{ fontSize: 13, color: '#b8860b', marginTop: 5 }}>
-              ★ {rating.avg.toFixed(2)} <span style={{ color: 'var(--ink-4)' }}>· {rating.count} guest {rating.count === 1 ? 'review' : 'reviews'}</span>
+            <div style={{ marginTop: 7, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ color: GOLD, fontSize: 15, letterSpacing: 1.5 }}>{stars(rating.avg)}</span>
+              <span className="font-mono" style={{ fontSize: 14, color: GOLD }}>{rating.avg.toFixed(2)}</span>
+              <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>· {rating.count} guest {rating.count === 1 ? 'review' : 'reviews'}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Lifetime stats — only once there's something real to show */}
+      {/* Featured review — the most prominent thing on the page. */}
+      {featured && featured.text && <FeaturedReview r={featured} />}
+
+      {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses. */}
+      <StreakBar streak={streak} firstName={firstName} />
+
+      {/* Lifetime stats */}
       {hasActivity && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 28 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 30 }}>
           <Stat label="Earned to date" value={dollars(paidCents)} />
           {owedCents > 0 && <Stat label="Pending" value={dollars(owedCents)} tone="var(--signal)" />}
           {jobsDone > 0 && <Stat label="Jobs completed" value={String(jobsDone)} />}
           {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
-          {rating?.rated && rating.avg != null && <Stat label="Guest rating" value={`★ ${rating.avg.toFixed(2)}`} />}
         </div>
       )}
 
-
-      {/* Streak note: one quiet line, per Ryan. The bonus itself lands on the
-          milestone-day packet automatically, so this is awareness, not a rail. */}
-      <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 28, lineHeight: 1.5 }}>
-        {streak
-          ? `You've worked ${streak.days} days in a row. ${streak.nextIn} more ${streak.nextIn === 1 ? 'day' : 'days'} and a ${dollars(streak.nextBonusCents)} streak bonus lands on that day's packet.`
-          : `Streak bonus: work 5 days in a row and day 5 pays an extra $50; make it 10 and day 10 adds $100.`}
-      </div>
-
-      {/* Guest reviews */}
-      {reviews.length > 0 && (
-        <Section title={`Guest reviews · ${reviews.length}`}>
-          {reviews.map((r, i) => (
+      {/* The rest of the guest reviews (the featured one already led the page). */}
+      {restReviews.length > 0 && (
+        <Section title={`More guest reviews · ${restReviews.length}`}>
+          {restReviews.map((r, i) => (
             <ReviewRow key={i} r={r} />
           ))}
         </Section>
@@ -115,7 +139,7 @@ export default async function FieldProfilePage() {
 
       {/* Notifications */}
       <section style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>Notifications</h2>
+        <h2 style={{ ...eyebrow, marginBottom: 12 }}>Notifications</h2>
         <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>Text me when new work is posted</div>
@@ -133,6 +157,123 @@ export default async function FieldProfilePage() {
   );
 }
 
+/** The lead review, as an editorial pull-quote. */
+function FeaturedReview({ r }: { r: ContractorReview }) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        background: 'var(--paper-2, #fff)',
+        border: '1px solid var(--rule)',
+        borderRadius: 16,
+        padding: '26px 28px 22px',
+        marginBottom: 30,
+        overflow: 'hidden',
+      }}
+    >
+      <div aria-hidden className="font-serif" style={{ position: 'absolute', top: -24, left: 12, fontSize: 130, lineHeight: 1, color: 'var(--tide)', opacity: 0.1, pointerEvents: 'none' }}>
+        &ldquo;
+      </div>
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <span style={{ color: GOLD, fontSize: 16, letterSpacing: 2 }}>{stars(r.rating)}</span>
+          <span style={{ fontSize: 10.5, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Guest review</span>
+        </div>
+        <p className="font-serif" style={{ fontSize: 19, lineHeight: 1.5, color: 'var(--ink)', margin: 0, fontWeight: 300 }}>
+          {excerpt(r.text ?? '')}
+        </p>
+        <div style={{ fontSize: 11.5, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 16 }}>
+          A guest at {r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Milestone streak bar: fills toward day-5 (+$100) and day-10 (+$250). */
+function StreakBar({ streak, firstName }: { streak: StreakInfo | null; firstName: string }) {
+  const cap = STREAK_CYCLE_DAYS;
+  const cyclePos = streak ? streak.cyclePos : 0;
+  const days = streak?.days ?? 0;
+  const pct = Math.min(100, (cyclePos / cap) * 100);
+
+  return (
+    <section style={{ marginBottom: 30, border: '1px solid var(--rule)', borderRadius: 16, padding: '20px 22px 18px', background: 'var(--paper-2, #fff)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h2 style={eyebrow}>Work streak</h2>
+        {streak ? (
+          <span style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600 }}>
+            {streak.nextIn} more {streak.nextIn === 1 ? 'day' : 'days'} → +{dollars(streak.nextBonusCents)}
+          </span>
+        ) : null}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
+        <span className="font-serif" style={{ fontSize: 34, fontWeight: 300, lineHeight: 1, color: days > 0 ? 'var(--ink)' : 'var(--ink-4)' }}>{days}</span>
+        <span style={{ fontSize: 14, color: 'var(--ink-3)' }}>
+          {days === 1 ? 'day in a row' : 'days in a row'}
+          {days > cap ? ` · ${cyclePos} into this cycle` : ''}
+        </span>
+      </div>
+
+      {/* Track + milestone markers */}
+      <div style={{ position: 'relative', height: 12, borderRadius: 999, background: 'var(--rule)', marginBottom: 46 }}>
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pct}%`, background: `linear-gradient(90deg, var(--tide-deep), ${GOLD})`, transition: 'width .4s ease', borderRadius: 999 }} />
+        </div>
+        {STREAK_MILESTONES.map((m) => {
+          const reached = cyclePos >= m.day;
+          const isNext = !reached && !STREAK_MILESTONES.some((x) => x.day < m.day && x.day > cyclePos);
+          const left = (m.day / cap) * 100;
+          const atEnd = m.day === cap;
+          return (
+            <div key={m.day}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: `${left}%`,
+                  transform: 'translate(-50%,-50%)',
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  background: reached ? GOLD : 'var(--paper)',
+                  border: `2px solid ${reached ? GOLD : isNext ? 'var(--signal)' : 'var(--rule)'}`,
+                  boxShadow: '0 0 0 3px var(--paper-2, #fff)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {reached && <span style={{ color: 'var(--paper)', fontSize: 10, lineHeight: 1 }}>✓</span>}
+              </div>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 26,
+                  left: `${left}%`,
+                  transform: atEnd ? 'translateX(-100%)' : 'translateX(-50%)',
+                  textAlign: atEnd ? 'right' : 'center',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <div style={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Day {m.day}</div>
+                <div className="font-mono" style={{ fontSize: 15, fontWeight: 600, marginTop: 1, color: reached ? GOLD : isNext ? 'var(--signal)' : 'var(--ink-3)' }}>+{dollars(m.cents)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p style={{ fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5, margin: 0 }}>
+        {streak
+          ? `Nice run, ${firstName}. The bonus lands automatically on that day's packet.`
+          : `Work days back-to-back. Day 5 adds $100 to that day's packet, day 10 adds $250 — automatically.`}
+      </p>
+    </section>
+  );
+}
+
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
@@ -145,7 +286,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 12 }}>{title}</h2>
+      <h2 style={{ ...eyebrow, marginBottom: 12 }}>{title}</h2>
       {children}
     </section>
   );
@@ -155,7 +296,7 @@ function ReviewRow({ r }: { r: ContractorReview }) {
   return (
     <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <span style={{ color: '#b8860b', fontSize: 14, letterSpacing: 1 }}>{stars(r.rating)}</span>
+        <span style={{ color: GOLD, fontSize: 14, letterSpacing: 1 }}>{stars(r.rating)}</span>
         <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}</span>
       </div>
       {r.text && <p style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55, margin: '6px 0 0', fontStyle: 'italic' }}>&ldquo;{r.text}&rdquo;</p>}
@@ -216,7 +357,7 @@ function AccountCard({ contractor }: { contractor: ContractorRow }) {
   return (
     <section style={{ marginBottom: 28 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
-        <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', margin: 0 }}>Account</h2>
+        <h2 style={eyebrow}>Account</h2>
         <span style={{ fontSize: 11, color: allSet ? 'var(--positive)' : 'var(--ink-4)' }}>
           {allSet ? 'All set' : `${done} of ${items.length} complete`}
         </span>
