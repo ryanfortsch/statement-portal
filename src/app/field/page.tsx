@@ -21,6 +21,17 @@ function SectionHeader({ n, title }: { n?: string; title: string }) {
   );
 }
 
+/** Eyebrow between the sub-groups inside "Your packets" (up-next trips run
+ *  soonest-first, finished history newest-first — without a seam label the
+ *  date order reads as shuffled). */
+function GroupLabel({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', margin: '2px 2px 10px' }}>
+      {text}
+    </div>
+  );
+}
+
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Rising Tide Field',
@@ -390,12 +401,18 @@ export default async function FieldHome({
           .sort((a, b) => (b.visit_date ?? '').localeCompare(a.visit_date ?? ''));
         const recent = finished.slice(0, 2);
         const older = finished.slice(2);
+        // Group eyebrows only when BOTH groups render: live trips run
+        // soonest-first while finished runs newest-first, and the seam
+        // between the two reads as a shuffled list without a label.
+        const showGroupLabels = live.length > 0 && recent.length > 0;
         return (
           <section style={{ marginBottom: 40 }}>
             <SectionHeader title="Your packets" />
+            {showGroupLabels && <GroupLabel text="Up next" />}
             {live.map((p) => (
               <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
             ))}
+            {showGroupLabels && <GroupLabel text="Recently finished" />}
             {recent.map((p) => (
               <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
             ))}
