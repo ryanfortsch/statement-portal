@@ -46,8 +46,10 @@ export type WorkSlipRow = {
    *  high-chair ask). One slip per stay; retries merge instead of dupe. */
   from_guest_request_key: string | null;
   /** Idempotency key when auto-created by a reservation-driven prep rule
-   *  (e.g. "trashbags:<booking_id>" for the long-stay purple-bag check).
-   *  One slip per rule per stay, ever — a dismissed slip stays dismissed. */
+   *  (e.g. "trashbags:<property_id>:<check_in>" for the long-stay purple-bag
+   *  check). Stay-shaped, not booking-row-shaped, because one stay can exist
+   *  as several uncollapsed feed rows in bookings. One slip per rule per
+   *  stay, ever — a dismissed slip stays dismissed. */
   from_prep_rule_key: string | null;
   /** Stay linkage: the Guesty reservation this slip preps for, so the
    *  Operations turnover rail can pin it to the exact check-in. */

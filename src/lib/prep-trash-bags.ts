@@ -23,9 +23,14 @@
  *     packet supply run ("bring extra" bin) when an inspection packet covers
  *     the property.
  *
- * Idempotent: from_prep_rule_key = "trashbags:<booking_id>" with a partial
- * unique index. One slip per stay, ever — a dismissed slip stays dismissed
- * (the operator said no), and the daily re-scan is harmless.
+ * Idempotent: from_prep_rule_key = "trashbags:<property_id>:<check_in>" with
+ * a partial unique index. The key is STAY-shaped, not booking-row-shaped,
+ * because the channels table can hold several uncollapsed rows for one stay
+ * (a guesty_legacy row plus iCal placeholder rows with the same dates whose
+ * duplicate_of never got linked) — keying on booking id would file one slip
+ * per feed row. Same property + same check-in = same stay for bag prep. One
+ * slip per stay, ever — a dismissed slip stays dismissed (the operator said
+ * no), and the daily re-scan is harmless.
  *
  * Called from /api/cron/prep-trash-bags (daily, after the channels sync has
  * refreshed bookings).
@@ -58,6 +63,7 @@ type BookingRow = {
   check_in: string | null;
   check_out: string | null;
   nights: number | null;
+  source: string | null;
 };
 
 type PropertyRow = {
@@ -71,7 +77,7 @@ export type TrashBagSlipsResult = {
   skippedShortStay: number;
   alreadyHadSlip: number;
   created: number;
-  slipsCreated: { slipId: string; bookingId: string; title: string }[];
+  slipsCreated: { slipId: string; stayKey: string; title: string }[];
 };
 
 function isoDaysFromNow(days: number): string {
@@ -87,6 +93,25 @@ function stayNights(b: BookingRow): number | null {
   const outMs = Date.parse(`${b.check_out}T00:00:00Z`);
   if (Number.isNaN(inMs) || Number.isNaN(outMs)) return null;
   return Math.round((outMs - inMs) / DAY_MS);
+}
+
+/** True when guest_name is a real person, not an iCal placeholder like
+ *  "Reservation HM9HYHMMP8", "Guest", "Not available", or empty. */
+function hasRealGuestName(b: BookingRow): boolean {
+  const name = (b.guest_name ?? '').trim();
+  if (!name) return false;
+  return !/^(reservation\b|guest$|not available|blocked|airbnb|vrbo)/i.test(name);
+}
+
+/** Prefer the row most likely to be the canonical stay record: a real guest
+ *  name first (OTA/Guesty rows carry one, iCal placeholders don't), then a
+ *  non-iCal source. Used both for the slip's description and for the
+ *  guesty_reservation_id pin the turnover rail looks up. */
+function representativeScore(b: BookingRow): number {
+  let score = 0;
+  if (hasRealGuestName(b)) score += 2;
+  if ((b.source ?? '') !== 'ical_import') score += 1;
+  return score;
 }
 
 export async function createTrashBagPrepSlips(
@@ -120,7 +145,7 @@ export async function createTrashBagPrepSlips(
   //    cancelled never qualify.
   const { data: bookingData, error: bookingErr } = await supabase
     .from('bookings')
-    .select('id, property_id, guest_name, check_in, check_out, nights')
+    .select('id, property_id, guest_name, check_in, check_out, nights, source')
     .eq('status', 'confirmed')
     .is('duplicate_of', null)
     .gte('check_in', todayIso)
@@ -130,22 +155,36 @@ export async function createTrashBagPrepSlips(
   const bookings = (bookingData ?? []) as BookingRow[];
 
   let skippedShortStay = 0;
-  const qualifying: (BookingRow & { nightsResolved: number })[] = [];
+  const eligibleRows: (BookingRow & { nightsResolved: number })[] = [];
   for (const b of bookings) {
     const nights = stayNights(b);
     if (nights == null || nights < MIN_NIGHTS) {
       skippedShortStay += 1;
       continue;
     }
-    qualifying.push({ ...b, nightsResolved: nights });
+    eligibleRows.push({ ...b, nightsResolved: nights });
   }
+
+  // Collapse feed duplicates to one row per STAY. The same stay often exists
+  // as several bookings rows (guesty_legacy + iCal placeholders) that the
+  // channels dedupe hasn't linked via duplicate_of; without this, one guest
+  // would get one slip per feed. Same property + same check-in = same stay.
+  const byStay = new Map<string, (typeof eligibleRows)[number]>();
+  for (const b of eligibleRows) {
+    const stayKey = `${b.property_id}:${b.check_in}`;
+    const current = byStay.get(stayKey);
+    if (!current || representativeScore(b) > representativeScore(current)) {
+      byStay.set(stayKey, b);
+    }
+  }
+  const qualifying = Array.from(byStay.values());
 
   if (qualifying.length === 0) {
     return { scanned: bookings.length, skippedShortStay, alreadyHadSlip: 0, created: 0, slipsCreated: [] };
   }
 
   // 3. Drop stays that already have a slip (any status — one per stay, ever).
-  const keys = qualifying.map((b) => `trashbags:${b.id}`);
+  const keys = qualifying.map((b) => `trashbags:${b.property_id}:${b.check_in}`);
   const { data: existing, error: existingErr } = await supabase
     .from('work_slips')
     .select('from_prep_rule_key')
@@ -160,7 +199,7 @@ export async function createTrashBagPrepSlips(
   let alreadyHadSlip = 0;
   const toInsert: Record<string, unknown>[] = [];
   for (const b of qualifying) {
-    const key = `trashbags:${b.id}`;
+    const key = `trashbags:${b.property_id}:${b.check_in}`;
     if (alreadyKeyed.has(key)) {
       alreadyHadSlip += 1;
       continue;
@@ -177,7 +216,7 @@ export async function createTrashBagPrepSlips(
       if (wakeIso > todayIso) snoozedUntil = wakeIso;
     }
 
-    const guest = (b.guest_name ?? '').trim() || 'Guest';
+    const guest = hasRealGuestName(b) ? b.guest_name!.trim() : 'Guest';
     toInsert.push({
       property_id: b.property_id,
       title: `${propertyName}: Bring purple trash bags for long stay`,
@@ -240,7 +279,7 @@ export async function createTrashBagPrepSlips(
     created: inserted.length,
     slipsCreated: inserted.map((s) => ({
       slipId: s.id,
-      bookingId: s.from_prep_rule_key.replace(/^trashbags:/, ''),
+      stayKey: s.from_prep_rule_key.replace(/^trashbags:/, ''),
       title: s.title,
     })),
   };
