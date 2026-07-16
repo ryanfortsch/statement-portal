@@ -413,6 +413,67 @@ export async function startStopInspection(formData: FormData) {
  *  call the office. Unlinks and deletes the empty inspection, returns the stop
  *  to pending (clearing the on-site clock and the office "On site" signal),
  *  and reverts the packet to claimed when nothing else has begun. */
+/**
+ * Reopen a stop the inspector closed out by mistake, while the trip is still
+ * theirs (claimed / in_progress, before submit). Their work is PRESERVED — the
+ * deck resumes with every mark, note, and photo intact; only the "finished"
+ * stamp comes off. Once the packet is submitted the office owns it, so that
+ * path is request-changes, not self-serve.
+ */
+export async function reopenStop(formData: FormData) {
+  const packetId = String(formData.get('packet_id') || '');
+  const stopId = String(formData.get('stop_id') || '');
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
+  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, status, inspection_id, property_id')
+    .eq('id', stopId)
+    .eq('packet_id', packetId)
+    .maybeSingle();
+  const stop = sData as { id: string; status: string; inspection_id: string | null; property_id: string | null } | null;
+  if (!stop || stop.status !== 'complete') redirect(`/field/packet/${packetId}`);
+
+  if (stop.inspection_id) {
+    // Completing an inspection auto-files one restock slip per low supply. Drop
+    // the ones still untouched (open) so re-completing recreates them cleanly
+    // instead of doubling them up. An already-actioned slip is left alone.
+    await fieldDb()
+      .from('work_slips')
+      .delete()
+      .eq('inspection_id', stop.inspection_id)
+      .not('from_supply_key', 'is', null)
+      .eq('status', 'open');
+    // Un-finalize: the marks stay, the finished stamp + tallies come off and
+    // are recomputed when they complete again.
+    await fieldDb()
+      .from('inspections')
+      .update({ completed_at: null, total_items: null, pass_count: null, issue_count: null, na_count: null })
+      .eq('id', stop.inspection_id);
+  }
+
+  await fieldDb().from('packet_stops').update({ status: 'in_progress', completed_at: null }).eq('id', stopId);
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    eventType: 'stop_reopened',
+    propertyId: stop.property_id ?? undefined,
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  redirect(`/field/packet/${packetId}`);
+}
+
 export async function undoStartStop(formData: FormData) {
   const packetId = String(formData.get('packet_id') || '');
   const stopId = String(formData.get('stop_id') || '');
