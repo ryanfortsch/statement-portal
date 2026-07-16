@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -1139,7 +1139,7 @@ export default async function PacketPage({
           {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
             <div style={{ fontSize: 14, color: 'var(--positive)' }}>
               {packet.status === 'approved'
-                ? `Approved. ${dollars(packet.posted_price_cents + packet.bonus_cents)} is on its way. You'll get a receipt the moment it's sent.`
+                ? `Approved. ${dollars(totalPayoutCents(packet))} is on its way. You'll get a receipt the moment it's sent.`
                 : "Submitted for review. We'll message you as soon as it's approved."}
               {packet.status === 'approved' && packet.bonus_cents > 0 && (
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '10px 14px', color: 'var(--ink)', fontSize: 14, lineHeight: 1.5 }}>
