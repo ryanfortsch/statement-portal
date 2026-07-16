@@ -929,16 +929,34 @@ export async function loadOperationsData(
   }
 
   // Dedupe by the natural turnover key (property + checkIn + checkOut).
-  // Guesty occasionally emits a reservation twice when it's been edited and
-  // re-synced — different guesty_reservation_id, same booking — which made
-  // the same stay render as two adjacent identical cards on the pipeline.
-  // The reservation row sorted later by check_in then guesty_reservation_id
-  // wins, so we keep whichever the API returned last (most recently
-  // edited).
+  // One stay routinely exists as several bookings rows the source dedupe
+  // never linked (a guesty_legacy row with the real guest name + iCal
+  // placeholder rows named "Reservation XY.." or nothing), and Guesty also
+  // occasionally re-emits an edited reservation under a new id.
+  //
+  // The winner matters beyond display: everything pinned to the stay looks
+  // up by the surviving row's reservationId — Field packet stops
+  // (packet_stops.booking_id), prep work slips (guesty_reservation_id),
+  // inspection plans. Those writers all point at the NAMED canonical row,
+  // so blind last-write-wins here let an iCal placeholder shadow it: the
+  // row rendered an italic "Hold" instead of the guest and dropped the
+  // contractor's Field chip even though the packet covered the turnover
+  // (Delaney / 3 Locust + 20 Enon, 2026-07-16). Prefer the most informative
+  // row: a real guest name beats a placeholder, then any name beats none;
+  // equal scores keep last-write (the re-synced edit still wins).
+  const guestNameScore = (t: Turnover): number => {
+    const name = (t.guestName ?? '').trim();
+    if (!name) return 0;
+    const first = name.split(/\s+/)[0];
+    return /^(reservation|tbd|guest|n\/a|hold|blocked|airbnb|vrbo|not)$/i.test(first) ? 1 : 2;
+  };
   const turnoversByKey = new Map<string, Turnover>();
   for (const t of turnovers) {
     const key = `${t.propertyId}|${t.checkIn}|${t.checkOut}`;
-    turnoversByKey.set(key, t);
+    const current = turnoversByKey.get(key);
+    if (!current || guestNameScore(t) >= guestNameScore(current)) {
+      turnoversByKey.set(key, t);
+    }
   }
   const dedupedTurnovers = [...turnoversByKey.values()];
 
