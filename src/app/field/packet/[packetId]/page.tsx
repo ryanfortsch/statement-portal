@@ -229,15 +229,13 @@ function InspectionScope() {
 }
 
 
-/** Property setup, framed for the specialist walking in: a brand-new home
- *  joining the program, staged for photos and outfitted for guests. Rendered
- *  in place of the inspection pillars and the check-in day plan (a setup day
- *  has neither). */
+/** Property setup time expectation. Rendered in place of the inspection
+ *  pillars and the check-in day plan (a setup day has neither); the packet's
+ *  own instructions carry the specifics. */
 function SetupScope() {
   return (
     <div style={{ borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-      <strong style={{ color: 'var(--ink)' }}>Property setup: plan 2 to 4 hours on site.</strong> A new home joining
-      the program. Stage it so it&apos;s photo-ready and outfit it for guests. Anything unclear, call the office.
+      <strong style={{ color: 'var(--ink)' }}>Property setup: plan 2 to 4 hours on site.</strong>
     </div>
   );
 }
