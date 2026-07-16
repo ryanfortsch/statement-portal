@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
-import { claimPacket, submitPacket, undoStartStop } from '../../actions';
+import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
 import { StartStop } from './StartStop';
@@ -1004,7 +1004,19 @@ export default async function PacketPage({
             {isMine && !s.workSlip && (
               <div className="rt-stop-action" style={{ flexShrink: 0 }}>
                 {s.status === 'complete' ? (
-                  <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
+                  <div style={{ textAlign: 'center' }}>
+                    <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
+                    <form action={reopenStop} style={{ margin: '6px 0 0' }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="hidden" name="stop_id" value={s.id} />
+                      <button
+                        type="submit"
+                        style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
+                      >
+                        Reopen
+                      </button>
+                    </form>
+                  </div>
                 ) : (
                   <>
                     <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
@@ -1027,8 +1039,18 @@ export default async function PacketPage({
               </div>
             )}
             {isMine && s.workSlip && s.status === 'complete' && (
-              <div style={{ flexShrink: 0 }}>
+              <div style={{ flexShrink: 0, textAlign: 'center' }}>
                 <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
+                    <form action={reopenStop} style={{ margin: '6px 0 0' }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="hidden" name="stop_id" value={s.id} />
+                      <button
+                        type="submit"
+                        style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
+                      >
+                        Reopen
+                      </button>
+                    </form>
               </div>
             )}
           </div>
