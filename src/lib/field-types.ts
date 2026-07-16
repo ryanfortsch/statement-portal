@@ -137,7 +137,9 @@ export type PacketRow = {
   instructions: string | null; // packet-wide free-form note from the office, shown to the inspector
   // Above-and-beyond bonus on top of posted_price_cents (0 = none). The posted
   // price stays the agreed claim-time record; the bonus is the extra, with the
-  // reason shown to the contractor. Total payout = posted_price_cents + bonus_cents.
+  // reason shown to the contractor. Total payout = effective base + bonus_cents
+  // (see totalPayoutCents) — the base is final_payout_cents once the office
+  // locks it, otherwise the posted estimate.
   bonus_cents: number;
   bonus_reason: string | null;
   // Final base payout the operator locks in at/after approval, computed from
