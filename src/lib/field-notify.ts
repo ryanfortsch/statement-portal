@@ -322,7 +322,12 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     // pending-check contractor is pinged for new packets too.
     .in('background_check_status', ['cleared', 'pending'])
     .not('agreement_signed_at', 'is', null)
-    .not('phone', 'is', null);
+    .not('phone', 'is', null)
+    // The profile toggle ("Text me when new work is posted"). This filter was
+    // added in #928 and silently dropped in #934's rewrite of this query —
+    // keep it glued to the select above when refactoring, or the opt-out
+    // becomes decorative again.
+    .eq('sms_opt_in', true);
   const contractors = (data ?? []) as Array<
     Pick<ContractorRow, 'id' | 'full_name' | 'phone' | 'portal_token' | 'home_lat' | 'home_lng' | 'service_radius_miles'>
   >;
