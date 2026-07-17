@@ -196,16 +196,22 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
     );
   }
 
+  const anyUnsplit = shown.some((b) => (splitsByCode.get(b.confirmation_code) || []).length === 0);
+
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
-      <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--signal)' }}>
-        Multi-month bookings &middot; {shown.length}
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12, lineHeight: 1.5, maxWidth: 720 }}>
-        Bookings that span 2+ calendar months. Without a split, owner revenue from these stays recognizes
-        entirely in the checkout month. Splitting lets the owner see a partial payout each month the
-        booking is occupied. Optional &mdash; bookings without a split flow through the existing single-month
-        path.
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 14, paddingBottom: 20, width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="eyebrow" style={{ color: 'var(--signal)' }}>
+          Multi-month bookings &middot; {shown.length}
+        </div>
+        {/* One-line why, and only while something still needs a split —
+            the old four-line lecture rendered on every visit, between the
+            stat strip and the tabs. */}
+        {anyUnsplit && (
+          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+            Unsplit stays recognize entirely in the checkout month; a split shows the owner a partial payout each month.
+          </span>
+        )}
       </div>
 
       <div style={{ border: '1px solid var(--rule)' }}>

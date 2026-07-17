@@ -101,10 +101,10 @@ export function CollapsibleSection({
               }}
             >
               {summary != null && (
-                <span
-                  className="eyebrow"
-                  style={{ color: 'var(--ink-3)', textTransform: 'uppercase' }}
-                >
+                // Quiet lowercase meta, not an uppercase eyebrow — six of
+                // these stack per tab, and "7 OF 49 FIELDS POPULATED" in
+                // small caps read as a page full of shouting.
+                <span style={{ fontSize: 12, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
                   {summary}
                 </span>
               )}
@@ -180,7 +180,7 @@ export function CollapsibleSubSection({
             {title}
           </h3>
           {summary != null && (
-            <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
               {summary}
             </span>
           )}

@@ -433,10 +433,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     border-right: none !important;
     border-bottom: 1px solid var(--rule);
   }
-  .rt-helm-stat-strip > *:nth-child(odd) .rt-helm-stat {
+  .rt-helm-stat-strip > *:nth-child(odd) .rt-helm-stat,
+  .rt-helm-stat-strip > .rt-helm-stat:nth-child(odd) {
     border-right: 1px solid var(--rule) !important;
   }
-  .rt-helm-stat-strip > *:nth-last-child(-n+2) .rt-helm-stat {
+  .rt-helm-stat-strip > *:nth-last-child(-n+2) .rt-helm-stat,
+  .rt-helm-stat-strip > .rt-helm-stat:nth-last-child(-n+2) {
     border-bottom: none;
   }
   .rt-helm-stat { padding: 14px 12px !important; }

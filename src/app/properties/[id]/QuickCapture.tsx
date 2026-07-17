@@ -192,15 +192,18 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   const includedCount = items.filter((i) => i.include).length;
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
+      {/* Left tide accent instead of a full boxed plate: the capture bar
+          should read as the tab's first affordance, not a billboard that
+          pushes the day's actual work below the fold. */}
       <div
         style={{
-          border: '1px solid var(--tide-deep)',
+          borderLeft: '3px solid var(--tide-deep)',
           background: 'var(--paper-2)',
-          padding: '18px 20px',
+          padding: '14px 18px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
           <div className="eyebrow" style={{ color: 'var(--tide-deep)', letterSpacing: '.18em' }}>
             Quick capture
           </div>
@@ -213,15 +216,15 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
 
         {phase === 'input' && (
           <>
-            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-              Type or dictate anything about {propertyName} — codes, quirks, a thing to tell guests. Helm sorts each
-              part into the right field or note. You review before anything saves.
+            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
+              Type or dictate anything about {propertyName} — codes, quirks, a thing to tell guests.
+              Helm sorts it; you review before anything saves.
             </p>
             <div style={{ position: 'relative' }}>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                rows={3}
+                rows={2}
                 aria-label="Quick capture note"
                 placeholder={'e.g. "Gate code is 4455, trash goes out Tuesdays, and the downstairs shower runs hot for a minute so let guests know."'}
                 style={{
@@ -579,7 +582,7 @@ const primaryBtn: React.CSSProperties = {
   color: 'var(--paper)',
   background: 'var(--ink)',
   border: '1px solid var(--ink)',
-  padding: '10px 18px',
+  padding: '9px 16px',
   fontWeight: 600,
 };
 

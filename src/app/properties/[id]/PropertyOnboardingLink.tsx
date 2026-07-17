@@ -154,7 +154,7 @@ export function PropertyOnboardingLink({
     letterSpacing: '.18em',
     textTransform: 'uppercase',
     fontWeight: 500,
-    padding: '10px 16px',
+    padding: '9px 16px',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   };
