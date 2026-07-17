@@ -21,17 +21,14 @@ function stars(n: number): string {
 /**
  * The contractor hero, shared by the Work and Profile tabs so the two can
  * never drift: photo, name, role · since, and the guest rating on the right.
- * `subline` is the one per-page slot (Work uses it for the open-packets
- * status sentence); everything else renders identically.
+ * Renders identically on both, no per-page slots.
  */
 export function ContractorHeader({
   contractor,
   rating,
-  subline,
 }: {
   contractor: ContractorRow;
   rating: ContractorRating | undefined;
-  subline?: React.ReactNode;
 }) {
   const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
   return (
@@ -44,9 +41,6 @@ export function ContractorHeader({
             <span>{roleLabel}</span>
             {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
           </div>
-          {subline && (
-            <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: '6px 0 0' }}>{subline}</p>
-          )}
         </div>
       </div>
       {/* Show the score from the first review on. `rated` (>= MIN_RATED) gates
