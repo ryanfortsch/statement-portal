@@ -19,14 +19,15 @@ export const STREAK_CYCLE_DAYS = 10;
  *  Single source of truth for the award, the profile note, and the streak bar. */
 export const STREAK_MILESTONES: { day: number; cents: number }[] = [
   { day: 5, cents: 10000 },
-  { day: 10, cents: 25000 },
+  { day: 7, cents: 15000 },
+  { day: 10, cents: 30000 },
 ];
 const CYCLE_DAYS = STREAK_CYCLE_DAYS;
 const MILESTONES: Record<number, number> = Object.fromEntries(STREAK_MILESTONES.map((m) => [m.day, m.cents]));
 
 export type StreakAward = {
   days: number; // raw streak length on award day (e.g. 15)
-  milestone: 5 | 10; // position within the 10-day cycle
+  milestone: number; // milestone day within the 10-day cycle (5, 7, or 10)
   bonusCents: number;
 };
 
@@ -148,7 +149,7 @@ export async function maybeAwardStreakBonus(packetId: string): Promise<StreakAwa
       () => {},
     );
 
-  return { days: streak, milestone: cyclePos as 5 | 10, bonusCents: cents };
+  return { days: streak, milestone: cyclePos, bonusCents: cents };
 }
 
 /** Current streak for the profile note: the run ending today, or the still-alive
@@ -160,7 +161,10 @@ export async function getStreakInfo(contractorId: string): Promise<StreakInfo | 
   const n = runEndingAt(days, today) || runEndingAt(days, shiftDate(today, -1));
   if (n < 2) return null;
   const cyclePos = ((n - 1) % CYCLE_DAYS) + 1;
-  const next = cyclePos < 5 ? 5 : cyclePos < 10 ? 10 : 15; // 15 = next cycle's day 5
-  const nextBonusCents = MILESTONES[next === 15 ? 5 : next];
+  // Next milestone in this cycle, else the next cycle's first (derived from the
+  // ladder so a schedule change never needs this touched again).
+  const up = STREAK_MILESTONES.find((m) => m.day > cyclePos);
+  const next = up ? up.day : CYCLE_DAYS + STREAK_MILESTONES[0].day;
+  const nextBonusCents = (up ?? STREAK_MILESTONES[0]).cents;
   return { days: n, cyclePos, nextIn: next - cyclePos, nextBonusCents };
 }
