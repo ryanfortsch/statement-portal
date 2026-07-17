@@ -62,59 +62,13 @@ function fmtShortDate(d: string): string {
  *  the inspector goes after. Vacant homes are open from 11. */
 function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean } {
   // Two facts, no coaching: did a guest check out today, and when's the next
-  // check-in. The sequencing advice lives in the DayPlan banner up top; per
-  // Dotti, the per-stop line stays this simple.
+  // check-in. Per Dotti, the per-stop line stays this simple (the old DayPlan
+  // banner that coached sequencing was removed at her request).
   const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Vacant';
   if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, urgent: false };
   const today = s.next_checkin === visitDate;
   const when = today ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`;
   return { label: `${first} · next check-in: ${when}`, urgent: today };
-}
-
-/** The one question an inspector has before anything else: "do I have a hard
- *  finish time today?" Answered up front instead of leaving her to guess
- *  (Delaney had no way to know there were no check-ins on her visit day). */
-function DayPlan({ stops, visitDate, completeBy }: { stops: PacketStopDetail[]; visitDate: string; completeBy: string | null }) {
-  if (stops.length === 0) return null;
-  const arriving = stops.filter((s) => s.next_checkin === visitDate).length;
-  const turnovers = stops.filter((s) => s.window_basis === 'checkout_day').length;
-  const cleanedFirst =
-    turnovers > 0 && turnovers < stops.length
-      ? ' Do the vacant homes first; the same-day turnover is not ready until the cleaner wraps.'
-      : '';
-  // The office target (complete_by) is a nudge; the hard wall, when there is
-  // one, is a guest checking in that day at 4 PM. When no one checks in there's
-  // no hard cutoff, so say so plainly instead of contradicting the target.
-  const target = completeBy ? fmtVisitTime(completeBy) : null;
-  if (arriving === 0) {
-    return (
-      <div style={{ borderLeft: '3px solid var(--positive, #2e7d4f)', background: 'rgba(46,125,79,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-        {target ? (
-          <>
-            <strong style={{ color: 'var(--ink)' }}>Aim to finish by {target}.</strong> No guest checks in today, so
-            it&apos;s not a hard cutoff — if a home needs a little longer, take the time. Start anytime from 11 AM.{cleanedFirst}
-          </>
-        ) : (
-          <>
-            <strong style={{ color: 'var(--ink)' }}>No guest checks in today, so no hard finish time.</strong> Start
-            anytime from 11 AM.{cleanedFirst}
-          </>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div style={{ borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-      <strong style={{ color: 'var(--signal)' }}>
-        {arriving === stops.length
-          ? `Guests check in at 4 PM at ${stops.length === 1 ? 'this home' : `all ${stops.length} homes`}.`
-          : `${arriving} of ${stops.length} homes ${arriving === 1 ? 'gets a guest' : 'get guests'} at 4 PM.`}
-      </strong>{' '}
-      {arriving === stops.length ? 'Everything must be inspected by then.' : 'Those must be done by then; the rest are flexible.'}
-      {target ? ` Aim to wrap by ${target} to leave a buffer.` : ''}
-      {cleanedFirst}
-    </div>
-  );
 }
 
 /** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
@@ -723,7 +677,6 @@ export default async function PacketPage({
         </div>
       )}
 
-      {!isMaint && !isSetup && !isAdhoc && <DayPlan stops={packet.stops} visitDate={packet.visit_date} completeBy={packet.complete_by} />}
 
       {showSupplyStop && <SupplyRunCard run={supplyRun} />}
 
