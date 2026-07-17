@@ -36,24 +36,17 @@ export function DocumentsPanel({
   const catLabel = (id: string) =>
     DOCUMENT_CATEGORIES.find((c) => c.id === id)?.label ?? 'Other';
 
+  // Body-only: the page wraps this in a CollapsibleSection ("Documents"),
+  // which owns the section chrome — rendering a second h2 here would
+  // double-head the fold.
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Documents
-        </h2>
-        <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-          {documents.length === 0 ? 'none yet' : `${documents.length} on file`}
-        </span>
-      </div>
-
+    <div>
       {/* Upload form */}
       <form
         ref={formRef}
         action={formAction}
         style={{
-          borderTop: '1px solid var(--ink)',
-          paddingTop: 20,
+          paddingTop: 4,
           marginBottom: 28,
           display: 'flex',
           flexWrap: 'wrap',
@@ -184,7 +177,7 @@ export function DocumentsPanel({
           ))}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 

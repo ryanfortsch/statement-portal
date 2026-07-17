@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmFooter } from '@/components/HelmFooter';
+import { Stat } from '@/components/Stat';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
 import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomizeForm';
 import { PhotoThumbs } from '@/components/PhotoUploader';
@@ -530,13 +532,16 @@ export default async function PropertyDetailPage({
         </Link>
       </div>
 
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Property</div>
+      {/* HERO — one tight breath: name, then a single line carrying the
+          listing title + street address. The rt-helm-hero classes pick up
+          the phone downscale in globals.css (the old hand-rolled 48px
+          version never shrank on mobile). */}
+      <section className="max-w-[1100px] mx-auto px-10 rt-helm-hero" style={{ paddingTop: 18, paddingBottom: 22, width: '100%' }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Property</div>
         <h1
-          className="font-serif"
+          className="font-serif rt-helm-hero-h1"
           style={{
-            fontSize: 48,
+            fontSize: 44,
             lineHeight: 1.05,
             fontWeight: 300,
             letterSpacing: '-0.02em',
@@ -546,19 +551,15 @@ export default async function PropertyDetailPage({
         >
           {display}
         </h1>
-        {subtitle && (
-          <p style={{ marginTop: 12, fontSize: 16, color: 'var(--ink-3)' }}>
-            {subtitle}
-          </p>
-        )}
-        <p style={{ marginTop: 6, fontSize: 14, color: 'var(--ink-3)' }}>
+        <p style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-3)' }}>
+          {subtitle ? <>{subtitle}<span style={{ color: 'var(--ink-4)' }}> · </span></> : null}
           {p.address}, {p.city}
         </p>
 
         {!p.is_active && (
           <div
             style={{
-              marginTop: 18,
+              marginTop: 14,
               padding: '8px 14px',
               borderLeft: '3px solid var(--negative)',
               background: 'var(--paper-2)',
@@ -574,8 +575,10 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
-      {/* STAT GRID */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
+      {/* STAT GRID — shared Stat cells (the local copy dropped the
+          rt-helm-stat class, so the mobile border-patch rules in
+          globals.css never matched and phone cells drew wrong rules). */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
           <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
@@ -583,7 +586,7 @@ export default async function PropertyDetailPage({
               label="Cleaning Est"
               value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
             />
-            <Stat label="Bank ··" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} href={`/properties/${p.id}/edit#bank`} />
+            <Stat label="Bank" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} href={`/properties/${p.id}/edit#bank`} />
             <Stat label="Owner" value={p.owner_last} last />
           </div>
         </div>
@@ -738,10 +741,9 @@ export default async function PropertyDetailPage({
           <div
             style={{
               borderTop: '1px solid var(--ink)',
-              padding: '28px 0',
-              textAlign: 'center',
-              color: 'var(--ink-3)',
-              fontSize: 13,
+              padding: '20px 0',
+              color: 'var(--ink-4)',
+              fontSize: 12,
             }}
           >
             No open work for this property.
@@ -783,33 +785,9 @@ export default async function PropertyDetailPage({
                   </div>
                 </Link>
                 {s.owner_action_required && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      letterSpacing: '.16em',
-                      textTransform: 'uppercase',
-                      color: 'var(--signal)',
-                      border: '1px solid var(--signal)',
-                      padding: '2px 8px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Owner
-                  </span>
+                  <span style={pillStyle('var(--signal)')}>Owner</span>
                 )}
-                <span
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: '.16em',
-                    textTransform: 'uppercase',
-                    color: 'var(--ink-3)',
-                    border: '1px solid var(--ink-3)',
-                    padding: '2px 8px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {s.status.replace('_', ' ')}
-                </span>
+                <span style={pillStyle('var(--ink-3)')}>{s.status.replace('_', ' ')}</span>
                 <MarkSlipDoneButton slipId={s.id} propertyId={p.id} />
               </div>
             ))}
@@ -859,20 +837,7 @@ export default async function PropertyDetailPage({
         })()}
       >
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-          <Link
-            href={`/properties/${p.id}/notes/new`}
-            style={{
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--paper)',
-              background: 'var(--ink)',
-              border: '1px solid var(--ink)',
-              padding: '6px 12px',
-              textDecoration: 'none',
-            }}
-          >
+          <Link href={`/properties/${p.id}/notes/new`} style={primaryActionStyle}>
             + Add note
           </Link>
         </div>
@@ -882,19 +847,21 @@ export default async function PropertyDetailPage({
             quirk, a stuck door, a neighbor who reaches out, or a vendor contact.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          // Hairline rows, the same list language as every other list on
+          // this page (slips, inspections, statements) — the old bordered
+          // cards were the page's one card-styled list.
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
             {propertyNotes.map((n) => (
               <Link
                 key={n.id}
                 href={`/properties/${p.id}/notes/${n.id}/edit`}
                 style={{
                   display: 'block',
-                  padding: '14px 16px',
-                  border: '1px solid var(--rule)',
-                  background: n.resolved_at ? 'var(--paper-2)' : 'var(--paper)',
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
                   textDecoration: 'none',
                   color: 'inherit',
-                  opacity: n.resolved_at ? 0.7 : 1,
+                  opacity: n.resolved_at ? 0.6 : 1,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
@@ -913,48 +880,13 @@ export default async function PropertyDetailPage({
                     {n.title}
                   </h3>
                   {n.guest_facing && (
-                    <span
-                      title="Part of the guest-messaging knowledge base"
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--paper)',
-                        background: 'var(--tide-deep)',
-                        padding: '2px 7px',
-                      }}
-                    >
+                    <span title="Part of the guest-messaging knowledge base" style={pillStyle('var(--tide-deep)', true)}>
                       Guest
                     </span>
                   )}
-                  {n.tag && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 600,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--ink-3)',
-                        border: '1px solid var(--rule)',
-                        padding: '2px 7px',
-                      }}
-                    >
-                      {n.tag}
-                    </span>
-                  )}
+                  {n.tag && <span style={pillStyle('var(--ink-3)')}>{n.tag}</span>}
                   {n.resolved_at && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 600,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--positive)',
-                      }}
-                    >
-                      Resolved
-                    </span>
+                    <span style={{ ...pillStyle('var(--positive)'), border: 'none', padding: '2px 0' }}>Resolved</span>
                   )}
                 </div>
                 {n.body && (
@@ -1131,7 +1063,6 @@ export default async function PropertyDetailPage({
                     color: 'var(--ink)',
                     textDecoration: 'none',
                     border: '1px solid var(--rule)',
-                    borderRadius: 4,
                     padding: '6px 12px',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1153,7 +1084,6 @@ export default async function PropertyDetailPage({
                     color: 'var(--ink)',
                     textDecoration: 'none',
                     border: '1px dashed var(--rule)',
-                    borderRadius: 4,
                     padding: '6px 12px',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1217,47 +1147,53 @@ export default async function PropertyDetailPage({
 
         {/* ════════════ LISTING & GROWTH ════════════ */}
         <TabSection tab="growth">
-          <TabActions>
-            <ActionLink
-              href={`/properties/${p.id}/listing-copy`}
-              title="Draft a Stay Cape Ann listing title + tagline + description from this property's data + photos you upload"
-            >
-              Draft listing →
-            </ActionLink>
-            <ActionLink
-              href={`/properties/${p.id}/caption-photos`}
-              title="AI-draft a caption for every Guesty gallery photo in our listings' voice, then push approved captions to the listing"
-            >
-              Caption photos →
-            </ActionLink>
-            <ActionLink
-              href={`/properties/${p.id}/sync-guesty`}
-              title="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live Guesty listing"
-            >
-              Sync to Guesty →
-            </ActionLink>
-            <Link
-              href={`/properties/${p.id}/stay-cape-ann`}
-              title={scaLaunch?.status === 'live' ? 'Live on staycapeann.com' : 'Launch this property on staycapeann.com'}
-              className="rt-action-link"
-              style={{
-                ...actionLinkStyle,
-                padding: '8px 14px',
-                border: `1px solid ${scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--rule)'}`,
-                color: scaLaunch?.status === 'live' ? 'var(--positive)' : 'var(--ink)',
-              }}
-            >
-              Stay Cape Ann {scaLaunch?.status === 'live' ? '✓' : scaLaunch?.status === 'pr_open' ? '•' : '→'}
-            </Link>
-            {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
-              <ActionLink
-                href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}&property=${p.id}`}
-                title="Add or replace this listing's bedroom photos on staycapeann.com"
-              >
-                Bedroom photos →
-              </ActionLink>
-            )}
-          </TabActions>
+          {/* Launcher tiles, not a bare row of links: each growth tool gets
+              a card with its one-line pitch (lifted from the old hover-only
+              title attrs) so the tab reads as a workbench instead of the
+              emptiest page in Helm. */}
+          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              <GrowthTile
+                eyebrow="Listing copy"
+                title="Draft listing"
+                description="Title, tagline, and description drafted from this property's data plus photos you upload."
+                href={`/properties/${p.id}/listing-copy`}
+              />
+              <GrowthTile
+                eyebrow="Photos"
+                title="Caption photos"
+                description="AI-drafts a caption for every Guesty gallery photo in our listings' voice; you approve before anything pushes."
+                href={`/properties/${p.id}/caption-photos`}
+              />
+              <GrowthTile
+                eyebrow="Guesty"
+                title="Sync to Guesty"
+                description="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live listing."
+                href={`/properties/${p.id}/sync-guesty`}
+              />
+              <GrowthTile
+                eyebrow="Direct booking"
+                title="Stay Cape Ann"
+                description={
+                  scaLaunch?.status === 'live'
+                    ? 'Live on staycapeann.com.'
+                    : scaLaunch?.status === 'pr_open'
+                      ? 'Launch in review — a PR is open.'
+                      : 'Launch this property on staycapeann.com.'
+                }
+                href={`/properties/${p.id}/stay-cape-ann`}
+                status={scaLaunch?.status === 'live' ? 'Live ✓' : scaLaunch?.status === 'pr_open' ? 'In review' : undefined}
+              />
+              {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
+                <GrowthTile
+                  eyebrow="Photos"
+                  title="Bedroom photos"
+                  description="Add or replace this listing's bedroom photos on staycapeann.com."
+                  href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}&property=${p.id}`}
+                />
+              )}
+            </div>
+          </section>
         </TabSection>
 
         {/* ════════════ GUEST & RECORDS ════════════ */}
@@ -1297,7 +1233,7 @@ export default async function PropertyDetailPage({
                   textTransform: 'uppercase',
                   color: 'var(--ink-3)',
                   textDecoration: 'none',
-                  padding: '13px 14px',
+                  padding: '9px 12px',
                 }}
               >
                 Customize
@@ -1448,7 +1384,7 @@ export default async function PropertyDetailPage({
                         textTransform: 'uppercase',
                         color: 'var(--ink-3)',
                         textDecoration: 'none',
-                        padding: '13px 14px',
+                        padding: '9px 12px',
                       }}
                     >
                       Edit
@@ -1460,7 +1396,15 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </CollapsibleSection>
-          <DocumentsPanel propertyId={p.id} documents={documents} />
+      {/* DOCUMENTS — folded into the same collapsible grammar as its
+          neighbors; the upload form used to render permanently expanded
+          even when nothing was filed. */}
+      <CollapsibleSection
+        title="Documents"
+        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
+      >
+        <DocumentsPanel propertyId={p.id} documents={documents} />
+      </CollapsibleSection>
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary={activitySummary}>
         <PropertyActivityList events={activityEvents} />
@@ -1472,17 +1416,7 @@ export default async function PropertyDetailPage({
           <Link
             href={`/operations?property=${p.id}`}
             title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
-            style={{
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--paper)',
-              background: 'var(--ink)',
-              border: '1px solid var(--ink)',
-              padding: '6px 12px',
-              textDecoration: 'none',
-            }}
+            style={primaryActionStyle}
           >
             Plan a walk
           </Link>
@@ -1568,11 +1502,11 @@ export default async function PropertyDetailPage({
                     gridTemplateColumns: '160px 1fr auto auto',
                     gap: 24,
                     alignItems: 'baseline',
-                    padding: '18px 0',
+                    padding: '16px 0',
                     borderBottom: '1px solid var(--rule)',
                   }}
                 >
-                  <span className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)' }}>
+                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
                     {formatMonth(s.month)}
                   </span>
                   <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
@@ -1594,24 +1528,7 @@ export default async function PropertyDetailPage({
         </TabSection>
       </PropertyTabs>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--ink)' }}>
-        <div
-          className="max-w-[1100px] mx-auto px-10 flex items-center justify-between"
-          style={{
-            padding: '14px 40px',
-            fontSize: 10,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          <span>Rising Tide &middot; Properties</span>
-          <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
-            Source: Helm
-          </span>
-        </div>
-      </footer>
+      <HelmFooter module="Properties" right="Source: Helm" />
 
       {/* Opens collapsed <details> ancestors of the URL-hash target and
           scrolls to it (deep links like #ops-notebook / #notice-<id>). */}
@@ -1639,14 +1556,18 @@ function missingInfoNoteFields(p: HelmPropertyRow): string[] {
 
 /** Renders any operational sections that have at least one populated field. */
 type OpRow = { label: string; value: string | number | null; mono?: boolean };
+
+/** ONE primary treatment for the whole page (the thing you came to do:
+ *  Edit operational data, Open a deliverable, + Add note). The page used
+ *  to carry three ink-solid variants with drifting paddings. */
 const primaryActionStyle: React.CSSProperties = {
   background: 'var(--ink)',
   color: 'var(--paper)',
   fontSize: 11,
   fontWeight: 600,
-  letterSpacing: '.18em',
+  letterSpacing: '.16em',
   textTransform: 'uppercase',
-  padding: '13px 18px',
+  padding: '9px 16px',
   textDecoration: 'none',
   display: 'inline-flex',
   alignItems: 'center',
@@ -1670,22 +1591,61 @@ const actionLinkStyle: React.CSSProperties = {
   gap: 6,
 };
 
-/** Filled primary action — one per tab, the thing you came to do
- *  (Edit operational data). */
-const primaryActionButtonStyle: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  color: 'var(--paper)',
-  background: 'var(--ink)',
-  textDecoration: 'none',
-  border: '1px solid var(--ink)',
-  padding: '9px 16px',
-  fontWeight: 600,
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-};
+/** Micro-pill factory — the house 9px uppercase chip, outline form.
+ *  Pass `solid` for the inverted (colored bg) emphasis form. */
+function pillStyle(color: string, solid = false): React.CSSProperties {
+  return {
+    fontSize: 9,
+    fontWeight: solid ? 700 : 600,
+    letterSpacing: '.16em',
+    textTransform: 'uppercase',
+    color: solid ? 'var(--paper)' : color,
+    background: solid ? color : 'transparent',
+    border: solid ? 'none' : `1px solid ${color}`,
+    padding: '2px 7px',
+    whiteSpace: 'nowrap',
+  };
+}
+
+/** Bordered launcher tile for the Listing & Growth tab — same tile grammar
+ *  as the Guest Deliverables grid so the two workbench tabs read alike. */
+function GrowthTile({
+  eyebrow,
+  title,
+  description,
+  href,
+  status,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  href: string;
+  status?: string;
+}) {
+  return (
+    <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+        <div className="eyebrow">{eyebrow}</div>
+        {status && (
+          <span style={{ fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, color: status.includes('✓') ? 'var(--positive)' : 'var(--signal)' }}>
+            {status}
+          </span>
+        )}
+      </div>
+      <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+        {title}
+      </h3>
+      <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+        {description}
+      </p>
+      <div style={{ marginTop: 'auto' }}>
+        <Link href={href} style={primaryActionStyle}>
+          Open →
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 function ActionLink({
   href,
@@ -1703,7 +1663,7 @@ function ActionLink({
       href={href}
       title={title}
       className="rt-action-link"
-      style={primary ? primaryActionButtonStyle : actionLinkStyle}
+      style={primary ? primaryActionStyle : actionLinkStyle}
     >
       {children}
     </Link>
@@ -1859,35 +1819,6 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
       })}
     </div>
   );
-}
-
-function Stat({ label, value, last = false, href }: { label: string; value: string; last?: boolean; href?: string }) {
-  const style = {
-    padding: '20px 20px',
-    borderRight: last ? 'none' : '1px solid var(--rule)',
-  };
-  const inner = (
-    <>
-      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)' }}>
-        {value}
-      </div>
-    </>
-  );
-  if (href) {
-    // Clickable stat that deep-links to its editor (e.g. Bank -> the edit form).
-    const cleanLabel = label.replace(/[^A-Za-z0-9].*$/, '').trim() || label;
-    return (
-      <Link
-        href={href}
-        title={`Edit ${cleanLabel.toLowerCase()}`}
-        style={{ ...style, display: 'block', textDecoration: 'none', color: 'inherit' }}
-      >
-        {inner}
-      </Link>
-    );
-  }
-  return <div style={style}>{inner}</div>;
 }
 
 function Detail({ term, definition, mono = false }: { term: string; definition: string; mono?: boolean }) {

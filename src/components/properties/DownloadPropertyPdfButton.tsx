@@ -64,7 +64,7 @@ export function DownloadPropertyPdfButton({
         fontWeight: 500,
         letterSpacing: '.18em',
         textTransform: 'uppercase',
-        padding: '13px 18px',
+        padding: '9px 16px',
         border: '1px solid var(--rule)',
         cursor: busy ? 'wait' : 'pointer',
         display: 'inline-flex',

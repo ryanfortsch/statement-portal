@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, useTransition, type ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 
 /**
  * Tabbed shell for the property detail page.
@@ -13,10 +14,12 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
  * `hidden` attribute. Everything renders once on the server; switching
  * tabs is instant with no refetch.
  *
- * Active tab syncs to `?tab=` through history.replaceState (no full
- * navigation, so it's shareable + survives back/forward without a
- * server round-trip). The server reads the same param to pick the
- * initial tab so a deep link lands on the right panel.
+ * Active tab flips locally (instant — all panels are pre-rendered) and
+ * syncs to `?tab=` via router.replace in a background transition, so
+ * deep links stay shareable and the router's canonical URL stays honest
+ * (a raw history.replaceState desyncs it and the next server-action
+ * revalidation scroll-yanks; see #1056). The server reads the same
+ * param to pick the initial tab so a deep link lands on the right panel.
  */
 
 type TabDef = { id: string; label: string; badge?: string | number };
@@ -34,16 +37,24 @@ export function PropertyTabs({
 }) {
   const valid = tabs.some((t) => t.id === initialTab) ? initialTab : tabs[0]?.id ?? '';
   const [active, setActive] = useState(valid);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [, startTransition] = useTransition();
 
   function select(id: string) {
+    // Local state flips the panel instantly (everything is already
+    // server-rendered); the URL syncs in a background transition via
+    // router.replace so the router's canonical URL stays honest. A raw
+    // history.replaceState here desyncs it, and the NEXT server-action
+    // revalidation (mark a slip done, quick capture) then treats its
+    // refresh as a real navigation and yanks scroll to the top — the
+    // same 16.2.4 trap the work board hit (#1056).
     setActive(id);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', id);
-      window.history.replaceState(null, '', url.toString());
-    } catch {
-      // history API unavailable — tab still switches, URL just won't update.
-    }
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', id);
+    startTransition(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
   }
 
   return (
@@ -81,7 +92,7 @@ export function PropertyTabs({
                   appearance: 'none',
                   background: 'transparent',
                   border: 'none',
-                  borderBottom: on ? '2px solid var(--ink)' : '2px solid transparent',
+                  borderBottom: on ? '2px solid var(--signal)' : '2px solid transparent',
                   margin: '0 0 -1px',
                   padding: '14px 14px 12px',
                   fontSize: 11,

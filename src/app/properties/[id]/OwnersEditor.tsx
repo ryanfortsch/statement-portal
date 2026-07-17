@@ -87,12 +87,9 @@ export function OwnersEditor({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 620 }}>
-          The primary card auto-syncs from the Owner block above on every
-          save (name, phone, first email), so you only ever have to enter
-          that info once. Add cards here for additional contacts: a
-          spouse with their own cell, an accountant copied on replies, a
-          second phone for the same person.
+        <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 560 }}>
+          The primary card auto-syncs from the Owner block above. Add cards
+          for extra contacts: a spouse&rsquo;s cell, an accountant copied on replies.
         </div>
         <button
           type="button"
