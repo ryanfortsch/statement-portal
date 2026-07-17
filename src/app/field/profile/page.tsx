@@ -131,12 +131,25 @@ export default async function FieldProfilePage() {
         </section>
       )}
 
-      {/* Work history */}
+      {/* Work history — the most recent 3, the rest one tap away (same fold
+          as reviews; a long history was burying the notifications card). */}
       {history.length > 0 && (
         <Section title="Work history">
-          {history.map((h) => (
+          {history.slice(0, 3).map((h) => (
             <HistoryRow key={h.id} h={h} />
           ))}
+          {history.length > 3 && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
+                Show {history.length - 3} more {history.length - 3 === 1 ? 'job' : 'jobs'} ▾
+              </summary>
+              <div>
+                {history.slice(3).map((h) => (
+                  <HistoryRow key={h.id} h={h} />
+                ))}
+              </div>
+            </details>
+          )}
         </Section>
       )}
 
