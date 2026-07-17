@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadContractorMarketplace, getContractorPayStats } from '@/lib/field-packets';
+import { loadContractorMarketplace } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings } from '@/lib/field-ratings';
 import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
+import { ContractorHeader } from './ContractorHeader';
 import { FieldPillars } from './FieldPillars';
 
 /** The one repeatable editorial section header: a tide index numeral, a serif
@@ -334,46 +335,26 @@ export default async function FieldHome({
     );
   }
 
-  const [{ available, mine }, payStats, ratings, recentVisits] = await Promise.all([
+  const [{ available, mine }, ratings, recentVisits] = await Promise.all([
     loadContractorMarketplace(contractor),
-    getContractorPayStats(),
     getContractorRatings(),
     loadRecentVisits(contractor.id),
   ]);
-  const pay = payStats.get(contractor.id);
   const rating = ratings.get(contractor.id);
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} />
-          <div>
-            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 4, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-              <span>Hi {contractor.full_name.split(' ')[0]}</span>
-              {rating?.rated && rating.avg != null && (
-                <span style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink-3)' }}>★ {rating.avg.toFixed(1)}</span>
-              )}
-            </h1>
-            <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: 0 }}>
-              {available.length > 0
-                ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
-                : 'All quiet right now. We’ll text you when a packet near you posts.'}
-            </p>
-          </div>
-        </div>
-        {pay && (pay.paidCents > 0 || pay.owedCents > 0) && (
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-              Earned to date
-            </div>
-            <div className="font-mono" style={{ fontSize: 22, color: 'var(--ink)' }}>{dollars(pay.paidCents)}</div>
-            {pay.owedCents > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--signal)' }}>{dollars(pay.owedCents)} pending</div>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Same hero as the Profile tab (shared component), with the marketplace
+          status as the one page-specific line. Earned-to-date lives on Profile. */}
+      <ContractorHeader
+        contractor={contractor}
+        rating={rating}
+        subline={
+          available.length > 0
+            ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
+            : 'All quiet right now. We’ll text you when a packet near you posts.'
+        }
+      />
 
       {/* Post-visit flag: only when a home is still in the 72h window, so the
           affordance appears exactly when it's usable. */}
