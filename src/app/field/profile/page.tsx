@@ -7,6 +7,7 @@ import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/fie
 import { FieldShell } from '../FieldShell';
 import { ProfilePhoto } from '../ProfilePhoto';
 import { SmsToggle } from '../SmsToggle';
+import { ReviewText } from './ReviewText';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -78,7 +79,10 @@ export default async function FieldProfilePage() {
             </div>
           </div>
         </div>
-        {rating?.rated && rating.avg != null && (
+        {/* Show the score from the first review on. `rated` (>= MIN_RATED) gates
+            the competitive tier on the roster, not her own profile — the review
+            count renders right beside the number, so it qualifies itself. */}
+        {rating && rating.count > 0 && rating.avg != null && (
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ color: GOLD, fontSize: 17, letterSpacing: 2 }}>{stars(rating.avg)}</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, justifyContent: 'flex-end', marginTop: 3 }}>
@@ -265,7 +269,7 @@ function ReviewCard({ r }: { r: ContractorReview }) {
         <span style={{ color: GOLD, fontSize: 14, letterSpacing: 1.5 }}>{stars(r.rating)}</span>
         <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>{r.propertyName}{r.date ? ` · ${shortDate(r.date)}` : ''}</span>
       </div>
-      {r.text && <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: '8px 0 0' }}>&ldquo;{r.text}&rdquo;</p>}
+      {r.text && <ReviewText text={r.text} />}
     </div>
   );
 }
