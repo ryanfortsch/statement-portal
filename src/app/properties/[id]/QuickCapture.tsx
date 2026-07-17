@@ -39,6 +39,18 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recRef = useRef<any>(null);
   const baseTextRef = useRef('');
+  // The browser ends a SpeechRecognition session on its own after a short
+  // silence, even with continuous=true — one spoken sentence, a breath, and
+  // onend fires. Dictation should feel like "mic on until I turn it off", so
+  // we track the OPERATOR's intent separately and auto-restart the session in
+  // onend while it's still wanted. wantRef is the intent; textRef mirrors the
+  // latest textarea value so each restarted session appends to what's already
+  // there (a new session resets resultIndex, so baseTextRef must be re-seeded
+  // at restart time, not from the stale value captured at mic-tap).
+  const wantRef = useRef(false);
+  const textRef = useRef('');
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  textRef.current = text;
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,29 +74,61 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       const joined = (baseTextRef.current + ' ' + chunk).replace(/\s+/g, ' ').trimStart();
       setText(joined);
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      // Session ended. If the operator still wants the mic, restart it and
+      // keep the button lit — this is the auto-timeout path, not a stop. The
+      // brief defer avoids InvalidStateError from an immediate start() on
+      // some engines. If they turned it off (or a fatal error cleared the
+      // intent), let it rest.
+      if (wantRef.current) {
+        restartTimerRef.current = setTimeout(() => {
+          if (!wantRef.current) return;
+          baseTextRef.current = textRef.current.trim();
+          try {
+            rec.start();
+          } catch {
+            wantRef.current = false;
+            setListening(false);
+            setError('Dictation stopped unexpectedly. Tap the mic to resume.');
+          }
+        }, 150);
+        return;
+      }
+      setListening(false);
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onerror = (e: any) => {
-      setListening(false);
       const code = e?.error;
       // 'aborted' fires when we call stop() ourselves — not a real error.
+      // 'no-speech' is just a quiet stretch; onend follows and the restart
+      // loop keeps the session alive, so neither should kill dictation or
+      // nag the operator mid-thought.
+      if (code === 'aborted' || (code === 'no-speech' && wantRef.current)) return;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
         setError('Microphone access was blocked. Allow mic access in your browser, then try again.');
       } else if (code === 'no-speech') {
         setError('Didn’t catch anything — try again, or type instead.');
       } else if (code === 'audio-capture') {
         setError('No microphone found. Plug one in, or type instead.');
-      } else if (code && code !== 'aborted') {
+      } else if (code) {
         setError('Dictation stopped unexpectedly. Try again, or type instead.');
       }
+      // Any error that reaches here is fatal to the session: clear the
+      // intent so onend doesn't fight the browser trying to restart.
+      wantRef.current = false;
+      setListening(false);
     };
     recRef.current = rec;
     return () => {
+      wantRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       try { rec.stop(); } catch { /* noop */ }
     };
   }, []);
 
   function stopListening() {
+    wantRef.current = false;
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     const rec = recRef.current;
     if (rec) { try { rec.stop(); } catch { /* noop */ } }
     setListening(false);
@@ -100,9 +144,11 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
     baseTextRef.current = text.trim();
     setError(null);
     try {
+      wantRef.current = true;
       rec.start();
       setListening(true);
     } catch {
+      wantRef.current = false;
       setError('Could not start dictation. Try again, or type instead.');
       setListening(false);
     }
