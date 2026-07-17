@@ -41,6 +41,17 @@ import { computeLaunchProgress } from '@/lib/launch-checklist';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 import { OwnersEditor } from './OwnersEditor';
+import { OnboardingItemToggle } from './OnboardingItemToggle';
+import { RoomsEditor } from './RoomsEditor';
+import { WalkthroughCapture } from './WalkthroughCapture';
+import { getPropertyRooms } from '@/lib/property-rooms';
+import { getOnboardingItemRows } from '@/lib/onboarding-items';
+import {
+  ONBOARDING_STAGES,
+  ONBOARDING_ITEMS,
+  itemsForStage,
+  type OnboardingDeriveContext,
+} from '@/lib/onboarding-catalog';
 import type { OwnerCard } from '@/app/properties/actions';
 
 export const dynamic = 'force-dynamic';
@@ -365,7 +376,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -395,6 +406,8 @@ export default async function PropertyDetailPage({
     getClimateProfile(p.id),
     listSeamThermostatsSafe(),
     getGuestCodeView(p.id),
+    getPropertyRooms(p.id),
+    getOnboardingItemRows(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -416,6 +429,37 @@ export default async function PropertyDetailPage({
     scaLaunchStatus: scaLaunch?.status ?? null,
     hasQuoCleanerMapping: launchCleanerMapped,
   });
+
+  // Onboarding catalog: effective status per item. A manual operator row
+  // always wins; an untouched item falls back to live-data derivation
+  // (same manual-beats-derived rule as the launch checklist).
+  const onboardingCtx: OnboardingDeriveContext = {
+    p,
+    roomsCount: propertyRooms.length,
+    bedroomsOnFile: propertyRooms.filter((r) => r.room_type === 'bedroom').length,
+    bedroomsWithBeds: propertyRooms.filter((r) => r.room_type === 'bedroom' && (r.details?.beds?.length ?? 0) > 0).length,
+    roomsWithQuirks: propertyRooms.filter((r) => (r.details?.quirks?.length ?? 0) > 0).length,
+    guestFacingNotes: propertyNotes.filter((n) => n.guest_facing).length,
+    opsNotes: propertyNotes.filter((n) => !n.guest_facing).length,
+    documentsCount: documents.length,
+    locksMapped: guestCodeView.locks.length,
+    climateConfigured: !!climateProfile?.enabled,
+    cleanerMapped: launchCleanerMapped,
+    scaLive: scaLaunch?.status === 'live',
+  };
+  const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
+  for (const item of ONBOARDING_ITEMS) {
+    const row = onboardingRows.get(item.key);
+    if (row && row.status !== 'todo') {
+      onboardingStatus.set(item.key, { status: row.status, derived: false });
+    } else if (item.derive && item.derive(onboardingCtx)) {
+      onboardingStatus.set(item.key, { status: 'done', derived: true });
+    } else {
+      onboardingStatus.set(item.key, { status: 'todo', derived: false });
+    }
+  }
+  const onboardingResolved = [...onboardingStatus.values()].filter((s) => s.status !== 'todo').length;
+  const onboardingTotal = ONBOARDING_ITEMS.length;
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -602,6 +646,7 @@ export default async function PropertyDetailPage({
         initialTab={initialTab}
         tabs={[
           { id: 'today', label: 'Today', badge: openSlips.length || undefined },
+          { id: 'onboarding', label: 'Onboarding', badge: `${Math.round((onboardingResolved / Math.max(1, onboardingTotal)) * 100)}%` },
           { id: 'operations', label: 'Operations' },
           { id: 'people', label: 'People & owner', badge: crmContactsFull.length || undefined },
           { id: 'growth', label: 'Listing & growth' },
@@ -795,6 +840,124 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
+        </TabSection>
+
+        {/* ════════════ ONBOARDING ════════════ */}
+        <TabSection tab="onboarding">
+          {/* The full lot-to-listing pipeline. Auto-derived items resolve
+              themselves from live data (bank on file, lock mapped, KB
+              seeded); the rest are operator toggles. The walkthrough
+              dictation up top is the fast path for the physical stage. */}
+          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 8, width: '100%' }}>
+            <WalkthroughCapture propertyId={p.id} propertyName={p.name} />
+          </section>
+
+          {ONBOARDING_STAGES.map((stage) => {
+            const items = itemsForStage(stage.id);
+            if (items.length === 0) return null;
+            const resolved = items.filter((it) => onboardingStatus.get(it.key)?.status !== 'todo').length;
+            return (
+              <CollapsibleSection
+                key={stage.id}
+                id={`onboarding-${stage.id}`}
+                title={stage.title}
+                summary={`${resolved} of ${items.length}`}
+                defaultOpen={stage.id === 'physical'}
+              >
+                <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
+                  {stage.blurb}
+                </p>
+                {stage.id === 'physical' && (
+                  <div style={{ marginBottom: 20 }}>
+                    <RoomsEditor propertyId={p.id} rooms={propertyRooms} />
+                  </div>
+                )}
+                <div style={{ borderTop: '1px solid var(--ink)' }}>
+                  {items.map((item) => {
+                    const st = onboardingStatus.get(item.key) ?? { status: 'todo' as const, derived: false };
+                    const note = onboardingRows.get(item.key)?.note ?? null;
+                    return (
+                      <div
+                        key={item.key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: 14,
+                          padding: '11px 0',
+                          borderBottom: '1px solid var(--rule)',
+                          opacity: st.status === 'n_a' ? 0.55 : 1,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            flexShrink: 0,
+                            alignSelf: 'center',
+                            background:
+                              st.status === 'done' ? 'var(--positive)' :
+                              st.status === 'n_a' ? 'var(--ink-4)' :
+                              'transparent',
+                            border: st.status === 'todo' ? '1.5px solid var(--rule)' : 'none',
+                          }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, color: 'var(--ink)', textDecoration: st.status === 'n_a' ? 'line-through' : 'none' }}>
+                            {item.title}
+                            {item.href && (
+                              <Link
+                                href={item.href.replace('{id}', p.id)}
+                                style={{ marginLeft: 10, fontSize: 11, letterSpacing: '.08em', color: 'var(--tide-deep)', textDecoration: 'none' }}
+                              >
+                                {item.hrefLabel ?? 'Open'} →
+                              </Link>
+                            )}
+                          </div>
+                          {(item.why || item.description) && (
+                            <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45, maxWidth: 640 }}>
+                              {item.description}
+                              {item.description && item.why ? ' ' : ''}
+                              {item.why}
+                            </div>
+                          )}
+                          {note && (
+                            <div style={{ marginTop: 3, fontSize: 11.5, color: 'var(--tide-deep)', lineHeight: 1.45 }}>
+                              {note}
+                            </div>
+                          )}
+                        </div>
+                        <OnboardingItemToggle
+                          propertyId={p.id}
+                          itemKey={item.key}
+                          status={st.status}
+                          derived={st.derived}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleSection>
+            );
+          })}
+
+          {/* Go-live gates: the launch checklist, embedded read-only so the
+              onboarding hub is one place. The launch page stays the surface
+              for acting on these (inline editors, activation gate). */}
+          <CollapsibleSection
+            id="onboarding-golive"
+            title="Go-live gates"
+            summary={`${launchProgress.done} of ${launchProgress.total}${launchProgress.allDone ? ' · live' : ''}`}
+          >
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
+              The activation gates that flip this property live: statements matching, turnover SMS
+              attribution, and the rest of the launch checklist.
+            </p>
+            <Link href={`/properties/${p.id}/launch`} style={primaryActionStyle}>
+              Open launch checklist →
+            </Link>
+          </CollapsibleSection>
         </TabSection>
 
         {/* ════════════ OPERATIONS ════════════ */}
