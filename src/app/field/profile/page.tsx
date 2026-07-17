@@ -234,7 +234,7 @@ function StreakBar({ streak, firstName }: { streak: StreakInfo | null; firstName
       <p style={{ fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5, margin: 0 }}>
         {streak
           ? `Nice run, ${firstName}. The bonus lands automatically on that day's packet.`
-          : `Work days back-to-back. Day 5 adds $100 to that day's packet, day 10 adds $250 — automatically.`}
+          : `Work days back-to-back: ${STREAK_MILESTONES.map((m) => `day ${m.day} adds ${dollars(m.cents)}`).join(', ')} to that day's packet, automatically.`}
       </p>
     </section>
   );
