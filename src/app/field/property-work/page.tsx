@@ -60,11 +60,14 @@ export default async function PropertyWorkPage({
       )}
 
       {board.groups.map((g) => (
-        <section key={g.propertyId} style={{ marginBottom: 30 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, borderBottom: '1px solid var(--ink)', paddingBottom: 8, marginBottom: 4 }}>
+        <details key={g.propertyId} style={{ marginBottom: 14 }}>
+          {/* Collapsed by default (per Ryan): the home + count scan tight; tap
+              to open its slips. <details> keeps it server-rendered, no state. */}
+          <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'baseline', gap: 10, borderBottom: '1px solid var(--ink)', paddingBottom: 8, listStyle: 'none' }}>
             <h2 className="font-serif" style={{ fontSize: 20, fontWeight: 400, margin: 0 }}>{g.propertyName}</h2>
             <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{g.slips.length} open</span>
-          </div>
+            <span aria-hidden style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-4)' }}>▾</span>
+          </summary>
           {g.slips.map((slip) => (
             <div key={slip.id} style={{ borderBottom: '1px solid var(--rule)', padding: '14px 0' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
@@ -84,7 +87,7 @@ export default async function PropertyWorkPage({
               <BoardSlipDone slipId={slip.id} />
             </div>
           ))}
-        </section>
+        </details>
       ))}
 
       {board.onTripCount > 0 && (
