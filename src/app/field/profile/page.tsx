@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
-import { dollars, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { dollars, type ContractorRow } from '@/lib/field-types';
 import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/field-streaks';
 import { FieldShell } from '../FieldShell';
-import { ProfilePhoto } from '../ProfilePhoto';
+import { ContractorHeader } from '../ContractorHeader';
 import { SmsToggle } from '../SmsToggle';
 import { ReviewText } from './ReviewText';
 
@@ -17,14 +17,6 @@ export const metadata: Metadata = {
 
 const GOLD = '#b8860b';
 
-function monthYear(d: string | null): string {
-  if (!d) return '';
-  try {
-    return new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  } catch {
-    return '';
-  }
-}
 function shortDate(d: string | null): string {
   if (!d) return '';
   // Accept a bare YYYY-MM-DD (visit dates) OR a full timestamp (review times).
@@ -62,36 +54,10 @@ export default async function FieldProfilePage() {
       : null;
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
-  const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      {/* Hero — name on the left, the overall guest rating prominent on the right. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, margin: '16px 0 26px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0 }}>
-          <ProfilePhoto current={contractor.photo_url} name={contractor.full_name} size={76} stacked />
-          <div style={{ minWidth: 0 }}>
-            <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: 0, lineHeight: 1.1 }}>{contractor.full_name}</h1>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span>{roleLabel}</span>
-              {monthYear(contractor.created_at) && <span style={{ color: 'var(--ink-4)' }}>· since {monthYear(contractor.created_at)}</span>}
-            </div>
-          </div>
-        </div>
-        {/* Show the score from the first review on. `rated` (>= MIN_RATED) gates
-            the competitive tier on the roster, not her own profile — the review
-            count renders right beside the number, so it qualifies itself. */}
-        {rating && rating.count > 0 && rating.avg != null && (
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ color: GOLD, fontSize: 17, letterSpacing: 2 }}>{stars(rating.avg)}</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, justifyContent: 'flex-end', marginTop: 3 }}>
-              <span className="font-mono" style={{ fontSize: 27, color: GOLD, fontWeight: 500, lineHeight: 1 }}>{rating.avg.toFixed(2)}</span>
-              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>/ 5</span>
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>{rating.count} {rating.count === 1 ? 'review' : 'reviews'}</div>
-          </div>
-        )}
-      </div>
+      <ContractorHeader contractor={contractor} rating={rating} />
 
       {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses. */}
       <StreakBar streak={streak} />
