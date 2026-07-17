@@ -34,23 +34,45 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   const [pending, start] = useTransition();
 
   // ── Voice ──
+  //
+  // The browser ends a SpeechRecognition session on its own — after a pause
+  // in speech, after a network hiccup, sometimes right after one utterance,
+  // even with continuous=true. Dictation must feel like "mic on until I turn
+  // it off", so sessions are treated as disposable: the transcript is OWNED
+  // here, split into three layers, and every session end auto-restarts while
+  // the operator still wants the mic.
+  //
+  //   baseTextRef   whatever was typed/present when the mic went on (or the
+  //                 operator hand-edited mid-dictation — that folds the whole
+  //                 composite back into base).
+  //   finalsRef     speech the engine FINALIZED, accumulated across every
+  //                 restarted session since mic-on. Never re-derived from the
+  //                 textarea, so a restart can never drop committed words.
+  //   interim       the current session's not-yet-final tail, display-only;
+  //                 promoted into finalsRef when a session ends so a timeout
+  //                 mid-phrase doesn't swallow the phrase.
+  //
+  // Restarts are attempted immediately, then on a small backoff ladder if
+  // start() throws (the engine can briefly report "already started"). A
+  // session that keeps dying instantly with no results (mic hardware or
+  // speech-service failure loop) trips the rapid-end guard and stops with a
+  // clear message instead of spinning silently. console.debug breadcrumbs
+  // ([qc-mic]) narrate the lifecycle for remote diagnosis.
   const [listening, setListening] = useState(false);
   const [voiceOk, setVoiceOk] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recRef = useRef<any>(null);
   const baseTextRef = useRef('');
-  // The browser ends a SpeechRecognition session on its own after a short
-  // silence, even with continuous=true — one spoken sentence, a breath, and
-  // onend fires. Dictation should feel like "mic on until I turn it off", so
-  // we track the OPERATOR's intent separately and auto-restart the session in
-  // onend while it's still wanted. wantRef is the intent; textRef mirrors the
-  // latest textarea value so each restarted session appends to what's already
-  // there (a new session resets resultIndex, so baseTextRef must be re-seeded
-  // at restart time, not from the stale value captured at mic-tap).
+  const finalsRef = useRef('');
+  // Current session's not-yet-final tail. Kept in a ref, written
+  // synchronously in onresult BEFORE setText, so the onend promotion never
+  // races React's render for the freshest words.
+  const interimRef = useRef('');
   const wantRef = useRef(false);
-  const textRef = useRef('');
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  textRef.current = text;
+  const restartAttemptRef = useRef(0);
+  const lastStartAtRef = useRef(0);
+  const rapidEndsRef = useRef(0);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,59 +87,124 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-US';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => {
-      let chunk = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        chunk += e.results[i][0].transcript;
-      }
-      const joined = (baseTextRef.current + ' ' + chunk).replace(/\s+/g, ' ').trimStart();
-      setText(joined);
+
+    const compose = (interim: string) =>
+      [baseTextRef.current, finalsRef.current, interim].join(' ').replace(/\s+/g, ' ').trim();
+
+    const giveUp = (message: string) => {
+      wantRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      setListening(false);
+      setError(message);
     };
-    rec.onend = () => {
-      // Session ended. If the operator still wants the mic, restart it and
-      // keep the button lit — this is the auto-timeout path, not a stop. The
-      // brief defer avoids InvalidStateError from an immediate start() on
-      // some engines. If they turned it off (or a fatal error cleared the
-      // intent), let it rest.
-      if (wantRef.current) {
-        restartTimerRef.current = setTimeout(() => {
-          if (!wantRef.current) return;
-          baseTextRef.current = textRef.current.trim();
-          try {
-            rec.start();
-          } catch {
-            wantRef.current = false;
-            setListening(false);
-            setError('Dictation stopped unexpectedly. Tap the mic to resume.');
-          }
-        }, 150);
+
+    // Restart the session after the browser ends it. Immediate first try;
+    // if start() throws (previous session still winding down), retry on a
+    // short ladder before giving up.
+    const RESTART_DELAYS_MS = [0, 150, 400, 1000];
+    const scheduleRestart = () => {
+      if (!wantRef.current) return;
+      const attempt = restartAttemptRef.current;
+      if (attempt >= RESTART_DELAYS_MS.length) {
+        console.debug('[qc-mic] restart ladder exhausted');
+        giveUp('Dictation keeps cutting out. What you said is kept — tap the mic to continue, or type the rest.');
         return;
       }
-      setListening(false);
+      restartTimerRef.current = setTimeout(() => {
+        if (!wantRef.current) return;
+        try {
+          rec.start();
+          console.debug('[qc-mic] restarted (attempt %d)', attempt);
+        } catch (err) {
+          console.debug('[qc-mic] restart start() threw (attempt %d): %s', attempt, String(err));
+          restartAttemptRef.current = attempt + 1;
+          scheduleRestart();
+        }
+      }, RESTART_DELAYS_MS[attempt]);
     };
+
+    rec.onstart = () => {
+      lastStartAtRef.current = Date.now();
+      restartAttemptRef.current = 0;
+      interimRef.current = '';
+      console.debug('[qc-mic] session started');
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          finalsRef.current = (finalsRef.current + ' ' + r[0].transcript).trim();
+        } else {
+          interim += r[0].transcript;
+        }
+      }
+      interimRef.current = interim;
+      rapidEndsRef.current = 0; // the engine is genuinely hearing us
+      setText(compose(interim));
+    };
+
+    // A session can end mid-phrase, before the engine finalizes the tail the
+    // operator just spoke. Promote that tail into the committed finals so no
+    // words are ever lost to a restart (or to tapping the mic off). Safe
+    // against double-counting: when the engine DOES finalize, the onresult
+    // that delivers the final also clears the interim it came from.
+    const promoteInterim = () => {
+      const tail = interimRef.current.trim();
+      if (tail) {
+        finalsRef.current = (finalsRef.current + ' ' + tail).trim();
+        interimRef.current = '';
+        setText(compose(''));
+      }
+    };
+
+    rec.onend = () => {
+      console.debug('[qc-mic] session ended (wanted=%s)', wantRef.current);
+      promoteInterim();
+      if (!wantRef.current) {
+        setListening(false);
+        return;
+      }
+      // A session that dies within a second of starting, repeatedly, with no
+      // results in between is a failure loop (dead mic, speech service down),
+      // not a silence timeout. Stop cleanly instead of spinning forever.
+      if (Date.now() - lastStartAtRef.current < 1000) {
+        rapidEndsRef.current += 1;
+        if (rapidEndsRef.current >= 5) {
+          console.debug('[qc-mic] rapid-end loop tripped');
+          giveUp('Dictation keeps cutting out in this browser. What you said is kept — type the rest, or try again in a bit.');
+          return;
+        }
+      }
+      scheduleRestart();
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onerror = (e: any) => {
       const code = e?.error;
+      console.debug('[qc-mic] error: %s (wanted=%s)', code, wantRef.current);
       // 'aborted' fires when we call stop() ourselves — not a real error.
-      // 'no-speech' is just a quiet stretch; onend follows and the restart
-      // loop keeps the session alive, so neither should kill dictation or
-      // nag the operator mid-thought.
-      if (code === 'aborted' || (code === 'no-speech' && wantRef.current)) return;
+      if (code === 'aborted') return;
+      // While the mic is wanted, quiet stretches and transient service blips
+      // ('no-speech', 'network') are the restart loop's job — onend follows
+      // every one of them, and the rapid-end guard catches a hard loop. Only
+      // genuinely fatal conditions stop the session and say something.
       if (code === 'not-allowed' || code === 'service-not-allowed') {
-        setError('Microphone access was blocked. Allow mic access in your browser, then try again.');
-      } else if (code === 'no-speech') {
-        setError('Didn’t catch anything — try again, or type instead.');
-      } else if (code === 'audio-capture') {
-        setError('No microphone found. Plug one in, or type instead.');
-      } else if (code) {
-        setError('Dictation stopped unexpectedly. Try again, or type instead.');
+        giveUp('Microphone access was blocked. Allow mic access in your browser, then try again.');
+        return;
       }
-      // Any error that reaches here is fatal to the session: clear the
-      // intent so onend doesn't fight the browser trying to restart.
-      wantRef.current = false;
-      setListening(false);
+      if (code === 'audio-capture') {
+        giveUp('No microphone found. Plug one in, or type instead.');
+        return;
+      }
+      if (!wantRef.current) {
+        if (code === 'no-speech') setError('Didn’t catch anything — try again, or type instead.');
+        else if (code) setError('Dictation stopped unexpectedly. Try again, or type instead.');
+      }
     };
+
     recRef.current = rec;
     return () => {
       wantRef.current = false;
@@ -141,7 +228,12 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       stopListening();
       return;
     }
+    // Fresh take: current textarea content is the typed base; the spoken
+    // layers start empty. All counters reset.
     baseTextRef.current = text.trim();
+    finalsRef.current = '';
+    restartAttemptRef.current = 0;
+    rapidEndsRef.current = 0;
     setError(null);
     try {
       wantRef.current = true;
@@ -152,6 +244,18 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       setError('Could not start dictation. Try again, or type instead.');
       setListening(false);
     }
+  }
+
+  /** Hand-edit while the mic is live: the edited text becomes the new base
+   *  and the spoken layers reset, so the next result can't resurrect the
+   *  pre-edit transcript over her correction. */
+  function handleTextEdit(value: string) {
+    if (listening || wantRef.current) {
+      baseTextRef.current = value;
+      finalsRef.current = '';
+      interimRef.current = '';
+    }
+    setText(value);
   }
 
   function process() {
@@ -233,6 +337,8 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
     setError(null);
     setDoneSummary(null);
     baseTextRef.current = '';
+    finalsRef.current = '';
+    interimRef.current = '';
   }
 
   const includedCount = items.filter((i) => i.include).length;
@@ -269,7 +375,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
             <div style={{ position: 'relative' }}>
               <textarea
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => handleTextEdit(e.target.value)}
                 rows={2}
                 aria-label="Quick capture note"
                 placeholder={'e.g. "Gate code is 4455, trash goes out Tuesdays, and the downstairs shower runs hot for a minute so let guests know."'}
