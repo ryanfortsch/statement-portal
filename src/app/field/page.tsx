@@ -344,17 +344,8 @@ export default async function FieldHome({
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      {/* Same hero as the Profile tab (shared component), with the marketplace
-          status as the one page-specific line. Earned-to-date lives on Profile. */}
-      <ContractorHeader
-        contractor={contractor}
-        rating={rating}
-        subline={
-          available.length > 0
-            ? `${available.length} ${available.length === 1 ? 'packet' : 'packets'} open near you`
-            : 'All quiet right now. We’ll text you when a packet near you posts.'
-        }
-      />
+      {/* Identical hero to the Profile tab (shared component, no extras). */}
+      <ContractorHeader contractor={contractor} rating={rating} />
 
       {/* Post-visit flag: only when a home is still in the 72h window, so the
           affordance appears exactly when it's usable. */}
