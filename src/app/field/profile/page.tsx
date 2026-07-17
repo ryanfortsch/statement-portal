@@ -63,7 +63,6 @@ export default async function FieldProfilePage() {
   const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
 
   const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
-  const firstName = contractor.full_name.split(' ')[0];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
@@ -95,7 +94,7 @@ export default async function FieldProfilePage() {
       </div>
 
       {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses. */}
-      <StreakBar streak={streak} firstName={firstName} />
+      <StreakBar streak={streak} />
 
       {/* Lifetime stats */}
       {hasActivity && (
@@ -174,7 +173,7 @@ export default async function FieldProfilePage() {
 }
 
 /** Milestone streak bar: fills toward day-5 (+$100) and day-10 (+$250). */
-function StreakBar({ streak, firstName }: { streak: StreakInfo | null; firstName: string }) {
+function StreakBar({ streak }: { streak: StreakInfo | null }) {
   const cap = STREAK_CYCLE_DAYS;
   const cyclePos = streak ? streak.cyclePos : 0;
   const days = streak?.days ?? 0;
@@ -183,7 +182,21 @@ function StreakBar({ streak, firstName }: { streak: StreakInfo | null; firstName
   return (
     <section style={{ marginBottom: 30, border: '1px solid var(--rule)', borderRadius: 16, padding: '20px 22px 18px', background: 'var(--paper-2, #fff)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h2 style={eyebrow}>Work streak</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ ...eyebrow, margin: 0 }}>Work streak</h2>
+          {/* Plain-HTML info popover (no client JS): tap the ⓘ, read one line. */}
+          <details style={{ position: 'relative', lineHeight: 0 }}>
+            <summary
+              aria-label="How the streak bonus works"
+              style={{ listStyle: 'none', cursor: 'pointer', width: 16, height: 16, borderRadius: '50%', border: '1px solid var(--ink-4)', color: 'var(--ink-4)', fontSize: 10, fontStyle: 'italic', fontFamily: 'Georgia, serif', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+            >
+              i
+            </summary>
+            <div style={{ position: 'absolute', top: 22, left: -8, zIndex: 5, width: 250, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, boxShadow: '0 8px 22px rgba(11,37,69,0.14)', padding: '10px 12px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              Work days in a row. Hit a milestone day and that bonus is added to that day&apos;s pay automatically.
+            </div>
+          </details>
+        </div>
         {streak ? (
           <span style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600 }}>
             {streak.nextIn} more {streak.nextIn === 1 ? 'day' : 'days'} → +{dollars(streak.nextBonusCents)}
@@ -248,11 +261,6 @@ function StreakBar({ streak, firstName }: { streak: StreakInfo | null; firstName
         })}
       </div>
 
-      <p style={{ fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5, margin: 0 }}>
-        {streak
-          ? `Nice run, ${firstName}. The bonus lands automatically on that day's packet.`
-          : `Work days back-to-back: ${STREAK_MILESTONES.map((m) => `day ${m.day} adds ${dollars(m.cents)}`).join(', ')} to that day's packet, automatically.`}
-      </p>
     </section>
   );
 }
