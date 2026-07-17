@@ -1276,6 +1276,24 @@ export async function setContractorBackgroundCheck(formData: FormData): Promise<
   revalidatePath('/operations/contractors');
 }
 
+/** Grant / revoke the property-work board (reveals the full portfolio, so
+ *  it's an explicit per-contractor approval, audited). */
+export async function setContractorWorkBoard(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const contractorId = String(formData.get('contractor_id') || '');
+  const grant = formData.get('grant') === 'true';
+  if (!contractorId) return;
+  await fieldDb()
+    .from('contractors')
+    .update({ work_board_access: grant, updated_at: new Date().toISOString() })
+    .eq('id', contractorId);
+  await fieldDb()
+    .from('packet_events')
+    .insert({ contractor_id: contractorId, actor_email: email, event_type: grant ? 'work_board_granted' : 'work_board_revoked' })
+    .then(() => {}, () => {});
+  revalidatePath('/operations/contractors');
+}
+
 export async function setContractorW9(formData: FormData): Promise<void> {
   await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');

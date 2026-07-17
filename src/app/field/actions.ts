@@ -98,6 +98,108 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   return { ok: true, home: visit.propertyName };
 }
 
+/** Gate for the property-work board: signed-in, active, office-granted. */
+async function boardContractor() {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor || contractor.status !== 'active' || !contractor.work_board_access) return null;
+  return contractor;
+}
+
+/** Mark a board slip done — the office-granted parity power ("mark some of
+ *  them done just like I can"). Closes the slip directly (no approval leg);
+ *  the audit event + attribution line keep the office in the loop. Slips
+ *  riding a live packet are refused server-side, not just hidden. */
+export async function completeBoardSlip(formData: FormData) {
+  const contractor = await boardContractor();
+  if (!contractor) redirect('/field');
+  const slipId = String(formData.get('slip_id') || '');
+  const note = String(formData.get('resolution') || '').trim().slice(0, 2000);
+  let photos: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
+    if (Array.isArray(parsed)) photos = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12);
+  } catch {
+    /* no photos */
+  }
+  if (!slipId) redirect('/field/property-work');
+
+  const { data: sData } = await fieldDb()
+    .from('work_slips')
+    .select('id, property_id, status, resolution_notes, photo_urls')
+    .eq('id', slipId)
+    .maybeSingle();
+  const slip = sData as { id: string; property_id: string | null; status: string; resolution_notes: string | null; photo_urls: string[] | null } | null;
+  if (!slip || !['open', 'in_progress'].includes(slip.status)) redirect('/field/property-work');
+
+  const { slipIdsOnLivePackets } = await import('@/lib/field-work-board');
+  const taken = await slipIdsOnLivePackets();
+  if (taken.has(slipId)) redirect('/field/property-work?ontrip=1');
+
+  const attribution = `Done by ${contractor.full_name} (Field)${note ? `: ${note}` : ''}`;
+  await fieldDb()
+    .from('work_slips')
+    .update({
+      status: 'done',
+      completed_at: new Date().toISOString(),
+      resolution_notes: slip.resolution_notes ? `${slip.resolution_notes}\n${attribution}` : attribution,
+      photo_urls: [...new Set([...(slip.photo_urls ?? []), ...photos])],
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', slipId);
+  await logEvent({
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId: slip.property_id,
+    eventType: 'board_slip_completed',
+    payload: { work_slip_id: slipId },
+  });
+  revalidatePath('/field/property-work');
+  revalidatePath('/work');
+  redirect('/field/property-work');
+}
+
+/** File a new slip from the board — any home, no 72-hour visit window (the
+ *  office grant IS the trust boundary here, unlike the post-visit report). */
+export async function createBoardSlip(formData: FormData) {
+  const contractor = await boardContractor();
+  if (!contractor) redirect('/field');
+  const propertyId = String(formData.get('property_id') || '').trim();
+  const title = String(formData.get('title') || '').trim();
+  const description = String(formData.get('description') || '').trim();
+  const priorityRaw = String(formData.get('priority') || 'normal');
+  const priority = (['low', 'normal', 'high'] as const).find((x) => x === priorityRaw) ?? 'normal';
+  let photos: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
+    if (Array.isArray(parsed)) photos = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12);
+  } catch {
+    /* no photos */
+  }
+  if (!propertyId || title.length < 3) redirect('/field/property-work');
+
+  await fieldDb().from('work_slips').insert({
+    property_id: propertyId,
+    title: title.slice(0, 200),
+    description: description ? description.slice(0, 4000) : null,
+    category: 'maintenance',
+    priority,
+    status: 'open',
+    photo_urls: photos,
+    created_by_email: contractor.email,
+    reported_by_contractor_id: contractor.id,
+  });
+  await logEvent({
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId,
+    eventType: 'board_slip_created',
+    payload: { title: title.slice(0, 200), priority },
+  });
+  revalidatePath('/field/property-work');
+  revalidatePath('/work');
+  redirect('/field/property-work');
+}
+
 async function reqContext() {
   const h = await headers();
   return {

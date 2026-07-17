@@ -70,6 +70,9 @@ export type ContractorRow = {
   service_radius_miles: number;
   photo_url: string | null;
   sms_opt_in: boolean; // receives "new work posted" texts (opt-out; default true)
+  // Office-granted access to the property-work board (reveals the full
+  // portfolio, so it's explicit per-contractor approval; default false).
+  work_board_access: boolean;
   payment_method: string | null;
   payment_hint: string | null;
   vendor_key: string | null;
