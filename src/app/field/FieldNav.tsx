@@ -23,8 +23,16 @@ const TABS: Array<{ href: string; label: string; match: (p: string) => boolean }
   },
 ];
 
-export function FieldNav() {
+// Office-granted only (work_board_access): the all-properties slip board.
+const PROPERTY_WORK_TAB = {
+  href: '/field/property-work',
+  label: 'Property work',
+  match: (p: string) => p.startsWith('/field/property-work'),
+};
+
+export function FieldNav({ showPropertyWork = false }: { showPropertyWork?: boolean }) {
   const path = usePathname() || '/field';
+  const tabs = showPropertyWork ? [TABS[0], PROPERTY_WORK_TAB, TABS[1]] : TABS;
   return (
     <nav
       style={{
@@ -33,7 +41,7 @@ export function FieldNav() {
         background: 'var(--paper)',
       }}
     >
-      {TABS.map((t) => {
+      {tabs.map((t) => {
         const active = t.match(path);
         return (
           <Link

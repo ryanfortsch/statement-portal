@@ -2,13 +2,14 @@ import Link from 'next/link';
 import { signOutField } from './actions';
 import { RyanContact } from './RyanContact';
 import { FieldNav } from './FieldNav';
+import { resolveContractorFromCookie } from '@/lib/field-auth';
 
 /**
  * Standalone shell for the contractor portal. Deliberately NOT the Helm
  * masthead — contractors never see internal chrome. Warm paper palette,
  * Fraunces wordmark, a single sign-out affordance.
  */
-export function FieldShell({
+export async function FieldShell({
   children,
   contractorName,
   showSignOut = true,
@@ -19,6 +20,10 @@ export function FieldShell({
   showSignOut?: boolean;
   showNav?: boolean;
 }) {
+  // The property-work tab is office-granted per contractor; the shell resolves
+  // it itself so every Field page shows a consistent tab set with no threading.
+  const shellContractor = contractorName ? await resolveContractorFromCookie().catch(() => null) : null;
+  const showPropertyWork = !!shellContractor?.work_board_access;
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -85,7 +90,7 @@ export function FieldShell({
           )}
         </div>
       </header>
-      {contractorName && showNav && <FieldNav />}
+      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>

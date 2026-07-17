@@ -16,7 +16,7 @@ import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
 import {
   inviteContractor,
-  setContractorW9,
+  setContractorW9, setContractorWorkBoard,
   setContractorBackgroundCheck,
   markContractorPaid,
   setContractorStatus,
@@ -476,6 +476,16 @@ function ContractorCard({
               <SubmitButton label="Reactivate" busyLabel="Reactivating…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
+          <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal — reveals the full portfolio, so grant deliberately">
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
+            <SubmitButton
+              label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
+              busyLabel="Saving…"
+              style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
+              spinnerTone="ink"
+            />
+          </form>
           <form action={resendInvite} style={{ margin: 0 }}>
             <input type="hidden" name="contractor_id" value={c.id} />
             <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
