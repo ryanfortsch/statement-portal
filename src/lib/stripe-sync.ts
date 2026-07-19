@@ -473,6 +473,13 @@ export async function syncPropertyStripe(opts: {
       for (const o of orphanCodes) {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) continue;
+        // SCA principal-payment links are auto-generated as "Stay at
+        // <name> - <dates>". When one misses its amount match (fee/tax
+        // drift, split charges) it's still a STAY payment, never an
+        // add-on -- queueing it would invite double-counting revenue the
+        // Guesty PDF already carries. The missing-charge gap on the
+        // reservation flags it instead.
+        if (/^stay at\b/i.test(agg.fullDesc)) continue;
         const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
         if (createdIso.slice(0, 7) !== month) continue;
         if (agg.refundedCents >= agg.grossCents) continue;
