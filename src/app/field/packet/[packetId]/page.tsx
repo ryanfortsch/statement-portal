@@ -10,6 +10,7 @@ import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
+import { RestockChecklist } from './RestockChecklist';
 import { StartStop } from './StartStop';
 import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
@@ -941,16 +942,38 @@ export default async function PacketPage({
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
               )}
-              {isMine && s.attachedSlips.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
-                    Also at this stop
+              {isMine && s.attachedSlips.length > 0 && (() => {
+                // Restocks are 10-second chores: a one-tap checklist, not a
+                // stack of full mark-done-with-photo cards drowning the real
+                // tasks. Anything non-inventory keeps the full card.
+                const restocks = s.attachedSlips.filter((a) => a.category === 'inventory');
+                const tasks = s.attachedSlips.filter((a) => a.category !== 'inventory');
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    {tasks.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
+                          Also at this stop
+                        </div>
+                        {tasks.map((a) => (
+                          <AttachedSlipCard key={a.attachmentId} packetId={packet.id} slip={a} isMine={isMine} />
+                        ))}
+                      </>
+                    )}
+                    {restocks.length > 0 && (
+                      <RestockChecklist
+                        packetId={packet.id}
+                        items={restocks.map((a) => ({
+                          attachmentId: a.attachmentId,
+                          title: a.title.replace(/^restock:\s*/i, ''),
+                          sub: a.bring_list ?? a.location,
+                          done: !!a.completedAt,
+                        }))}
+                      />
+                    )}
                   </div>
-                  {s.attachedSlips.map((a) => (
-                    <AttachedSlipCard key={a.attachmentId} packetId={packet.id} slip={a} isMine={isMine} />
-                  ))}
-                </div>
-              )}
+                );
+              })()}
             </div>
             {isMine && !s.workSlip && (
               <div className="rt-stop-action" style={{ flexShrink: 0 }}>

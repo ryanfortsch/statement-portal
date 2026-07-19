@@ -528,7 +528,7 @@ async function stopsWithProperties(
   if (stopIds.length) {
     const { data: att } = await fieldDb()
       .from('packet_stop_work_slips')
-      .select('id, stop_id, office_note, completed_at, ordering, created_at, work_slips(id, title, description, action_summary, bring_list, location, priority, photo_urls)')
+      .select('id, stop_id, office_note, completed_at, ordering, created_at, work_slips(id, title, description, action_summary, bring_list, location, priority, category, photo_urls)')
       .in('stop_id', stopIds)
       .order('ordering', { ascending: true })
       .order('created_at', { ascending: true });
