@@ -658,23 +658,23 @@ export default async function PacketPage({
       {/* While the trip is live, keep this view current without a manual
           reload — arrivals stamped by the door show up within ~20s. */}
       {working && !preview && <AutoRefresh />}
+      {/* One slim line, sticky: the code rides along without billboarding over
+          the page (the old full-height card + shadow hovered over everything
+          while she scrolled). Tap-to-copy stays — it's the code she punches at
+          every keypad. */}
       {working && packet.entry_code && (
-        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'linear-gradient(rgba(58,107,138,0.08), rgba(58,107,138,0.08)), var(--paper)', padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', position: 'sticky', top: 8, zIndex: 20, boxShadow: '0 6px 18px rgba(11,37,69,0.10)' }}>
-          <div>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-              Your entry code today
-            </div>
-            {packet.complete_by && (
-              <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>
-                Aim to finish by {fmtVisitTime(packet.complete_by)}
-              </div>
-            )}
-          </div>
-          {/* Tap-to-copy like every other code — this is the one the inspector
-              actually punches at every keypad, at peak stress. */}
-          <span style={{ fontSize: 26, letterSpacing: '0.14em', color: 'var(--tide-deep)' }}>
+        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 999, background: 'var(--paper)', padding: '7px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 8, zIndex: 20, boxShadow: '0 2px 8px rgba(11,37,69,0.08)' }}>
+          <span style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', flexShrink: 0 }}>
+            Entry code
+          </span>
+          <span style={{ fontSize: 18, letterSpacing: '0.14em', color: 'var(--tide-deep)' }}>
             <CopyCode value={packet.entry_code} />
           </span>
+          {packet.complete_by && (
+            <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginLeft: 'auto' }}>
+              finish by {fmtVisitTime(packet.complete_by)}
+            </span>
+          )}
         </div>
       )}
 
