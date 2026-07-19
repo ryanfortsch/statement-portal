@@ -5,12 +5,12 @@ import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type AttachedSlip } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
-import { RestockChecklist } from './RestockChecklist';
+import { StopWorkList } from './StopWorkList';
 import { StartStop } from './StartStop';
 import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
@@ -227,36 +227,6 @@ function AdhocScope() {
 /** An extra work slip the office attached to a stop: title, details, the
  *  per-attachment office note, and (for the assigned inspector, until done) a
  *  completion form keyed to the attachment, not the stop. */
-function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: AttachedSlip; isMine: boolean }) {
-  const done = !!slip.completedAt;
-  return (
-    <div style={{ borderBottom: '1px solid var(--rule-soft, var(--rule))', padding: '12px 0' }}>
-      {/* Same row discipline as the restock list: title line, quiet meta, then
-          one compact action. No floating fragments. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-        <span style={{ fontSize: 14.5, color: done ? 'var(--ink-4)' : 'var(--ink)', fontWeight: 500, textDecoration: done ? 'line-through' : 'none' }}>
-          {slip.title}
-          {slip.location && <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> · {slip.location}</span>}
-        </span>
-        {done && <span style={{ fontSize: 12, color: 'var(--positive)', flexShrink: 0 }}>✓ Done</span>}
-      </div>
-      {slip.bring_list && (
-        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>
-          <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{slip.bring_list}
-        </div>
-      )}
-      {slip.officeNote && (
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, lineHeight: 1.5 }}>
-          <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>Note: </span>{slip.officeNote}
-        </div>
-      )}
-      {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={44} />}
-      {isMine && !done && (
-        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" photoNudge compact />
-      )}
-    </div>
-  );
-}
 
 /** The supply-closet entry code, tap-to-copy. Renders only when the code is
  *  configured (env var). Lives inside the supply cards, which only show to the
@@ -810,7 +780,7 @@ export default async function PacketPage({
                     </div>
                   )}
                   {/* Location only — priority is office triage detail, not
-                      door-side instruction (matches AttachedSlipCard). */}
+                      door-side instruction (same manners as the stop work list). */}
                   {s.workSlip.location && (
                     <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{s.workSlip.location}</div>
                   )}
@@ -954,38 +924,21 @@ export default async function PacketPage({
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
               )}
-              {isMine && s.attachedSlips.length > 0 && (() => {
-                // Restocks are 10-second chores: a one-tap checklist, not a
-                // stack of full mark-done-with-photo cards drowning the real
-                // tasks. Anything non-inventory keeps the full card.
-                const restocks = s.attachedSlips.filter((a) => a.category === 'inventory');
-                const tasks = s.attachedSlips.filter((a) => a.category !== 'inventory');
-                return (
-                  <div style={{ marginTop: 14 }}>
-                    {tasks.length > 0 && (
-                      <>
-                        <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
-                          Also at this stop
-                        </div>
-                        {tasks.map((a) => (
-                          <AttachedSlipCard key={a.attachmentId} packetId={packet.id} slip={a} isMine={isMine} />
-                        ))}
-                      </>
-                    )}
-                    {restocks.length > 0 && (
-                      <RestockChecklist
-                        packetId={packet.id}
-                        items={restocks.map((a) => ({
-                          attachmentId: a.attachmentId,
-                          title: a.title.replace(/^restock:\s*/i, ''),
-                          sub: a.bring_list ?? a.location,
-                          done: !!a.completedAt,
-                        }))}
-                      />
-                    )}
-                  </div>
-                );
-              })()}
+              {isMine && s.attachedSlips.length > 0 && (
+                <StopWorkList
+                  packetId={packet.id}
+                  items={s.attachedSlips.map((a) => ({
+                    attachmentId: a.attachmentId,
+                    title: a.category === 'inventory' ? a.title.replace(/^restock:\s*/i, '') : a.title,
+                    sub: a.location,
+                    bring: a.bring_list,
+                    note: a.officeNote,
+                    thumbs: a.photo_urls ?? [],
+                    done: !!a.completedAt,
+                    kind: a.category === 'inventory' ? ('restock' as const) : ('task' as const),
+                  }))}
+                />
+              )}
             </div>
             {isMine && !s.workSlip && (
               <div className="rt-stop-action" style={{ flexShrink: 0 }}>
