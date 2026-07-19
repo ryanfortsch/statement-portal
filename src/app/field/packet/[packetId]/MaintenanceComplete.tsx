@@ -11,13 +11,13 @@ import { completeMaintenanceStop, completeAttachedSlip } from '../../actions';
  * gated on writing prose). Serves a maintenance STOP (stopId) and an ATTACHED
  * slip riding on any stop (attachmentId).
  */
-function DoneButton({ label }: { label: string }) {
+function DoneButton({ label, compact = false }: { label: string; compact?: boolean }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
       disabled={pending}
-      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: pending ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '10px 18px', minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
+      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: compact ? 6 : 0, cursor: pending ? 'wait' : 'pointer', fontSize: compact ? 10.5 : 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: compact ? '8px 14px' : '10px 18px', minHeight: compact ? 34 : 40, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
     >
       {pending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
       {pending ? 'Saving…' : label}
@@ -32,12 +32,15 @@ export function MaintenanceComplete({
   label = 'Mark done',
   placeholder,
   photoNudge = false,
+  compact = false,
 }: {
   packetId: string;
   stopId?: string;
   attachmentId?: string;
   label?: string;
   placeholder?: string;
+  /** Row-sized: smaller button + tighter top margin, for task list rows. */
+  compact?: boolean;
   /** For real repair/task work slips: lead with a photo prompt of the FINISHED
    *  work (still optional — Mark done never blocks on it). */
   photoNudge?: boolean;
@@ -46,7 +49,7 @@ export function MaintenanceComplete({
   const [showDetail, setShowDetail] = useState(false);
   const isAttachment = !!attachmentId;
   return (
-    <form action={isAttachment ? completeAttachedSlip : completeMaintenanceStop} style={{ margin: '10px 0 0' }}>
+    <form action={isAttachment ? completeAttachedSlip : completeMaintenanceStop} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
       <input type="hidden" name="packet_id" value={packetId} />
       {isAttachment ? (
         <input type="hidden" name="attachment_id" value={attachmentId} />
@@ -76,7 +79,7 @@ export function MaintenanceComplete({
       )}
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <DoneButton label={label} />
+        <DoneButton label={label} compact={compact} />
         {!showDetail && (
           <button
             type="button"
