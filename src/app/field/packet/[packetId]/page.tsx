@@ -20,6 +20,24 @@ import { PhotoThumbs } from '@/components/PhotoUploader';
 import { AutoRefresh } from '@/components/AutoRefresh';
 
 // Office phone for the door-side "stuck? call us" fallbacks.
+// The stop's uniform access affordance: link, fact, or tap-open detail all
+// share this one chip so the access row reads as a single system.
+const chip: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--tide-deep)',
+  textDecoration: 'none',
+  border: '1px solid var(--rule)',
+  borderRadius: 999,
+  padding: '8px 14px',
+  minHeight: 38,
+  background: 'var(--paper-2, #fff)',
+  cursor: 'pointer',
+};
+
 const OFFICE_TEL = '+19788652387';
 
 /** A geocodable maps target for a stop, or null when we have neither coords nor
@@ -212,29 +230,29 @@ function AdhocScope() {
 function AttachedSlipCard({ packetId, slip, isMine }: { packetId: string; slip: AttachedSlip; isMine: boolean }) {
   const done = !!slip.completedAt;
   return (
-    <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 10 }}>
+    <div style={{ borderBottom: '1px solid var(--rule-soft, var(--rule))', padding: '12px 0' }}>
+      {/* Same row discipline as the restock list: title line, quiet meta, then
+          one compact action. No floating fragments. */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+        <span style={{ fontSize: 14.5, color: done ? 'var(--ink-4)' : 'var(--ink)', fontWeight: 500, textDecoration: done ? 'line-through' : 'none' }}>
+          {slip.title}
+          {slip.location && <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> · {slip.location}</span>}
+        </span>
         {done && <span style={{ fontSize: 12, color: 'var(--positive)', flexShrink: 0 }}>✓ Done</span>}
       </div>
-      {/* Deliberately spare at the door: title + where + what to bring + any
-          office note. Priority and Supplies-Check provenance are office detail. */}
-      {slip.location && (
-        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{slip.location}</div>
-      )}
       {slip.bring_list && (
-        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>
           <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{slip.bring_list}
         </div>
       )}
       {slip.officeNote && (
-        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '6px 10px', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, lineHeight: 1.5 }}>
           <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>Note: </span>{slip.officeNote}
         </div>
       )}
-      {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={56} />}
+      {slip.photo_urls && slip.photo_urls.length > 0 && <PhotoThumbs urls={slip.photo_urls} size={44} />}
       {isMine && !done && (
-        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" photoNudge />
+        <MaintenanceComplete packetId={packetId} attachmentId={slip.attachmentId} label="Mark done" photoNudge compact />
       )}
     </div>
   );
@@ -875,19 +893,7 @@ export default async function PacketPage({
                   );
                 })()
               )}
-              {isMine && (() => {
-                const href = mapsUrl(s);
-                return href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', marginTop: 8, border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}
-                  >
-                    Open in Maps ↗
-                  </a>
-                ) : null;
-              })()}
+
               {isMine && occupiedStops.has(s.id) && s.status !== 'complete' && (
                 <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
                   A guest may be in this home today. Call the office to confirm it&apos;s safe to enter.
@@ -902,42 +908,48 @@ export default async function PacketPage({
                   </div>
                 </div>
               )}
-              {isMine && (codedProps.has(s.property_id) ? (
-                <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(46,125,79,0.06)', borderLeft: '3px solid var(--positive, #2e7d4f)' }}>
-                  <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    🔒 Smart lock: your trip code opens this door.
-                  </div>
+              {/* One access row, one visual language: every affordance is the
+                  same quiet chip (Maps link, lock fact, tap-open arrival /
+                  get-in / supply-closet details). The old stack was four
+                  different styles in five rows; this is the sloppiness fix. */}
+              {isMine && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
+                  {(() => {
+                    const href = mapsUrl(s);
+                    return href ? (
+                      <a href={href} target="_blank" rel="noopener noreferrer" style={chip}>
+                        Maps ↗
+                      </a>
+                    ) : null;
+                  })()}
+                  {codedProps.has(s.property_id) && (
+                    <span style={{ ...chip, color: 'var(--positive)', cursor: 'default' }}>🔒 Trip code opens door</span>
+                  )}
+                  {!codedProps.has(s.property_id) && s.access && (
+                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
+                      <summary style={{ ...chip, listStyle: 'none' }}>🔑 How to get in</summary>
+                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560 }}>
+                        <AccessLines a={s.access} />
+                      </div>
+                    </details>
+                  )}
+                  {s.access?.arrival && (
+                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
+                      <summary style={{ ...chip, listStyle: 'none' }}>ⓘ Arrival &amp; parking</summary>
+                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                        {s.access.arrival}
+                      </div>
+                    </details>
+                  )}
+                  {s.property.supply_closet_location && (
+                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
+                      <summary style={{ ...chip, listStyle: 'none' }}>📦 Supply closet</summary>
+                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                        {s.property.supply_closet_location}
+                      </div>
+                    </details>
+                  )}
                 </div>
-              ) : s.access ? (
-                <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--rule)' }}>
-                  <AccessLines a={s.access} />
-                </div>
-              ) : null)}
-              {/* Arrival + parking, colleague tone (synthesized from what we
-                  tell guests). <details>, not a button: it stays tappable in
-                  the read-only office preview. */}
-              {isMine && s.access?.arrival && (
-                <details style={{ marginTop: 8 }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 4px', minHeight: 36 }}>
-                    ⓘ Arrival &amp; parking
-                  </summary>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px', marginTop: 4, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                    {s.access.arrival}
-                  </div>
-                </details>
-              )}
-              {/* Where this home keeps its supplies — a tap-open note for the
-                  supplies-and-inventory pass. Signal accent ties it to that
-                  pillar. Claim-gated + masked pre-claim like the rest. */}
-              {isMine && s.property.supply_closet_location && (
-                <details style={{ marginTop: 8 }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--signal)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 4px', minHeight: 36 }}>
-                    📦 Supply closet
-                  </summary>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '8px 12px', marginTop: 4, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                    {s.property.supply_closet_location}
-                  </div>
-                </details>
               )}
               {isMine && s.workSlip && s.status !== 'complete' && (
                 <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
