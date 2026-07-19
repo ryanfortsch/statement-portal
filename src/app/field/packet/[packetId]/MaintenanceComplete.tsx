@@ -81,13 +81,12 @@ export function MaintenanceComplete({
           <button
             type="button"
             onClick={() => setShowDetail(true)}
-            style={
-              photoNudge
-                ? { background: 'var(--paper)', border: '1px solid var(--tide)', borderRadius: 999, cursor: 'pointer', padding: '9px 15px', minHeight: 40, fontSize: 12.5, fontWeight: 600, color: 'var(--tide-deep)', display: 'inline-flex', alignItems: 'center', gap: 6 }
-                : { background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }
-            }
+            // One loud button per task: Mark done. The photo prompt is a quiet
+            // link either way — photoNudge only changes the wording and the
+            // photo-first ordering inside the expanded detail.
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12.5, color: photoNudge ? 'var(--tide-deep)' : 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3 }}
           >
-            {photoNudge ? '📷 Add a photo of your work' : '+ add note or photo'}
+            {photoNudge ? '📷 add a photo' : '+ add note or photo'}
           </button>
         )}
       </div>
