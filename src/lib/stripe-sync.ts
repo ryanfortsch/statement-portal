@@ -31,6 +31,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { loadAddOnTotals } from './statement-addons';
 
 export type StripeSyncResult = {
   property_id: string;
@@ -70,7 +71,55 @@ type ReservationRow = {
   stripe_fee: number | null;
   adjusted_revenue: number | null;
   bank_match_status: string | null;
+  check_in: string | null;
+  check_out: string | null;
 };
+
+/**
+ * Suggest which reservation a one-off Stripe charge (early check-in,
+ * extra night, pet fee sold via a custom Payment Link) belongs to.
+ *
+ * Signal order:
+ *   1. Guest-name token in the charge description (she usually types the
+ *      guest's name into the link description) -- wins when exactly one
+ *      reservation's guest matches.
+ *   2. Charge date against the stay window. In-stay charges score 0
+ *      (extensions are charged mid-stay); otherwise distance in days to
+ *      the nearest stay edge (early check-in links are charged a few
+ *      days before arrival). Nearest stay within 7 days wins.
+ *
+ * Purely a suggestion -- the operator confirms or overrides in the
+ * review queue, so a wrong guess costs one dropdown change.
+ */
+function suggestReservationForCharge(
+  reservations: ReservationRow[],
+  chargeIso: string,
+  description: string,
+): string | null {
+  const descLower = description.toLowerCase();
+  const nameHits = reservations.filter(r => {
+    const tokens = (r.guest_name || '').toLowerCase().split(/\s+/).filter(t => t.length >= 3);
+    return tokens.some(t => descLower.includes(t));
+  });
+  if (nameHits.length === 1 && nameHits[0].confirmation_code) return nameHits[0].confirmation_code;
+
+  const chargeMs = new Date(chargeIso + 'T00:00:00Z').getTime();
+  const DAY = 86400000;
+  let best: string | null = null;
+  let bestDist = Infinity;
+  const pool = nameHits.length > 1 ? nameHits : reservations;
+  for (const r of pool) {
+    if (!r.confirmation_code || !r.check_in || !r.check_out) continue;
+    const ci = new Date(r.check_in + 'T00:00:00Z').getTime();
+    const co = new Date(r.check_out + 'T00:00:00Z').getTime();
+    if (!Number.isFinite(ci) || !Number.isFinite(co)) continue;
+    const dist = chargeMs >= ci && chargeMs <= co
+      ? 0
+      : Math.min(Math.abs(chargeMs - ci), Math.abs(chargeMs - co));
+    if (dist < bestDist) { bestDist = dist; best = r.confirmation_code; }
+  }
+  return bestDist <= 7 * DAY ? best : null;
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -179,7 +228,7 @@ export async function syncPropertyStripe(opts: {
     // on and emit gaps for.
     const { data: rRes } = await supabase
       .from('reservations')
-      .select('id, confirmation_code, platform, guest_name, property_statement_id, guesty_rental_income, stripe_fee, adjusted_revenue, bank_match_status')
+      .select('id, confirmation_code, platform, guest_name, property_statement_id, guesty_rental_income, stripe_fee, adjusted_revenue, bank_match_status, check_in, check_out')
       .eq('property_statement_id', stmt.id);
     const reservations: ReservationRow[] = (rRes || []) as ReservationRow[];
     const byCode = new Map<string, ReservationRow>();
@@ -261,7 +310,7 @@ export async function syncPropertyStripe(opts: {
     // "Stay" pile and defeat the amount-based fallback below. Keep those
     // atomic by using the charge id as the grouping key.
     const GUESTY_CODE = /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]+/;
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string };
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean };
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
@@ -278,7 +327,7 @@ export async function syncPropertyStripe(opts: {
       const code = looksLikeCode ? firstToken : charge.id;
       const displayLabel = looksLikeCode ? firstToken : (desc.length > 48 ? desc.slice(0, 45) + '…' : desc);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: desc, createdUnix: charge.created, isGuestyCoded: looksLikeCode };
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
@@ -344,6 +393,11 @@ export async function syncPropertyStripe(opts: {
     // reservation, compute the expected Stripe gross and look for an
     // orphan charge that matches within $1. Only links if exactly one
     // orphan matches -- ambiguity falls through to the missing-charge gap.
+    //
+    // Charge-id-keyed orphans linked here get their dedupe keys recorded
+    // so any pending review-queue row from a PRIOR sync (when the charge
+    // was still orphan) is cleaned up below.
+    const linkedOrphanKeys: string[] = [];
     for (const r of reservations) {
       if (matchedCodes.has(r.confirmation_code)) continue;
       const p = (r.platform || '').toUpperCase();
@@ -372,6 +426,7 @@ export async function syncPropertyStripe(opts: {
       result.matched += 1;
       orphanCodes.splice(orphanCodes.indexOf(orphan), 1);
       byCodeAgg.delete(orphan.code);
+      if (!agg.isGuestyCoded) linkedOrphanKeys.push(`stripe:${orphan.code}`);
 
       // Replace the approximated fee with Stripe's actual whenever the
       // balance_transaction was returned -- same write the description-
@@ -398,6 +453,75 @@ export async function syncPropertyStripe(opts: {
 
     result.unmatched_charges = orphanCodes.map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
 
+    // One-off Payment Link charges (early check-in, extra night, pet fee
+    // charged outside Guesty) used to evaporate here: listed once in
+    // unmatched_charges, then gone. Persist them into the same operator
+    // review queue the bank-side leftovers use, so they can be attributed
+    // to a reservation as add-on revenue or dismissed. Scope:
+    //   - charge-id-keyed orphans only (custom descriptions). Guesty-coded
+    //     orphans stay transient -- they're usually a sync-timing race on
+    //     a future stay, not real off-statement money.
+    //   - created inside the statement month, so a 6-months-back charge
+    //     doesn't spam every later month's queue.
+    //   - amount is the NET the account keeps (gross - refunds - actual
+    //     Stripe fee), matching how Manual/VRBO stay revenue is recognized.
+    // dedupe_key `stripe:<charge_id>` + ignoreDuplicates keeps re-syncs
+    // idempotent and preserves operator decisions. Tolerates the table
+    // not existing (pre-migration env) without failing the sync.
+    try {
+      const queueRows: Record<string, unknown>[] = [];
+      for (const o of orphanCodes) {
+        const agg = byCodeAgg.get(o.code);
+        if (!agg || agg.isGuestyCoded) continue;
+        const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
+        if (createdIso.slice(0, 7) !== month) continue;
+        if (agg.refundedCents >= agg.grossCents) continue;
+        const netCents = agg.grossCents - agg.refundedCents - (agg.feeKnown ? agg.feeCents : 0);
+        if (netCents <= 0) continue;
+        const gross = round2(agg.grossCents / 100);
+        const feeNote = agg.feeKnown ? `$${round2(agg.feeCents / 100).toFixed(2)} Stripe fee` : 'fee pending';
+        const refundNote = agg.refundedCents > 0 ? `, $${round2(agg.refundedCents / 100).toFixed(2)} refunded` : '';
+        queueRows.push({
+          property_id: propertyId,
+          month,
+          deposit_date: createdIso,
+          amount: round2(netCents / 100),
+          description: `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote})`.slice(0, 300),
+          source: 'stripe_charge',
+          suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
+          dedupe_key: `stripe:${o.code}`,
+        });
+      }
+      if (queueRows.length > 0) {
+        const { error: qErr } = await supabase
+          .from('bank_deposit_attributions')
+          .upsert(queueRows, { onConflict: 'dedupe_key', ignoreDuplicates: true });
+        if (qErr && qErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(qErr.message || '')) {
+          console.warn('stripe orphan review-queue insert failed:', qErr.message);
+        }
+      }
+      // A charge queued while orphan can later match a reservation (the
+      // amount fallback links it once the reservation data is fixed).
+      // Drop its still-pending queue row so the same money can't be
+      // attributed twice. Rows the operator already attributed or
+      // dismissed are left alone.
+      if (linkedOrphanKeys.length > 0) {
+        const { error: delErr } = await supabase
+          .from('bank_deposit_attributions')
+          .delete()
+          .in('dedupe_key', linkedOrphanKeys)
+          .eq('status', 'pending')
+          .eq('source', 'stripe_charge');
+        if (delErr && delErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(delErr.message || '')) {
+          console.warn('stripe orphan review-queue cleanup failed:', delErr.message);
+        }
+      }
+    } catch (queueErr) {
+      // Queue persistence must never fail the sync -- fee corrections and
+      // gap reporting matter more than the review queue.
+      console.warn('stripe orphan review-queue error:', queueErr instanceof Error ? queueErr.message : queueErr);
+    }
+
     // Reservations we expected a Stripe charge for but didn't find --
     // VRBO / Manual non-homeowner stays only.
     for (const r of reservations) {
@@ -414,19 +538,33 @@ export async function syncPropertyStripe(opts: {
       });
     }
 
-    // Recompute statement totals if any fees changed.
+    // Recompute statement totals if any fees changed. Uses the canonical
+    // formula (same as the bank-deposits / receipts / reserve routes):
+    // attributed add-ons join the revenue + fee base, attributed debits
+    // and the reserve come off the payout. A statement with no
+    // attributions gets zeros for all three terms and lands on numbers
+    // identical to the pre-add-on formula.
     if (result.fee_updates.length > 0) {
       const { data: freshRes } = await supabase
         .from('reservations')
         .select('adjusted_revenue')
         .eq('property_statement_id', stmt.id);
       const newRentalRevenue = round2((freshRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-      const newMgmtFee = round2(newRentalRevenue * (stmt.management_fee_pct / 100));
-      const reserveHoldback = Number(stmt.reserve_holdback ?? 0);
-      const newOwnerPayout = round2(newRentalRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
+      const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
+      const newMgmtFee = round2((newRentalRevenue + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
+      // Read the live reserve rather than trusting opts: fill-gap's
+      // callers don't thread reserve_holdback through, and a stale/missing
+      // value here silently paid the owner their withheld reserve.
+      const { data: freshStmt } = await supabase
+        .from('property_statements')
+        .select('reserve_holdback')
+        .eq('id', stmt.id)
+        .maybeSingle();
+      const reserveHoldback = Number((freshStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? stmt.reserve_holdback ?? 0);
+      const newOwnerPayout = round2(newRentalRevenue + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback);
       await supabase
         .from('property_statements')
-        .update({ rental_revenue: newRentalRevenue, management_fee: newMgmtFee, owner_payout: newOwnerPayout })
+        .update({ rental_revenue: newRentalRevenue, add_ons_revenue: addOnsRevenue, attributed_debits_total: attributedDebits, management_fee: newMgmtFee, owner_payout: newOwnerPayout })
         .eq('id', stmt.id);
     }
 

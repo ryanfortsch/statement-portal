@@ -1120,11 +1120,15 @@ function PropertyCard({
   month,
   ownerActionCount,
   onRefresh,
+  reviewRefresh = 0,
 }: {
   prop: PropertyStatement;
   month: string;
   ownerActionCount: number;
   onRefresh: () => void;
+  // Bumped by the dashboard on every period reload so the deposit-review
+  // queue refetches (syncs can land new pending rows).
+  reviewRefresh?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -1541,6 +1545,7 @@ function PropertyCard({
               propertyId={prop.property_id}
               month={month}
               reservations={(prop.reservations || []).map(r => ({ confirmation_code: r.confirmation_code, guest_name: r.guest_name }))}
+              refreshToken={reviewRefresh}
             />
           )}
 
@@ -1828,6 +1833,9 @@ function DashboardContent() {
   >(null);
   const [lastSync, setLastSync] = useState<Record<string, string>>({});
   const [syncingStripe, setSyncingStripe] = useState(false);
+  // Incremented on every period (re)load; threads into BankDepositReview
+  // so the pending queue refetches after syncs land new rows.
+  const [reviewRefresh, setReviewRefresh] = useState(0);
   const [stripeSyncResult, setStripeSyncResult] = useState<
     | {
         properties: number;
@@ -1953,6 +1961,9 @@ function DashboardContent() {
 
   const loadPeriod = useCallback(async (month: string) => {
     setLoading(true);
+    // Bump the review-queue token so each BankDepositReview refetches --
+    // a Sync Stripe / ingest run may have queued new one-off charges.
+    setReviewRefresh(n => n + 1);
     try {
       const { data: periodData, error: periodError } = await supabase
         .from('statement_periods').select('*').eq('month', month).single();
@@ -3705,6 +3716,7 @@ function DashboardContent() {
             {stripeSyncResult.refunds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.refunds} refund{stripeSyncResult.refunds === 1 ? '' : 's'} flagged</span>}
             {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
             {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
+            {stripeSyncResult.orphan_charges > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.orphan_charges} unmatched charge{stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card</span>}
             {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.missing_charges === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
             {stripeSyncResult.errors.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
@@ -3793,6 +3805,7 @@ function DashboardContent() {
                 month={selectedMonth}
                 ownerActionCount={ownerActionCounts[prop.property_id] ?? 0}
                 onRefresh={() => loadPeriod(selectedMonth)}
+                reviewRefresh={reviewRefresh}
               />
             ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />

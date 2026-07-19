@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { loadAddOnTotals } from '@/lib/statement-addons';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 
 /**
@@ -439,10 +440,12 @@ async function fillPlatformGap(args: {
   // 5. Recompute the statement totals. Management fee follows whatever
   //    totalRevenue now is; owner payout nets out cleaning + repairs
   //    (unchanged from the prior run, since platform CSV doesn't touch
-  //    bank-sourced cleaning).
-  const managementFee = round2(totalRevenue * (stmt.management_fee_pct / 100));
+  //    bank-sourced cleaning). Attributed add-ons / debits fold in via
+  //    the canonical terms so a patch can't clobber reviewed revenue.
+  const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
+  const managementFee = round2((totalRevenue + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
   const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-  const ownerPayout = round2(totalRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
+  const ownerPayout = round2(totalRevenue + addOnsRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback);
   const numStays = reservations.filter(r => {
     const ch = changes.find(c => c.id === r.id);
     const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
@@ -496,6 +499,7 @@ async function fillPlatformGap(args: {
           management_fee_pct: stmt.management_fee_pct,
           cleaning_total: stmt.cleaning_total,
           repairs_total: stmt.repairs_total,
+          reserve_holdback: reserveHoldback,
         },
       });
       if (stripeSync.fee_updates.length > 0) {
@@ -896,10 +900,13 @@ export async function POST(request: NextRequest) {
     // 7. Update the property_statements row with the new bank-derived fields.
     //    rental_revenue + management_fee are unchanged (those come from Guesty,
     //    which we haven't touched). cleaning_total + repairs_total change,
-    //    owner_payout recomputes from both.
+    //    owner_payout recomputes from both, keeping attributed add-on
+    //    revenue and debits in the equation so a bank re-upload can't
+    //    clobber reviewed money.
     const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
+    const { addOnsRevenue: bankAddOns, attributedDebits: bankDebits } = await loadAddOnTotals(supabase, propertyId, month);
     const newOwnerPayout =
-      Math.round(((stmt.rental_revenue || 0) - (stmt.management_fee || 0) - cleaningTotal - repairsTotal - reserveHoldback) * 100) / 100;
+      Math.round(((stmt.rental_revenue || 0) + bankAddOns - (stmt.management_fee || 0) - cleaningTotal - repairsTotal - bankDebits - reserveHoldback) * 100) / 100;
 
     // Confidence: green if we now have all three sources. We don't know
     // about has_platform_csv here without reading the existing row, but
@@ -998,6 +1005,7 @@ export async function POST(request: NextRequest) {
             management_fee_pct: stmt.management_fee_pct,
             cleaning_total: cleaningTotal,
             repairs_total: repairsTotal,
+            reserve_holdback: reserveHoldback,
           },
         });
         if (stripeSync.fee_updates.length > 0) {

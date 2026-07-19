@@ -276,7 +276,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .select('attributed_reservation_code, amount, label')
     .eq('property_id', prop.property_id)
     .eq('month', prop.month)
-    .eq('status', 'attributed');
+    .eq('status', 'attributed')
+    // Deposits only: an attributed DEBIT tagged to a reservation belongs in
+    // the deduction totals, not as a "+" add-on line under the guest.
+    .eq('direction', 'deposit');
   const addOnsByCode = new Map<string, { label: string; amount: number }[]>();
   if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
     for (const a of addOnRows || []) {
