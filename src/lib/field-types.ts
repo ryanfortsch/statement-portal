@@ -197,6 +197,9 @@ export type WorkSlipLite = {
   bring_list: string | null;
   location: string | null;
   priority: string;
+  /** 'inventory' = a restock chore (renders as a one-tap checklist row on the
+   *  packet, not a full task card). */
+  category: string;
   photo_urls: string[];
 };
 
