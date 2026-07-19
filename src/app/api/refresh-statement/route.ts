@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { loadAddOnTotals } from '@/lib/statement-addons';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -178,10 +179,14 @@ export async function POST(request: NextRequest) {
       .select('adjusted_revenue, nights')
       .eq('property_statement_id', stmt.id);
     const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-    const newMgmtFee = round2(newRentalRev * (stmt.management_fee_pct / 100));
+    // Attributed add-ons / debits stay in the equation (canonical formula,
+    // same as the bank-deposits + reserve routes) so a refresh can't
+    // clobber reviewed revenue.
+    const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
+    const newMgmtFee = round2((newRentalRev + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
     const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
     const newOwnerPayout = round2(
-      newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback,
+      newRentalRev + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback,
     );
     const newNumStays = (allRes || []).filter(r => (r.adjusted_revenue || 0) > 0).length;
     const newNightsBooked = (allRes || []).reduce((s, r) => s + (r.nights || 0), 0);

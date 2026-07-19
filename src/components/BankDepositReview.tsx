@@ -42,12 +42,29 @@ function fmtMoney(n: number): string {
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Default label for a one-off Stripe payment-link charge, inferred from
+ * the description the operator typed into the link. Best-effort -- the
+ * label field stays editable either way.
+ */
+function inferStripeLabel(description: string | null): string {
+  const d = (description || '').toLowerCase();
+  if (/early\s*check/.test(d)) return 'Early check-in';
+  if (/late\s*check/.test(d)) return 'Late checkout';
+  if (/extra\s*(night|day)|extension|extend|added?\s*(night|day)/.test(d)) return 'Extra night';
+  if (/pet\s*fee|\bpet\b|\bdog\b/.test(d)) return 'Pet fee';
+  return 'Add-on';
+}
+
 export function BankDepositReview({
-  propertyId, month, reservations,
+  propertyId, month, reservations, refreshToken = 0,
 }: {
   propertyId: string;
   month: string;
   reservations: ReservationOption[];
+  // Bump to force a refetch (the dashboard increments it on every period
+  // reload so charges queued by a just-finished sync appear immediately).
+  refreshToken?: number;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<Deposit[] | null>(null);
@@ -78,7 +95,7 @@ export function BankDepositReview({
       return;
     }
     setItems(((data || []) as Deposit[]).map(d => ({ ...d, direction: d.direction || 'deposit' })));
-  }, [propertyId, month]);
+  }, [propertyId, month, refreshToken]);
 
   // Initial load + refresh when month/property changes. eslint disable here
   // matches the same pattern used elsewhere in this file.
@@ -90,7 +107,7 @@ export function BankDepositReview({
     const d = drafts[dep.id];
     if (d) return d;
     const initial = {
-      label: 'Add-on',
+      label: dep.source === 'stripe_charge' ? inferStripeLabel(dep.description) : 'Add-on',
       code: dep.suggested_reservation_code && validCodes.includes(dep.suggested_reservation_code)
         ? dep.suggested_reservation_code
         : (validCodes[0] || ''),
@@ -206,9 +223,11 @@ export function BankDepositReview({
           {expanded && (
             <>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.5, maxWidth: 720 }}>
-                Bank deposits we couldn&rsquo;t auto-match to a reservation. Attribute as an add-on
-                (fee-bearing revenue, e.g. a pet fee charged through Airbnb after booking) or dismiss
-                as not-revenue (refunds, transfers).
+                Money that reached this property outside a reservation&rsquo;s normal payment: bank
+                deposits we couldn&rsquo;t auto-match, plus one-off Stripe payment-link charges (early
+                check-in, extra night, pet fee). Attribute to the guest&rsquo;s stay as add-on revenue
+                (management fee applies) or dismiss as not-revenue (refunds, transfers). Stripe
+                amounts are net of the real processing fee.
               </div>
               {deposits.map(dep => {
                 const d = draftFor(dep);
@@ -220,7 +239,7 @@ export function BankDepositReview({
                   }}>
                     <div className="flex items-baseline flex-wrap" style={{ gap: 10, fontSize: 12, color: 'var(--ink-2)' }}>
                       <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
-                      <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--ink-4)' }}>{dep.source}</span>
+                      <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--ink-4)' }}>{dep.source === 'stripe_charge' ? 'stripe link' : dep.source}</span>
                       <span className="font-serif tabular-nums" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtMoney(Number(dep.amount))}</span>
                       <span style={{ color: 'var(--ink-4)', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }} title={dep.description || ''}>
                         {(dep.description || '').slice(0, 60)}
