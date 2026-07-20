@@ -5,10 +5,18 @@ import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 const GUESTY_API = 'https://open-api.guesty.com';
 
 // Keep this in sync with PROPERTY_DETAILS[*].listing_match in statements/render/page.tsx
+//
+// Sub-unit needles MUST be a superstring of their parent's needle (e.g. the
+// downstairs apartment's '53 rocky neck (down' contains '53 rocky neck');
+// matching picks the LONGEST needle that hits, so the most specific property
+// wins and a sub-unit listing can never be absorbed by its parent.
 const LISTING_MATCH: Record<string, string> = {
   '3_south_st':    '3 south',
   '21_horton':     '21 horton',
   '53_rocky_neck': '53 rocky neck',
+  // Guesty nickname is "53 Rocky Neck (DOWN)" — the downstairs apartment,
+  // tracked as its own Helm property since 2026-07-07.
+  '53_rocky_neck_2': '53 rocky neck (down',
   '4_brier_neck':  '4 brier neck',
   '30_woodward':   '30 woodward',
   '20_hammond':    '20 hammond',
@@ -177,13 +185,25 @@ async function refreshListingMap(
     const address: string = (l.address?.full || l.address?.street || '').toString();
     const haystack = `${nickname} ${address}`.toLowerCase();
 
+    // Longest matching needle wins, not insertion order: a sub-unit listing
+    // ("53 Rocky Neck (DOWN)") contains its parent's needle too, and order-
+    // based first-match silently absorbed the downstairs apartment into the
+    // main unit — every downstairs reservation credited to 53_rocky_neck
+    // (found 2026-07-20 via the revenue page showing the sub-unit empty).
     let matched: string | null = null;
+    let matchedLen = 0;
     for (const [propId, needle] of Object.entries(LISTING_MATCH)) {
-      if (haystack.includes(needle)) { matched = propId; break; }
+      if (needle.length > matchedLen && haystack.includes(needle)) {
+        matched = propId;
+        matchedLen = needle.length;
+      }
     }
     if (!matched) {
       for (const [propId, hint] of Object.entries(NICKNAME_HINTS)) {
-        if (haystack.includes(hint)) { matched = propId; break; }
+        if (hint.length > matchedLen && haystack.includes(hint)) {
+          matched = propId;
+          matchedLen = hint.length;
+        }
       }
     }
     if (!matched) {
