@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
@@ -523,41 +524,40 @@ export async function addPacketStop(formData: FormData): Promise<void> {
   const label =
     kind === 'setup' ? `Set up ${propName}` : instructions ? `${propName} (${instructions})` : propName;
 
-  // Independent post-writes, run together instead of in series: refresh the
-  // denormalized title (count + towns), re-link each stop to the stay it preps
-  // (the Turnovers rail keys on this), and log the audit event.
-  await Promise.all([
-    regeneratePacketTitle(packetId),
-    resyncPacketStopBookings(packetId).catch(() => {}),
-    fieldDb().from('packet_events').insert({
-      packet_id: packetId,
-      contractor_id: packet.awarded_contractor_id,
-      actor_email: email,
-      event_type: 'stop_added',
-      payload: { property_id: propertyId, added_cents: addedCents, instructions },
-    }),
-  ]);
-
-  // On a claimed/in-progress trip, program the contractor's existing trip code
-  // onto the new stop's lock BEFORE telling them about it — "works at every
-  // stop" must be true by the time the email lands. Idempotent: only doors
-  // missing the code get programmed.
-  if (['claimed', 'in_progress'].includes(packet.status)) {
-    await programPacketCodes(packetId).catch(() => {});
-  }
-
-  // On a claimed/in-progress trip, tell the contractor it grew (best-effort).
-  if (packet.awarded_contractor_id) {
-    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
-    if (c) {
-      await sendTripStopAddedEmail(
-        c as ContractorRow,
-        { id: packetId, title: packet.title, posted_price_cents: newTotal },
-        label,
-        addedCents,
-      ).catch(() => {});
+  // Everything the operator doesn't need to SEE in the response runs AFTER it
+  // streams back, so "Adding…" clears as soon as the stop + price are real:
+  // the title recount, the stop-to-booking re-link (3-5 round trips), the
+  // audit event, and on a claimed trip the Seam lock programming (seconds of
+  // external API) then the contractor email — in that order, so "works at
+  // every stop" is true by the time the email lands. The header title heals
+  // within a beat.
+  after(async () => {
+    await Promise.all([
+      regeneratePacketTitle(packetId),
+      resyncPacketStopBookings(packetId).catch(() => {}),
+      fieldDb().from('packet_events').insert({
+        packet_id: packetId,
+        contractor_id: packet.awarded_contractor_id,
+        actor_email: email,
+        event_type: 'stop_added',
+        payload: { property_id: propertyId, added_cents: addedCents, instructions },
+      }),
+    ]);
+    if (['claimed', 'in_progress'].includes(packet.status)) {
+      await programPacketCodes(packetId).catch(() => {});
     }
-  }
+    if (packet.awarded_contractor_id) {
+      const { data: c } = await fieldDb().from('contractors').select('*').eq('id', packet.awarded_contractor_id).maybeSingle();
+      if (c) {
+        await sendTripStopAddedEmail(
+          c as ContractorRow,
+          { id: packetId, title: packet.title, posted_price_cents: newTotal },
+          label,
+          addedCents,
+        ).catch(() => {});
+      }
+    }
+  });
 
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
