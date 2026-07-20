@@ -330,7 +330,11 @@ function CleanerApprovalCard({
             AI draft of an inbound, so there is nothing to coach/regenerate. */}
         {approval.topic !== 'proactive_reminder' && (
           <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
-            {showCoach ? 'Cancel coaching' : 'Coach the AI'}
+            {pendingAction === 'coach'
+              ? 'Regenerating…'
+              : showCoach
+                ? 'Cancel coaching'
+                : 'Coach the AI'}
           </SecondaryButton>
         )}
         <SecondaryButton
@@ -348,6 +352,17 @@ function CleanerApprovalCard({
           {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
         </SecondaryButton>
       </footer>
+
+      {pendingAction === 'coach' && (
+        <p
+          style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}
+          role="status"
+          aria-live="polite"
+        >
+          Implementing your coaching. The rewritten draft replaces this one in a
+          few seconds.
+        </p>
+      )}
 
       {showCoach && (
         <div style={{ marginTop: 14 }}>
@@ -377,16 +392,20 @@ function CleanerApprovalCard({
           />
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <PrimaryButton
-              onClick={() =>
-                run('coach', async () => {
-                  const res = await coachCleanerDraft(approval.id, feedback);
-                  if (res.ok) {
-                    setFeedback('');
-                    setShowCoach(false);
-                  }
-                  return res;
-                })
-              }
+              onClick={() => {
+                // Collapse immediately so the in-flight status above reads
+                // for the whole regeneration; reopen on failure to revise.
+                setShowCoach(false);
+                run(
+                  'coach',
+                  async () => {
+                    const res = await coachCleanerDraft(approval.id, feedback);
+                    if (res.ok) setFeedback('');
+                    else setShowCoach(true);
+                    return res;
+                  },
+                );
+              }}
               disabled={isPending || !feedback.trim()}
             >
               {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
