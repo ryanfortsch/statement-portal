@@ -166,15 +166,23 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   };
   const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
   const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id));
-  const doCoach = () =>
+  const doCoach = () => {
+    // Collapse the drawer immediately so the in-flight status line below
+    // reads cleanly for the whole regeneration (guests-queue pattern —
+    // without it the only signal is a tiny button label and the coach
+    // looks like it did nothing).
+    setShowCoach(false);
     run('coach', async () => {
       const res = await coachOwnerDraft(approval.id, feedback, edited ? draftText : undefined);
       if (res.ok) {
         setFeedback('');
-        setShowCoach(false);
+      } else {
+        // Reopen so the note can be revised instead of retyped.
+        setShowCoach(true);
       }
       return res;
     });
+  };
   const toggleCoach = () => {
     setShowCoach((v) => {
       const next = !v;
@@ -335,7 +343,11 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                   : 'Approve & send'}
             </PrimaryButton>
             <SecondaryButton onClick={toggleCoach} disabled={isPending}>
-              {showCoach ? 'Cancel coaching' : 'Coach the AI'}
+              {pendingAction === 'coach'
+                ? 'Regenerating…'
+                : showCoach
+                  ? 'Cancel coaching'
+                  : 'Coach the AI'}
             </SecondaryButton>
             <SecondaryButton
               onClick={doHandled}
@@ -351,14 +363,23 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             >
               {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
             </SecondaryButton>
-            <span
-              className="eyebrow"
-              style={{ marginLeft: 'auto', color: 'var(--ink-4)', fontSize: 9 }}
-              aria-hidden="true"
-            >
-              A approve · C coach · H handled · R reject
-            </span>
           </footer>
+
+          {pendingAction === 'coach' && (
+            <p
+              style={{
+                marginTop: 4,
+                fontSize: 13,
+                color: 'var(--ink-3)',
+                fontStyle: 'italic',
+              }}
+              role="status"
+              aria-live="polite"
+            >
+              Implementing your coaching. The rewritten draft replaces this one
+              in a few seconds.
+            </p>
+          )}
 
           {showCoach && (
             <div>
