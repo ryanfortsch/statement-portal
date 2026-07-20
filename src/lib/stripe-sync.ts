@@ -157,7 +157,18 @@ function round2(n: number): number {
 }
 
 export function getStripeKeysMap(): Record<string, string> {
-  const raw = process.env.STRIPE_KEYS_JSON || '';
+  // STRIPE_KEYS_JSON is marked Sensitive in Vercel, so it can never be read
+  // back - editing it means blind-retyping every property's key, which is how
+  // fleets get wiped. STRIPE_KEYS_JSON_EXTRA is the additive overlay: new
+  // properties (and rotated keys - overlay wins per property id) go there
+  // without ever touching the original blob. Same JSON shape:
+  // {"84_thatcher":"rk_live_..."}. Every reader (statements sync,
+  // installments verify-source, the payment-links bridge) merges both here.
+  return { ...parseKeysVar('STRIPE_KEYS_JSON'), ...parseKeysVar('STRIPE_KEYS_JSON_EXTRA') };
+}
+
+function parseKeysVar(name: string): Record<string, string> {
+  const raw = process.env[name] || '';
   if (!raw.trim()) return {};
   try {
     const parsed = JSON.parse(raw);
