@@ -43,6 +43,27 @@ export type Approval = {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty for a normal pending draft. */
   send_at: string;
+  /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
+   * its Stripe payment link. Null/absent for ordinary cards. */
+  addon?: AddonCharge | null;
+};
+
+/** An add-on fee the AI detected in the conversation, with the Stripe
+ * Payment Link Helm minted in the property's own account. On approve, the
+ * in-platform reply sends as usual AND (when a phone + link exist and the
+ * operator leaves the box ticked) the sms_body texts the guest via Quo —
+ * OTA platforms block links in-thread, so the link always travels by SMS. */
+export type AddonCharge = {
+  label: string;
+  amount_usd: number;
+  /** Empty when link creation failed; see link_error. */
+  payment_link_url: string;
+  /** '' | 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' */
+  link_error: string;
+  /** The exact SMS that will send on approve (already contains the link). */
+  sms_body: string;
+  /** Guest's phone in E.164, '' when none on file (SMS impossible). */
+  guest_phone: string;
 };
 
 export type ApprovalsResponse = {
@@ -334,8 +355,16 @@ export async function listRecentApprovals(hours = 24) {
   return request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`);
 }
 
-export async function approveApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, { method: 'POST' });
+export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean }) {
+  return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
+    method: 'POST',
+    // Only travels when the card carries an addon; JSON.stringify drops the
+    // undefined so ordinary approvals keep their empty-body shape.
+    body:
+      opts && opts.sendAddonSms !== undefined
+        ? JSON.stringify({ send_addon_sms: opts.sendAddonSms })
+        : undefined,
+  });
 }
 
 export async function rejectApproval(id: string) {
