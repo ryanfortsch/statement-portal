@@ -64,6 +64,45 @@ async function stripePost(
   return { ok: true, data };
 }
 
+/**
+ * Diagnostic: which property ids the RUNTIME key map actually contains, and
+ * whether each env var parsed. Ids and booleans only - key values never leave
+ * the server. Exists because both vars are Sensitive (write-only) in Vercel,
+ * so a bad paste (smart quotes, missing braces) is otherwise undebuggable.
+ */
+export async function GET(req: Request) {
+  const expected = process.env.STAY_CONCIERGE_KEY;
+  if (!expected) {
+    return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
+  }
+  const { searchParams } = new URL(req.url);
+  const provided = searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
+  if (provided !== expected) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const probe = (name: string) => {
+    const raw = process.env[name] || '';
+    if (!raw.trim()) return { present: false, parses: false, ids: [] as string[] };
+    try {
+      const parsed = JSON.parse(raw);
+      const ok = !!parsed && typeof parsed === 'object';
+      return {
+        present: true,
+        parses: ok,
+        ids: ok ? Object.keys(parsed as Record<string, unknown>) : [],
+        length: raw.length,
+      };
+    } catch {
+      return { present: true, parses: false, ids: [] as string[], length: raw.length };
+    }
+  };
+  return NextResponse.json({
+    base: probe('STRIPE_KEYS_JSON'),
+    extra: probe('STRIPE_KEYS_JSON_EXTRA'),
+    merged_ids: Object.keys(getStripeKeysMap()),
+  });
+}
+
 export async function POST(req: Request) {
   const expected = process.env.STAY_CONCIERGE_KEY;
   if (!expected) {
