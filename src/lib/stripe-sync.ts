@@ -52,6 +52,7 @@ type StripeCharge = {
   currency: string;
   created: number;             // unix seconds
   description: string | null;
+  payment_intent: string | null;
   status: string;              // 'succeeded' | 'pending' | 'failed'
   refunded: boolean;
   paid: boolean;
@@ -60,6 +61,36 @@ type StripeCharge = {
     | { id: string; fee: number; net: number; amount: number; currency: string }
     | null;
 };
+
+/**
+ * Payment Link / Checkout charges often carry NO charge.description --
+ * the human-readable text ("Kristen Oteri - 19 Rackliffe - July 22")
+ * lives on the Checkout Session's line items instead. Recover it so
+ * these charges can aggregate, match, and queue like described ones.
+ * One extra API call per description-less charge, capped, failures
+ * degrade to the old skip-it behavior.
+ */
+async function synthesizeLinkDescriptions(key: string, charges: StripeCharge[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const targets = charges.filter(c => !((c.description || '').trim()) && c.payment_intent).slice(0, 40);
+  for (const c of targets) {
+    try {
+      const sessions = await stripeGet<{ data: { line_items?: { data?: { description?: string | null }[] } }[] }>(
+        key,
+        'checkout/sessions',
+        { payment_intent: c.payment_intent as string, limit: '1', 'expand[]': ['data.line_items'] },
+      );
+      const names = (sessions.data?.[0]?.line_items?.data || [])
+        .map(li => (li.description || '').trim())
+        .filter(Boolean);
+      if (names.length > 0) out.set(c.id, names.join(', '));
+    } catch {
+      // Leave it description-less; the aggregation loop reports it in
+      // unmatched_charges the same way it always has.
+    }
+  }
+  return out;
+}
 
 type ReservationRow = {
   id: string;
@@ -314,8 +345,12 @@ export async function syncPropertyStripe(opts: {
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
+    // Recover line-item text for description-less Payment Link charges
+    // before aggregating, so they can match and queue like the rest.
+    const synthDesc = await synthesizeLinkDescriptions(restrictedKey, succeeded);
+
     for (const charge of succeeded) {
-      const desc = (charge.description || '').trim();
+      const desc = ((charge.description || synthDesc.get(charge.id) || '')).trim();
       const firstToken = desc.split(/\s+/)[0];
       if (!firstToken) {
         result.unmatched_charges.push(`no description (${charge.id})`);
@@ -470,6 +505,7 @@ export async function syncPropertyStripe(opts: {
     // not existing (pre-migration env) without failing the sync.
     try {
       const queueRows: Record<string, unknown>[] = [];
+      const staleRefundedDepositKeys: string[] = [];
       for (const o of orphanCodes) {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) continue;
@@ -482,7 +518,31 @@ export async function syncPropertyStripe(opts: {
         if (/^stay at\b/i.test(agg.fullDesc)) continue;
         const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
         if (createdIso.slice(0, 7) !== month) continue;
-        if (agg.refundedCents >= agg.grossCents) continue;
+        if (agg.refundedCents >= agg.grossCents) {
+          // Fully refunded, usually a double-paid link we refunded. Stripe
+          // keeps its processing fee on refunds, so the account is out that
+          // fee even though revenue nets to zero. Queue the KEPT FEE as a
+          // pending DEBIT: attribute it to put the loss on the statement,
+          // dismiss it if RT eats the fee. Any still-pending deposit row
+          // from before the refund is dropped below; an already-attributed
+          // one is deliberately left -- this debit row's description is the
+          // operator's breadcrumb to go unattribute it.
+          if (agg.feeKnown && agg.feeCents > 0) {
+            staleRefundedDepositKeys.push(`stripe:${o.code}`);
+            queueRows.push({
+              property_id: propertyId,
+              month,
+              direction: 'debit',
+              deposit_date: createdIso,
+              amount: round2(agg.feeCents / 100),
+              description: `Stripe fee kept on refunded charge: ${agg.fullDesc} ($${round2(agg.grossCents / 100).toFixed(2)} refunded)`.slice(0, 300),
+              source: 'stripe_charge',
+              suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
+              dedupe_key: `stripe:${o.code}:refundfee`,
+            });
+          }
+          continue;
+        }
         const netCents = agg.grossCents - agg.refundedCents - (agg.feeKnown ? agg.feeCents : 0);
         if (netCents <= 0) continue;
         const gross = round2(agg.grossCents / 100);
@@ -508,15 +568,17 @@ export async function syncPropertyStripe(opts: {
         }
       }
       // A charge queued while orphan can later match a reservation (the
-      // amount fallback links it once the reservation data is fixed).
-      // Drop its still-pending queue row so the same money can't be
-      // attributed twice. Rows the operator already attributed or
-      // dismissed are left alone.
-      if (linkedOrphanKeys.length > 0) {
+      // amount fallback links it once the reservation data is fixed), or
+      // get fully refunded after its deposit row was queued. Drop the
+      // still-pending queue rows in both cases so the same money can't be
+      // attributed twice / after it's gone. Rows the operator already
+      // attributed or dismissed are left alone.
+      const pendingDeleteKeys = [...linkedOrphanKeys, ...staleRefundedDepositKeys];
+      if (pendingDeleteKeys.length > 0) {
         const { error: delErr } = await supabase
           .from('bank_deposit_attributions')
           .delete()
-          .in('dedupe_key', linkedOrphanKeys)
+          .in('dedupe_key', pendingDeleteKeys)
           .eq('status', 'pending')
           .eq('source', 'stripe_charge');
         if (delErr && delErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(delErr.message || '')) {
