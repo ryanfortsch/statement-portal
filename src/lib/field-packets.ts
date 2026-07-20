@@ -571,14 +571,15 @@ export async function loadPacketDetail(
   packetId: string,
   opts: { revealAccess?: boolean; revealIdentity?: boolean } = {},
 ): Promise<PacketDetail | null> {
-  const { data: pData } = await fieldDb()
-    .from('inspection_packets')
-    .select('*')
-    .eq('id', packetId)
-    .maybeSingle();
+  // Both keyed on the id we already hold — one round trip, not two. This is
+  // the hottest loader in Field (every packet view, and the re-render every
+  // operator autosave waits on).
+  const [{ data: pData }, { data: sData }] = await Promise.all([
+    fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle(),
+    fieldDb().from('packet_stops').select('*').eq('packet_id', packetId).order('walk_order', { ascending: true }),
+  ]);
   const packet = (pData as PacketRow | null) ?? null;
   if (!packet) return null;
-  const { data: sData } = await fieldDb().from('packet_stops').select('*').eq('packet_id', packetId).order('walk_order', { ascending: true });
   // Identity is revealed by default (office/internal views); contractor
   // marketplace + pre-claim views pass revealIdentity:false to mask addresses.
   const stops = await stopsWithProperties(
