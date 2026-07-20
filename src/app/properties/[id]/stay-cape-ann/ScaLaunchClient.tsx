@@ -66,6 +66,15 @@ export function ScaLaunchClient(props: Props) {
   const [guestyInfo, setGuestyInfo] = useState<{ bedrooms: number | null; bathrooms: number | null; accommodates: number | null; photos: number; amenities: number } | null>(null);
   const [, startTransition] = useTransition();
   const polling = useRef(false);
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+
+  // The notice banner renders at the top of a long form, but the buttons that
+  // set it (Save draft / Open preview PR) sit at the bottom — an error landed
+  // silently above the fold and the flow just looked dead (84 Thatcher launch,
+  // 2026-07-20). Whenever the notice changes, bring it into view.
+  useEffect(() => {
+    if (notice) noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [notice]);
 
   const status = row?.status ?? 'draft';
   const prOpen = status === 'pr_open' || status === 'live' || status === 'unlisted';
@@ -124,6 +133,11 @@ export function ScaLaunchClient(props: Props) {
       const res = await saveScaDraft(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
+        // A successful save invalidates any field errors left from an earlier
+        // failed PR attempt. Leaving them up made the form read as still-broken
+        // ("Draft saved." banner + a red iCal error from ten minutes ago), and
+        // the operator reasonably concluded the launch flow was busted.
+        setErrors({});
         setNotice({ kind: 'ok', text: 'Draft saved.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Save failed' });
     });
@@ -294,7 +308,11 @@ export function ScaLaunchClient(props: Props) {
           (Contents + Pull requests, read/write) to Helm&rsquo;s environment before opening a PR. Saving a draft still works.
         </Banner>
       )}
-      {notice && <Banner kind={notice.kind}>{notice.text}</Banner>}
+      {notice && (
+        <div ref={noticeRef}>
+          <Banner kind={notice.kind}>{notice.text}</Banner>
+        </div>
+      )}
 
       {/* ── Stage 1: Content ─────────────────────────────────────────── */}
       <section style={card}>
