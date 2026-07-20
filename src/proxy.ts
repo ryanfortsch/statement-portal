@@ -82,6 +82,10 @@ const PUBLIC_API_PREFIXES = [
   "/api/kb-facts",
   "/api/backfill-owner-phones",
   "/api/work-slips",
+  // Stay-concierge bridge: creates a Stripe Payment Link in the property's
+  // own Stripe account for an approved guest add-on charge (Tesla charger,
+  // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.
+  "/api/payment-links",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",

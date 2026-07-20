@@ -38,6 +38,10 @@ const REFRESH_MS = 15_000;
 // var(--signal) (which already means stale/aging/error on this card).
 const QUEUED_TONE = '#7a6a3a';
 
+// Add-on payment-link block: money being collected, so its own tone —
+// distinct from the slip teal, the queued bronze, and the extension sage.
+const ADDON_TONE = '#6b4f7a';
+
 // Quick-send presets, in minutes.
 const SEND_PRESETS: { label: string; minutes: number }[] = [
   { label: 'In 10 minutes', minutes: 10 },
@@ -283,6 +287,27 @@ function ApprovalCard({
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
   const badge = proactiveBadge(kind);
+
+  // Add-on charge riding on this card (Tesla charger, pet fee...). The SMS
+  // leg needs both a minted link and a phone; without either the block
+  // degrades to instructions and approve sends only the in-platform reply.
+  const addon = approval.addon ?? null;
+  const addonSmsPossible = !!(addon && addon.payment_link_url && addon.guest_phone);
+  const [sendAddonSms, setSendAddonSms] = useState(true);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const approveOpts = addon
+    ? { sendAddonSms: addonSmsPossible && sendAddonSms }
+    : undefined;
+  const copyAddonLink = async () => {
+    if (!addon?.payment_link_url) return;
+    try {
+      await navigator.clipboard.writeText(addon.payment_link_url);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      /* select-and-copy fallback is the URL text itself, rendered below */
+    }
+  };
   // Proactive cards have no guest message — relabel the left column so it
   // reads as the trigger/context, not "Guest said".
   const leftColumnLabel =
@@ -307,7 +332,7 @@ function ApprovalCard({
     setError(null);
     setPendingAction('approve');
     startTransition(async () => {
-      const res = await approveDraft(approval.id);
+      const res = await approveDraft(approval.id, approveOpts);
       if (!res.ok) {
         // Card moved on (e.g. coaching just superseded it). Refresh to the
         // latest version instead of flashing a red error.
@@ -427,7 +452,7 @@ function ApprovalCard({
     setScheduleCustom(false);
     run('schedule', () => scheduleDraft(approval.id, sendAtIso));
   };
-  const handleSendNow = () => run('send-now', () => approveDraft(approval.id));
+  const handleSendNow = () => run('send-now', () => approveDraft(approval.id, approveOpts));
   const handleCancelSchedule = () => run('cancel-schedule', () => cancelSchedule(approval.id));
   // Unlike approve/reject/coach (which resolve the card and so legitimately
   // hold their working state until router.refresh removes it), a saved edit
@@ -760,6 +785,99 @@ function ApprovalCard({
           )}
         </FieldBlock>
       </div>
+
+      {addon && (
+        <div
+          style={{
+            marginTop: 16,
+            border: '1px solid var(--rule)',
+            borderLeft: `3px solid ${ADDON_TONE}`,
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div
+            className="eyebrow"
+            style={{ color: ADDON_TONE, marginBottom: 6 }}
+          >
+            Add-on charge · payment link
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <span className="font-serif" style={{ fontSize: 15 }}>
+              {addon.label}
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.04em',
+                border: `1px solid ${ADDON_TONE}`,
+                color: ADDON_TONE,
+                padding: '1px 7px',
+              }}
+            >
+              ${addon.amount_usd.toFixed(addon.amount_usd % 1 === 0 ? 0 : 2)}
+            </span>
+          </div>
+
+          {addonSmsPossible ? (
+            <>
+              <p
+                style={{
+                  marginTop: 10,
+                  fontSize: 13,
+                  lineHeight: 1.55,
+                  color: 'var(--ink-2)',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {addon.sms_body}
+              </p>
+              <label
+                style={{
+                  marginTop: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  fontSize: 12,
+                  color: 'var(--ink-2)',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={sendAddonSms}
+                  onChange={(e) => setSendAddonSms(e.target.checked)}
+                  style={{ accentColor: ADDON_TONE }}
+                />
+                Text this payment link to {addon.guest_phone} when I approve
+                <span style={{ color: 'var(--ink-4)' }}>
+                  (links can&apos;t go through {approval.channel || 'the platform'})
+                </span>
+              </label>
+            </>
+          ) : addon.payment_link_url ? (
+            <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              No guest phone on file, so the link can&apos;t be texted automatically.
+              Copy it and deliver it by hand:
+              <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{addon.payment_link_url}</code>
+                <SecondaryButton onClick={copyAddonLink}>
+                  {linkCopied ? 'Copied' : 'Copy link'}
+                </SecondaryButton>
+              </div>
+            </div>
+          ) : (
+            <p style={{ marginTop: 10, fontSize: 13, color: 'var(--signal)', lineHeight: 1.55 }}>
+              {addon.link_error === 'no_key'
+                ? 'This property has no Stripe key in Helm, so no payment link was created. Make the link manually in Stripe and text it yourself.'
+                : addon.link_error === 'stripe_permission'
+                  ? "The property's Stripe key is read-only, so the payment link couldn't be created. Add write access for Payment Links, Products, and Prices to the restricted key, update STRIPE_KEYS_JSON in Vercel, and future links will mint automatically."
+                  : `Payment link creation failed (${addon.link_error || 'unknown error'}). Approve sends the reply only; make the link manually.`}
+            </p>
+          )}
+        </div>
+      )}
 
       {error && (
         <p

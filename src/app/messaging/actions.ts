@@ -40,10 +40,13 @@ async function requireSession(): Promise<{ ok: true } | { ok: false; error: stri
   return { ok: true };
 }
 
-export async function approveDraft(approvalId: string): Promise<ActionResult> {
+export async function approveDraft(
+  approvalId: string,
+  opts?: { sendAddonSms?: boolean },
+): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await approveApproval(approvalId));
+  return mapResult(await approveApproval(approvalId, opts));
 }
 
 export async function rejectDraft(approvalId: string): Promise<ActionResult> {
