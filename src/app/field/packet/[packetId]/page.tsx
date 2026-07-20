@@ -246,7 +246,6 @@ function SupplyClosetCode() {
  *  on the route plus the parts each work slip needs. Helm names the trip the bag
  *  is packed for and lists the job-specific parts so nothing's left behind. */
 function SupplyRunCard({ run }: { run: SupplyRun }) {
-  const homes = run.bins.map((b) => b.propertyName);
   // Restock stays grouped BY HOME (Delaney's ask): a flattened dedup'd list
   // reads fine but packs wrong — two homes both low on paper towels means
   // grab two, and she can't know that without the per-home split.
@@ -272,12 +271,6 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
 
       <SupplyClosetCode />
 
-      {homes.length > 0 && (
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: restockBins.length > 0 || run.jobs.length > 0 ? 12 : 0 }}>
-          <span style={{ color: 'var(--ink-4)' }}>Packed for: </span>
-          <span style={{ color: 'var(--ink)' }}>{homes.join(' · ')}</span>
-        </div>
-      )}
 
       {restockBins.length > 0 && (
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: run.jobs.length > 0 ? 12 : 0 }}>
@@ -617,15 +610,15 @@ export default async function PacketPage({
               + {dollars(packet.bonus_cents)} bonus
             </span>
           )}
-          <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-            {/* Count the LIVE stops, not the stored stop_count — a partial
-                revalidation can leave the column ahead of reality. The per-stop
-                math is claim-decision context; once it's theirs, drop it. */}
-            for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
-            {!isMine && (
-              <> · {dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each</>
-            )}
-          </span>
+          {/* Stop-count + per-stop math is claim-decision context for a
+              browsing inspector; once the packet is theirs it says nothing
+              (per Ryan: the stops list right below already tells the story). */}
+          {!isMine && (
+            <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
+              for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
+              {' · '}{dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each
+            </span>
+          )}
         </div>
       </div>
 
@@ -633,9 +626,7 @@ export default async function PacketPage({
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
             <span style={{ color: 'var(--ink-3)' }}>{doneCount} of {packet.stops.length} done</span>
-            <span style={{ color: allComplete ? 'var(--positive)' : 'var(--ink-4)' }}>
-              {allComplete ? 'Ready to submit' : `${packet.stops.length - doneCount} to go`}
-            </span>
+            {allComplete && <span style={{ color: 'var(--positive)' }}>Ready to submit</span>}
           </div>
           <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
@@ -806,7 +797,7 @@ export default async function PacketPage({
                           : 'var(--ink-4)',
                   }}
                 >
-                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : preview ? 'Not started' : null}
+                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : null}
                   {/* Time at property, driven by the door: live-ticking while
                       they're inside, fixed once they've left. */}
                   {(() => {
@@ -829,7 +820,7 @@ export default async function PacketPage({
                     const t = stopTiming(s, packet.visit_date);
                     return (
                       <span style={{ color: t.urgent ? 'var(--signal)' : 'var(--ink-4)', fontWeight: t.urgent ? 600 : 400 }}>
-                        {s.status === 'in_progress' || preview ? ' · ' : ''}{t.label}
+                        {s.status === 'in_progress' ? ' · ' : ''}{t.label}
                       </span>
                     );
                   })()}
