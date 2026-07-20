@@ -38,6 +38,11 @@ const chip: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+// Derived pills: same geometry as chip, different voice. signalPill = urgent
+// contact affordances; quietBtn = secondary controls (Reopen / Reset / Details).
+const signalPill: React.CSSProperties = { ...chip, color: 'var(--signal)' };
+const quietBtn: React.CSSProperties = { ...chip, fontSize: 12, color: 'var(--ink-3)' };
+
 const OFFICE_TEL = '+19788652387';
 
 /** A geocodable maps target for a stop, or null when we have neither coords nor
@@ -79,15 +84,16 @@ function fmtShortDate(d: string): string {
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
  *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
  *  the inspector goes after. Vacant homes are open from 11. */
-function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean } {
+function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; first: string; urgent: boolean } {
   // Two facts, no coaching: did a guest check out today, and when's the next
   // check-in. Per Dotti, the per-stop line stays this simple (the old DayPlan
-  // banner that coached sequencing was removed at her request).
+  // banner that coached sequencing was removed at her request). `first` rides
+  // separately so the urgent same-day deadline can take its own line.
   const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Vacant';
-  if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, urgent: false };
+  if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, first, urgent: false };
   const today = s.next_checkin === visitDate;
   const when = today ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`;
-  return { label: `${first} · next check-in: ${when}`, urgent: today };
+  return { label: `${first} · next check-in: ${when}`, first, urgent: today };
 }
 
 /** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
@@ -245,42 +251,75 @@ function SupplyClosetCode() {
  *  grabs ONE bag, packed for the whole trip — the routine refills for every home
  *  on the route plus the parts each work slip needs. Helm names the trip the bag
  *  is packed for and lists the job-specific parts so nothing's left behind. */
-function SupplyRunCard({ run }: { run: SupplyRun }) {
-  // Restock stays grouped BY HOME (Delaney's ask): a flattened dedup'd list
-  // reads fine but packs wrong — two homes both low on paper towels means
-  // grab two, and she can't know that without the per-home split.
-  const restockBins = run.bins
-    .map((b) => ({ name: b.propertyName, items: [...new Set(b.lowItems)] }))
-    .filter((b) => b.items.length > 0);
+function SupplyRunCard({ run, pickedUp }: { run: SupplyRun; pickedUp: boolean }) {
+  // Restock stays grouped BY HOME (Delaney's ask) — see SupplyRunContents.
   // No early return: the kit pickup is stop 1 of EVERY route, even when
   // nothing specific is flagged — the bag itself always gets grabbed.
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
+  // Once the route has started, the packing list is history: fold the whole
+  // card to one line + a tap-open "What was in the bag", so mid-route the live
+  // stops own the screen.
+  if (pickedUp) {
+    return (
+      <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600 }}>
+            Stop 1 · 85 Eastern
+          </span>
+          <span style={{ fontSize: 13, color: 'var(--positive)', fontWeight: 600 }}>✓ Kit picked up</span>
+          <details className="rt-chip-details" style={{ marginLeft: 'auto' }}>
+            <summary style={{ ...quietBtn, listStyle: 'none' }}>What was in the bag</summary>
+            <div style={{ marginTop: 10 }}>
+              <SupplyClosetCode />
+              <SupplyRunContents run={run} />
+              <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ ...chip, whiteSpace: 'nowrap', marginTop: 10 }}>
+                Directions →
+              </a>
+            </div>
+          </details>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 24, background: 'rgba(0,0,0,0.015)' }}>
-      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
         Stop 1 · 85 Eastern
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
           Pick up supplies.
         </div>
-        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
+        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ ...chip, whiteSpace: 'nowrap' }}>
           Directions →
         </a>
       </div>
 
       <SupplyClosetCode />
+      <SupplyRunContents run={run} />
+    </div>
+  );
+}
+
+/** The packing list itself (restock by home + job parts), shared by the full
+ *  pickup card and the folded "What was in the bag" disclosure. */
+function SupplyRunContents({ run }: { run: SupplyRun }) {
+  const restockBins = run.bins
+    .map((b) => ({ name: b.propertyName, items: [...new Set(b.lowItems)] }))
+    .filter((b) => b.items.length > 0);
+  return (
+    <>
 
 
       {restockBins.length > 0 && (
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: run.jobs.length > 0 ? 12 : 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginTop: 12, marginBottom: run.jobs.length > 0 ? 12 : 0 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Restocking, by home</div>
           <div style={{ display: 'grid', gap: 5 }}>
             {restockBins.map((b) => (
               <div key={b.name}>
                 <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{b.name}</span>
                 <span style={{ color: 'var(--ink-4)' }}> · </span>
-                <span style={{ color: 'var(--signal)' }}>{b.items.join(', ')}</span>
+                <span style={{ color: 'var(--ink-3)' }}>{b.items.join(', ')}</span>
               </div>
             ))}
           </div>
@@ -288,7 +327,7 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
       )}
 
       {run.jobs.length > 0 && (
-        <div>
+        <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>Job parts in the bag</div>
           <div style={{ display: 'grid', gap: 9 }}>
             {run.jobs.map((j, i) => (
@@ -300,17 +339,26 @@ function SupplyRunCard({ run }: { run: SupplyRun }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
 /** The last leg of every route: back to 85 Eastern to drop the kit off. Renders
  *  after the homes so the day reads closet → homes → closet. */
-function KitReturnCard() {
+function KitReturnCard({ active }: { active: boolean }) {
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${SUPPLY_CLOSET_COORDS.lat},${SUPPLY_CLOSET_COORDS.lng}`;
+  // Until the homes are done this is a fact, not a move: one quiet line. The
+  // full card (code + directions) activates when it's genuinely the next step.
+  if (!active) {
+    return (
+      <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 18px', marginTop: 18, background: 'rgba(0,0,0,0.015)' }}>
+        <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>Last stop · drop your kit back at {SUPPLY_CLOSET}.</span>
+      </div>
+    );
+  }
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginTop: 18, background: 'rgba(0,0,0,0.015)' }}>
-      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 4 }}>
         Last stop · Supply closet
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
@@ -318,7 +366,7 @@ function KitReturnCard() {
           Drop your kit back at <strong style={{ color: 'var(--ink)' }}>{SUPPLY_CLOSET}</strong>: the bag and anything
           you pulled from a home, so it&apos;s packed and ready for the next trip.
         </div>
-        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' }}>
+        <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ ...chip, whiteSpace: 'nowrap' }}>
           Directions →
         </a>
       </div>
@@ -334,7 +382,7 @@ function KitReturnCard() {
 const ACCESS_NOISE = new Set(['no', 'none', 'n/a', 'na', '-', '--', 'false', '0', 'n']);
 const ACCESS_CODE_LABELS = new Set(['Door code', 'Gate code', 'Garage code', 'Alarm code']);
 
-function AccessLines({ a }: { a: AccessBundle }) {
+function AccessLines({ a, hasTripCode }: { a: AccessBundle; hasTripCode: boolean }) {
   const rows: Array<[string, string | null]> = [
     ['Getting in', a.method],
     ['Door code', a.smartLock],
@@ -348,13 +396,14 @@ function AccessLines({ a }: { a: AccessBundle }) {
     ([, v]) => v && String(v).trim() && !ACCESS_NOISE.has(String(v).trim().toLowerCase()),
   );
   if (present.length === 0) {
-    const pill: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--signal)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper-2, #fff)' };
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-        No smart lock here. Use your trip code above, then let the office know you&apos;re in.
+        {hasTripCode
+          ? <>No smart lock here. Use your trip code above, then let the office know you&apos;re in.</>
+          : <>No smart lock here. Text or call the office and we&apos;ll get you in.</>}
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-          <a href={`sms:${OFFICE_TEL}`} style={pill}>Text the office</a>
-          <a href={`tel:${OFFICE_TEL}`} style={pill}>Call the office</a>
+          <a href={`sms:${OFFICE_TEL}`} style={signalPill}>Text the office</a>
+          <a href={`tel:${OFFICE_TEL}`} style={signalPill}>Call the office</a>
         </div>
       </div>
     );
@@ -480,6 +529,19 @@ export default async function PacketPage({
   const vetted = canClaim(contractor);
   const stopLabel = (s: PacketStopDetail, i: number): string =>
     isMine ? s.property.address : vetted ? s.property.name : `Home ${i + 1}`;
+  // Lost-claim landing: the ?taken=1 bounce used to fall into the redirect
+  // below before its alert could ever render. Show the one line that matters
+  // (packet was loaded masked, so nothing sensitive is on this page).
+  if (!preview && !isMine && sp.taken) {
+    return (
+      <FieldShell contractorName={contractor.full_name}>
+        <Alert tone="info">
+          This packet was just claimed by another inspector. Here are others near you on the{' '}
+          <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
+        </Alert>
+      </FieldShell>
+    );
+  }
   // A contractor only sees another's packet if it's published AND their trade.
   // The office preview skips the gate — it can look at any state (a draft
   // previews as it will appear once published).
@@ -512,6 +574,8 @@ export default async function PacketPage({
 
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const allComplete = packet.stops.length > 0 && doneCount === packet.stops.length;
+  // Office bounced the packet back: the verdict every signal must agree with.
+  const changesRequested = isMine && packet.status === 'in_progress' && !!packet.notes;
   const claimable = !isMine && packet.status === 'published' && canClaim(contractor);
   // While actively working a claimed packet, show it as a job to finish, not an
   // open-ended errand: a progress bar + live per-stop status.
@@ -531,6 +595,10 @@ export default async function PacketPage({
   const anyStarted = packet.stops.some(
     (s) => s.started_at || s.status === 'in_progress' || s.status === 'complete' || s.status === 'skipped',
   );
+  // The list twin of the map's orange pin: first open stop, only once the
+  // route is genuinely underway (before kit pickup the closet is "current").
+  const currentStopIdx =
+    working && anyStarted ? packet.stops.findIndex((x) => x.status !== 'complete' && x.status !== 'skipped') : -1;
   const rawRoute = [
     ...(showSupplyStop
       ? [{ label: `Supply closet · ${SUPPLY_CLOSET}`, lat: SUPPLY_CLOSET_COORDS.lat, lng: SUPPLY_CLOSET_COORDS.lng, order: -1, num: 1, done: anyStarted, verified: false }]
@@ -565,7 +633,7 @@ export default async function PacketPage({
   const firstOpenIdx = rawRoute.findIndex((r) => !r.done);
   const routeStops = rawRoute.map((r, idx) => {
     const state: 'done' | 'current' | 'next' = r.done ? 'done' : idx === firstOpenIdx ? 'current' : 'next';
-    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: working ? state : undefined, verified: r.verified, pin: 'pin' in r ? r.pin : undefined };
+    return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: isMine ? state : undefined, verified: r.verified, pin: 'pin' in r ? r.pin : undefined };
   });
 
   // Safety cue: a guest mid-stay (or a calendar block) on the visit date. The
@@ -592,41 +660,50 @@ export default async function PacketPage({
           wrapper out of layout. */}
       <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
-        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by ? ` · target ${fmtVisitTime(packet.complete_by)}` : ''}
+        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by && !(working && packet.entry_code) ? ` · target ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
       </h1>
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-          <span className="font-mono" style={{ fontSize: 30 }}>{dollars(effectiveBaseCents(packet))}</span>
-          {!isPayoutFinal(packet) && (
-            <span style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', border: '1px solid var(--rule)', borderRadius: 999, padding: '2px 9px' }}>
-              Estimated
-            </span>
-          )}
-          {isMine && packet.bonus_cents > 0 && (
-            <span style={{ fontSize: 14, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
+      {/* The big price sells the claim; once the packet is theirs the pay is a
+          fact, not a pitch — one quiet mono line, bonus beside it. */}
+      {isMine ? (
+        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <span className="font-mono" style={{ fontSize: 15, color: 'var(--ink-3)' }}>{dollars(effectiveBaseCents(packet))}</span>
+          {!isPayoutFinal(packet) && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>estimated</span>}
+          {packet.bonus_cents > 0 && (
+            <span style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
               + {dollars(packet.bonus_cents)} bonus
             </span>
           )}
-          {/* Stop-count + per-stop math is claim-decision context for a
-              browsing inspector; once the packet is theirs it says nothing
-              (per Ryan: the stops list right below already tells the story). */}
-          {!isMine && (
+        </div>
+      ) : (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <span className="font-mono" style={{ fontSize: 30 }}>{dollars(effectiveBaseCents(packet))}</span>
+            {!isPayoutFinal(packet) && (
+              <span style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', border: '1px solid var(--rule)', borderRadius: 999, padding: '2px 9px' }}>
+                Estimated
+              </span>
+            )}
             <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
               for {packet.stops.length} {packet.stops.length === 1 ? 'stop' : 'stops'}
               {' · '}{dollars(Math.round(packet.posted_price_cents / Math.max(1, packet.stops.length)))} each
             </span>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {working && (
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
             <span style={{ color: 'var(--ink-3)' }}>{doneCount} of {packet.stops.length} done</span>
-            {allComplete && <span style={{ color: 'var(--positive)' }}>Ready to submit</span>}
+            {allComplete &&
+              (changesRequested ? (
+                <span style={{ color: 'var(--signal)' }}>Fix, then resubmit</span>
+              ) : (
+                <span style={{ color: 'var(--positive)' }}>Ready to submit</span>
+              ))}
           </div>
           <div style={{ height: 8, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: 'var(--positive)', transition: 'width .3s ease' }} />
@@ -658,8 +735,6 @@ export default async function PacketPage({
       )}
 
 
-      {showSupplyStop && <SupplyRunCard run={supplyRun} />}
-
       {/* One prioritized alert region. Only the hard account block is red; the
           recoverable "do something" messages are amber; an FYI is grey; a team
           note has its own calm blue style. In practice one of these shows at a
@@ -689,18 +764,15 @@ export default async function PacketPage({
           Finish every stop before submitting the packet.
         </Alert>
       )}
-      {sp.taken && (
-        <Alert tone="info">
-          This packet was just claimed by another inspector. Here are others near you on the{' '}
-          <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
-        </Alert>
-      )}
       {isMine && (isWorkingStatus(packet.status)) && packet.instructions && (
         <Alert tone="office">
           <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 4 }}>From the office</div>
           <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{packet.instructions}</div>
         </Alert>
       )}
+
+      {showSupplyStop && <SupplyRunCard run={supplyRun} pickedUp={anyStarted} />}
+
 
       {isMaint && !isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
@@ -712,9 +784,9 @@ export default async function PacketPage({
           packet is theirs (working, submitted, approved) it's ~300px of
           scrolling between the inspector and their stops — drop it. */}
       {!isMaint && !isSetup && !isAdhoc && !isMine && <InspectionScope />}
-      {isSetup && <SetupScope />}
-      {isAdhoc && <AdhocScope />}
-      {!isMine && (
+      {isSetup && (!isMine || working) && <SetupScope />}
+      {isAdhoc && !isMine && <AdhocScope />}
+      {!isMine && packet.supply_run && (
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 520, margin: '0 0 24px' }}>
           Every route starts and ends at our supply closet ({SUPPLY_CLOSET}): grab your kit on the way out, drop it
           back when you&apos;re done.
@@ -730,264 +802,313 @@ export default async function PacketPage({
       )}
 
       <section>
-        {packet.stops.map((s, i) => (
-          <div
-            key={s.id}
-            className="rt-stop-row"
-            style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', display: 'flex', gap: 14, alignItems: 'flex-start' }}
-          >
-            <div
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: '50%',
-                border: '1px solid var(--rule)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-                flexShrink: 0,
-                color: s.status === 'complete' ? 'var(--positive)' : 'var(--ink-3)',
-              }}
-            >
-              {s.status === 'complete' ? '✓' : i + 1 + (showSupplyStop ? 1 : 0)}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="font-serif" style={{ fontSize: 17 }}>
-                {stopLabel(s, i)}
+        {/* An open chip-detail panel takes its own full-width row instead of
+            inflating mid-row and wedging its sibling chips. */}
+        <style>{`.rt-chip-details[open]{flex-basis:100%}`}</style>
+        {packet.stops.map((s, i) => {
+          const terminal = s.status === 'complete' || s.status === 'skipped';
+          // A finished stop collapses to a one-line receipt with everything a
+          // tap away. Never collapse over an open attached task.
+          const isReceipt = isMine && terminal && s.attachedSlips.every((a) => !!a.completedAt);
+          const isCurrent = i === currentStopIdx;
+          const startIso = s.arrived_verified_at ?? s.started_at;
+
+          const noteBlock =
+            isMine && s.instructions ? (
+              <div style={{ marginTop: 8, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px' }}>
+                <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 3 }}>From the office</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{s.instructions}</div>
               </div>
-              {isMine && s.instructions && (
-                <div style={{ marginTop: 8, borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '8px 12px' }}>
-                  <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 3 }}>From the office</div>
-                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{s.instructions}</div>
+            ) : null;
+
+          const slipBlock = s.workSlip ? (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.workSlip.title}</div>
+              {(s.workSlip.action_summary || s.workSlip.description) && (
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.5 }}>
+                  {s.workSlip.action_summary || s.workSlip.description}
                 </div>
               )}
-              {s.workSlip ? (
-                <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.workSlip.title}</div>
-                  {(s.workSlip.action_summary || s.workSlip.description) && (
-                    <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.5 }}>
-                      {s.workSlip.action_summary || s.workSlip.description}
-                    </div>
-                  )}
-                  {/* Location only — priority is office triage detail, not
-                      door-side instruction (same manners as the stop work list). */}
-                  {s.workSlip.location && (
-                    <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{s.workSlip.location}</div>
-                  )}
-                  {s.workSlip.bring_list && (
-                    <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
-                      <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{s.workSlip.bring_list}
-                    </div>
-                  )}
-                  {s.workSlip.photo_urls && s.workSlip.photo_urls.length > 0 && (
-                    <PhotoThumbs urls={s.workSlip.photo_urls} size={56} />
-                  )}
+              {/* Location only — priority is office triage detail, not
+                  door-side instruction (same manners as the stop work list). */}
+              {s.workSlip.location && (
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>{s.workSlip.location}</div>
+              )}
+              {s.workSlip.bring_list && (
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
+                  <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{s.workSlip.bring_list}
                 </div>
-              ) : isMine ? (
-                <div
-                  style={{
-                    fontSize: 13,
-                    marginTop: 2,
-                    color:
-                      s.status === 'complete'
-                        ? 'var(--positive)'
-                        : s.status === 'in_progress'
-                          ? 'var(--tide-deep)'
-                          : 'var(--ink-4)',
-                  }}
-                >
-                  {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : null}
-                  {/* Time at property, driven by the door: live-ticking while
-                      they're inside, fixed once they've left. */}
-                  {(() => {
-                    const start = s.arrived_verified_at ?? s.started_at;
-                    if (!start) return null;
-                    if (s.status === 'in_progress') {
-                      return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={start} endIso={s.departed_at} live /></span>;
-                    }
-                    if (s.status === 'complete') {
-                      return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={start} endIso={s.departed_at ?? s.completed_at} live={false} /></span>;
-                    }
-                    return null;
-                  })()}
-                  {s.arrived_verified_at && (
-                    <span style={{ color: 'var(--positive)' }}> · ✓ entered</span>
+              )}
+              {s.workSlip.photo_urls && s.workSlip.photo_urls.length > 0 && (
+                <PhotoThumbs urls={s.workSlip.photo_urls} size={56} />
+              )}
+            </div>
+          ) : null;
+
+          {/* One access row, one visual language: every affordance is the same
+              quiet chip. Door-side extras: the raw code billboards as its own
+              tap-to-copy chip; a home with no access info at all gets a
+              call-for-entry escape hatch instead of silence. */}
+          const chipsRow = isMine ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
+              {(() => {
+                const href = mapsUrl(s);
+                return href ? (
+                  <a href={href} target="_blank" rel="noopener noreferrer" style={chip}>
+                    Maps ↗
+                  </a>
+                ) : null;
+              })()}
+              {codedProps.has(s.property_id) && (
+                <span style={{ ...chip, color: 'var(--positive)', cursor: 'default' }}>🔒 Trip code opens door</span>
+              )}
+              {!codedProps.has(s.property_id) && s.access && (() => {
+                const raw = String(s.access.smartLock ?? '').trim();
+                const code = raw.includes(':') ? raw.split(':').pop()!.trim() : raw;
+                return /^[0-9#*]{3,8}$/.test(code) ? (
+                  <span style={{ ...chip, cursor: 'default' }}>🔑 <CopyCode value={code} mono /></span>
+                ) : null;
+              })()}
+              {!codedProps.has(s.property_id) && s.access && (
+                <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
+                  <summary style={{ ...chip, listStyle: 'none' }}>🔑 How to get in</summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560 }}>
+                    <AccessLines a={s.access} hasTripCode={!!packet.entry_code} />
+                  </div>
+                </details>
+              )}
+              {working && !codedProps.has(s.property_id) && !s.access && (
+                <a href={`tel:${OFFICE_TEL}`} style={signalPill}>Call for entry</a>
+              )}
+              {s.access?.arrival && (
+                <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
+                  <summary style={{ ...chip, listStyle: 'none' }}>ⓘ Arrival &amp; parking</summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                    {s.access.arrival}
+                  </div>
+                </details>
+              )}
+              {s.property.supply_closet_location && (
+                <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
+                  <summary style={{ ...chip, listStyle: 'none' }}>📦 Supply closet</summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
+                    {s.property.supply_closet_location}
+                  </div>
+                </details>
+              )}
+            </div>
+          ) : null;
+
+          const workList =
+            isMine && s.attachedSlips.length > 0 ? (
+              <StopWorkList
+                packetId={packet.id}
+                readOnly={!working}
+                items={s.attachedSlips.map((a) => ({
+                  attachmentId: a.attachmentId,
+                  title: a.category === 'inventory' ? a.title.replace(/^restock:\s*/i, '') : a.title,
+                  sub: a.location,
+                  bring: a.bring_list,
+                  note: a.officeNote,
+                  thumbs: a.photo_urls ?? [],
+                  done: !!a.completedAt,
+                  kind: a.category === 'inventory' ? ('restock' as const) : ('task' as const),
+                }))}
+              />
+            ) : null;
+
+          const reopenForm =
+            working && s.status === 'complete' ? (
+              <form action={reopenStop} style={{ margin: '10px 0 0' }}>
+                <input type="hidden" name="packet_id" value={packet.id} />
+                <input type="hidden" name="stop_id" value={s.id} />
+                <button type="submit" style={quietBtn}>Reopen</button>
+              </form>
+            ) : null;
+
+          return (
+            <div
+              key={s.id}
+              className="rt-stop-row"
+              style={{ borderTop: '1px solid var(--rule)', padding: isReceipt ? '12px 0' : '16px 0', display: 'flex', gap: 14, alignItems: 'flex-start' }}
+            >
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  border: isCurrent ? '1px solid var(--signal)' : '1px solid var(--rule)',
+                  background: isCurrent ? 'var(--signal)' : 'transparent',
+                  boxShadow: isCurrent ? '0 0 0 4px rgba(200,90,58,0.18)' : undefined,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 13,
+                  flexShrink: 0,
+                  color: isCurrent ? '#fff' : s.status === 'complete' ? 'var(--positive)' : s.status === 'skipped' ? 'var(--ink-4)' : 'var(--ink-3)',
+                }}
+              >
+                {s.status === 'complete' ? '✓' : s.status === 'skipped' ? '-' : i + 1 + (showSupplyStop ? 1 : 0)}
+              </div>
+
+              {isReceipt ? (
+                /* The receipt: address, one meta line, everything else a tap away. */
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="font-serif" style={{ fontSize: 17, color: 'var(--ink-3)' }}>{stopLabel(s, i)}</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 2 }}>
+                    {s.status === 'skipped' ? (
+                      'Skipped by the office'
+                    ) : (
+                      <>
+                        Done
+                        {startIso && (
+                          <> · <OnSite startIso={startIso} endIso={s.departed_at ?? s.completed_at} live={false} /></>
+                        )}
+                        {s.arrived_verified_at && <span style={{ color: 'var(--positive)' }}> · ✓ entered</span>}
+                      </>
+                    )}
+                  </div>
+                  {(noteBlock || slipBlock || chipsRow || workList || reopenForm) && (
+                    <details className="rt-chip-details" style={{ marginTop: 8, display: 'inline-block', maxWidth: '100%' }}>
+                      <summary style={{ ...quietBtn, listStyle: 'none' }}>Details</summary>
+                      <div style={{ marginTop: 4 }}>
+                        {noteBlock}
+                        {slipBlock}
+                        {chipsRow}
+                        {workList}
+                        {reopenForm}
+                      </div>
+                    </details>
                   )}
-                  {/* Keep the timing visible while working — a same-day check-in
-                      and a vacant home look identical exactly when it matters. */}
-                  {s.status !== 'complete' && (() => {
-                    const t = stopTiming(s, packet.visit_date);
-                    return (
-                      <span style={{ color: t.urgent ? 'var(--signal)' : 'var(--ink-4)', fontWeight: t.urgent ? 600 : 400 }}>
-                        {s.status === 'in_progress' ? ' · ' : ''}{t.label}
-                      </span>
-                    );
-                  })()}
-                  {/* Cleaner status (🧹), kept visually distinct from the
-                      inspector's own progress above. Turnover stops only. */}
-                  {(() => {
-                    const sameDay = s.window_basis === 'checkout_day';
-                    const checkoutDate = sameDay ? packet.visit_date : s.prior_checkout;
-                    // Same-day turnover always; a vacated home only when its
-                    // checkout is recent enough to still owe a cleaning.
-                    const recent = !!checkoutDate && dayGap(checkoutDate, packet.visit_date) >= 0 && dayGap(checkoutDate, packet.visit_date) <= CLEAN_LOOKBACK_DAYS;
-                    if (!sameDay && !recent) return null;
-                    const status = cleaning.get(`${s.property_id}|${checkoutDate}`);
-                    // Lockbox home (no Seam lock) can never report a cleaning —
-                    // an absent signal is expected, so say nothing rather than
-                    // cry "no cleaning signal". Warn only when the home HAS a
-                    // lock (or we actually captured a session).
-                    if (!status && !locked.has(s.property_id)) return null;
-                    return <CleanerStatus status={status} sameDay={sameDay} checkoutDate={checkoutDate} />;
-                  })()}
                 </div>
               ) : (
-                (() => {
-                  const t = stopTiming(s, packet.visit_date);
-                  return (
-                    <div style={{ fontSize: 13, marginTop: 2, color: t.urgent ? 'var(--signal)' : 'var(--ink-3)', fontWeight: t.urgent ? 600 : 400 }}>
-                      {/* The town is the drive-time signal a browser needs before
-                          claiming — even masked stops say where they are. */}
-                      {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{t.label}
+                <>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-serif" style={{ fontSize: 17 }}>
+                      {stopLabel(s, i)}
                     </div>
-                  );
-                })()
-              )}
+                    {noteBlock}
+                    {slipBlock}
+                    {!s.workSlip && isMine ? (
+                      <div
+                        style={{
+                          fontSize: 13,
+                          marginTop: 2,
+                          color:
+                            s.status === 'complete'
+                              ? 'var(--positive)'
+                              : s.status === 'in_progress'
+                                ? 'var(--tide-deep)'
+                                : 'var(--ink-4)',
+                        }}
+                      >
+                        {s.status === 'complete' ? 'Done' : s.status === 'in_progress' ? 'In progress' : null}
+                        {/* Time at property, driven by the door: live-ticking while
+                            they're inside, fixed once they've left. */}
+                        {(() => {
+                          if (!startIso) return null;
+                          if (s.status === 'in_progress') {
+                            return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={startIso} endIso={s.departed_at} live /></span>;
+                          }
+                          if (s.status === 'complete') {
+                            return <span style={{ color: 'var(--ink-4)' }}> · <OnSite startIso={startIso} endIso={s.departed_at ?? s.completed_at} live={false} /></span>;
+                          }
+                          return null;
+                        })()}
+                        {s.arrived_verified_at && (
+                          <span style={{ color: 'var(--positive)' }}> · ✓ entered</span>
+                        )}
+                        {/* Timing stays visible while working; the one HARD deadline
+                            of the day (a guest arriving at this home at 4 PM) gets
+                            its own line instead of hiding at the end of a chain. */}
+                        {!terminal && (() => {
+                          const t = stopTiming(s, packet.visit_date);
+                          if (!t.urgent) {
+                            return (
+                              <span style={{ color: 'var(--ink-4)' }}>
+                                {s.status === 'in_progress' ? ' · ' : ''}{t.label}
+                              </span>
+                            );
+                          }
+                          return (
+                            <>
+                              <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{t.first}</span>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--signal)', marginTop: 4 }}>
+                                Guest checks in today, 4 PM
+                              </div>
+                            </>
+                          );
+                        })()}
+                        {/* Cleaner status (🧹), distinct from the inspector's own
+                            progress. Turnover stops only; silent once finished. */}
+                        {!terminal && (() => {
+                          const sameDay = s.window_basis === 'checkout_day';
+                          const checkoutDate = sameDay ? packet.visit_date : s.prior_checkout;
+                          const recent = !!checkoutDate && dayGap(checkoutDate, packet.visit_date) >= 0 && dayGap(checkoutDate, packet.visit_date) <= CLEAN_LOOKBACK_DAYS;
+                          if (!sameDay && !recent) return null;
+                          const status = cleaning.get(`${s.property_id}|${checkoutDate}`);
+                          if (!status && !locked.has(s.property_id)) return null;
+                          return <CleanerStatus status={status} sameDay={sameDay} checkoutDate={checkoutDate} />;
+                        })()}
+                      </div>
+                    ) : !s.workSlip ? (
+                      (() => {
+                        const t = stopTiming(s, packet.visit_date);
+                        return (
+                          <div style={{ fontSize: 13, marginTop: 2, color: t.urgent ? 'var(--signal)' : 'var(--ink-3)', fontWeight: t.urgent ? 600 : 400 }}>
+                            {/* The town is the drive-time signal a browser needs before
+                                claiming — even masked stops say where they are. */}
+                            {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{t.label}
+                          </div>
+                        );
+                      })()
+                    ) : null}
 
-              {isMine && occupiedStops.has(s.id) && s.status !== 'complete' && (
-                <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
-                  A guest may be in this home today. Call the office to confirm it&apos;s safe to enter.
-                  {/* The safety tap gets a real pill, not 13px inline text. */}
-                  <div style={{ marginTop: 8 }}>
-                    <a
-                      href={`tel:${OFFICE_TEL}`}
-                      style={{ fontSize: 13, fontWeight: 700, color: 'var(--signal)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', border: '1px solid var(--signal)', borderRadius: 999, padding: '9px 16px', minHeight: 40, background: 'var(--paper)' }}
-                    >
-                      Call the office
-                    </a>
+                    {isMine && occupiedStops.has(s.id) && !terminal && (
+                      <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
+                        A guest may be in this home today. Call the office to confirm it&apos;s safe to enter.
+                        {/* The safety tap gets a real pill, not 13px inline text. */}
+                        <div style={{ marginTop: 8 }}>
+                          <a href={`tel:${OFFICE_TEL}`} style={{ ...signalPill, border: '1px solid var(--signal)', fontWeight: 700 }}>
+                            Call the office
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {chipsRow}
+                    {isMine && s.workSlip && !terminal && (
+                      <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
+                    )}
+                    {workList}
                   </div>
-                </div>
-              )}
-              {/* One access row, one visual language: every affordance is the
-                  same quiet chip (Maps link, lock fact, tap-open arrival /
-                  get-in / supply-closet details). The old stack was four
-                  different styles in five rows; this is the sloppiness fix. */}
-              {isMine && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
-                  {(() => {
-                    const href = mapsUrl(s);
-                    return href ? (
-                      <a href={href} target="_blank" rel="noopener noreferrer" style={chip}>
-                        Maps ↗
-                      </a>
-                    ) : null;
-                  })()}
-                  {codedProps.has(s.property_id) && (
-                    <span style={{ ...chip, color: 'var(--positive)', cursor: 'default' }}>🔒 Trip code opens door</span>
+                  {isMine && !s.workSlip && !terminal && (
+                    <div className="rt-stop-action" style={{ flexShrink: 0 }}>
+                      <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
+                      {s.status === 'in_progress' && (
+                        <form action={undoStartStop} style={{ margin: '8px 0 0', textAlign: 'center' }}>
+                          <input type="hidden" name="packet_id" value={packet.id} />
+                          <input type="hidden" name="stop_id" value={s.id} />
+                          {/* A real touch target, not a stray 12px link next to the
+                              48px Start button — a gloved thumb shouldn't mis-tap. */}
+                          <button type="submit" style={quietBtn}>Reset this stop</button>
+                        </form>
+                      )}
+                    </div>
                   )}
-                  {!codedProps.has(s.property_id) && s.access && (
-                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
-                      <summary style={{ ...chip, listStyle: 'none' }}>🔑 How to get in</summary>
-                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560 }}>
-                        <AccessLines a={s.access} />
-                      </div>
-                    </details>
+                  {isMine && s.status === 'complete' && (
+                    <div className="rt-stop-action" style={{ flexShrink: 0, textAlign: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
+                      {reopenForm && <div style={{ marginTop: 6 }}>{reopenForm}</div>}
+                    </div>
                   )}
-                  {s.access?.arrival && (
-                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
-                      <summary style={{ ...chip, listStyle: 'none' }}>ⓘ Arrival &amp; parking</summary>
-                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                        {s.access.arrival}
-                      </div>
-                    </details>
-                  )}
-                  {s.property.supply_closet_location && (
-                    <details style={{ display: 'inline-block', maxWidth: '100%' }}>
-                      <summary style={{ ...chip, listStyle: 'none' }}>📦 Supply closet</summary>
-                      <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                        {s.property.supply_closet_location}
-                      </div>
-                    </details>
-                  )}
-                </div>
-              )}
-              {isMine && s.workSlip && s.status !== 'complete' && (
-                <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />
-              )}
-              {isMine && s.attachedSlips.length > 0 && (
-                <StopWorkList
-                  packetId={packet.id}
-                  items={s.attachedSlips.map((a) => ({
-                    attachmentId: a.attachmentId,
-                    title: a.category === 'inventory' ? a.title.replace(/^restock:\s*/i, '') : a.title,
-                    sub: a.location,
-                    bring: a.bring_list,
-                    note: a.officeNote,
-                    thumbs: a.photo_urls ?? [],
-                    done: !!a.completedAt,
-                    kind: a.category === 'inventory' ? ('restock' as const) : ('task' as const),
-                  }))}
-                />
+                </>
               )}
             </div>
-            {isMine && !s.workSlip && (
-              <div className="rt-stop-action" style={{ flexShrink: 0 }}>
-                {s.status === 'complete' ? (
-                  <div style={{ textAlign: 'center' }}>
-                    <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
-                    <form action={reopenStop} style={{ margin: '6px 0 0' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="hidden" name="stop_id" value={s.id} />
-                      <button
-                        type="submit"
-                        style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
-                      >
-                        Reopen
-                      </button>
-                    </form>
-                  </div>
-                ) : (
-                  <>
-                    <StartStop packetId={packet.id} stopId={s.id} resume={s.status === 'in_progress'} />
-                    {s.status === 'in_progress' && (
-                      <form action={undoStartStop} style={{ margin: '8px 0 0', textAlign: 'center' }}>
-                        <input type="hidden" name="packet_id" value={packet.id} />
-                        <input type="hidden" name="stop_id" value={s.id} />
-                        {/* A real touch target, not a stray 12px link next to the
-                            48px Start button — a gloved thumb shouldn't mis-tap. */}
-                        <button
-                          type="submit"
-                          style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
-                        >
-                          Reset this stop
-                        </button>
-                      </form>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-            {isMine && s.workSlip && s.status === 'complete' && (
-              <div style={{ flexShrink: 0, textAlign: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--positive)' }}>Done</span>
-                    <form action={reopenStop} style={{ margin: '6px 0 0' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="hidden" name="stop_id" value={s.id} />
-                      <button
-                        type="submit"
-                        style={{ background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '9px 16px', minHeight: 40, fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap' }}
-                      >
-                        Reopen
-                      </button>
-                    </form>
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </section>
 
-      {showSupplyStop && <KitReturnCard />}
+      {showSupplyStop && <KitReturnCard active={allComplete} />}
 
       {/* Sticky bar renders ONLY when it carries a real action or verdict:
           claim, submit (all stops done), the eligibility nudge, or the
@@ -1047,7 +1168,7 @@ export default async function PacketPage({
             <form action={submitPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label="Submit completed packet"
+                label={changesRequested ? 'Resubmit packet' : 'Submit completed packet'}
                 busyLabel="Submitting…"
                 style={{
                   width: '100%',

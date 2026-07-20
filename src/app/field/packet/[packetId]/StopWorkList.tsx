@@ -23,7 +23,7 @@ export type StopWorkItem = {
  * that opens the note+photo form for when proof is worth attaching. The old
  * layout repeated a full MARK DONE + add-a-photo block per task; that's gone.
  */
-export function StopWorkList({ packetId, items }: { packetId: string; items: StopWorkItem[] }) {
+export function StopWorkList({ packetId, items, readOnly = false }: { packetId: string; items: StopWorkItem[]; readOnly?: boolean }) {
   const [doneIds, setDoneIds] = useState<Set<string>>(() => new Set(items.filter((i) => i.done).map((i) => i.attachmentId)));
   const [openId, setOpenId] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
@@ -40,7 +40,7 @@ export function StopWorkList({ packetId, items }: { packetId: string; items: Sto
     });
 
   function tap(id: string) {
-    if (doneIds.has(id)) return;
+    if (readOnly || doneIds.has(id)) return;
     markDone(id);
     if (openId === id) setOpenId(null);
     start(async () => {
@@ -86,9 +86,9 @@ export function StopWorkList({ packetId, items }: { packetId: string; items: Sto
           <button
             type="button"
             onClick={() => tap(i.attachmentId)}
-            disabled={done}
+            disabled={done || readOnly}
             aria-label={done ? 'Done' : `Mark ${i.title} done`}
-            style={{ background: 'none', border: 'none', padding: 0, marginTop: 1, cursor: done ? 'default' : 'pointer', flexShrink: 0, minWidth: 30, minHeight: 30, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}
+            style={{ background: 'none', border: 'none', padding: 0, marginTop: 1, cursor: done || readOnly ? 'default' : 'pointer', flexShrink: 0, minWidth: 30, minHeight: 30, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}
           >
             <span
               aria-hidden
@@ -134,7 +134,7 @@ export function StopWorkList({ packetId, items }: { packetId: string; items: Sto
               </div>
             )}
           </div>
-          {i.kind === 'task' && !done && (
+          {i.kind === 'task' && !done && !readOnly && (
             <button
               type="button"
               onClick={() => {
@@ -142,7 +142,7 @@ export function StopWorkList({ packetId, items }: { packetId: string; items: Sto
                 setPhotos([]);
                 setNote('');
               }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 12.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: '4px 2px', flexShrink: 0 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 12.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: '10px 12px', margin: '-6px -8px', minHeight: 40, flexShrink: 0 }}
             >
               {open ? 'close' : '📷 photo'}
             </button>
