@@ -129,6 +129,15 @@ export const PROPERTIES: Record<string, Property> = {
     fee_pct: 25, bank_last4: null, listing_match: '3 locust',
     tax_cert_id: null,
   },
+  // Seeded 2026-07-20 from the Helm properties row (external title
+  // "Stay at Gloucester Harbor"). First statement month: July 2026.
+  '19_rackliffe': {
+    id: '19_rackliffe', name: '19 Rackliffe', address: '19 Rackliffe Street', city: 'Gloucester, MA',
+    owner_last: 'Silverman', owner_full: 'Josh Silverman', owner_greeting: 'Josh and Maretta',
+    owner_emails: ['joshs.silverman@gmail.com', 'msyoung725@gmail.com'],
+    fee_pct: 25, bank_last4: '0628', listing_match: '19 rackliffe',
+    tax_cert_id: 'C0557821070',
+  },
 };
 
 // 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
