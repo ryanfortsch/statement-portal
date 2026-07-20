@@ -13,6 +13,7 @@
     { "path": "/api/cron/airdna-reminder", "schedule": "0 13 15,20 * *" },
     { "path": "/api/cron/import-inquiries", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/field-packets", "schedule": "15 5 * * *" },
+    { "path": "/api/cron/field-morning", "schedule": "0 12 * * *" },
     { "path": "/api/cron/prep-trash-bags", "schedule": "20 5 * * *" },
     { "path": "/api/cron/thermostats", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/sync-quo-contacts", "schedule": "0 7 * * *" }

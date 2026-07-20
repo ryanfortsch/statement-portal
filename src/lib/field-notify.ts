@@ -384,6 +384,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
  *  deadline has arrived and are still unclaimed. Once per cron run, so no
  *  spam tracking needed. */
 export async function renotifyDuePackets(): Promise<number> {
+  if (inQuietHoursET()) return 0;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   const { data } = await fieldDb()
     .from('inspection_packets')
@@ -421,8 +422,26 @@ export async function sendChangesRequestedEmail(
   });
 }
 
+/**
+ * Never let an AUTOMATED job put an SMS on a contractor's phone overnight.
+ * (The visit-day reminder used to ride the 1:15 AM housekeeping cron.) The
+ * schedule is the real fix; this is the backstop so a future re-schedule or a
+ * manual cron run can't repeat it. Operator-triggered sends — publishing a
+ * packet, adding a stop — are deliberately NOT gated: that's a human choosing
+ * to send, and suppressing it would silently strand the work.
+ */
+const QUIET_UNTIL_HOUR_ET = 7; // nothing automated before 7 AM
+const QUIET_FROM_HOUR_ET = 21; // nothing automated after 9 PM
+export function inQuietHoursET(now: Date = new Date()): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23' }).format(now),
+  );
+  return hour >= QUIET_FROM_HOUR_ET || hour < QUIET_UNTIL_HOUR_ET;
+}
+
 /** Visit-day reminder: text contractors whose claimed packet is today. */
 export async function remindClaimedVisitsToday(): Promise<number> {
+  if (inQuietHoursET()) return 0;
   const from = await resolveQuoFrom();
   if (!from) return 0;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());

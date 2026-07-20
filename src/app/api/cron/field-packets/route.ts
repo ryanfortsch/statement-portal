@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
-import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest } from '@/lib/field-notify';
 
 export const maxDuration = 300;
 
 /**
  * GET /api/cron/field-packets
  *
- * Nightly Field maintenance (schedule in vercel.json): re-validate every
- * published packet against current bookings/blocks so the marketplace never
- * shows a packet a guest has since moved into, and re-ping inspectors about
- * unclaimed-but-due packets.
+ * Nightly Field HOUSEKEEPING (schedule in vercel.json, 05:15 UTC = 1:15 AM ET):
+ * re-validate every published packet against current bookings/blocks so the
+ * marketplace never shows a packet a guest has since moved into, and heal stale
+ * packet->booking links. Silent, no one is contacted — everything that texts or
+ * emails a human moved to /api/cron/field-morning so it lands at a humane hour.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -30,11 +30,7 @@ export async function GET(request: NextRequest) {
     // current nearest upcoming check-in, so a turnover that gained a nearer
     // guest after the packet was built still shows as covered on the board.
     const resynced = await resyncLivePacketBookings().catch(() => ({ checked: 0, updated: 0 }));
-    const renotified = await renotifyDuePackets();
-    // Remind contractors with a visit today; brief the office on what needs them.
-    const reminded = await remindClaimedVisitsToday().catch(() => 0);
-    const digest = await sendOfficeFieldDigest().catch(() => false);
-    return NextResponse.json({ ok: true, revalidated, resynced, renotified, reminded, digest });
+    return NextResponse.json({ ok: true, revalidated, resynced });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
