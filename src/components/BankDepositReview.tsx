@@ -107,7 +107,9 @@ export function BankDepositReview({
     const d = drafts[dep.id];
     if (d) return d;
     const initial = {
-      label: dep.source === 'stripe_charge' ? inferStripeLabel(dep.description) : 'Add-on',
+      label: dep.source === 'stripe_charge'
+        ? (dep.direction === 'debit' ? 'Stripe fee on refunded charge' : inferStripeLabel(dep.description))
+        : 'Add-on',
       code: dep.suggested_reservation_code && validCodes.includes(dep.suggested_reservation_code)
         ? dep.suggested_reservation_code
         : (validCodes[0] || ''),
@@ -306,9 +308,10 @@ export function BankDepositReview({
             <>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.5, maxWidth: 720 }}>
                 Outgoing charges we couldn&rsquo;t auto-match to a known cleaning / linen / repair
-                vendor. Attribute as a property expense (e.g. an Online Transfer to RT operating that
-                reimbursed RT for a trash can on the corporate card -- flows into the &quot;Repairs&quot;
-                bucket on the owner statement) or dismiss as not-an-expense (internal sweeps, etc).
+                vendor, plus Stripe fees kept on refunded one-off charges (a refunded double-payment
+                still costs its processing fee). Attribute as a property expense (flows into the
+                deductions on the owner statement) or dismiss as not-an-expense (internal sweeps,
+                Rising Tide eats the fee, etc).
               </div>
               {debits.map(dep => {
                 const d = draftFor(dep);
