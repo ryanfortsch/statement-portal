@@ -1513,7 +1513,7 @@ export async function loadOpenMaintenance(): Promise<MaintenanceSlip[]> {
 export async function loadAttachableSlips(propertyId: string): Promise<WorkSlipLite[]> {
   const { data } = await fieldDb()
     .from('work_slips')
-    .select('id, title, description, action_summary, bring_list, location, priority, photo_urls')
+    .select('id, title, description, action_summary, bring_list, location, priority, category, photo_urls, created_at')
     .eq('property_id', propertyId)
     .neq('status', 'done')
     .order('created_at', { ascending: false });

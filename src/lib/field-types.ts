@@ -201,6 +201,8 @@ export type WorkSlipLite = {
    *  packet, not a full task card). */
   category: string;
   photo_urls: string[];
+  /** Present where the reader needs age (e.g. the operator attach picker). */
+  created_at?: string;
 };
 
 /** A work slip ATTACHED to a stop (extra task riding on the visit), as opposed

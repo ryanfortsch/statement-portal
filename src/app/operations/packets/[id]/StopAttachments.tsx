@@ -39,6 +39,13 @@ const quietBtn: React.CSSProperties = {
   flexShrink: 0,
 };
 
+/** "3 days old" for the attach picker; empty when the loader has no date. */
+function slipAge(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  return d === 0 ? 'new today' : d === 1 ? '1 day old' : `${d} days old`;
+}
+
 /** Everything in here autosaves (selects on change, text on click-away). The
  *  header pins that promise so the operator never hunts for a Save button. */
 function SaveState({ pending }: { pending: boolean }) {
@@ -180,23 +187,55 @@ export function StopAttachments({
             </div>
           )}
 
-          {/* Attach a slip */}
+          {/* Attach a slip. A native <select> could only show one line per slip,
+              which made "is this applicable to this visit?" unanswerable — this
+              panel shows each candidate whole: what, where, how old, the photos. */}
           {pickable.length > 0 ? (
-            <select
-              value=""
-              onChange={(e) => {
-                const id = e.target.value;
-                if (id) onSave(() => attachSlipToStop(packetId, stopId, id));
-              }}
-              style={{ ...box, color: 'var(--ink-3)' }}
-            >
-              <option value="">+ Attach a work slip ({pickable.length} open)…</option>
-              {pickable.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.title}{w.location ? ` (${w.location})` : ''} · {w.priority}
-                </option>
-              ))}
-            </select>
+            <details>
+              <summary style={{ ...box, color: 'var(--ink-3)', cursor: 'pointer', listStyle: 'none' }}>
+                + Attach a work slip ({pickable.length} open)…
+              </summary>
+              <div style={{ border: '1px solid var(--rule)', borderRadius: 8, marginTop: 6, background: 'var(--paper)' }}>
+                {pickable.map((w) => (
+                  <div key={w.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '10px 12px', borderBottom: '1px solid var(--rule-soft, var(--rule))' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>
+                        {w.title}
+                        {w.location && <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> · {w.location}</span>}
+                        {w.priority === 'high' && <span style={{ color: 'var(--signal)', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginLeft: 6 }}>high</span>}
+                      </div>
+                      {(w.description || w.action_summary) && (
+                        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {w.action_summary || w.description}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>
+                        {[
+                          w.category === 'inventory' ? 'restock' : null,
+                          slipAge(w.created_at),
+                          w.photo_urls?.length ? `${w.photo_urls.length} ${w.photo_urls.length === 1 ? 'photo' : 'photos'}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                      {w.photo_urls && w.photo_urls.length > 0 && (
+                        <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+                          {w.photo_urls.slice(0, 4).map((u) => (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img key={u} src={u} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--rule)' }} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onSave(() => attachSlipToStop(packetId, stopId, w.id))}
+                      style={{ background: 'var(--paper-2, #fff)', border: '1px solid var(--tide-deep)', borderRadius: 999, cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 11.5, fontWeight: 600, padding: '6px 14px', flexShrink: 0, marginTop: 1 }}
+                    >
+                      attach
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
           ) : attached.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
               No open work slips on this property. Create one in Work and it will show up here.
