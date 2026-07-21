@@ -9,6 +9,7 @@ import {
   isStayConciergeConfigured,
   listApprovals,
   listRecentApprovals,
+  listConversations,
   getStats,
   getStatsTimeseries,
   getFacts,
@@ -16,10 +17,9 @@ import {
   explainError,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
-import { RecentStrip } from './RecentStrip';
 import { RemindersSection } from './RemindersSection';
+import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
-import { FactAuditCard } from './FactAuditCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -63,29 +63,38 @@ function NotReachable({ message }: { message: string }) {
   );
 }
 
-// Urgent boundary: the pending-approval queue + reminders + recent strip.
-// Awaits ONLY the two fast calls so the queue is no longer held hostage by
-// the all-time stats aggregation or the weekly AI fact audit.
+// Urgent boundary: the pending-approval queue + reminders. Awaits ONLY the
+// fast queue call so it is never held hostage by the slower aggregations.
 async function QueueSection() {
-  const [pending, recent] = await Promise.all([
-    listApprovals(),
-    listRecentApprovals(24),
-  ]);
+  const pending = await listApprovals();
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} />;
   return (
     <>
       <MessagingQueue initialPending={pending.data.approvals} />
       <RemindersSection />
-      <RecentStrip initialRecent={recent.ok ? recent.data.approvals : []} />
     </>
   );
 }
 
-// Below-the-fold boundary: performance analytics + fact audit. These are the
-// slow calls (all-time stats, 30-day series, AI-generated audit); they stream
-// in independently after the queue and never block it.
+// The Guesty-inbox replacement: every recent guest conversation, expandable
+// in place into the full thread with a manual-reply composer. Its own
+// boundary because the first cold gather pages the Guesty API (cached 90s
+// on the concierge after that).
+async function ConversationsSection() {
+  const conversations = await listConversations(60);
+  return (
+    <ConversationsBrowser
+      initialConversations={conversations.ok ? conversations.data.conversations : []}
+      initialError={conversations.ok ? null : explainError(conversations.error)}
+    />
+  );
+}
+
+// Below-the-fold boundary: the tabbed Performance section (score / last-24h
+// activity / learning + weekly fact audit). Slow calls; they stream in
+// independently after the queue and never block it.
 async function AnalyticsSection() {
-  const [stats, facts, ts, audit] = await Promise.all([
+  const [stats, facts, ts, audit, recent] = await Promise.all([
     // Default the stats window to All-time (hours=0). The 7d window is thin
     // because /messaging only just went live; All-time is where the real
     // "is the AI getting it right?" signal lives.
@@ -93,22 +102,20 @@ async function AnalyticsSection() {
     getFacts(20),
     getStatsTimeseries(30),
     getFactAudit(),
+    listRecentApprovals(24),
   ]);
   return (
-    <>
-      <PerformanceDropdown
-        initialStats={stats.ok ? stats.data : null}
-        initialError={stats.ok ? null : explainError(stats.error)}
-        initialFacts={facts.ok ? facts.data.facts : []}
-        totalFacts={facts.ok ? facts.data.total_facts : 0}
-        initialTimeseries={ts.ok ? ts.data.series : []}
-        initialAvailableTopics={ts.ok ? ts.data.available_topics : []}
-      />
-      <FactAuditCard
-        initial={audit.ok ? audit.data : null}
-        initialError={audit.ok ? null : explainError(audit.error)}
-      />
-    </>
+    <PerformanceDropdown
+      initialStats={stats.ok ? stats.data : null}
+      initialError={stats.ok ? null : explainError(stats.error)}
+      initialFacts={facts.ok ? facts.data.facts : []}
+      totalFacts={facts.ok ? facts.data.total_facts : 0}
+      initialTimeseries={ts.ok ? ts.data.series : []}
+      initialAvailableTopics={ts.ok ? ts.data.available_topics : []}
+      initialRecent={recent.ok ? recent.data.approvals : []}
+      audit={audit.ok ? audit.data : null}
+      auditError={audit.ok ? null : explainError(audit.error)}
+    />
   );
 }
 
@@ -125,6 +132,9 @@ export default function MessagingPage() {
     <Shell>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ConversationsSection />
       </Suspense>
       <Suspense fallback={null}>
         <AnalyticsSection />

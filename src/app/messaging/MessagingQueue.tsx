@@ -13,6 +13,7 @@ import {
   cancelSchedule,
   editDraft,
 } from './actions';
+import { ThreadPanel } from './Thread';
 import {
   prettifySlug,
   prettifyTopic,
@@ -207,6 +208,9 @@ function ApprovalCard({
   // backlog of waiting sends doesn't clutter the dashboard; "Show" expands
   // one to the full draft + actions.
   const [expanded, setExpanded] = useState(false);
+  // Inline conversation history (read-only ThreadPanel), so the operator can
+  // judge a draft against what was actually said without opening Guesty.
+  const [showThread, setShowThread] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
   // The draft text the editor was seeded from, so we can detect the AI/another
   // operator regenerating the draft underneath an open editor.
@@ -386,7 +390,7 @@ function ApprovalCard({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError('Could not copy automatically — select the message above and copy it manually.');
+      setError('Could not copy automatically. Select the message above and copy it manually.');
     }
   };
 
@@ -785,6 +789,39 @@ function ApprovalCard({
           )}
         </FieldBlock>
       </div>
+
+      {approval.conversation_id && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowThread((v) => !v)}
+            aria-expanded={showThread}
+            className="eyebrow"
+            style={{
+              color: showThread ? 'var(--ink-2)' : 'var(--ink-4)',
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+            }}
+            title="The full conversation history, live from Guesty"
+          >
+            {showThread ? 'Hide conversation ▴' : 'View conversation ▾'}
+          </button>
+          {showThread && (
+            <div style={{ marginTop: 10 }}>
+              <ThreadPanel
+                conversationId={approval.conversation_id}
+                guestFirst={guestLabel}
+                channel={approval.channel}
+                module={approval.module}
+                listingId={approval.listing_id}
+                maxHeight={380}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {addon && (
         <div

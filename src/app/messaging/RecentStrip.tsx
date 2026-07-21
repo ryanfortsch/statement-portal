@@ -1,49 +1,50 @@
 'use client';
 
+/**
+ * The resolved-in-the-last-24h activity list. Formerly its own "Last 24
+ * hours" section; now rendered inside the Performance section's
+ * "Last 24 hours" tab (PerformanceDropdown), so the queue is the only
+ * thing above the fold and everything analytical lives in one place.
+ */
+
 import { useState } from 'react';
-import { Section } from '@/components/Section';
 import type { Approval } from '@/lib/stay-concierge';
 import { prettifySlug, guestFirstFromDraft, statusToneColor, relativeTimeShort } from './format';
-
-type Props = {
-  initialRecent: Approval[];
-};
 
 const STATUS_LABELS: Record<string, string> = {
   approved: 'Sent',
   rejected: 'Rejected',
-  manual_sent: 'Sent via Guesty',
+  // Covers both "she replied in Guesty" (poller-captured) and "she replied
+  // from the Helm thread composer" (which resolves pending drafts the same way).
+  manual_sent: 'Replied manually',
   superseded: 'Coached & regenerated',
   auto_rejected_stale: 'Auto-pruned (stale)',
   courtesy_ack: 'No reply needed',
 };
 
-const DEFAULT_VISIBLE = 5;
+const DEFAULT_VISIBLE = 8;
 
-export function RecentStrip({ initialRecent }: Props) {
+export function RecentList({ recent }: { recent: Approval[] }) {
   const [expanded, setExpanded] = useState(false);
 
-  if (initialRecent.length === 0) {
-    return null;
+  if (recent.length === 0) {
+    return (
+      <div style={{ padding: '16px 0', fontSize: 13, color: 'var(--ink-4)' }}>
+        Nothing resolved in the last 24 hours yet.
+      </div>
+    );
   }
 
-  const visible = expanded
-    ? initialRecent
-    : initialRecent.slice(0, DEFAULT_VISIBLE);
-  const hasMore = initialRecent.length > DEFAULT_VISIBLE;
+  const visible = expanded ? recent : recent.slice(0, DEFAULT_VISIBLE);
+  const hasMore = recent.length > DEFAULT_VISIBLE;
 
   return (
-    <Section
-      title="Last 24 hours"
-      eyebrow={`${initialRecent.length} resolved`}
-      paddingTop={36}
-    >
+    <>
       <ul
         style={{
           listStyle: 'none',
           margin: 0,
           padding: 0,
-          borderTop: '1px solid var(--rule)',
         }}
       >
         {visible.map((row) => {
@@ -139,10 +140,10 @@ export function RecentStrip({ initialRecent }: Props) {
           >
             {expanded
               ? `Show less ▴`
-              : `Show all ${initialRecent.length} ▾`}
+              : `Show all ${recent.length} ▾`}
           </button>
         </div>
       )}
-    </Section>
+    </>
   );
 }
