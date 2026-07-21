@@ -7,11 +7,13 @@ import { completeBoardSlip, createBoardSlip } from '../actions';
 
 function SubmitBtn({ label }: { label: string }) {
   const { pending } = useFormStatus();
+  // Pill, not slab: this button repeats on every slip, so its visual weight
+  // sets the whole board's noise floor. Still a 36px+ touch target.
   return (
     <button
       type="submit"
       disabled={pending}
-      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: pending ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '10px 18px', minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
+      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 999, cursor: pending ? 'wait' : 'pointer', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '9px 16px', minHeight: 36, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
     >
       {pending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
       {pending ? 'Saving…' : label}
