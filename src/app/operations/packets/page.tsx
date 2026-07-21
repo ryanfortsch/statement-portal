@@ -5,7 +5,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
-import { dollars, fmtVisitTime, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -417,7 +417,10 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
           </span>
         )}
         <div style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <span>{dollars(p.posted_price_cents)}</span>
+          {/* The REAL payout: final (once set at approval) + bonus, falling back
+              to the posted estimate. A completed row must show what was paid,
+              not what was guessed (Dotti: "$199" on a packet she paid $264). */}
+          <span>{dollars(totalPayoutCents(p))}</span>
           {who && (
             <>
               <span>·</span>
