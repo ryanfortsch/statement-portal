@@ -29,6 +29,9 @@ export async function FieldShell({
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
+      {/* Portal-wide fold affordance: any <span class="rt-chev">▾</span> inside
+          an open <details> rotates. One rule here beats a style block per page. */}
+      <style>{`details[open] > summary .rt-chev { transform: rotate(180deg); }`}</style>
       <header
         style={{
           borderBottom: '1px solid var(--rule)',
