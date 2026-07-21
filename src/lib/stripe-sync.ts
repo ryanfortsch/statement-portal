@@ -157,14 +157,51 @@ function round2(n: number): number {
 }
 
 export function getStripeKeysMap(): Record<string, string> {
-  // STRIPE_KEYS_JSON is marked Sensitive in Vercel, so it can never be read
-  // back - editing it means blind-retyping every property's key, which is how
-  // fleets get wiped. STRIPE_KEYS_JSON_EXTRA is the additive overlay: new
-  // properties (and rotated keys - overlay wins per property id) go there
-  // without ever touching the original blob. Same JSON shape:
-  // {"84_thatcher":"rk_live_..."}. Every reader (statements sync,
-  // installments verify-source, the payment-links bridge) merges both here.
-  return { ...parseKeysVar('STRIPE_KEYS_JSON'), ...parseKeysVar('STRIPE_KEYS_JSON_EXTRA') };
+  // Three sources, most specific wins:
+  //   1. STRIPE_KEYS_JSON        - the original Sensitive blob (9 legacy props)
+  //   2. STRIPE_KEYS_JSON_EXTRA  - additive JSON overlay (84_thatcher era)
+  //   3. STRIPE_KEY_<PROPERTY_ID> - ONE VAR PER PROPERTY, the standard going
+  //      forward (Dotti 2026-07-21): value is the bare rk_live_ key, no JSON.
+  //      Adding a property never opens an existing var, so a Sensitive flag
+  //      or a paste slip can never take out the rest of the fleet.
+  // Every reader (statements sync, installments verify-source, the
+  // payment-links bridge) merges all three here.
+  return {
+    ...parseKeysVar('STRIPE_KEYS_JSON'),
+    ...parseKeysVar('STRIPE_KEYS_JSON_EXTRA'),
+    ...perPropertyKeyVars(),
+  };
+}
+
+/** Scan env for STRIPE_KEY_<PROPERTY_ID> vars: STRIPE_KEY_3_LOCUST ->
+ * {"3_locust": <value>}. Values are trimmed of stray quotes/whitespace.
+ * Full-access secrets are REFUSED by policy - Helm only ever holds
+ * restricted keys, so an sk_live_ paste is ignored rather than becoming a
+ * live credential (visible in the payment-links GET diagnostic). */
+export function perPropertyKeyVars(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, raw] of Object.entries(process.env)) {
+    const m = /^STRIPE_KEY_([A-Z0-9_]+)$/.exec(name);
+    if (!m || !raw) continue;
+    const value = raw.trim().replace(/^["']|["']$/g, '').trim();
+    if (!value || value.startsWith('sk_')) continue;
+    out[m[1].toLowerCase()] = value;
+  }
+  return out;
+}
+
+/** Property ids whose per-property var holds a refused full-access secret
+ * (sk_). Surfaced by the diagnostic so a wrong-key paste is visible instead
+ * of silently ignored. */
+export function refusedSecretKeyVars(): string[] {
+  const out: string[] = [];
+  for (const [name, raw] of Object.entries(process.env)) {
+    const m = /^STRIPE_KEY_([A-Z0-9_]+)$/.exec(name);
+    if (m && raw && raw.trim().replace(/^["']|["']$/g, '').startsWith('sk_')) {
+      out.push(m[1].toLowerCase());
+    }
+  }
+  return out;
 }
 
 function parseKeysVar(name: string): Record<string, string> {
