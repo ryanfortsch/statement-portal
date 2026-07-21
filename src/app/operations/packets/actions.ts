@@ -783,14 +783,18 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
     .select('posted_price_cents, final_payout_cents, bonus_cents, awarded_contractor_id')
     .maybeSingle();
   const paid = data as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; awarded_contractor_id: string | null } | null;
+  // The recording is done the moment paid_at lands. The method stamp and the
+  // contractor's receipt email run AFTER the response, so a slow (or wedged)
+  // email API can never hold the operator's button hostage.
   if (paid?.awarded_contractor_id) {
-    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', paid.awarded_contractor_id).maybeSingle();
-    if (c) {
+    const contractorId = paid.awarded_contractor_id;
+    after(async () => {
+      const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
+      if (!c) return;
       const contractor = c as ContractorRow;
-      // Stamp the remittance method from what's on file, then receipt the contractor.
       await fieldDb().from('inspection_packets').update({ paid_method: contractor.payment_method ?? null }).eq('id', packetId);
       await sendPaidEmail(contractor, effectiveBaseCents(paid) + (paid.bonus_cents || 0), { method: contractor.payment_method, reference }).catch(() => {});
-    }
+    });
   }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');

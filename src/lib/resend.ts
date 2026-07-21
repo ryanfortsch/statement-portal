@@ -13,6 +13,10 @@
 
 const RESEND_API = 'https://api.resend.com';
 
+// Every Resend call carries a hard timeout: a stalled email API must never
+// wedge the server action awaiting it (Dotti watched "Recording + receipt..."
+// spin forever because this fetch could hang without resolving OR rejecting).
+
 export const isResendConfigured = !!process.env.RESEND_API_KEY && !!process.env.RESEND_AUDIENCE_ID;
 
 function authHeaders(): Record<string, string> {
@@ -56,6 +60,7 @@ export async function pushContactToResend(args: {
   };
 
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(body),
@@ -83,6 +88,7 @@ export async function unsubscribeContactInResend(
   const url = `${RESEND_API}/audiences/${audienceId}/contacts/${resendContactId}`;
 
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
     method: 'PATCH',
     headers: authHeaders(),
     body: JSON.stringify({ unsubscribed: true }),
@@ -113,6 +119,7 @@ export async function sendBroadcastViaResend(args: {
   const audienceId = process.env.RESEND_AUDIENCE_ID!;
 
   const createRes = await fetch(`${RESEND_API}/broadcasts`, {
+    signal: AbortSignal.timeout(10_000),
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
@@ -136,6 +143,7 @@ export async function sendBroadcastViaResend(args: {
   if (!broadcastId) return null;
 
   const sendRes = await fetch(`${RESEND_API}/broadcasts/${broadcastId}/send`, {
+    signal: AbortSignal.timeout(10_000),
     method: 'POST',
     headers: authHeaders(),
   });
@@ -186,6 +194,7 @@ export async function sendTransactionalViaResend(args: {
   if (args.attachments && args.attachments.length > 0) body.attachments = args.attachments;
 
   const res = await fetch(`${RESEND_API}/emails`, {
+    signal: AbortSignal.timeout(10_000),
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(body),
