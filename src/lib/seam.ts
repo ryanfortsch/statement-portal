@@ -44,6 +44,9 @@ export type SeamDevice = {
     battery_level?: number; // 0..1
     battery?: { level?: number; status?: SeamBatteryStatus };
     model?: { display_name?: string; manufacturer_display_name?: string };
+    // Locks only. Seam omits this entirely when the device is offline, so
+    // treat a missing value the same as "unknown", never as "locked".
+    locked?: boolean;
   };
 };
 
