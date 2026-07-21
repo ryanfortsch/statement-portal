@@ -134,10 +134,13 @@ function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?:
   const holdReason = data.hold?.reason?.trim() || null;
   const isOwnerHold = data.hold?.kind === 'owner';
   const holdTitle = holdNote ?? holdReason ?? (isOwnerHold ? 'Owner hold' : 'Hold');
+  // Guesty reasons sometimes already say "block" ("Owner block"), so only
+  // append the word when it isn't there — never "Owner block block".
   let holdKind: string | null = null;
   if (data.hold) {
     if (isOwnerHold) holdKind = holdTitle === 'Owner hold' ? null : 'Owner block';
-    else if (holdNote && holdReason) holdKind = `${holdReason} block`;
+    else if (holdNote && holdReason)
+      holdKind = /block$/i.test(holdReason) ? holdReason : `${holdReason} block`;
     else holdKind = 'Manual block';
   }
   return (

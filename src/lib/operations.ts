@@ -378,6 +378,7 @@ export async function loadOperationsData(
   calendarRange: CalendarRange = '7d',
   propertyId?: string,
   calendarOffset: number = 0,
+  calendarMonth?: string,
 ): Promise<OperationsData> {
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
@@ -388,27 +389,33 @@ export async function loadOperationsData(
   // We still floor at the list-range size so the calendar never shows less
   // than the list does. calendarOffset (the ‹ Today › pagers) slides the
   // whole window in day units around today; a paged window drops the floor
-  // since it's deliberately looking elsewhere.
-  const calendarOffsetSafe = Number.isFinite(calendarOffset)
-    ? Math.max(-370, Math.min(370, Math.trunc(calendarOffset)))
-    : 0;
-  const calendarDays =
-    calendarOffsetSafe === 0
-      ? Math.max(days, CALENDAR_RANGE_DAYS[calendarRange])
-      : CALENDAR_RANGE_DAYS[calendarRange];
-  const calendarAnchor = addDaysStr(rangeStart, calendarOffsetSafe);
-  const calendarEnd = addDaysStr(calendarAnchor, calendarDays);
-
-  // The visible calendar dates, oldest first: CALENDAR_LOOKBACK_DAYS of
-  // context before the anchor, then `calendarDays` forward. Built up here
-  // (not in the calendar section below) because the reservation fetch and
-  // the Guesty day-mirror read both need the exact window.
+  // since it's deliberately looking elsewhere. calendarMonth ("2026-09",
+  // the month dropdown) overrides both: the window becomes exactly that
+  // calendar month, first through last, no lookback context.
+  const monthMode = !!calendarMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(calendarMonth);
   const calendarDayList: string[] = [];
-  for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
-    calendarDayList.push(addDaysStr(calendarAnchor, i));
+  if (monthMode) {
+    const [my, mm] = calendarMonth!.split('-').map(Number);
+    const monthLen = new Date(Date.UTC(my, mm, 0)).getUTCDate();
+    for (let i = 0; i < monthLen; i += 1) {
+      calendarDayList.push(addDaysStr(`${calendarMonth}-01`, i));
+    }
+  } else {
+    const calendarOffsetSafe = Number.isFinite(calendarOffset)
+      ? Math.max(-370, Math.min(370, Math.trunc(calendarOffset)))
+      : 0;
+    const calendarDays =
+      calendarOffsetSafe === 0
+        ? Math.max(days, CALENDAR_RANGE_DAYS[calendarRange])
+        : CALENDAR_RANGE_DAYS[calendarRange];
+    const calendarAnchor = addDaysStr(rangeStart, calendarOffsetSafe);
+    for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
+      calendarDayList.push(addDaysStr(calendarAnchor, i));
+    }
   }
   const calendarWindowStart = calendarDayList[0];
   const calendarWindowEnd = calendarDayList[calendarDayList.length - 1];
+  const calendarEnd = addDaysStr(calendarWindowEnd, 1);
 
   // Lookback 30 days from today so we can resolve previous checkouts, and
   // far enough to cover a paged-back calendar window; lookahead through the
@@ -620,6 +627,7 @@ export async function loadOperationsData(
     { data: guestCodeData },
     { data: unlockEventData },
     calendarDayMap,
+    { data: guestyResData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -691,7 +699,61 @@ export async function loadOperationsData(
     // until the migration + first sync land, which keeps every downstream
     // feature dark instead of broken.
     loadCalendarDayMap(propertyIdList, calendarWindowStart, calendarWindowEnd),
+    // Real guest names (+ payout) for the same stays, from the
+    // guesty_reservations mirror. iCal rows arrive named "Reservation HM…"
+    // or blank, which rendered a wall of anonymous bars; this join names
+    // them. Overlap window matches the bookings fetch above.
+    supabase
+      .from('guesty_reservations')
+      .select('property_id, guest_name, confirmation_code, check_in, check_out, host_payout, status')
+      .lte('check_in', fetchEnd)
+      .gte('check_out', fetchStart)
+      .not('guest_name', 'is', null),
   ]);
+
+  // ── Guest-name join ───────────────────────────────────────────────────
+  // iCal bookings arrive named "Reservation HM…" or blank; the source
+  // dedupe pools a real name only when a named twin exists. For everything
+  // still anonymous, the guesty_reservations mirror has the actual guest:
+  // match by confirmation code first, then exact (property, check_in,
+  // check_out). Only placeholder rows are touched, only a real name lands,
+  // and the payout rides along when the booking has none — so calendar
+  // bars, tooltips, and turnover rows name the guest instead of "Guest".
+  const isPlaceholderGuest = (name: string | null): boolean => {
+    const t = (name ?? '').trim();
+    if (!t) return true;
+    return /^(reservation|tbd|guest|n\/a|hold|blocked|airbnb|vrbo|not)$/i.test(t.split(/\s+/)[0]);
+  };
+  type GuestyResMini = {
+    property_id: string | null;
+    guest_name: string | null;
+    confirmation_code: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    host_payout: number | null;
+    status: string | null;
+  };
+  const normCode = (c: string | null): string => (c ?? '').trim().toUpperCase();
+  const grByCode = new Map<string, GuestyResMini>();
+  const grByStay = new Map<string, GuestyResMini>();
+  for (const g of (guestyResData ?? []) as GuestyResMini[]) {
+    if (isPlaceholderGuest(g.guest_name)) continue;
+    if (/^cancell?ed$/i.test(g.status ?? '')) continue;
+    const code = normCode(g.confirmation_code);
+    if (code) grByCode.set(code, g);
+    if (g.property_id && g.check_in && g.check_out) {
+      grByStay.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g);
+    }
+  }
+  for (const r of reservations) {
+    if (!isPlaceholderGuest(r.guest_name)) continue;
+    const g =
+      (r.confirmation_code ? grByCode.get(normCode(r.confirmation_code)) : undefined) ??
+      grByStay.get(`${r.property_id}|${r.check_in}|${r.check_out}`);
+    if (!g) continue;
+    r.guest_name = g.guest_name;
+    if (r.host_payout == null && g.host_payout != null) r.host_payout = g.host_payout;
+  }
 
   // Set of properties with a live smart lock. Anything not in here is a
   // lockless home: its turnover rail degrades to checkout -> cleaned (Quo /

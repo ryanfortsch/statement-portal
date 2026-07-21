@@ -180,10 +180,58 @@ export function mapGuestyDays(propertyId: string, days: GuestyDay[]): CalendarDa
 }
 
 /**
+ * Merge one property's per-listing day rows into a single row per date.
+ * Several Guesty listings can map to one Helm property (17 Beach Road is a
+ * Guesty multi-unit carrying three listings): writing each listing straight
+ * to the (property_id, date) PK made the LAST listing win the days table
+ * while the blocks rollup kept the union — one dark sub-listing painted the
+ * whole property held. Policy: the property is available if ANY listing is
+ * available (at the lowest bookable rate), booked if none are open but one
+ * is booked, and held only when EVERY listing is dark that day (real-hold
+ * ref preferred for the surviving row's block fields).
+ */
+export function mergeListingDays(perListing: CalendarDayRow[][]): CalendarDayRow[] {
+  if (perListing.length <= 1) return perListing[0] ?? [];
+  const byDate = new Map<string, CalendarDayRow[]>();
+  for (const rows of perListing) {
+    for (const r of rows) {
+      const list = byDate.get(r.date) ?? [];
+      list.push(r);
+      byDate.set(r.date, list);
+    }
+  }
+  const cheapest = (rows: CalendarDayRow[]): CalendarDayRow =>
+    [...rows].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))[0];
+  const clearBlock = (r: CalendarDayRow): CalendarDayRow => ({
+    ...r,
+    block_type: null,
+    block_note: null,
+    block_reason: null,
+    block_created_by: null,
+    block_created_at: null,
+    block_ref_id: null,
+    block_start: null,
+    block_end: null,
+  });
+  const out: CalendarDayRow[] = [];
+  for (const rows of byDate.values()) {
+    const open = rows.filter((r) => r.status === 'available');
+    const booked = rows.filter((r) => r.status === 'booked');
+    if (open.length > 0) out.push(clearBlock(cheapest(open)));
+    else if (booked.length > 0) out.push(clearBlock(cheapest(booked)));
+    else out.push(rows.find((r) => r.block_type != null) ?? rows[0]);
+  }
+  out.sort((a, b) => (a.date < b.date ? -1 : 1));
+  return out;
+}
+
+/**
  * Pull every mapped listing's calendar for [startDate, endDate] and refresh
- * both tables. Stale rows inside the window (days Guesty no longer reports,
- * holds that were released) are swept AFTER the upsert by synced_at, so
- * concurrent readers never see an empty window mid-sync.
+ * both tables. Listings are grouped and merged per property (see
+ * mergeListingDays) so multi-listing properties write once, coherently.
+ * Stale rows inside the window (days Guesty no longer reports, holds that
+ * were released) are swept AFTER the upsert by synced_at, so concurrent
+ * readers never see an empty window mid-sync.
  */
 export async function syncCalendarDays(
   listingMap: Record<string, string>,
@@ -197,15 +245,28 @@ export async function syncCalendarDays(
   let daysWritten = 0;
   let holdDays = 0;
 
+  const listingsByProperty = new Map<string, string[]>();
   for (const [listingId, propertyId] of Object.entries(listingMap)) {
+    const list = listingsByProperty.get(propertyId) ?? [];
+    list.push(listingId);
+    listingsByProperty.set(propertyId, list);
+  }
+
+  for (const [propertyId, listingIds] of listingsByProperty) {
     try {
-      const data = await guestyGet<GuestyCalendarResponse>(
-        `/v1/availability-pricing/api/calendar/listings/${listingId}`,
-        token,
-        { startDate, endDate },
-      );
-      const days = data?.days ?? data?.data?.days ?? [];
-      const rows = mapGuestyDays(propertyId, days).map((r) => ({
+      const perListing: CalendarDayRow[][] = [];
+      for (const listingId of listingIds) {
+        const data = await guestyGet<GuestyCalendarResponse>(
+          `/v1/availability-pricing/api/calendar/listings/${listingId}`,
+          token,
+          { startDate, endDate },
+        );
+        const days = data?.days ?? data?.data?.days ?? [];
+        perListing.push(mapGuestyDays(propertyId, days));
+        listingsTouched += 1;
+        await sleep(150); // polite pacing across ~16 listings
+      }
+      const rows = mergeListingDays(perListing).map((r) => ({
         ...r,
         synced_at: runStartIso,
       }));
@@ -247,10 +308,8 @@ export async function syncCalendarDays(
         .lt('synced_at', runStartIso);
       if (sweepBlocksErr) throw new Error(`blocks sweep: ${sweepBlocksErr.message}`);
 
-      listingsTouched += 1;
       daysWritten += rows.length;
       holdDays += holdRows.length;
-      await sleep(150); // polite pacing across ~13 listings
     } catch (err) {
       errors.push(`${propertyId}: ${err instanceof Error ? err.message : String(err)}`);
     }
