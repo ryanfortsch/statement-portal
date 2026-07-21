@@ -620,6 +620,7 @@ export async function loadOperationsData(
     { data: guestCodeData },
     { data: unlockEventData },
     calendarDayMap,
+    { data: guestyResData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -691,7 +692,61 @@ export async function loadOperationsData(
     // until the migration + first sync land, which keeps every downstream
     // feature dark instead of broken.
     loadCalendarDayMap(propertyIdList, calendarWindowStart, calendarWindowEnd),
+    // Real guest names (+ payout) for the same stays, from the
+    // guesty_reservations mirror. iCal rows arrive named "Reservation HM…"
+    // or blank, which rendered a wall of anonymous bars; this join names
+    // them. Overlap window matches the bookings fetch above.
+    supabase
+      .from('guesty_reservations')
+      .select('property_id, guest_name, confirmation_code, check_in, check_out, host_payout, status')
+      .lte('check_in', fetchEnd)
+      .gte('check_out', fetchStart)
+      .not('guest_name', 'is', null),
   ]);
+
+  // ── Guest-name join ───────────────────────────────────────────────────
+  // iCal bookings arrive named "Reservation HM…" or blank; the source
+  // dedupe pools a real name only when a named twin exists. For everything
+  // still anonymous, the guesty_reservations mirror has the actual guest:
+  // match by confirmation code first, then exact (property, check_in,
+  // check_out). Only placeholder rows are touched, only a real name lands,
+  // and the payout rides along when the booking has none — so calendar
+  // bars, tooltips, and turnover rows name the guest instead of "Guest".
+  const isPlaceholderGuest = (name: string | null): boolean => {
+    const t = (name ?? '').trim();
+    if (!t) return true;
+    return /^(reservation|tbd|guest|n\/a|hold|blocked|airbnb|vrbo|not)$/i.test(t.split(/\s+/)[0]);
+  };
+  type GuestyResMini = {
+    property_id: string | null;
+    guest_name: string | null;
+    confirmation_code: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    host_payout: number | null;
+    status: string | null;
+  };
+  const normCode = (c: string | null): string => (c ?? '').trim().toUpperCase();
+  const grByCode = new Map<string, GuestyResMini>();
+  const grByStay = new Map<string, GuestyResMini>();
+  for (const g of (guestyResData ?? []) as GuestyResMini[]) {
+    if (isPlaceholderGuest(g.guest_name)) continue;
+    if (/^cancell?ed$/i.test(g.status ?? '')) continue;
+    const code = normCode(g.confirmation_code);
+    if (code) grByCode.set(code, g);
+    if (g.property_id && g.check_in && g.check_out) {
+      grByStay.set(`${g.property_id}|${g.check_in}|${g.check_out}`, g);
+    }
+  }
+  for (const r of reservations) {
+    if (!isPlaceholderGuest(r.guest_name)) continue;
+    const g =
+      (r.confirmation_code ? grByCode.get(normCode(r.confirmation_code)) : undefined) ??
+      grByStay.get(`${r.property_id}|${r.check_in}|${r.check_out}`);
+    if (!g) continue;
+    r.guest_name = g.guest_name;
+    if (r.host_payout == null && g.host_payout != null) r.host_payout = g.host_payout;
+  }
 
   // Set of properties with a live smart lock. Anything not in here is a
   // lockless home: its turnover rail degrades to checkout -> cleaned (Quo /
