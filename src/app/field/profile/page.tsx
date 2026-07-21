@@ -84,7 +84,7 @@ export default async function FieldProfilePage() {
           {reviews.length > 3 && (
             <details style={{ marginTop: 12 }}>
               <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
-                Show {reviews.length - 3} more {reviews.length - 3 === 1 ? 'review' : 'reviews'} ▾
+                Show {reviews.length - 3} more {reviews.length - 3 === 1 ? 'review' : 'reviews'} <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
               </summary>
               <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
                 {reviews.slice(3).map((r, i) => (
@@ -106,7 +106,7 @@ export default async function FieldProfilePage() {
           {history.length > 3 && (
             <details style={{ marginTop: 4 }}>
               <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
-                Show {history.length - 3} more {history.length - 3 === 1 ? 'job' : 'jobs'} ▾
+                Show {history.length - 3} more {history.length - 3 === 1 ? 'job' : 'jobs'} <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
               </summary>
               <div>
                 {history.slice(3).map((h) => (

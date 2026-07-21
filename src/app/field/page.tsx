@@ -12,11 +12,14 @@ import { FieldPillars } from './FieldPillars';
 
 /** The one repeatable editorial section header: a tide index numeral, a serif
  *  title, and a hairline rule running to the edge. The page's spine. */
-function SectionHeader({ n, title }: { n?: string; title: string }) {
+function SectionHeader({ n, title, count }: { n?: string; title: string; count?: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
       {n && <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide)', flexShrink: 0 }}>{n}</span>}
       <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)', flexShrink: 0 }}>{title}</span>
+      {count != null && count > 0 && (
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 8px', flexShrink: 0, alignSelf: 'center' }}>{count}</span>
+      )}
       <span style={{ flex: 1, height: 0, borderTop: '1px solid var(--rule)', alignSelf: 'center', marginLeft: 4 }} />
     </div>
   );
@@ -379,7 +382,7 @@ export default async function FieldHome({
         const showGroupLabels = live.length > 0 && recent.length > 0;
         return (
           <section style={{ marginBottom: 40 }}>
-            <SectionHeader title="Your packets" />
+            <SectionHeader title="Your packets" count={live.length + finished.length} />
             {showGroupLabels && <GroupLabel text="Up next" />}
             {live.map((p) => (
               <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
@@ -404,7 +407,8 @@ export default async function FieldHome({
                     userSelect: 'none',
                   }}
                 >
-                  ▾ Earlier packets · {older.length}
+                  <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginRight: 6 }}>▾</span>
+                  Earlier packets · {older.length}
                 </summary>
                 {older.map((p) => (
                   <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
@@ -417,7 +421,7 @@ export default async function FieldHome({
 
       {available.length > 0 && (
         <section>
-          <SectionHeader title="Available now" />
+          <SectionHeader title="Available now" count={available.length} />
           {available.map((p, i) => (
             <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
           ))}

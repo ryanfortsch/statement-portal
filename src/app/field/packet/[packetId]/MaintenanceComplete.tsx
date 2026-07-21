@@ -17,7 +17,7 @@ function DoneButton({ label, compact = false }: { label: string; compact?: boole
     <button
       type="submit"
       disabled={pending}
-      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: compact ? 6 : 0, cursor: pending ? 'wait' : 'pointer', fontSize: compact ? 10.5 : 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: compact ? '8px 14px' : '10px 18px', minHeight: compact ? 34 : 40, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
+      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 999, cursor: pending ? 'wait' : 'pointer', fontSize: compact ? 10.5 : 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: compact ? '8px 14px' : '9px 18px', minHeight: compact ? 34 : 38, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
     >
       {pending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
       {pending ? 'Saving…' : label}
