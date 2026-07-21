@@ -46,36 +46,12 @@ function blockFill(): string {
 export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
   return (
     <div>
-      {/* Channel legend: decodes the bar tint on each stay. The right end of
-          the same line carries the open-inventory rollup — how many sellable
-          nights the visible window still has, priced at Guesty's posted
-          rates (once the day mirror is synced). */}
-      <div
-        className="flex items-center flex-wrap"
-        style={{ gap: 14, marginBottom: 6, justifyContent: 'space-between' }}
-      >
-        <span className="flex items-center flex-wrap" style={{ gap: 14 }}>
-          {CHANNEL_LEGEND.map((c) => (
-            <span
-              key={c.channel}
-              className="flex items-center"
-              style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
-            >
-              <span
-                aria-hidden
-                style={{
-                  display: 'inline-block',
-                  width: 14,
-                  height: 8,
-                  borderRadius: 3,
-                  background: `color-mix(in srgb, ${channelAccent(c.channel)} 26%, var(--paper))`,
-                  boxShadow: `inset 3px 0 0 ${channelAccent(c.channel)}`,
-                }}
-              />
-              {c.label}
-            </span>
-          ))}
+      {/* Channel legend: decodes the bar tint on each stay. One quiet row —
+          the grid explains itself from here. */}
+      <div className="flex items-center flex-wrap" style={{ gap: 14, marginBottom: 12 }}>
+        {CHANNEL_LEGEND.map((c) => (
           <span
+            key={c.channel}
             className="flex items-center"
             style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
           >
@@ -86,52 +62,31 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
                 width: 14,
                 height: 8,
                 borderRadius: 3,
-                background: blockFill(),
-                boxShadow: 'inset 0 0 0 1px var(--rule)',
+                background: `color-mix(in srgb, ${channelAccent(c.channel)} 26%, var(--paper))`,
+                boxShadow: `inset 3px 0 0 ${channelAccent(c.channel)}`,
               }}
             />
-            Owner / hold
+            {c.label}
           </span>
-        </span>
-        {calendar.openNights > 0 && (
-          <span
-            title="Sellable nights (today forward) in the visible window, valued at Guesty's posted nightly rates"
-            style={{ fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-3)' }}
-          >
-            <strong className="tabular-nums" style={{ fontWeight: 600, color: 'var(--ink)' }}>
-              {calendar.openNights}
-            </strong>{' '}
-            open night{calendar.openNights === 1 ? '' : 's'} in view
-            {calendar.openValue != null && (
-              <>
-                {' '}&middot;{' '}
-                <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--signal)' }}>
-                  &asymp; ${calendar.openValue.toLocaleString('en-US')}
-                </span>{' '}
-                at posted rates
-              </>
-            )}
-          </span>
-        )}
-      </div>
-      {/* One-line read of the bar grammar so checkouts aren't a guessing game. */}
-      <p style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', marginBottom: 12 }}>
-        Each bar runs check-in &rarr; check-out. A bar ending mid-cell is a checkout that day.
-        Empty cells show the posted nightly rate; a warm wash marks a short gap between stays.
-      </p>
-      {calendar.days.length > 9 && (
-        <p
-          style={{
-            fontSize: 11,
-            color: 'var(--ink-4)',
-            letterSpacing: '0.04em',
-            marginBottom: 10,
-            fontStyle: 'italic',
-          }}
+        ))}
+        <span
+          className="flex items-center"
+          style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
         >
-          Scroll the grid sideways to see all {calendar.days.length} days &rarr;
-        </p>
-      )}
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 14,
+              height: 8,
+              borderRadius: 3,
+              background: blockFill(),
+              boxShadow: 'inset 0 0 0 1px var(--rule)',
+            }}
+          />
+          Owner / hold
+        </span>
+      </div>
       <CalendarGrid calendar={calendar} />
     </div>
   );
@@ -148,7 +103,10 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
     );
   }
 
-  const propertyColWidth = 152;
+  // Wide enough for "53 Rocky Neck (Down)" + the sold-% chip without
+  // ellipsis — two rows reading identically ("53 Rocky Ne…") was worse
+  // than the 20px of grid it costs.
+  const propertyColWidth = 172;
   const dayColMin = 44;
   const gridTemplate = `${propertyColWidth}px repeat(${days.length}, minmax(${dayColMin}px, 1fr))`;
   const headerHeight = 48;
@@ -535,8 +493,9 @@ function PropertyCalendarRow({
                   justifyContent: 'center',
                   fontSize: 9,
                   letterSpacing: '0.02em',
-                  color: cell.gapNights != null ? 'var(--signal)' : 'var(--ink-4)',
-                  fontWeight: cell.gapNights != null ? 600 : 400,
+                  // One quiet style everywhere — the gap wash alone marks
+                  // gaps; bolded signal-colored prices read as alarms.
+                  color: 'var(--ink-4)',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   pointerEvents: 'none',
@@ -549,7 +508,9 @@ function PropertyCalendarRow({
               // A hold bar earns a real name when the Guesty day mirror
               // knows one: the block's note ("Carpet Cleaning"), or "Owner"
               // for an owner-portal block, or its structured reason. Only
-              // an unmirrored hold still reads as bare "Hold".
+              // an unmirrored hold still reads as bare "Hold". A guest stay
+              // whose name never synced renders as a clean unlabeled bar —
+              // the channel tint says occupied; a fake "Guest" says nothing.
               const isHold = isBlockRes(pm);
               const label = isHold
                 ? pm.hold?.note?.trim() ||
@@ -559,6 +520,7 @@ function PropertyCalendarRow({
               // during this (current) stay. Only the active stay ever carries
               // guestArrivedAt, so a set value is an unambiguous "they're home."
               const inResidence = !!pm.guestArrivedAt;
+              if (!label && !inResidence) return null;
               // The bar's visible left edge is mid-cell on a real check-in
               // (right half filled) and the cell's left edge on a window-edge
               // already-in-progress stay (both halves filled). Anchor the
@@ -676,14 +638,14 @@ function firstName(fullName: string | null): string {
 }
 
 /**
- * Display label for a REAL stay's bar. Same as firstName for named guests;
- * Guesty's placeholder names ('Reservation', 'TBD', 'n/a') normalize to
- * "Guest" — it's a paying booking whose name hasn't synced, and the old
- * "Hold" label made real revenue read as a block (a guest was once in
- * residence under a bar that said Hold). Actual holds carry status='block'
- * and never reach this function.
+ * Display label for a REAL stay's bar: the guest's first name, or null for
+ * Guesty placeholder names ('Reservation', 'TBD', 'n/a') — a booking whose
+ * name hasn't synced renders as a clean unlabeled bar. (The old "Hold"
+ * mapping made real revenue read as a block, and a literal "Guest" label
+ * was wallpaper.) Actual holds carry status='block' and never reach this.
  */
-function displayLabel(fullName: string | null): string {
+function displayLabel(fullName: string | null): string | null {
+  if (!fullName || !fullName.trim()) return null;
   const fn = firstName(fullName);
-  return /^(reservation|tbd|guest|n\/a)$/i.test(fn) ? 'Guest' : fn;
+  return /^(reservation|tbd|guest|n\/a)$/i.test(fn) ? null : fn;
 }
