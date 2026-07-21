@@ -191,5 +191,5 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
 }
 
 function cleanedConfirmed(src: string | null): boolean {
-  return src === 'quo' || src === 'manual';
+  return src === 'quo' || src === 'manual' || src === 'auto_quiet';
 }
