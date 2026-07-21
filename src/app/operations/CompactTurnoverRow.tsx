@@ -377,12 +377,23 @@ function PrimaryAction({
   if (t.fieldPacket && t.fieldPacket.status !== 'draft') {
     return <FieldCredit fp={t.fieldPacket} />;
   }
-  // A planned staff walk that isn't due yet: the assignee's name is the
-  // collapsed indicator, in the same byline register as a Field claim —
-  // every delegated-or-planned walk reads as a person. Tapping the name
-  // opens the plan editor. Once the prep window is live, START returns:
-  // day-of you need the action, the plan has served its purpose.
-  if (t.plan?.planned_for_date && !due) {
+  // A planned staff walk: the assignee's name is the collapsed indicator,
+  // in the same byline register as a Field claim — every delegated-or-
+  // planned walk reads as a person. Tapping the name opens the plan editor.
+  //
+  // Day-of (`due`), what returns to START depends on who owns the walk:
+  //  - UNASSIGNED plan: the date has served its purpose — the operator
+  //    looking at the board is the one who'll walk it, so show the action.
+  //  - Assigned to SOMEONE ELSE: the assignment is still the state that
+  //    matters (same as a claimed Field packet never yielding to START) —
+  //    Dotti planning Ryan onto a walk should read "Ryan" all the way
+  //    through the prep window, not decay into an unowned Start.
+  //  - Assigned to THE VIEWER: it's your walk and it's due — you need the
+  //    button, not your own name.
+  const assignedToOther =
+    !!t.plan?.assigned_to_email &&
+    t.plan.assigned_to_email.trim().toLowerCase() !== myEmail.trim().toLowerCase();
+  if (t.plan?.planned_for_date && (!due || assignedToOther)) {
     return (
       <PlanButton
         variant="byline"
