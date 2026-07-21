@@ -4,13 +4,16 @@
  * ThreadPanel: the full Guesty conversation, rendered the Helm way.
  *
  * Fetches the thread on mount (live from Guesty via the concierge), then
- * keeps it fresh with a light 20s refetch while open and visible. Layout
- * follows the owner-messaging transcript vocabulary — editorial keylines,
- * not chat bubbles: guest messages flush-left under a rule keyline, our
- * replies indented under a quiet chevron, with provenance labels Guesty
- * doesn't give you (Guesty automation vs. our AI vs. a human in Guesty).
- * Consecutive automation messages collapse to a single line so the thread
- * reads as the actual conversation, not a template dump.
+ * keeps it fresh with a light 20s refetch while open and visible.
+ *
+ * Layout is a restrained two-sided conversation, not a wall of text:
+ * guest messages sit flush-left under a rule keyline, our replies sit
+ * right-aligned in quiet paper-2 blocks with a provenance-toned keyline
+ * (AI = tide, you = ink, a human in Guesty = muted), and both sides hold
+ * a readable ~680px measure no matter how wide the page is. Provenance
+ * labels say what Guesty never does (Guesty automation vs. our AI vs. a
+ * human), consecutive automation templates collapse to one line, and a
+ * sticky context bar keeps the guest + stay in view while scrolling.
  *
  * With `canSend`, a composer sits at the bottom: what you type is what
  * sends, on the conversation's own channel.
@@ -27,6 +30,10 @@ type Props = {
   channel: string;
   module: string;
   listingId?: string;
+  /** Sticky context bar content: guest name + stay meta. Omit both to skip
+   * the bar (the approval card already carries this in its own header). */
+  contextName?: string;
+  contextMeta?: string;
   /** Show the manual-reply composer. Off inside approval cards (the card's
    * own actions are the reply surface there). */
   canSend?: boolean;
@@ -38,6 +45,10 @@ type Props = {
 };
 
 const REFETCH_MS = 20_000;
+
+/** Readable measure for a message block, chat-style, regardless of how
+ * wide the section is. */
+const MEASURE = 680;
 
 /** Chip copy for how the pipeline handled an inbound message. */
 function handledLabel(m: ThreadMessage): string {
@@ -71,7 +82,15 @@ function hostLabel(m: ThreadMessage): string {
   return 'Host';
 }
 
-// Render plan: messages grouped under day headers, with consecutive
+/** Keyline tone for a host block, by provenance. */
+function hostTone(m: ThreadMessage): string {
+  if (m.via === 'helm_ai') return 'var(--tide)';
+  if (m.via === 'operator') return 'var(--ink)';
+  if (m.via === 'team') return 'var(--ink-3)';
+  return 'var(--rule)';
+}
+
+// Render plan: messages grouped under day dividers, with consecutive
 // Guesty-automation posts folded into one collapsible line.
 type RenderItem =
   | { kind: 'day'; label: string; key: string }
@@ -125,6 +144,8 @@ export function ThreadPanel({
   channel,
   module,
   listingId,
+  contextName,
+  contextMeta,
   canSend = false,
   noSendNote,
   maxHeight = 520,
@@ -180,7 +201,7 @@ export function ThreadPanel({
 
   if (messages === null && !error) {
     return (
-      <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
+      <div style={{ border: '1px solid var(--rule)', padding: '16px', fontSize: 13, color: 'var(--ink-3)' }}>
         Loading the conversation from Guesty…
       </div>
     );
@@ -188,7 +209,7 @@ export function ThreadPanel({
 
   if (error && messages === null) {
     return (
-      <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13 }}>
+      <div style={{ border: '1px solid var(--rule)', padding: '16px', fontSize: 13 }}>
         <span style={{ color: 'var(--signal)' }}>{error}</span>{' '}
         <button
           type="button"
@@ -205,35 +226,49 @@ export function ThreadPanel({
   const items = buildRenderItems(messages || []);
 
   return (
-    <div style={{ borderTop: '1px solid var(--rule)' }}>
+    <div style={{ border: '1px solid var(--rule)', background: 'var(--paper)', padding: '0 18px' }}>
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        style={{ maxHeight, overflowY: 'auto', padding: '14px 2px 6px' }}
+        style={{ maxHeight, overflowY: 'auto', padding: '0 2px 14px' }}
       >
+        {(contextName || contextMeta) && (
+          <div
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              background: 'var(--paper)',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '10px 0 8px',
+              borderBottom: '1px solid var(--rule)',
+              marginBottom: 14,
+            }}
+          >
+            {contextName && (
+              <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
+                {contextName}
+              </span>
+            )}
+            {contextMeta && (
+              <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+                {contextMeta}
+              </span>
+            )}
+          </div>
+        )}
         {items.length === 0 && (
-          <div style={{ fontSize: 13, color: 'var(--ink-4)', padding: '6px 0 12px' }}>
+          <div style={{ fontSize: 13, color: 'var(--ink-4)', padding: '14px 0' }}>
             No messages on this conversation yet.
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {items.map((item) => {
             if (item.kind === 'day') {
-              return (
-                <div
-                  key={item.key}
-                  className="font-serif"
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: 'var(--ink-2)',
-                    paddingTop: 10,
-                    borderTop: '1px solid var(--rule-soft, var(--rule))',
-                  }}
-                >
-                  {item.label}
-                </div>
-              );
+              return <DayDivider key={item.key} label={item.label} />;
             }
             if (item.kind === 'auto') {
               return <AutoRunRow key={item.key} items={item.items} />;
@@ -256,7 +291,7 @@ export function ThreadPanel({
           alignItems: 'baseline',
           gap: 12,
           padding: '8px 0',
-          borderTop: '1px solid var(--rule-soft, var(--rule))',
+          borderTop: '1px solid var(--rule)',
         }}
       >
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
@@ -284,7 +319,7 @@ export function ThreadPanel({
         <div
           style={{
             borderTop: '1px solid var(--rule)',
-            padding: '12px 0 4px',
+            padding: '12px 0 14px',
             fontSize: 12,
             color: 'var(--ink-4)',
             fontStyle: 'italic',
@@ -323,6 +358,22 @@ export function ThreadPanel({
   );
 }
 
+/** Centered hairline day break: ── Today ── */
+function DayDivider({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '6px 0 2px' }}>
+      <span style={{ flex: 1, borderTop: '1px solid var(--rule)' }} aria-hidden />
+      <span
+        className="eyebrow"
+        style={{ color: 'var(--ink-3)', fontWeight: 600, whiteSpace: 'nowrap' }}
+      >
+        {label}
+      </span>
+      <span style={{ flex: 1, borderTop: '1px solid var(--rule)' }} aria-hidden />
+    </div>
+  );
+}
+
 function MessageRow({
   m,
   showLabel,
@@ -335,53 +386,99 @@ function MessageRow({
   const isGuest = m.who === 'guest';
   const handled = isGuest ? handledLabel(m) : '';
   const topic = isGuest && m.topic ? prettifyTopic(m.topic) : '';
-  const container: React.CSSProperties = isGuest
-    ? { borderLeft: '2px solid var(--rule)', paddingLeft: 12 }
-    : { paddingLeft: 24, position: 'relative' };
+
+  if (isGuest) {
+    return (
+      <div style={{ alignSelf: 'flex-start', width: '100%', maxWidth: MEASURE }}>
+        {showLabel && (
+          <div
+            className="eyebrow"
+            style={{ color: 'var(--ink-3)', marginBottom: 4, display: 'flex', gap: 10, alignItems: 'baseline' }}
+          >
+            <span>{guestFirst || 'Guest'}</span>
+            <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: '0.08em' }} title={m.at}>
+              {formatClockRange(m.at)}
+            </span>
+          </div>
+        )}
+        <div style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 12 }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 14,
+              lineHeight: 1.6,
+              color: 'var(--ink)',
+              whiteSpace: 'pre-wrap',
+            }}
+            title={showLabel ? undefined : m.at}
+          >
+            {m.body}
+          </p>
+          {(topic || handled) && (
+            <div className="eyebrow" style={{ marginTop: 4, color: 'var(--ink-4)', fontSize: 9 }}>
+              {[topic, handled].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const tone = hostTone(m);
   return (
-    <div style={container}>
-      {!isGuest && (
-        <span aria-hidden style={{ position: 'absolute', left: 8, top: 0, color: 'var(--ink-4)', fontSize: 12 }}>
-          ›
-        </span>
-      )}
+    <div style={{ alignSelf: 'flex-end', width: '100%', maxWidth: MEASURE }}>
       {showLabel && (
-        <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 3, display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-          <span>{isGuest ? guestFirst || 'Guest' : hostLabel(m)}</span>
+        <div
+          className="eyebrow"
+          style={{
+            marginBottom: 4,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'baseline',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <span style={{ color: tone === 'var(--rule)' ? 'var(--ink-3)' : tone, fontWeight: 600 }}>
+            {hostLabel(m)}
+          </span>
           <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: '0.08em' }} title={m.at}>
             {formatClockRange(m.at)}
           </span>
         </div>
       )}
-      <p
+      <div
         style={{
-          margin: 0,
-          fontSize: 14,
-          lineHeight: 1.55,
-          color: isGuest ? 'var(--ink)' : 'var(--ink-2)',
-          whiteSpace: 'pre-wrap',
+          background: 'var(--paper-2)',
+          border: '1px solid var(--rule)',
+          borderLeft: `3px solid ${tone}`,
+          padding: '10px 14px',
         }}
-        title={showLabel ? undefined : m.at}
       >
-        {m.body}
-      </p>
-      {(topic || handled) && (
-        <div className="eyebrow" style={{ marginTop: 3, color: 'var(--ink-4)', fontSize: 9 }}>
-          {[topic, handled].filter(Boolean).join(' · ')}
-        </div>
-      )}
+        <p
+          style={{
+            margin: 0,
+            fontSize: 14,
+            lineHeight: 1.6,
+            color: 'var(--ink)',
+            whiteSpace: 'pre-wrap',
+          }}
+          title={showLabel ? undefined : m.at}
+        >
+          {m.body}
+        </p>
+      </div>
     </div>
   );
 }
 
-/** N consecutive Guesty-automation posts, folded to one quiet line. This is
- * most of the noise in a Guesty thread (confirmation, welcome, agreement,
- * check-in details…); the fold keeps the human conversation readable while
- * keeping every template one click away. */
+/** N consecutive Guesty-automation posts, folded to one quiet line on the
+ * host side. This is most of the noise in a Guesty thread (confirmation,
+ * welcome, agreement, check-in details…); the fold keeps the human
+ * conversation readable while keeping every template one click away. */
 function AutoRunRow({ items }: { items: ThreadMessage[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ paddingLeft: 24 }}>
+    <div style={{ alignSelf: 'flex-end', width: '100%', maxWidth: MEASURE, textAlign: 'right' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -395,13 +492,22 @@ function AutoRunRow({ items }: { items: ThreadMessage[] }) {
           : `${items.length} automated messages ${open ? '▴' : '▾'}`}
       </button>
       {open && (
-        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left' }}>
           {items.map((m) => (
-            <div key={m.id || m.at} style={{ borderLeft: '2px solid var(--rule-soft, var(--rule))', paddingLeft: 10 }}>
-              <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 2, fontSize: 9 }} title={m.at}>
+            <div
+              key={m.id || m.at}
+              style={{
+                background: 'var(--paper-2)',
+                border: '1px solid var(--rule-soft, var(--rule))',
+                borderLeft: '3px solid var(--rule)',
+                padding: '8px 12px',
+                opacity: 0.85,
+              }}
+            >
+              <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 3, fontSize: 9 }} title={m.at}>
                 Guesty automation · {formatClockRange(m.at)}
               </div>
-              <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-4)', whiteSpace: 'pre-wrap' }}>
+              <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-3)', whiteSpace: 'pre-wrap' }}>
                 {m.body}
               </p>
             </div>
@@ -444,17 +550,17 @@ function Composer({
   };
 
   return (
-    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
+    <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0 14px' }}>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={`Write to the guest. Sends as-is via ${channel || 'Guesty'}; the AI won't touch it.`}
+        placeholder={`Write to ${channel ? `the guest on ${channel}` : 'the guest'}. Sends exactly as typed; the AI won't touch it.`}
         rows={Math.max(2, Math.min(8, text.split('\n').length + 1))}
         style={{
           width: '100%',
-          padding: 10,
+          padding: '10px 12px',
           border: '1px solid var(--rule)',
-          background: 'var(--paper)',
+          background: 'var(--paper-2)',
           fontFamily: 'inherit',
           fontSize: 14,
           lineHeight: 1.55,
@@ -468,12 +574,16 @@ function Composer({
         </p>
       )}
       <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+          Sends through Guesty on this guest&rsquo;s channel
+        </span>
         <button
           type="button"
           onClick={handleSend}
           disabled={isPending || !text.trim()}
           aria-busy={isPending || undefined}
           style={{
+            marginLeft: 'auto',
             background: isPending || !text.trim() ? 'var(--ink-4)' : 'var(--ink)',
             color: 'var(--paper)',
             border: 'none',
@@ -487,9 +597,6 @@ function Composer({
         >
           {isPending ? 'Sending…' : `Send · ${channel || 'Guesty'}`}
         </button>
-        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          Sends through Guesty on this guest&rsquo;s channel
-        </span>
       </div>
     </div>
   );
