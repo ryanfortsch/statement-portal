@@ -306,6 +306,10 @@ function ConversationRow({
             channel={c.channel}
             module={c.module}
             listingId={c.listing_id}
+            contextName={c.guest_full || c.guest_first || 'Guest'}
+            contextMeta={[propertyLabel, stayLabel, c.channel]
+              .filter(Boolean)
+              .join(' · ')}
             // Direct-booked guests have no Guesty channel our API can post
             // to (module comes back empty); hide the composer instead of
             // silently routing to the wrong module.
