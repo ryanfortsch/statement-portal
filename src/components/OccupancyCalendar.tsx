@@ -46,11 +46,36 @@ function blockFill(): string {
 export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
   return (
     <div>
-      {/* Channel legend: decodes the bar tint on each stay. */}
-      <div className="flex items-center flex-wrap" style={{ gap: 14, marginBottom: 6 }}>
-        {CHANNEL_LEGEND.map((c) => (
+      {/* Channel legend: decodes the bar tint on each stay. The right end of
+          the same line carries the open-inventory rollup — how many sellable
+          nights the visible window still has, priced at Guesty's posted
+          rates (once the day mirror is synced). */}
+      <div
+        className="flex items-center flex-wrap"
+        style={{ gap: 14, marginBottom: 6, justifyContent: 'space-between' }}
+      >
+        <span className="flex items-center flex-wrap" style={{ gap: 14 }}>
+          {CHANNEL_LEGEND.map((c) => (
+            <span
+              key={c.channel}
+              className="flex items-center"
+              style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  display: 'inline-block',
+                  width: 14,
+                  height: 8,
+                  borderRadius: 3,
+                  background: `color-mix(in srgb, ${channelAccent(c.channel)} 26%, var(--paper))`,
+                  boxShadow: `inset 3px 0 0 ${channelAccent(c.channel)}`,
+                }}
+              />
+              {c.label}
+            </span>
+          ))}
           <span
-            key={c.channel}
             className="flex items-center"
             style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
           >
@@ -61,36 +86,40 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
                 width: 14,
                 height: 8,
                 borderRadius: 3,
-                background: `color-mix(in srgb, ${channelAccent(c.channel)} 26%, var(--paper))`,
-                boxShadow: `inset 3px 0 0 ${channelAccent(c.channel)}`,
+                background: blockFill(),
+                boxShadow: 'inset 0 0 0 1px var(--rule)',
               }}
             />
-            {c.label}
+            Owner / hold
           </span>
-        ))}
-        <span
-          className="flex items-center"
-          style={{ gap: 6, fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}
-        >
-          <span
-            aria-hidden
-            style={{
-              display: 'inline-block',
-              width: 14,
-              height: 8,
-              borderRadius: 3,
-              background: blockFill(),
-              boxShadow: 'inset 0 0 0 1px var(--rule)',
-            }}
-          />
-          Owner / hold
         </span>
+        {calendar.openNights > 0 && (
+          <span
+            title="Sellable nights (today forward) in the visible window, valued at Guesty's posted nightly rates"
+            style={{ fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-3)' }}
+          >
+            <strong className="tabular-nums" style={{ fontWeight: 600, color: 'var(--ink)' }}>
+              {calendar.openNights}
+            </strong>{' '}
+            open night{calendar.openNights === 1 ? '' : 's'} in view
+            {calendar.openValue != null && (
+              <>
+                {' '}&middot;{' '}
+                <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--signal)' }}>
+                  &asymp; ${calendar.openValue.toLocaleString('en-US')}
+                </span>{' '}
+                at posted rates
+              </>
+            )}
+          </span>
+        )}
       </div>
       {/* One-line read of the bar grammar so checkouts aren't a guessing game. */}
       <p style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.04em', marginBottom: 12 }}>
         Each bar runs check-in &rarr; check-out. A bar ending mid-cell is a checkout that day.
+        Empty cells show the posted nightly rate; a warm wash marks a short gap between stays.
       </p>
-      {calendar.days.length - calendar.todayIndex > 7 && (
+      {calendar.days.length > 9 && (
         <p
           style={{
             fontSize: 11,
@@ -109,7 +138,7 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
 }
 
 function CalendarGrid({ calendar }: { calendar: CalendarData }) {
-  const { days, rows, todayIndex } = calendar;
+  const { days, rows, today } = calendar;
 
   if (rows.length === 0) {
     return (
@@ -166,11 +195,17 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
           }}
         />
         {days.map((d, i) => {
-          const isToday = i === todayIndex;
-          const isPast = i < todayIndex;
+          const isToday = d === today;
+          const isPast = d < today;
           const dt = new Date(`${d}T00:00:00`);
           const dow = dt.toLocaleDateString('en-US', { weekday: 'short' });
           const dn = dt.getDate();
+          const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
+          // Month cue where orientation needs it: the window's first column
+          // and every 1st of a month swap the weekday line for the month
+          // name, so a paged-ahead window never turns into anonymous digits.
+          const monthLabel =
+            i === 0 || dn === 1 ? dt.toLocaleDateString('en-US', { month: 'short' }) : null;
           return (
             <div
               key={d}
@@ -181,7 +216,11 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
                 // The today column's left edge starts the full-height "now"
                 // line that the body cells continue below.
                 borderLeft: isToday ? '1px solid var(--signal)' : '1px solid var(--rule-soft)',
-                background: isToday ? 'var(--paper-2)' : 'var(--paper)',
+                background: isToday
+                  ? 'var(--paper-2)'
+                  : isWeekend
+                    ? 'rgba(30, 46, 52, 0.035)'
+                    : 'var(--paper)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -210,11 +249,11 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
                   fontSize: 9,
                   letterSpacing: '0.16em',
                   textTransform: 'uppercase',
-                  color: isToday ? 'var(--signal)' : 'var(--ink-4)',
-                  fontWeight: 500,
+                  color: isToday ? 'var(--signal)' : monthLabel ? 'var(--ink-2)' : 'var(--ink-4)',
+                  fontWeight: monthLabel ? 600 : 500,
                 }}
               >
-                {dow}
+                {monthLabel ?? dow}
               </div>
               <div
                 className="font-serif tabular-nums"
@@ -240,7 +279,7 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
           <PropertyCalendarRow
             key={row.property.id}
             row={row}
-            todayIndex={todayIndex}
+            today={today}
             rowHeight={rowHeight}
             isLastRow={isLastRow}
             rowGridStyle={rowGridStyle}
@@ -253,13 +292,13 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
 
 function PropertyCalendarRow({
   row,
-  todayIndex,
+  today,
   rowHeight,
   isLastRow,
   rowGridStyle,
 }: {
   row: CalendarData['rows'][number];
-  todayIndex: number;
+  today: string;
   rowHeight: number;
   isLastRow: boolean;
   rowGridStyle: CSSProperties;
@@ -269,7 +308,11 @@ function PropertyCalendarRow({
     <div style={rowGridStyle}>
       <Link
         href={`/properties/${row.property.id}`}
-        title={`Open ${row.property.name}`}
+        title={
+          row.occupancyPct != null
+            ? `Open ${row.property.name} — ${row.occupancyPct}% of its bookable nights in this window are sold`
+            : `Open ${row.property.name}`
+        }
         style={{
           boxSizing: 'border-box',
           height: rowHeight,
@@ -277,13 +320,13 @@ function PropertyCalendarRow({
           padding: '0 14px',
           display: 'flex',
           alignItems: 'center',
+          gap: 8,
           fontSize: 13,
           color: 'var(--ink)',
           background: 'var(--paper)',
           minWidth: 0,
           overflow: 'hidden',
           whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
           textDecoration: 'none',
           // Frozen pane: the name column stays put while the day grid
           // scrolls sideways, so 30-day rows never become anonymous bars.
@@ -295,11 +338,32 @@ function PropertyCalendarRow({
           boxShadow: '1px 0 0 var(--rule)',
         }}
       >
-        {row.property.name}
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {row.property.name}
+        </span>
+        {/* Sold share of this window's bookable nights (held nights out of
+            the denominator). Quiet by design — orientation, not a KPI. */}
+        {row.occupancyPct != null && (
+          <span
+            className="tabular-nums"
+            aria-hidden
+            style={{ fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.04em', flexShrink: 0 }}
+          >
+            {row.occupancyPct}%
+          </span>
+        )}
       </Link>
       {row.cells.map((cell, i) => {
-        const isToday = i === todayIndex;
-        const isPast = i < todayIndex;
+        const isToday = cell.date === today;
+        const isPast = cell.date < today;
         const { am, pm } = cell;
         const prev = i > 0 ? row.cells[i - 1] : null;
 
@@ -342,6 +406,36 @@ function PropertyCalendarRow({
         const RADIUS = 5;
 
         const primary = pm ?? am; // the reservation the hover tooltip describes
+
+        // Column washes, most-specific first: the today column keeps its
+        // warm band, short-gap nights get the opportunity tint, weekends a
+        // barely-there grey so Sat/Sun read down the whole grid.
+        const dowIdx = new Date(`${cell.date}T00:00:00`).getDay();
+        const isWeekend = dowIdx === 0 || dowIdx === 6;
+        const cellWash = isToday
+          ? 'rgba(232, 184, 165, 0.12)'
+          : cell.gapNights != null && !isPast
+            ? 'color-mix(in srgb, var(--signal) 7%, transparent)'
+            : isWeekend
+              ? 'rgba(30, 46, 52, 0.035)'
+              : 'transparent';
+
+        // Open-night annotation: the posted rate on any night with no
+        // occupant (fully vacant cell, or the open night of a checkout
+        // day), today forward. Hover title carries min-stay + gap detail —
+        // native tooltip, zero hydration weight.
+        const showPrice = !pm && !isPast && cell.price != null;
+        const openTitleBits: string[] = [];
+        if (!pm && !isPast) {
+          if (cell.gapNights != null) {
+            openTitleBits.push(
+              `${cell.gapNights}-night gap between stays`,
+            );
+          }
+          if (cell.price != null) openTitleBits.push(`$${Math.round(cell.price).toLocaleString('en-US')} posted`);
+          if (cell.minNights != null && cell.minNights > 1) openTitleBits.push(`${cell.minNights}-night min`);
+        }
+        const openTitle = openTitleBits.length > 0 ? openTitleBits.join(' · ') : undefined;
         // A turnover-day cell carries two different stays (departing am,
         // arriving pm): surface BOTH in the tooltip so the outgoing guest's
         // details stop hiding behind a hover on the previous day. Gated on a
@@ -372,13 +466,14 @@ function PropertyCalendarRow({
                 : continuousLeft
                   ? 'none'
                   : '1px solid var(--rule-soft)',
-              background: isToday ? 'rgba(232, 184, 165, 0.12)' : 'transparent',
+              background: cellWash,
               minWidth: 0,
               cursor: primary ? 'help' : 'default',
               // History columns recede behind today-and-forward. 0.55 keeps
               // the channel-tint legible against paper at AA.
               opacity: isPast ? 0.55 : 1,
             }}
+            title={primary ? undefined : openTitle}
           >
             {/* AM (left) half: morning occupant. On a checkout day this is
                 the departing guest and the bar ENDS here: rounded + capped at
@@ -422,9 +517,44 @@ function PropertyCalendarRow({
                 }}
               />
             )}
+            {/* Posted-rate annotation on open nights (vacant cell, or the
+                open night of a checkout day). Sits under the labels and
+                never intercepts hover. */}
+            {showPrice && (
+              <span
+                aria-hidden
+                className="font-mono tabular-nums"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: am ? '50%' : 0,
+                  right: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 9,
+                  letterSpacing: '0.02em',
+                  color: cell.gapNights != null ? 'var(--signal)' : 'var(--ink-4)',
+                  fontWeight: cell.gapNights != null ? 600 : 400,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  pointerEvents: 'none',
+                }}
+              >
+                ${Math.round(cell.price!)}
+              </span>
+            )}
             {startsVisually && pm && (() => {
-              const label = isBlockRes(pm) ? 'Hold' : displayLabel(pm.guest_name);
-              const isHold = label === 'Hold';
+              // A hold bar earns a real name when the Guesty day mirror
+              // knows one: the block's note ("Carpet Cleaning"), or "Owner"
+              // for an owner-portal block, or its structured reason. Only
+              // an unmirrored hold still reads as bare "Hold".
+              const isHold = isBlockRes(pm);
+              const label = isHold
+                ? pm.hold?.note?.trim() ||
+                  (pm.hold?.kind === 'owner' ? 'Owner' : pm.hold?.reason?.trim() || 'Hold')
+                : displayLabel(pm.guest_name);
               // Guest is in residence: they physically keyed in on a guest code
               // during this (current) stay. Only the active stay ever carries
               // guestArrivedAt, so a set value is an unambiguous "they're home."
@@ -454,7 +584,9 @@ function PropertyCalendarRow({
                     fontWeight: 500,
                     letterSpacing: '0.01em',
                     fontStyle: isHold ? 'italic' : 'normal',
-                    color: isHold ? 'var(--ink-4)' : 'var(--ink)',
+                    // A named hold reads a step darker than the bare "Hold"
+                    // placeholder so real information doesn't whisper.
+                    color: isHold ? (label === 'Hold' ? 'var(--ink-4)' : 'var(--ink-3)') : 'var(--ink)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -500,6 +632,7 @@ function PropertyCalendarRow({
           confirmationCode: r.confirmation_code,
           guestArrivedAt: r.guestArrivedAt,
           isBlock: isBlockRes(r),
+          hold: r.hold,
         });
 
         return (
@@ -543,13 +676,14 @@ function firstName(fullName: string | null): string {
 }
 
 /**
- * Display label for the calendar bar. Same as firstName for real guests, but
- * normalizes Guesty's placeholder names ('Reservation', 'TBD', 'Guest', 'n/a')
- * to a styled "Hold" so an unnamed block doesn't read as a literal guest's
- * first name. The caller italicizes + dims when label === 'Hold' so it reads
- * as status, not a person.
+ * Display label for a REAL stay's bar. Same as firstName for named guests;
+ * Guesty's placeholder names ('Reservation', 'TBD', 'n/a') normalize to
+ * "Guest" — it's a paying booking whose name hasn't synced, and the old
+ * "Hold" label made real revenue read as a block (a guest was once in
+ * residence under a bar that said Hold). Actual holds carry status='block'
+ * and never reach this function.
  */
 function displayLabel(fullName: string | null): string {
   const fn = firstName(fullName);
-  return /^(reservation|tbd|guest|n\/a)$/i.test(fn) ? 'Hold' : fn;
+  return /^(reservation|tbd|guest|n\/a)$/i.test(fn) ? 'Guest' : fn;
 }

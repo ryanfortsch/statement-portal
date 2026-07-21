@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
+import { syncCalendarDays } from '@/lib/calendar-days';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -510,102 +511,12 @@ async function syncReservations(token: string, listingMap: Record<string, string
   return { fetched: reservations.length, upserted: rows.length, skipped: skippedNoProp };
 }
 
-// ---- Calendar blocks ----
-
-/**
- * Fetch Guesty's per-day calendar for one listing and return the dates
- * Guesty marks as `blocked` (not booked / not reserved — those are
- * paid reservations we already capture). Seasonal closures (e.g.
- * 4 Brier Neck off-season) come through this path.
- */
-async function fetchBlockedDays(
-  listingId: string,
-  token: string,
-  startDate: string,
-  endDate: string,
-): Promise<string[]> {
-  const params = { startDate, endDate };
-  const path = `/v1/availability-pricing/api/calendar/listings/${listingId}`;
-  const data = await guestyGet(path, token, params);
-  // Guesty returns either `{ days: [...] }` or `{ data: { days: [...] } }`
-  // depending on API version. Be defensive.
-  const days = (data?.days ?? data?.data?.days ?? []) as Array<{
-    date?: string;
-    status?: string;
-    listingStatus?: string;
-  }>;
-  const blocked: string[] = [];
-  for (const day of days) {
-    if (!day?.date) continue;
-    const status = (day.status || day.listingStatus || '').toString().toLowerCase();
-    if (status === 'blocked') blocked.push(day.date.slice(0, 10));
-  }
-  return blocked;
-}
-
-async function syncCalendarBlocks(
-  token: string,
-  listingMap: Record<string, string>,
-  startDate: string,
-  endDate: string,
-) {
-  const sb = getSupabase();
-  const listings = Object.entries(listingMap); // [listingId, propertyId]
-  let totalBlocked = 0;
-  let listingsTouched = 0;
-  const errors: string[] = [];
-
-  // Build the full set of (property_id, date) rows we observe so we can
-  // truthfully refresh the window: delete any rows in window that aren't
-  // still blocked, then upsert the current blocked set.
-  const observedByProperty = new Map<string, Set<string>>();
-
-  for (const [listingId, propertyId] of listings) {
-    try {
-      const blocked = await fetchBlockedDays(listingId, token, startDate, endDate);
-      observedByProperty.set(propertyId, new Set(blocked));
-      totalBlocked += blocked.length;
-      listingsTouched += 1;
-      // Light pacing to be polite to Guesty's API.
-      await sleep(150);
-    } catch (err) {
-      errors.push(`${propertyId}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  // Reconcile: for each property we saw, clear stale blocks within the
-  // window and upsert the current set.
-  const now = new Date().toISOString();
-  for (const [propertyId, dates] of observedByProperty.entries()) {
-    const { error: delErr } = await sb
-      .from('property_calendar_blocks')
-      .delete()
-      .eq('property_id', propertyId)
-      .gte('date', startDate)
-      .lte('date', endDate);
-    if (delErr) {
-      errors.push(`delete ${propertyId}: ${delErr.message}`);
-      continue;
-    }
-    if (dates.size === 0) continue;
-    const rows = Array.from(dates).map((date) => ({
-      property_id: propertyId,
-      date,
-      synced_at: now,
-    }));
-    const { error: upErr } = await sb
-      .from('property_calendar_blocks')
-      .upsert(rows, { onConflict: 'property_id,date' });
-    if (upErr) errors.push(`upsert ${propertyId}: ${upErr.message}`);
-  }
-
-  return {
-    listings_touched: listingsTouched,
-    blocked_days_total: totalBlocked,
-    window: { startDate, endDate },
-    errors: errors.length > 0 ? errors : undefined,
-  };
-}
+// ---- Calendar days ----
+// The per-day availability/pricing sync (hold notes, prices, min-stay, and
+// the real-hold rollup into property_calendar_blocks) lives in
+// lib/calendar-days.ts, shared with the 30-minute channels-sync cron. The
+// old in-route version filtered days on status === 'blocked', a value the
+// API never returns (it says 'unavailable'), so it synced nothing.
 
 // ---- POST ----
 
@@ -699,7 +610,7 @@ export async function POST(request: NextRequest) {
       calEnd.setDate(28); // safe last-day-of-month proxy
       const startDate = calStart.toISOString().slice(0, 10);
       const endDate = calEnd.toISOString().slice(0, 10);
-      calendarResult = await syncCalendarBlocks(token, listingMap, startDate, endDate);
+      calendarResult = await syncCalendarDays(listingMap, startDate, endDate);
       await recordSyncSuccess('guesty-calendar', calendarResult);
     } catch (err) {
       calendarResult = { error: err instanceof Error ? err.message : String(err) };

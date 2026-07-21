@@ -14,6 +14,7 @@ import {
   todayStr,
   RANGE_LABEL,
   VALID_RANGES,
+  CALENDAR_RANGE_DAYS,
   CALENDAR_RANGE_LABEL,
   VALID_CALENDAR_RANGES,
   type CalendarRange,
@@ -59,7 +60,7 @@ function formatRelative(date: Date | null): string {
 }
 
 type PageProps = {
-  searchParams: Promise<{ range?: string; cal?: string; property?: string }>;
+  searchParams: Promise<{ range?: string; cal?: string; property?: string; calo?: string }>;
 };
 
 export default async function OperationsPage({ searchParams }: PageProps) {
@@ -76,7 +77,31 @@ export default async function OperationsPage({ searchParams }: PageProps) {
       ? (calParam as CalendarRange)
       : '7d';
 
+  // Calendar paging offset in days (the ‹ Today › pagers under "On the
+  // calendar"). 0 = anchored on today; the lib clamps extremes.
+  const caloParsed = parseInt(params?.calo ?? '', 10);
+  const calOffset = Number.isFinite(caloParsed) ? caloParsed : 0;
+
   const propertyFilter = params?.property?.trim() || undefined;
+
+  // Canonical URL for this page's own links: every control preserves the
+  // other controls' state (list range, calendar range, paging offset,
+  // property filter) instead of silently resetting them.
+  const opsHref = (over: {
+    range?: Range;
+    cal?: CalendarRange;
+    calo?: number;
+    property?: string | null;
+  }): string => {
+    const q = new URLSearchParams();
+    q.set('range', over.range ?? range);
+    q.set('cal', over.cal ?? calRange);
+    const calo = over.calo !== undefined ? over.calo : calOffset;
+    if (calo !== 0) q.set('calo', String(calo));
+    const prop = over.property !== undefined ? over.property : propertyFilter ?? null;
+    if (prop) q.set('property', prop);
+    return `/operations?${q.toString()}`;
+  };
 
   if (!isHelmConfigured) {
     return (
@@ -95,7 +120,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, data, session, filterPropertyName] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, calRange, propertyFilter),
+    loadOperationsData(range, calRange, propertyFilter, calOffset),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
   ]);
@@ -199,7 +224,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               Showing only <strong>{filterPropertyName ?? propertyFilter}</strong>
             </span>
             <Link
-              href={`/operations?range=${range}&cal=${calRange}`}
+              href={opsHref({ property: null })}
               style={{
                 fontSize: 11,
                 letterSpacing: '.16em',
@@ -302,7 +327,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               return (
                 <Link
                   key={r}
-                  href={`/operations?range=${r}&cal=${calRange}`}
+                  href={opsHref({ range: r })}
                   scroll={false}
                   style={{
                     color: active ? 'var(--ink)' : 'var(--ink-4)',
@@ -435,19 +460,69 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             margin: 0,
           }}>
             On the calendar
+            {data.calendar.days.length > 0 && (
+              <span
+                className="font-sans"
+                style={{
+                  fontSize: 12,
+                  color: calOffset === 0 ? 'var(--ink-4)' : 'var(--signal)',
+                  marginLeft: 12,
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {fmtCalDay(data.calendar.days[0])} &rarr;{' '}
+                {fmtCalDay(data.calendar.days[data.calendar.days.length - 1])}
+              </span>
+            )}
           </h2>
-          <nav className="flex items-baseline gap-4" style={{
+          <nav className="flex items-baseline" style={{
             fontSize: 11,
             letterSpacing: '0.16em',
             textTransform: 'uppercase',
             fontWeight: 500,
+            gap: 16,
           }}>
+            {/* Pager: slide the window by one full page in either direction,
+                Today snaps back. Guesty's calendar can do this; ours
+                couldn't until now. */}
+            <span className="flex items-baseline" style={{ gap: 10 }}>
+              <Link
+                href={opsHref({ calo: calOffset - CALENDAR_RANGE_DAYS[calRange] })}
+                scroll={false}
+                aria-label="Earlier"
+                title="Page the calendar earlier"
+                style={{ color: 'var(--ink)', textDecoration: 'none', fontSize: 14, lineHeight: 1 }}
+              >
+                &lsaquo;
+              </Link>
+              {calOffset !== 0 ? (
+                <Link
+                  href={opsHref({ calo: 0 })}
+                  scroll={false}
+                  style={{ color: 'var(--signal)', textDecoration: 'none' }}
+                >
+                  Today
+                </Link>
+              ) : (
+                <span style={{ color: 'var(--ink-4)' }}>Today</span>
+              )}
+              <Link
+                href={opsHref({ calo: calOffset + CALENDAR_RANGE_DAYS[calRange] })}
+                scroll={false}
+                aria-label="Later"
+                title="Page the calendar later"
+                style={{ color: 'var(--ink)', textDecoration: 'none', fontSize: 14, lineHeight: 1 }}
+              >
+                &rsaquo;
+              </Link>
+            </span>
+            <span aria-hidden style={{ color: 'var(--rule)', fontSize: 12 }}>|</span>
             {VALID_CALENDAR_RANGES.map((cr) => {
               const active = cr === calRange;
               return (
                 <Link
                   key={cr}
-                  href={`/operations?range=${range}&cal=${cr}`}
+                  href={opsHref({ cal: cr })}
                   scroll={false}
                   style={{
                     color: active ? 'var(--ink)' : 'var(--ink-4)',
@@ -557,6 +632,14 @@ function computeStageCounts(pending: Turnover[]): {
     }
   }
   return { counts: { cleaningNow, awaitingCleaner, needsInspection, inspectingNow }, firsts };
+}
+
+/** "Jul 19" for the calendar-window caption next to the section title. */
+function fmtCalDay(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 /** The day divider's eyebrow text: "Today", or "Tue · Jul 8". */
