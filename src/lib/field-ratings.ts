@@ -92,12 +92,22 @@ export async function getContractorRatings(): Promise<Map<string, ContractorRati
 
   // collect each inspector's reviews
   const byContractor = new Map<string, Array<{ rating: number; at: string }>>();
+  // Count each STAY's review once. A reservation can be prepped by more than
+  // one completed stop (duplicate booking rows, or the same home across trips),
+  // and without this a single review was double-counted — inflating the count,
+  // the average, and the 5-star streak, and making the profile's rating count
+  // disagree with the review list (loadContractorReviews already dedupes by
+  // reservation the same way).
+  const seenPair = new Set<string>();
   for (const s of stopRows) {
     const cid = packetContractor.get(s.packet_id);
     const ext = bookingExt.get(s.booking_id);
     if (!cid || !ext) continue;
     const rev = reviewByExt.get(ext);
     if (!rev) continue;
+    const key = `${cid}::${ext}`;
+    if (seenPair.has(key)) continue;
+    seenPair.add(key);
     const arr = byContractor.get(cid) ?? [];
     arr.push(rev);
     byContractor.set(cid, arr);
