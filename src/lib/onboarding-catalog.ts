@@ -263,9 +263,18 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
   {
     key: 'financial.stripe_restricted_key',
     stage: 'financial',
-    title: 'Add the restricted key to STRIPE_KEYS_JSON',
-    description: 'Generate an rk_live key, add it to the Vercel env keyed by property id, redeploy.',
-    why: 'Without it, direct-booking fee reconciliation degrades to gross-only and the upload page\'s Stripe callout stays dark.',
+    title: 'Wire the property\'s Stripe key into Helm',
+    description:
+      'In the property\'s Stripe: Developers > API keys > Create restricted key, name it "Helm", exactly six permissions: ' +
+      'Charges Read, Checkout Sessions Read, Balance Read, Payment Links Write, Products Write, Prices Write ' +
+      '(Prices is its own row, Products does NOT cover it). Copy the rk_live key. ' +
+      'In Vercel (rising-tide-statements > Environment Variables) ADD A NEW var named STRIPE_KEY_<PROPERTY_ID> ' +
+      '(uppercased, e.g. STRIPE_KEY_19_RACKLIFFE), value = the bare key only, no JSON, no quotes. Never edit the old ' +
+      'STRIPE_KEYS_JSON blobs. Redeploy. Verify: the payment-links diagnostic (or ask Claude to mint-and-kill a test link).',
+    why:
+      'Powers three things: statement extras sync (guest add-on charges appear in the statement review queue), ' +
+      'installment fee cross-checks, and auto-minted add-on payment links in guest messaging. ' +
+      'Never use the sk_ secret key - Helm refuses those by policy.',
   },
   {
     key: 'financial.stripe_linked_in_guesty',
