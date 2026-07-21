@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
-import { getStripeKeysMap } from '@/lib/stripe-sync';
+import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/lib/stripe-sync';
 
 /**
  * Stay-concierge bridge: create a Stripe Payment Link for a guest add-on
@@ -99,6 +99,11 @@ export async function GET(req: Request) {
   return NextResponse.json({
     base: probe('STRIPE_KEYS_JSON'),
     extra: probe('STRIPE_KEYS_JSON_EXTRA'),
+    // Per-property STRIPE_KEY_<ID> vars - the standard for new properties.
+    per_property_ids: Object.keys(perPropertyKeyVars()),
+    // sk_ pastes are refused (Helm never holds full-access keys); listing
+    // them here makes a wrong-key paste visible instead of silently dead.
+    refused_secret_key_ids: refusedSecretKeyVars(),
     merged_ids: Object.keys(getStripeKeysMap()),
   });
 }
