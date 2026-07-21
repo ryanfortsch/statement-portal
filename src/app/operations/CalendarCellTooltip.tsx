@@ -34,9 +34,19 @@ export type CalendarCellTooltipData = {
   /** ISO time the guest physically keyed in (guest code) for a current stay,
    *  or null. Drives the "In residence" line + the calendar home glyph. */
   guestArrivedAt: string | null;
-  /** Owner / maintenance hold (bookings.status = 'block'): titled "Owner
-   *  hold" and stripped of guest-specific rows (channel, payout, code). */
+  /** Owner / maintenance hold (bookings.status = 'block'): titled from
+   *  `hold` and stripped of guest-specific rows (channel, payout, code). */
   isBlock?: boolean;
+  /** What the hold actually is, from the Guesty day mirror: the typed note
+   *  ("Carpet Cleaning"), structured reason, and who created it. null for
+   *  guest stays and for holds the mirror hasn't covered. */
+  hold?: {
+    kind: 'owner' | 'manual' | 'other';
+    note: string | null;
+    reason: string | null;
+    createdBy: string | null;
+    createdAt: string | null;
+  } | null;
 };
 
 export function CalendarCellTooltip({
@@ -115,6 +125,21 @@ export function CalendarCellTooltip({
  *  Rendered once for a normal cell, twice (stacked, with Out/In eyebrows)
  *  for a turnover-day cell. Block holds get a stripped variant. */
 function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?: string }) {
+  // A hold titles itself from the Guesty day mirror when it can: the typed
+  // note wins ("Carpet Cleaning"), then the structured reason, then the
+  // owner designation; a hold the mirror hasn't covered stays a plain
+  // "Hold". The category line underneath plays the role the channel line
+  // plays for a stay.
+  const holdNote = data.hold?.note?.trim() || null;
+  const holdReason = data.hold?.reason?.trim() || null;
+  const isOwnerHold = data.hold?.kind === 'owner';
+  const holdTitle = holdNote ?? holdReason ?? (isOwnerHold ? 'Owner hold' : 'Hold');
+  let holdKind: string | null = null;
+  if (data.hold) {
+    if (isOwnerHold) holdKind = holdTitle === 'Owner hold' ? null : 'Owner block';
+    else if (holdNote && holdReason) holdKind = `${holdReason} block`;
+    else holdKind = 'Manual block';
+  }
   return (
     <div>
       {eyebrow && (
@@ -142,8 +167,22 @@ function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?:
           fontStyle: data.isBlock ? 'italic' : 'normal',
         }}
       >
-        {data.isBlock ? 'Owner hold' : data.guestName || 'Unnamed guest'}
+        {data.isBlock ? holdTitle : data.guestName || 'Unnamed guest'}
       </div>
+      {data.isBlock && holdKind && (
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--tide-deep)',
+            fontWeight: 600,
+            marginBottom: 10,
+          }}
+        >
+          {holdKind}
+        </div>
+      )}
       {!data.isBlock && data.channel && (
         <div
           style={{
@@ -183,6 +222,15 @@ function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?:
             </span>
           </>
         )}
+        {data.isBlock && data.hold?.createdBy && (
+          <>
+            <span style={{ color: 'var(--ink-4)' }}>Set by</span>
+            <span style={{ color: 'var(--ink)' }}>
+              {friendlySetBy(data.hold.createdBy, data.hold.kind)}
+              {data.hold.createdAt ? ` · ${formatShort(data.hold.createdAt.slice(0, 10))}` : ''}
+            </span>
+          </>
+        )}
       </div>
       {/* Guest-presence: a green "in residence" line when the guest has
           physically keyed in on a guest code during this current stay. */}
@@ -208,6 +256,20 @@ function StayBlock({ data, eyebrow }: { data: CalendarCellTooltipData; eyebrow?:
       )}
     </div>
   );
+}
+
+/** Who placed a hold, kept short: staff emails become a first name
+ *  ("allie@risingtidestr.com" → "Allie"), an owner-portal block says so
+ *  explicitly, anything else shows as-is. */
+function friendlySetBy(email: string, kind: 'owner' | 'manual' | 'other'): string {
+  const at = email.indexOf('@');
+  if (at <= 0) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1).toLowerCase();
+  if (domain === 'risingtidestr.com') {
+    return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase();
+  }
+  return kind === 'owner' ? `Owner (${email})` : email;
 }
 
 function formatShort(iso: string): string {

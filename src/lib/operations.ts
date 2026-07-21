@@ -13,6 +13,7 @@ import { supabaseAdmin as supabase } from './supabase-admin';
 import type { CleaningSession } from './cleaning-sessions';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
+import { loadCalendarDayMap, type CalendarDayRow } from './calendar-days';
 
 export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
 
@@ -140,6 +141,20 @@ function earliestNonNull(a: string | null, b: string | null): string | null {
 
 export type InspectionStatus = 'not_started' | 'complete';
 
+/** Why a held span is held, from Guesty's per-day calendar mirror. Attached
+ *  to block rows so the bar can say "Carpet Cleaning" instead of "Hold" and
+ *  the tooltip can say who set it. */
+export type CalendarHold = {
+  /** 'owner' = blocked through the owner portal (createdBy is the owner's
+   *  email); 'manual' = staff block in Guesty; 'other' = rare deliberate
+   *  block types. */
+  kind: 'owner' | 'manual' | 'other';
+  note: string | null;
+  reason: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+};
+
 export type ReservationRow = {
   guesty_reservation_id: string;
   property_id: string;
@@ -163,6 +178,10 @@ export type ReservationRow = {
    *  for a current stay where no guest keypad entry has been seen yet -- so the
    *  signal only ever appears as a positive fact, never a guess. */
   guestArrivedAt: string | null;
+  /** For status='block' rows: what this hold actually is (note, reason, who
+   *  set it), joined from the Guesty day mirror. null for guest stays, and
+   *  for holds the mirror hasn't covered (renders as a generic hold). */
+  hold: CalendarHold | null;
 };
 
 export type InspectionRow = {
@@ -304,17 +323,38 @@ export type CalendarCell = {
   isCheckIn: boolean;
   /** am checks out on this date (bar ends at the cell's center). */
   isCheckOut: boolean;
+  /** Posted nightly rate for this date from the Guesty day mirror; rendered
+   *  small on vacant future cells (the reason the operator lived in Guesty's
+   *  multi-calendar). null pre-sync or outside the mirrored window. */
+  price: number | null;
+  /** Guesty min-stay rule for the date, for the vacant-cell title text. */
+  minNights: number | null;
+  /** When this vacant night sits in a SHORT bookable gap (1-3 nights walled
+   *  in by occupied nights on both sides), the gap's total length — drives
+   *  the opportunity tint. null otherwise. */
+  gapNights: number | null;
 };
 
 export type CalendarRow = {
   property: PropertyMini;
   cells: CalendarCell[];
+  /** Guest-occupied share of this row's future nights in the visible window
+   *  (held nights excluded from the denominator). null when the window holds
+   *  no future nights (paged fully into the past) or everything is held. */
+  occupancyPct: number | null;
 };
 
 export type CalendarData = {
   days: string[];
   rows: CalendarRow[];
+  /** Index of today's column, or -1 when the window is paged away from it. */
   todayIndex: number;
+  /** Today's date string, for per-cell past/today comparisons. */
+  today: string;
+  /** Bookable open nights (today forward) across all visible rows. */
+  openNights: number;
+  /** Sum of posted rates over those open nights, when any are known. */
+  openValue: number | null;
 };
 
 export type OperationsData = {
@@ -337,6 +377,7 @@ export async function loadOperationsData(
   range: Range,
   calendarRange: CalendarRange = '7d',
   propertyId?: string,
+  calendarOffset: number = 0,
 ): Promise<OperationsData> {
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
@@ -345,14 +386,39 @@ export async function loadOperationsData(
   // Calendar window is independent of the list range. Operator can keep the
   // list short ("today") while looking 14 or 30 days ahead on the calendar.
   // We still floor at the list-range size so the calendar never shows less
-  // than the list does.
-  const calendarDays = Math.max(days, CALENDAR_RANGE_DAYS[calendarRange]);
-  const calendarEnd = addDaysStr(rangeStart, calendarDays);
+  // than the list does. calendarOffset (the ‹ Today › pagers) slides the
+  // whole window in day units around today; a paged window drops the floor
+  // since it's deliberately looking elsewhere.
+  const calendarOffsetSafe = Number.isFinite(calendarOffset)
+    ? Math.max(-370, Math.min(370, Math.trunc(calendarOffset)))
+    : 0;
+  const calendarDays =
+    calendarOffsetSafe === 0
+      ? Math.max(days, CALENDAR_RANGE_DAYS[calendarRange])
+      : CALENDAR_RANGE_DAYS[calendarRange];
+  const calendarAnchor = addDaysStr(rangeStart, calendarOffsetSafe);
+  const calendarEnd = addDaysStr(calendarAnchor, calendarDays);
 
-  // Lookback 30 days so we can resolve previous checkouts; lookahead through
-  // calendarEnd + 1 so we capture every reservation overlapping the calendar.
-  const fetchStart = addDaysStr(rangeStart, -30);
-  const fetchEnd = addDaysStr(calendarEnd, 1);
+  // The visible calendar dates, oldest first: CALENDAR_LOOKBACK_DAYS of
+  // context before the anchor, then `calendarDays` forward. Built up here
+  // (not in the calendar section below) because the reservation fetch and
+  // the Guesty day-mirror read both need the exact window.
+  const calendarDayList: string[] = [];
+  for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
+    calendarDayList.push(addDaysStr(calendarAnchor, i));
+  }
+  const calendarWindowStart = calendarDayList[0];
+  const calendarWindowEnd = calendarDayList[calendarDayList.length - 1];
+
+  // Lookback 30 days from today so we can resolve previous checkouts, and
+  // far enough to cover a paged-back calendar window; lookahead through the
+  // later of list range and calendar end so every overlapping stay loads.
+  const turnoverFetchStart = addDaysStr(rangeStart, -30);
+  const pagedFetchStart = addDaysStr(calendarWindowStart, -1);
+  const fetchStart = pagedFetchStart < turnoverFetchStart ? pagedFetchStart : turnoverFetchStart;
+  const listFetchEnd = addDaysStr(rangeEnd, 1);
+  const calFetchEnd = addDaysStr(calendarEnd, 1);
+  const fetchEnd = calFetchEnd > listFetchEnd ? calFetchEnd : listFetchEnd;
 
   // Overlap-based query against the Helm-native bookings table: a stay
   // overlaps [fetchStart, fetchEnd] iff check_in <= fetchEnd AND
@@ -412,6 +478,7 @@ export async function loadOperationsData(
     host_payout: b.payout,
     confirmation_code: b.external_confirmation_code,
     guestArrivedAt: null,
+    hold: null,
   });
   const keepRow = (r: ReservationRow): boolean =>
     !!r.property_id &&
@@ -552,6 +619,7 @@ export async function loadOperationsData(
     { data: inspectionSessionData },
     { data: guestCodeData },
     { data: unlockEventData },
+    calendarDayMap,
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -618,6 +686,11 @@ export async function loadOperationsData(
       .gte('received_at', addDaysStr(rangeStart, -PRESENCE_LOOKBACK_DAYS))
       .order('received_at', { ascending: false })
       .limit(4000),
+    // Guesty per-day mirror across the visible calendar window: hold notes /
+    // reasons / creators, nightly prices, min-stay. Resolves to an empty map
+    // until the migration + first sync land, which keeps every downstream
+    // feature dark instead of broken.
+    loadCalendarDayMap(propertyIdList, calendarWindowStart, calendarWindowEnd),
   ]);
 
   // Set of properties with a live smart lock. Anything not in here is a
@@ -970,18 +1043,125 @@ export async function loadOperationsData(
   const inspectionDoneCount = dedupedTurnovers.filter((t) => t.inspectionStatus === 'complete').length;
 
   // ── Calendar ──────────────────────────────────────────────────────────
-  // One row per active property, columns = CALENDAR_LOOKBACK_DAYS of
-  // history + `calendarDays` consecutive dates starting from today. The
-  // lookback makes mid-stay occupancy legible: a guest who checked in two
-  // days ago renders as a bar already in motion before the today column,
-  // instead of being indistinguishable from a fresh check-in (this matches
-  // how Guesty's multi-calendar frames the current day). Each cell carries
-  // its morning + night occupant (see CalendarCell) so the grid can draw
-  // stays as bars with a visible start and end. The reservation fetch
-  // already reaches 30 days back, so no extra query needed.
-  const calendarDayList: string[] = [];
-  for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
-    calendarDayList.push(addDaysStr(rangeStart, i));
+  // One row per active property, columns = the precomputed calendarDayList
+  // (CALENDAR_LOOKBACK_DAYS of history + `calendarDays` forward from the
+  // paging anchor). The lookback makes mid-stay occupancy legible: a guest
+  // who checked in two days ago renders as a bar already in motion before
+  // the today column, instead of being indistinguishable from a fresh
+  // check-in (this matches how Guesty's multi-calendar frames the current
+  // day). Each cell carries its morning + night occupant (see CalendarCell)
+  // so the grid can draw stays as bars with a visible start and end.
+
+  // ── Hold intelligence ─────────────────────────────────────────────────
+  // The Guesty day mirror knows what each held day IS: the note typed on a
+  // manual block ("Carpet Cleaning"), a structured reason, who created it,
+  // and whether an "unavailable" day is merely an availability artifact.
+  // Guesty's advance-notice rule exports TONIGHT as a 1-night block on
+  // every unbooked listing, and its booking-window rule exports a
+  // multi-year block at the horizon — the iCal feed delivers both as
+  // "Blocked by Guesty" events indistinguishable from a real hold. Fold
+  // the mirror onto the iCal block rows:
+  //   1. attach hold info to real holds (bar label + tooltip),
+  //   2. suppress phantom bars whose mirrored days carry no real hold,
+  //   3. synthesize bars for real holds no bar covers yet (a hold placed
+  //      in Guesty minutes ago appears named after one day-sync cycle,
+  //      without waiting on the iCal feed).
+  // With no mirror data (pre-migration, paged beyond the synced horizon)
+  // everything keeps the old behavior: a generic grey hold bar.
+  const dayInfoFor = (pid: string, date: string): CalendarDayRow | undefined =>
+    calendarDayMap.get(pid)?.get(date);
+
+  const holdFromDay = (d: CalendarDayRow): CalendarHold => ({
+    kind: d.block_type === 'o' ? 'owner' : d.block_type === 'm' ? 'manual' : 'other',
+    note: d.block_note,
+    reason: d.block_reason,
+    createdBy: d.block_created_by,
+    createdAt: d.block_created_at,
+  });
+
+  // The nights of a stay clamped to the visible window (a booking-window
+  // artifact spans years; only visible nights matter here).
+  const clampNights = (r: { check_in: string; check_out: string }): string[] => {
+    const from = r.check_in > calendarWindowStart ? r.check_in : calendarWindowStart;
+    const lastNight = addDaysStr(r.check_out, -1);
+    const to = lastNight < calendarWindowEnd ? lastNight : calendarWindowEnd;
+    const out: string[] = [];
+    for (let d = from; d <= to; d = addDaysStr(d, 1)) out.push(d);
+    return out;
+  };
+
+  const visibleBlockRows: ReservationRow[] = [];
+  for (const r of blockReservations) {
+    let coveredDays = 0;
+    let hold: CalendarHold | null = null;
+    for (const d of clampNights(r)) {
+      const info = dayInfoFor(r.property_id, d);
+      if (!info) continue;
+      coveredDays += 1;
+      if (info.block_type && !hold) hold = holdFromDay(info);
+    }
+    // Every mirrored night says "no real hold here": an advance-notice /
+    // booking-window artifact. Drop the bar.
+    if (coveredDays > 0 && !hold) continue;
+    r.hold = hold;
+    visibleBlockRows.push(r);
+  }
+
+  // Mirror-only holds: real held days no kept bar covers. Group consecutive
+  // days sharing a block ref into one synthesized bar-compatible row.
+  const nightCovered = new Map<string, Set<string>>();
+  const markCovered = (r: ReservationRow) => {
+    let set = nightCovered.get(r.property_id);
+    if (!set) nightCovered.set(r.property_id, (set = new Set()));
+    for (const d of clampNights(r)) set.add(d);
+  };
+  for (const r of reservations) markCovered(r);
+  for (const r of visibleBlockRows) markCovered(r);
+
+  for (const property of properties) {
+    const dayRows = calendarDayMap.get(property.id);
+    if (!dayRows) continue;
+    const covered = nightCovered.get(property.id);
+    let runDates: string[] = [];
+    let runInfo: CalendarDayRow | null = null;
+    const flushRun = () => {
+      if (!runInfo || runDates.length === 0) return;
+      const first = runDates[0];
+      const last = runDates[runDates.length - 1];
+      visibleBlockRows.push({
+        guesty_reservation_id: `dayhold:${property.id}:${first}`,
+        property_id: property.id,
+        guest_name: null,
+        channel: 'block',
+        guesty_channel_id: null,
+        check_in: first,
+        check_out: addDaysStr(last, 1),
+        nights: runDates.length,
+        status: 'block',
+        host_payout: null,
+        confirmation_code: null,
+        guestArrivedAt: null,
+        hold: holdFromDay(runInfo),
+      });
+      runDates = [];
+      runInfo = null;
+    };
+    for (const d of calendarDayList) {
+      const info = dayRows.get(d);
+      const isUncoveredHold = !!info?.block_type && !covered?.has(d);
+      if (!isUncoveredHold || !info) {
+        flushRun();
+        continue;
+      }
+      const continues =
+        runInfo != null &&
+        (runInfo.block_ref_id ?? '') === (info.block_ref_id ?? '') &&
+        runDates[runDates.length - 1] === addDaysStr(d, -1);
+      if (!continues) flushRun();
+      if (runInfo == null) runInfo = info;
+      runDates.push(d);
+    }
+    flushRun();
   }
 
   const reservationsByProperty = new Map<string, ReservationRow[]>();
@@ -995,7 +1175,7 @@ export async function loadOperationsData(
   // both cover the same night — the same owner stay sometimes exists as
   // both a $0 direct booking and a calendar block, and the guest row is
   // the one with a name and a tooltip worth showing.
-  for (const r of blockReservations) {
+  for (const r of visibleBlockRows) {
     const arr = reservationsByProperty.get(r.property_id) ?? [];
     arr.push(r);
     reservationsByProperty.set(r.property_id, arr);
@@ -1015,16 +1195,85 @@ export async function loadOperationsData(
         propertyReservations.find((r) => r.check_in <= date && date < r.check_out) ?? null;
       const am =
         propertyReservations.find((r) => r.check_in < date && date <= r.check_out) ?? null;
+      const info = dayInfoFor(property.id, date);
       return {
         date,
         pm,
         am,
         isCheckIn: !!pm && pm.check_in === date,
         isCheckOut: !!am && am.check_out === date,
+        price: info?.price ?? null,
+        minNights: info?.min_nights ?? null,
+        gapNights: null,
       };
     });
-    return { property, cells };
+    return { property, cells, occupancyPct: null };
   });
+
+  // ── Gap + open-night intelligence ─────────────────────────────────────
+  // A night is OPEN (sellable) when nothing occupies it and the mirror
+  // doesn't call the day unavailable — a real hold and an availability
+  // artifact both make the night unsellable, so neither counts as open
+  // inventory even though an artifact day renders as an empty cell.
+  // Pre-sync (no mirror rows) every vacant night counts, which matches the
+  // calendar's old level of knowledge.
+  let openNightsTotal = 0;
+  let openValueTotal = 0;
+  let openValueKnown = false;
+  for (const row of calendarRows) {
+    const cells = row.cells;
+    const isOpen = (c: CalendarCell): boolean => {
+      if (c.pm) return false;
+      const info = dayInfoFor(row.property.id, c.date);
+      return !info || info.status !== 'unavailable';
+    };
+
+    // Row occupancy over FUTURE nights in the window: guest-occupied share
+    // with held nights excluded from the denominator, so an owner-held week
+    // doesn't read as either occupancy or vacancy.
+    let futureNights = 0;
+    let guestNights = 0;
+    let heldNights = 0;
+    for (const c of cells) {
+      if (c.date < rangeStart) continue;
+      futureNights += 1;
+      const held =
+        (c.pm && c.pm.status === 'block') ||
+        (!c.pm && dayInfoFor(row.property.id, c.date)?.block_type != null);
+      if (c.pm && c.pm.status !== 'block') guestNights += 1;
+      else if (held) heldNights += 1;
+      if (isOpen(c)) {
+        openNightsTotal += 1;
+        if (c.price != null) {
+          openValueTotal += c.price;
+          openValueKnown = true;
+        }
+      }
+    }
+    const bookableNights = futureNights - heldNights;
+    row.occupancyPct =
+      bookableNights > 0 ? Math.round((guestNights / bookableNights) * 100) : null;
+
+    // Short bookable gaps (1-3 open nights walled in by occupied nights on
+    // both sides) get flagged for the opportunity tint: the nights most
+    // worth filling and easiest to lose to a min-stay rule.
+    let i = 0;
+    while (i < cells.length) {
+      if (cells[i].date < rangeStart || !isOpen(cells[i])) {
+        i += 1;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < cells.length && isOpen(cells[j + 1])) j += 1;
+      const len = j - i + 1;
+      const beforeOccupied = i > 0 && !!cells[i - 1].pm;
+      const afterOccupied = j + 1 < cells.length && !!cells[j + 1].pm;
+      if (len <= 3 && beforeOccupied && afterOccupied) {
+        for (let k = i; k <= j; k += 1) cells[k].gapNights = len;
+      }
+      i = j + 1;
+    }
+  }
 
   // Order calendar rows by the next thing that happens on each property
   // (soonest upcoming check-in or check-out among guest stays), so the
@@ -1065,7 +1314,10 @@ export async function loadOperationsData(
     calendar: {
       days: calendarDayList,
       rows: calendarRows,
-      todayIndex: CALENDAR_LOOKBACK_DAYS,
+      todayIndex: calendarDayList.indexOf(rangeStart),
+      today: rangeStart,
+      openNights: openNightsTotal,
+      openValue: openValueKnown ? Math.round(openValueTotal) : null,
     },
   };
 }
