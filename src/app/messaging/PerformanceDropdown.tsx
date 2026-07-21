@@ -11,7 +11,16 @@ import {
 } from './facts-actions';
 import { prettifySlug } from './format';
 import { TrendChart } from './TrendChart';
-import type { MessagingStats, Fact, TimeseriesPoint, TopicRollup } from '@/lib/stay-concierge';
+import { RecentList } from './RecentStrip';
+import { FactAuditCard } from './FactAuditCard';
+import type {
+  MessagingStats,
+  Fact,
+  TimeseriesPoint,
+  TopicRollup,
+  Approval,
+  FactAudit,
+} from '@/lib/stay-concierge';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
@@ -21,9 +30,25 @@ type Props = {
   totalFacts: number;
   initialTimeseries: TimeseriesPoint[];
   initialAvailableTopics: TopicRollup[];
+  /** Resolved activity for the "Last 24 hours" tab. */
+  initialRecent: Approval[];
+  /** Weekly fact-base audit for the Learning tab. */
+  audit: FactAudit | null;
+  auditError: string | null;
 };
 
 type Window = { label: string; hours: number };
+
+// Everything below the queue lives in this one section now, split across
+// three tabs: the score (Overview), the activity log (Last 24 hours), and
+// the learning loop (Learning). Per Dotti 2026-07-21.
+type Tab = 'overview' | 'recent' | 'learning';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'recent', label: 'Last 24 hours' },
+  { id: 'learning', label: 'Learning' },
+];
 
 const WINDOWS: Window[] = [
   { label: '24h', hours: 24 },
@@ -44,11 +69,15 @@ export function PerformanceDropdown({
   totalFacts,
   initialTimeseries,
   initialAvailableTopics,
+  initialRecent,
+  audit,
+  auditError,
 }: Props) {
   // Default open. The user came to /messaging to see this; the dropdown
   // chip was too easy to miss. Keeping the open/close affordance for
   // density when she's done.
   const [open, setOpen] = useState(true);
+  const [tab, setTab] = useState<Tab>('overview');
   const [stats, setStats] = useState<MessagingStats | null>(initialStats);
   const [error, setError] = useState<string | null>(initialError);
   const [currentWindow, setCurrentWindow] = useState<Window>(DEFAULT_WINDOW);
@@ -79,10 +108,18 @@ export function PerformanceDropdown({
     }
   };
 
+  const eyebrow = !open
+    ? 'score · activity · learning'
+    : tab === 'overview'
+      ? `${currentWindow.label} · how the AI is doing`
+      : tab === 'recent'
+        ? `${initialRecent.length} resolved · rolling 24h`
+        : 'what the AI has learned';
+
   return (
     <Section
       title="Performance"
-      eyebrow={open ? `${currentWindow.label} · how the AI is doing` : 'how the AI is doing'}
+      eyebrow={eyebrow}
       paddingTop={36}
       right={
         <button
@@ -114,26 +151,86 @@ export function PerformanceDropdown({
             color: 'var(--ink-3)',
           }}
         >
-          One-shot rate, drafts shipped, what the AI has learned. Click <b>Show</b> to expand.
+          One-shot rate, the last 24 hours of activity, what the AI has learned. Click <b>Show</b> to expand.
         </div>
-      ) : !stats && error ? (
-        <ErrorState message={error} />
-      ) : !stats ? (
-        <LoadingState />
       ) : (
-        <StatsBody
-          stats={stats}
-          window={currentWindow}
-          windows={WINDOWS}
-          onWindowChange={loadWindow}
-          loading={isPending}
-          facts={initialFacts}
-          totalFacts={totalFacts}
-          timeseries={initialTimeseries}
-          availableTopics={initialAvailableTopics}
-        />
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+          <TabBar current={tab} onChange={setTab} />
+          <div style={{ marginTop: 20 }}>
+            {tab === 'overview' &&
+              (!stats && error ? (
+                <ErrorState message={error} />
+              ) : !stats ? (
+                <LoadingState />
+              ) : (
+                <StatsBody
+                  stats={stats}
+                  window={currentWindow}
+                  windows={WINDOWS}
+                  onWindowChange={loadWindow}
+                  loading={isPending}
+                  timeseries={initialTimeseries}
+                  availableTopics={initialAvailableTopics}
+                />
+              ))}
+            {tab === 'recent' && <RecentList recent={initialRecent} />}
+            {tab === 'learning' && (
+              <>
+                {stats ? (
+                  <LearningSection stats={stats} facts={initialFacts} totalFacts={totalFacts} />
+                ) : (
+                  <div style={{ padding: '4px 0 16px', fontSize: 13, color: 'var(--ink-3)' }}>
+                    {error || 'Learning stats are unavailable right now.'}
+                  </div>
+                )}
+                <div style={{ marginTop: 28 }}>
+                  <FactAuditCard initial={audit} initialError={auditError} bare />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </Section>
+  );
+}
+
+/** The section's inner tab bar. Same welded segmented-control vocabulary as
+ * the stats WindowToggle, sized up a step since it switches whole panels. */
+function TabBar({ current, onChange }: { current: Tab; onChange: (t: Tab) => void }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Performance panels"
+      style={{ display: 'inline-flex', border: '1px solid var(--ink)', overflow: 'hidden' }}
+    >
+      {TABS.map((t) => {
+        const active = t.id === current;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(t.id)}
+            style={{
+              padding: '9px 16px',
+              fontSize: 11,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              background: active ? 'var(--ink)' : 'var(--paper)',
+              color: active ? 'var(--paper)' : 'var(--ink)',
+              borderRight: '1px solid var(--ink)',
+            }}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -141,8 +238,7 @@ function ErrorState({ message }: { message: string }) {
   return (
     <div
       style={{
-        borderTop: '1px solid var(--rule)',
-        padding: '20px 0',
+        padding: '4px 0 16px',
         fontSize: 13,
         color: 'var(--signal)',
       }}
@@ -156,8 +252,7 @@ function LoadingState() {
   return (
     <div
       style={{
-        borderTop: '1px solid var(--rule)',
-        padding: '20px 0',
+        padding: '4px 0 16px',
         fontSize: 13,
         color: 'var(--ink-3)',
       }}
@@ -173,8 +268,6 @@ function StatsBody({
   windows,
   onWindowChange,
   loading,
-  facts,
-  totalFacts,
   timeseries,
   availableTopics,
 }: {
@@ -183,8 +276,6 @@ function StatsBody({
   windows: Window[];
   onWindowChange: (w: Window) => void;
   loading: boolean;
-  facts: Fact[];
-  totalFacts: number;
   timeseries: TimeseriesPoint[];
   availableTopics: TopicRollup[];
 }) {
@@ -192,7 +283,7 @@ function StatsBody({
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
 
   return (
-    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
+    <div>
       <WindowToggle windows={windows} current={window} onChange={onWindowChange} disabled={loading} />
 
       {/* Hero one-shot rate */}
@@ -331,9 +422,6 @@ function StatsBody({
           live queue · <b style={{ color: 'var(--ink)' }}>{stats.pending_now}</b>
         </span>
       </div>
-
-      {/* Learning corpus */}
-      <LearningSection stats={stats} facts={facts} totalFacts={totalFacts} />
     </div>
   );
 }
@@ -449,7 +537,7 @@ function OneShotExplainer({ stats }: { stats: MessagingStats }) {
           <span style={{ color: 'var(--signal)', fontWeight: 600 }}>
             The AI punted {stats.escalated} {stats.escalated === 1 ? 'message' : 'messages'} to SMS without drafting
           </span>
-          {' '}— the new classifier should drive this toward zero.
+          {' '}- the new classifier should drive this toward zero.
         </>
       )}
       {guestyOnly > 0 && (
@@ -461,7 +549,7 @@ function OneShotExplainer({ stats }: { stats: MessagingStats }) {
               {' '}({stats.manual_sent} captured by the poller, {stats.auto_rejected_stale} expired pre-poller)
             </>
           )}
-          {' '}— those don&rsquo;t count against the AI score; we can&rsquo;t tell whether the draft was good or you just preferred Guesty.
+          {' '}- those don&rsquo;t count against the AI score; we can&rsquo;t tell whether the draft was good or you just preferred Guesty.
         </>
       )}
     </>
@@ -567,7 +655,7 @@ function LearningSection({
   totalFacts: number;
 }) {
   return (
-    <div style={{ marginTop: 28 }}>
+    <div>
       <div
         style={{
           padding: '20px 24px',

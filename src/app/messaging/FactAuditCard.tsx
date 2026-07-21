@@ -8,12 +8,15 @@ import { refreshFactAuditAction } from './fact-audit-actions';
 type Props = {
   initial: FactAudit | null;
   initialError: string | null;
+  /** Render without the Section wrapper — used inside the Performance
+   * section's Learning tab, where the tab supplies the frame. */
+  bare?: boolean;
 };
 
 /** Weekly recursive-learning health, surfaced on /messaging instead of a text.
  * Shows the action punch-list (duplicates / contradictions / sprawl the inline
  * guard missed) with a Refresh button that re-runs the scan on demand. */
-export function FactAuditCard({ initial, initialError }: Props) {
+export function FactAuditCard({ initial, initialError, bare = false }: Props) {
   const [audit, setAudit] = useState<FactAudit | null>(initial);
   const [error, setError] = useState<string | null>(initialError);
   const [pending, startTransition] = useTransition();
@@ -34,13 +37,16 @@ export function FactAuditCard({ initial, initialError }: Props) {
   const healthy = audit?.healthy ?? false;
   const asOf = audit?.as_of || '';
 
-  return (
-    <Section
-      title="Fact-base health"
-      eyebrow={asOf ? `weekly · as of ${asOf}` : 'weekly audit'}
-      paddingTop={36}
-    >
+  const body = (
       <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+        {bare && (
+          <div
+            className="eyebrow"
+            style={{ color: 'var(--ink-3)', marginBottom: 10 }}
+          >
+            Fact-base health · {asOf ? `weekly · as of ${asOf}` : 'weekly audit'}
+          </div>
+        )}
         <div
           style={{
             display: 'flex',
@@ -89,7 +95,7 @@ export function FactAuditCard({ initial, initialError }: Props) {
               // Items read "kind: reason (ids)" — split the leading kind tag.
               const m = item.match(/^([a-z]+):\s*(.*)$/i);
               const kind = m ? m[1] : '';
-              const body = m ? m[2] : item;
+              const itemBody = m ? m[2] : item;
               return (
                 <li
                   key={i}
@@ -109,13 +115,24 @@ export function FactAuditCard({ initial, initialError }: Props) {
                   >
                     {kind || 'note'}
                   </span>
-                  <span style={{ color: 'var(--ink-2)', lineHeight: 1.5 }}>{body}</span>
+                  <span style={{ color: 'var(--ink-2)', lineHeight: 1.5 }}>{itemBody}</span>
                 </li>
               );
             })}
           </ul>
         )}
       </div>
+  );
+
+  if (bare) return body;
+
+  return (
+    <Section
+      title="Fact-base health"
+      eyebrow={asOf ? `weekly · as of ${asOf}` : 'weekly audit'}
+      paddingTop={36}
+    >
+      {body}
     </Section>
   );
 }

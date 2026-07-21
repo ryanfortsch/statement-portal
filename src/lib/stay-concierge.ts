@@ -399,6 +399,83 @@ export async function editApproval(id: string, text: string) {
   );
 }
 
+// ── Conversation browser + thread view (the Guesty-inbox replacement) ────
+
+/** One row in the /messaging Conversations browser: a guest conversation
+ * with stay context and the latest locally-known activity. */
+export type ConversationSummary = {
+  conversation_id: string;
+  reservation_id: string;
+  listing_id: string;
+  property_name: string;
+  guest_full: string;
+  guest_first: string;
+  check_in: string;
+  check_out: string;
+  stay_status: 'in_house' | 'upcoming' | 'checked_out' | string;
+  module: string;
+  channel: string;
+  /** Latest locally-known activity (messages_log / approvals). Empty when
+   * the pipeline hasn't touched this conversation yet. */
+  last_activity_at: string;
+  last_who: 'guest' | 'host' | '';
+  last_preview: string;
+  /** Live drafts waiting on this conversation in the approval queue. */
+  pending_count: number;
+};
+
+/** One message in a conversation thread, fetched live from Guesty.
+ * `via` is the provenance of a host message: Guesty automation, our AI
+ * (approved drafts, auto-sends, proactive), a human typing in Guesty, or
+ * the operator's own manual send from Helm's composer ('operator').
+ * Empty on guest messages and on the rare /messages-fallback thread. */
+export type ThreadMessage = {
+  id: string;
+  body: string;
+  at: string;
+  who: 'guest' | 'host';
+  via: '' | 'guesty_auto' | 'helm_ai' | 'team' | 'operator';
+  sender_name: string;
+  /** How the pipeline handled this inbound (present on guest messages the
+   * local log knows about). */
+  topic?: string;
+  action?: string;
+  approval_status?: string;
+};
+
+/** The list gather pages Guesty 25 rows at a time server-side (cached 90s
+ * on the concierge), so give the first cold call more headroom than the
+ * standard 13s render budget. */
+export async function listConversations(days = 60) {
+  return request<{ conversations: ConversationSummary[]; count: number }>(
+    `/api/conversations?days=${days}`,
+    { method: 'GET', timeoutMs: 20_000 },
+  );
+}
+
+export async function getConversationThread(conversationId: string, limit = 200) {
+  return request<{ messages: ThreadMessage[]; count: number }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/thread?limit=${limit}`,
+  );
+}
+
+/** Operator-typed manual reply. Sends exactly `text` through Guesty on the
+ * conversation's channel; no AI involvement. Timeout must outlast the
+ * concierge's own 30s Guesty send (plus a possible OAuth fetch): if Helm
+ * gave up at the default 13s while the send was still in flight, the
+ * operator would retry and double-message the guest. */
+export async function sendConversationMessage(
+  conversationId: string,
+  text: string,
+  module: string,
+  listingId?: string,
+) {
+  return request<{ ok: true; conversation_id: string; resolved_pending: number }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/send`,
+    { method: 'POST', body: { text, module, listing_id: listingId || '' }, timeoutMs: 45_000 },
+  );
+}
+
 // ── Owner-messaging surface (mirrors the guest one) ──────────────────────
 
 export type OwnerApproval = {
