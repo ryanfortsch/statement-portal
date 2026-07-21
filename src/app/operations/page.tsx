@@ -6,6 +6,7 @@ import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { AutoRefresh } from '../revenue/AutoRefresh';
+import { CalendarMonthSelect } from './CalendarMonthSelect';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
 import { lifecycleOf, STAGE_HUES } from './turnover-format';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
@@ -60,7 +61,13 @@ function formatRelative(date: Date | null): string {
 }
 
 type PageProps = {
-  searchParams: Promise<{ range?: string; cal?: string; property?: string; calo?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    cal?: string;
+    property?: string;
+    calo?: string;
+    calm?: string;
+  }>;
 };
 
 export default async function OperationsPage({ searchParams }: PageProps) {
@@ -82,22 +89,34 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   const caloParsed = parseInt(params?.calo ?? '', 10);
   const calOffset = Number.isFinite(caloParsed) ? caloParsed : 0;
 
+  // Month mode ("2026-09" from the month dropdown): the calendar shows
+  // exactly that month. Overrides the rolling offset window while set.
+  const calmParam = params?.calm;
+  const calMonth =
+    calmParam && /^\d{4}-(0[1-9]|1[0-2])$/.test(calmParam) ? calmParam : undefined;
+
   const propertyFilter = params?.property?.trim() || undefined;
 
   // Canonical URL for this page's own links: every control preserves the
   // other controls' state (list range, calendar range, paging offset,
-  // property filter) instead of silently resetting them.
+  // month mode, property filter) instead of silently resetting it.
+  // Choosing a calendar range tab or Today exits month mode; choosing a
+  // month drops the day offset.
   const opsHref = (over: {
     range?: Range;
     cal?: CalendarRange;
     calo?: number;
+    calm?: string | null;
     property?: string | null;
   }): string => {
     const q = new URLSearchParams();
     q.set('range', over.range ?? range);
     q.set('cal', over.cal ?? calRange);
-    const calo = over.calo !== undefined ? over.calo : calOffset;
+    const month =
+      over.calm !== undefined ? over.calm : over.cal !== undefined ? null : calMonth ?? null;
+    const calo = month != null ? 0 : over.calo !== undefined ? over.calo : calOffset;
     if (calo !== 0) q.set('calo', String(calo));
+    if (month) q.set('calm', month);
     const prop = over.property !== undefined ? over.property : propertyFilter ?? null;
     if (prop) q.set('property', prop);
     return `/operations?${q.toString()}`;
@@ -120,7 +139,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, data, session, filterPropertyName] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, calRange, propertyFilter, calOffset),
+    loadOperationsData(range, calRange, propertyFilter, calOffset, calMonth),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
   ]);
@@ -465,7 +484,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 className="font-sans"
                 style={{
                   fontSize: 12,
-                  color: calOffset === 0 ? 'var(--ink-4)' : 'var(--signal)',
+                  color: calOffset === 0 && !calMonth ? 'var(--ink-4)' : 'var(--signal)',
                   marginLeft: 12,
                   letterSpacing: '0.02em',
                 }}
@@ -482,12 +501,15 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             fontWeight: 500,
             gap: 16,
           }}>
-            {/* Pager: slide the window by one full page in either direction,
-                Today snaps back. Guesty's calendar can do this; ours
-                couldn't until now. */}
+            {/* Pager: slide the window one full page (or one month, in
+                month mode); Today snaps back to the rolling window. */}
             <span className="flex items-baseline" style={{ gap: 10 }}>
               <Link
-                href={opsHref({ calo: calOffset - CALENDAR_RANGE_DAYS[calRange] })}
+                href={
+                  calMonth
+                    ? opsHref({ calm: monthShift(calMonth, -1) })
+                    : opsHref({ calo: calOffset - CALENDAR_RANGE_DAYS[calRange] })
+                }
                 scroll={false}
                 aria-label="Earlier"
                 title="Page the calendar earlier"
@@ -495,9 +517,9 @@ export default async function OperationsPage({ searchParams }: PageProps) {
               >
                 &lsaquo;
               </Link>
-              {calOffset !== 0 ? (
+              {calOffset !== 0 || calMonth ? (
                 <Link
-                  href={opsHref({ calo: 0 })}
+                  href={opsHref({ calo: 0, calm: null })}
                   scroll={false}
                   style={{ color: 'var(--signal)', textDecoration: 'none' }}
                 >
@@ -507,7 +529,11 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 <span style={{ color: 'var(--ink-4)' }}>Today</span>
               )}
               <Link
-                href={opsHref({ calo: calOffset + CALENDAR_RANGE_DAYS[calRange] })}
+                href={
+                  calMonth
+                    ? opsHref({ calm: monthShift(calMonth, 1) })
+                    : opsHref({ calo: calOffset + CALENDAR_RANGE_DAYS[calRange] })
+                }
                 scroll={false}
                 aria-label="Later"
                 title="Page the calendar later"
@@ -518,7 +544,7 @@ export default async function OperationsPage({ searchParams }: PageProps) {
             </span>
             <span aria-hidden style={{ color: 'var(--rule)', fontSize: 12 }}>|</span>
             {VALID_CALENDAR_RANGES.map((cr) => {
-              const active = cr === calRange;
+              const active = !calMonth && cr === calRange;
               return (
                 <Link
                   key={cr}
@@ -535,6 +561,12 @@ export default async function OperationsPage({ searchParams }: PageProps) {
                 </Link>
               );
             })}
+            <CalendarMonthSelect
+              months={monthOptions()}
+              value={calMonth ?? ''}
+              monthHrefTemplate={opsHref({ calm: '__M__' })}
+              clearHref={opsHref({ calo: 0, calm: null })}
+            />
           </nav>
         </div>
         <OccupancyCalendar calendar={data.calendar} />
@@ -640,6 +672,31 @@ function fmtCalDay(iso: string): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+/** "2026-09" shifted by delta months. */
+function monthShift(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Month-dropdown options: 6 months back through 14 ahead of today, which
+ *  covers statement look-backs and next summer's bookings. */
+function monthOptions(): { value: string; label: string }[] {
+  const current = todayStr().slice(0, 7);
+  const out: { value: string; label: string }[] = [];
+  for (let i = -6; i <= 14; i += 1) {
+    const value = monthShift(current, i);
+    out.push({
+      value,
+      label: new Date(`${value}-01T00:00:00`).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+      }),
+    });
+  }
+  return out;
 }
 
 /** The day divider's eyebrow text: "Today", or "Tue · Jul 8". */

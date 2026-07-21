@@ -378,6 +378,7 @@ export async function loadOperationsData(
   calendarRange: CalendarRange = '7d',
   propertyId?: string,
   calendarOffset: number = 0,
+  calendarMonth?: string,
 ): Promise<OperationsData> {
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
@@ -388,27 +389,33 @@ export async function loadOperationsData(
   // We still floor at the list-range size so the calendar never shows less
   // than the list does. calendarOffset (the ‹ Today › pagers) slides the
   // whole window in day units around today; a paged window drops the floor
-  // since it's deliberately looking elsewhere.
-  const calendarOffsetSafe = Number.isFinite(calendarOffset)
-    ? Math.max(-370, Math.min(370, Math.trunc(calendarOffset)))
-    : 0;
-  const calendarDays =
-    calendarOffsetSafe === 0
-      ? Math.max(days, CALENDAR_RANGE_DAYS[calendarRange])
-      : CALENDAR_RANGE_DAYS[calendarRange];
-  const calendarAnchor = addDaysStr(rangeStart, calendarOffsetSafe);
-  const calendarEnd = addDaysStr(calendarAnchor, calendarDays);
-
-  // The visible calendar dates, oldest first: CALENDAR_LOOKBACK_DAYS of
-  // context before the anchor, then `calendarDays` forward. Built up here
-  // (not in the calendar section below) because the reservation fetch and
-  // the Guesty day-mirror read both need the exact window.
+  // since it's deliberately looking elsewhere. calendarMonth ("2026-09",
+  // the month dropdown) overrides both: the window becomes exactly that
+  // calendar month, first through last, no lookback context.
+  const monthMode = !!calendarMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(calendarMonth);
   const calendarDayList: string[] = [];
-  for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
-    calendarDayList.push(addDaysStr(calendarAnchor, i));
+  if (monthMode) {
+    const [my, mm] = calendarMonth!.split('-').map(Number);
+    const monthLen = new Date(Date.UTC(my, mm, 0)).getUTCDate();
+    for (let i = 0; i < monthLen; i += 1) {
+      calendarDayList.push(addDaysStr(`${calendarMonth}-01`, i));
+    }
+  } else {
+    const calendarOffsetSafe = Number.isFinite(calendarOffset)
+      ? Math.max(-370, Math.min(370, Math.trunc(calendarOffset)))
+      : 0;
+    const calendarDays =
+      calendarOffsetSafe === 0
+        ? Math.max(days, CALENDAR_RANGE_DAYS[calendarRange])
+        : CALENDAR_RANGE_DAYS[calendarRange];
+    const calendarAnchor = addDaysStr(rangeStart, calendarOffsetSafe);
+    for (let i = -CALENDAR_LOOKBACK_DAYS; i < calendarDays; i += 1) {
+      calendarDayList.push(addDaysStr(calendarAnchor, i));
+    }
   }
   const calendarWindowStart = calendarDayList[0];
   const calendarWindowEnd = calendarDayList[calendarDayList.length - 1];
+  const calendarEnd = addDaysStr(calendarWindowEnd, 1);
 
   // Lookback 30 days from today so we can resolve previous checkouts, and
   // far enough to cover a paged-back calendar window; lookahead through the
