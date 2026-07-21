@@ -60,6 +60,9 @@ const PUBLIC_PATH_PREFIXES = [
  *   /api/backfill-owner-phones } wifi/parking/notes into the guest AI's KB)
  *   /api/work-slips          } (work-slips: approved guest gear requests
  *                            } become prep slips on /work)
+ *   /api/markets/airdna/...  town-level AirDNA snapshots for the
+ *                            risingtidestr.com /markets pages (public
+ *                            aggregate data, read-only)
  *
  * Everything else under /api requires a valid session.
  */
@@ -89,6 +92,11 @@ const PUBLIC_API_PREFIXES = [
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",
+  // AirDNA town snapshots consumed server-side by the risingtidestr.com
+  // /markets pages. The route was built public (read-only aggregates from
+  // market_metrics_monthly, CORS headers) but the #697 default-gate cut off
+  // its anonymous callers, so the town pages fell back to prose.
+  "/api/markets/airdna/",
 ];
 
 /**
