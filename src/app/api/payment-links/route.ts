@@ -123,11 +123,33 @@ export async function POST(req: Request) {
     amount_cents?: number;
     guest_name?: string;
     request_key?: string;
+    deactivate_link_id?: string;
   };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  // Deactivate mode: turn an existing link off (guest can no longer pay it).
+  // Used by verification sweeps to leave no litter, and available for a
+  // future reject-path cleanup. Requires only property_id + the plink id.
+  if (body.deactivate_link_id) {
+    const propId = (body.property_id || '').trim();
+    const linkId = body.deactivate_link_id.trim();
+    const key = getStripeKeysMap()[propId];
+    if (!key) return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });
+    if (!/^plink_[A-Za-z0-9]+$/.test(linkId)) {
+      return NextResponse.json({ error: 'invalid link id' }, { status: 400 });
+    }
+    const res = await stripePost(key, `payment_links/${linkId}`, { active: 'false' });
+    if (!res.ok) {
+      return NextResponse.json(
+        { ok: false, error: 'stripe_error', detail: res.message },
+        { status: 200 },
+      );
+    }
+    return NextResponse.json({ ok: true, deactivated: linkId });
   }
 
   const propertyId = (body.property_id || '').trim();
