@@ -37,7 +37,7 @@ export async function saveRateCardAction(formData: FormData) {
   const carouselCents = money(formData.get('carousel')) ?? 0;
 
   const tiers: RateTier[] = [];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const views = Number(String(formData.get(`tier_views_${i}`) ?? '').replace(/[,\s]/g, ''));
     const cents = money(formData.get(`tier_pay_${i}`));
     if (Number.isFinite(views) && views > 0 && cents != null) tiers.push({ views, cents });
@@ -70,8 +70,12 @@ export async function saveRateCardAction(formData: FormData) {
     email,
   );
 
+  // One revalidate + anchored redirect, the exact proven shape of the other
+  // Helm form actions. (No revalidate for /field/rate-card or the hiring
+  // package: both are force-dynamic, there is no cache to purge, and the
+  // extra revalidate was the one unproven element in the 2026-07-22
+  // stuck-on-"Saving" incident.)
   revalidatePath('/operations/contractors');
-  revalidatePath('/field/rate-card');
   redirect(`/operations/contractors?trade=creative#${contractorId ? `rc-${contractorId}` : 'rate-card'}`);
 }
 
@@ -80,6 +84,5 @@ export async function resetRateCardAction(formData: FormData) {
   const contractorId = String(formData.get('contractor_id') || '').trim();
   if (contractorId) await resetRateCard(contractorId);
   revalidatePath('/operations/contractors');
-  revalidatePath('/field/rate-card');
   redirect(`/operations/contractors?trade=creative${contractorId ? `#rc-${contractorId}` : ''}`);
 }

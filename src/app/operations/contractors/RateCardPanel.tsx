@@ -168,10 +168,11 @@ function RateChip({ label, value, highlight = false }: { label: string; value: s
   );
 }
 
-/** The shared editor. Six rung rows; blank rows are dropped on save, so
- *  removing a rung = clearing its inputs, adding one = filling a blank row. */
+/** The shared editor. Eight rung rows (Dotti's real ladder already uses six);
+ *  blank rows are dropped on save, so removing a rung = clearing its inputs,
+ *  adding one = filling a blank row. */
 function RateCardForm({ card, contractorId }: { card: RateCard; contractorId: string | null }) {
-  const rows = [0, 1, 2, 3, 4, 5];
+  const rows = [0, 1, 2, 3, 4, 5, 6, 7];
   return (
     <form action={saveRateCardAction} style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 560 }}>
       {contractorId && <input type="hidden" name="contractor_id" value={contractorId} />}
