@@ -43,34 +43,17 @@ function weeksOrDays(days: number): string {
   return `${days} days`;
 }
 
-const NUM_WORD = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
-
 function fmt(cents: number): string {
   return `$${Math.round(cents / 100).toLocaleString('en-US')}`;
 }
 
-/** Derived "How it works" rules, mirroring the hand-written card's structure. */
-function buildRules(card: RateCard): Array<{ lead: string; body: string }> {
-  const rules: Array<{ lead: string; body: string }> = [];
-  if (card.minSeconds > 0) rules.push({ lead: `${card.minSeconds} seconds minimum.`, body: '' });
-  rules.push({
-    lead: `${fmt(card.baseCents)} base per reel.`,
-    body:
-      card.tiers.length > 0
-        ? `Every reel we green-light earns the base. From ${card.tiers[0].views.toLocaleString('en-US')} views up, the rate climbs.`
-        : 'Every reel we green-light earns the base.',
-  });
-  rules.push({
-    lead: `Counted at ${weeksOrDays(card.countDays)}.`,
-    body: `View count is locked ${card.countDays} days after posting, read from Instagram's analytics, so a reel has time to find its audience.`,
-  });
-  const strongest = NUM_WORD[card.maxPerShoot] ?? String(card.maxPerShoot);
-  rules.push({
-    lead: `Up to ${card.maxPerShoot} reel${card.maxPerShoot === 1 ? '' : 's'} per shoot.`,
-    body:
-      `Each shoot pays out on its ${card.maxPerShoot === 1 ? 'strongest reel' : `${strongest} strongest reels`}.` +
-      (card.carouselCents > 0 ? ` A carousel from that shoot is the +${fmt(card.carouselCents)} add-on.` : ''),
-  });
+/** Derived "How it works" rules - terse bold leads only, per Dotti's trim. */
+function buildRules(card: RateCard): string[] {
+  const rules: string[] = [];
+  if (card.minSeconds > 0) rules.push(`${card.minSeconds} seconds minimum.`);
+  rules.push(`${fmt(card.baseCents)} base per reel.`);
+  rules.push(`Counted at ${weeksOrDays(card.countDays)}.`);
+  rules.push(`Up to ${card.maxPerShoot} reel${card.maxPerShoot === 1 ? '' : 's'} per shoot.`);
   return rules;
 }
 
@@ -119,14 +102,6 @@ export default async function RateCardPrintPage({
   }
 
   const rules = buildRules(card);
-  const finePrint =
-    `Views are read from Instagram's analytics on the reel as posted, locked at ${card.countDays} days. ` +
-    `One rate per reel: the highest view mark reached, not the sum. ` +
-    `Up to ${card.maxPerShoot} reel${card.maxPerShoot === 1 ? '' : 's'} per shoot` +
-    (card.carouselCents > 0 ? `; a carousel from the shoot is +${fmt(card.carouselCents)}. ` : '. ') +
-    `Reels are approved before posting, and paid after the ${card.countDays}-day count.` +
-    (card.extraTerms.length > 0 ? ' ' + card.extraTerms.join(' ') : '');
-
   const today = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
@@ -161,9 +136,6 @@ export default async function RateCardPrintPage({
         {/* Ladder */}
         <section style={{ marginTop: 42 }}>
           <Eyebrow>What a reel earns</Eyebrow>
-          <p style={{ color: INK_SOFT, fontSize: 14.5, margin: '-6px 0 20px', maxWidth: '60ch' }}>
-            Every reel earns a base. As it&rsquo;s watched, the pay steps up to the highest view mark it reaches on Instagram.
-          </p>
           <div style={{ border: `1px solid ${RULE}`, borderRadius: 12, overflow: 'hidden', background: CARD }}>
             {rows.map((r, i) => (
               <div
@@ -213,11 +185,10 @@ export default async function RateCardPrintPage({
           <Eyebrow>How it works</Eyebrow>
           <div style={{ border: `1px solid ${RULE}`, borderRadius: 12, overflow: 'hidden', background: RULE_SOFT, display: 'grid', gap: 2 }}>
             {rules.map((r, i) => (
-              <div key={r.lead} style={{ background: CARD, padding: '14px 18px', display: 'grid', gridTemplateColumns: '30px 1fr', gap: 14, alignItems: 'baseline' }}>
+              <div key={r} style={{ background: CARD, padding: '14px 18px', display: 'grid', gridTemplateColumns: '30px 1fr', gap: 14, alignItems: 'baseline' }}>
                 <span className="font-serif" style={{ fontSize: 17, color: GOLD, lineHeight: 1 }}>{i + 1}</span>
-                <span style={{ fontSize: 14.5, color: INK_SOFT, lineHeight: 1.5 }}>
-                  <b style={{ color: INK, fontWeight: 600 }}>{r.lead}</b>
-                  {r.body ? ` ${r.body}` : ''}
+                <span style={{ fontSize: 14.5, lineHeight: 1.5 }}>
+                  <b style={{ color: INK, fontWeight: 600 }}>{r}</b>
                 </span>
               </div>
             ))}
@@ -249,10 +220,6 @@ export default async function RateCardPrintPage({
           </div>
         </section>
 
-        {/* Fine print */}
-        <div style={{ marginTop: 38, paddingTop: 16, borderTop: `1px solid ${RULE}`, fontSize: 12, color: INK_FAINT, lineHeight: 1.6 }}>
-          <b style={{ color: INK_SOFT, fontWeight: 600 }}>The fine print.</b> {finePrint}
-        </div>
       </div>
     </div>
   );
