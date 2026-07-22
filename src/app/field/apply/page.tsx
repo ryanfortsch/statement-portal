@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { FieldShell } from '../FieldShell';
 import { ApplyForm } from './ApplyForm';
 import { parseTrade, TRADE_META, type ContractorTrade } from '@/lib/field-types';
+import { loadRateCards, rungLabel, STANDARD_CARD, type RateCard } from '@/lib/creative-rates';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +69,78 @@ const COPY: Record<
   },
 };
 
+const GOLD = '#b0842a';
+
+/** Compact live rate ladder for the creative apply page: the standard card's
+ *  base, view rungs, carousel add-on, and a one-line terms summary. Applicants
+ *  see the real current rates, not a promise of "a clear rate card". */
+function RateLadder({ card }: { card: RateCard }) {
+  const rows = [
+    { label: 'Base', sub: 'per reel', cents: card.baseCents, top: false },
+    ...card.tiers.map((t, i) => ({
+      label: rungLabel(t, i === card.tiers.length - 1),
+      sub: 'IG views',
+      cents: t.cents,
+      top: i === card.tiers.length - 1,
+    })),
+  ];
+
+  const bits = [
+    card.minSeconds > 0 ? `reels run at least ${card.minSeconds} seconds` : null,
+    `Instagram views count for ${card.countDays} days and pay the highest rung reached`,
+    `up to ${card.maxPerShoot} reel${card.maxPerShoot === 1 ? '' : 's'} per shoot`,
+    'paid monthly',
+  ].filter(Boolean).join(' · ');
+  const terms = bits.charAt(0).toUpperCase() + bits.slice(1) + '.';
+
+  return (
+    <div style={{ maxWidth: 520, marginTop: 22 }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
+        The rate card
+      </div>
+      <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
+        {rows.map((r, i) => (
+          <div
+            key={r.label}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '10px 14px',
+              borderTop: i === 0 ? 'none' : '1px solid var(--rule)',
+              background: r.top ? 'rgba(176,132,42,0.07)' : 'transparent',
+            }}
+          >
+            <div>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>
+                {r.label}
+                {r.top && <span style={{ color: GOLD, fontSize: 11 }}> ★</span>}
+              </span>
+              <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginLeft: 8 }}>{r.sub}</span>
+            </div>
+            <span className="font-serif" style={{ fontSize: r.top ? 20 : 17, color: r.top ? GOLD : 'var(--ink)', fontWeight: r.top ? 600 : 400 }}>
+              ${Math.round(r.cents / 100).toLocaleString('en-US')}
+            </span>
+          </div>
+        ))}
+        {card.carouselCents > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 14px', borderTop: '1px dashed var(--rule)' }}>
+            <div>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Carousel add-on</span>
+              <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginLeft: 8 }}>same shoot, fresh shots</span>
+            </div>
+            <span className="font-serif" style={{ fontSize: 17, color: 'var(--tide-deep)' }}>
+              +${Math.round(card.carouselCents / 100).toLocaleString('en-US')}
+            </span>
+          </div>
+        )}
+      </div>
+      <p style={{ fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5, margin: '10px 0 0' }}>{terms}</p>
+    </div>
+  );
+}
+
 export default async function ApplyPage({
   searchParams,
 }: {
@@ -90,6 +163,14 @@ export default async function ApplyPage({
     );
   }
 
+  // The live standard card (never a per-talent card; applicants have none).
+  // loadRateCards falls back to STANDARD_CARD on query errors; the catch
+  // covers fieldDb() throwing on missing env, since this page is public.
+  const rateCard =
+    trade === 'creative'
+      ? await loadRateCards().then((r) => r.def).catch(() => STANDARD_CARD)
+      : null;
+
   return (
     <FieldShell showSignOut={false}>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>{meta.role}</h1>
@@ -105,6 +186,7 @@ export default async function ApplyPage({
           </div>
         ))}
       </div>
+      {rateCard && <RateLadder card={rateCard} />}
       <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: '28px 0 24px', maxWidth: 520 }} />
       <ApplyForm source={sp.src ?? ''} trade={trade} />
     </FieldShell>
