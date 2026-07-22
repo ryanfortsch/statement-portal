@@ -24,6 +24,8 @@ export async function FieldShell({
   // it itself so every Field page shows a consistent tab set with no threading.
   const shellContractor = contractorName ? await resolveContractorFromCookie().catch(() => null) : null;
   const showPropertyWork = !!shellContractor?.work_board_access;
+  // Creative contributors get a Rates tab (their current rate card).
+  const showRates = shellContractor?.trade === 'creative';
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -93,7 +95,7 @@ export async function FieldShell({
           )}
         </div>
       </header>
-      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} />}
+      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>

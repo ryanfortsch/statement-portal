@@ -10,10 +10,12 @@ import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { dollars, parseTrade, TRADE_META, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
+import { loadRateCards, type RateCard } from '@/lib/creative-rates';
 import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
+import { RateCardPanel, TalentRateStrip } from './RateCardPanel';
 import {
   inviteContractor,
   setContractorW9, setContractorWorkBoard,
@@ -101,7 +103,7 @@ export default async function ContractorsPage({
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) -- it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability, w9s, ratings, payMethods, applications] = await Promise.all([
+  const [payStats, report, reliability, w9s, ratings, payMethods, applications, rateCards] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
@@ -109,6 +111,7 @@ export default async function ContractorsPage({
     getContractorRatings(),
     loadPaymentSummaries(),
     loadApplications().catch(() => []),
+    loadRateCards(),
   ]);
   const newApplicants = applications.filter(
     (a) => (a.status === 'new' || a.status === 'reviewing') && (a.trade ?? 'inspection') === trade,
@@ -162,7 +165,7 @@ export default async function ContractorsPage({
           link. They set up their account (W-9 + agreement) before they can {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
         </p>
 
-        {trade === 'creative' && <CreativeIntro base={base} />}
+        {trade === 'creative' && <RateCardPanel card={rateCards.def} base={base} />}
 
         {/* Invite form */}
         <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 26 }}>
@@ -232,55 +235,16 @@ export default async function ContractorsPage({
               w9={w9s.get(c.id)}
               pm={payMethods.get(c.id)}
               books={booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))}
+              rate={
+                trade === 'creative'
+                  ? { card: rateCards.byContractor.get(c.id) ?? rateCards.def, isCustom: rateCards.byContractor.has(c.id) }
+                  : null
+              }
             />
           ))
         )}
       </section>
       <HelmFooter module="Field" right={`${meta.label} roster`} />
-    </div>
-  );
-}
-
-/** Reference panel on the Creative roster: this trade has no packet board, so
- *  the office needs the role + pay model + apply link where the people are. */
-function CreativeIntro({ base }: { base: string }) {
-  const rates: [string, string][] = [
-    ['Reel, full', '$95'],
-    ['Carousel', '$45'],
-    ['Story set', '$30'],
-    ['Property capture', '$250'],
-    ['Monthly plan', '$175'],
-  ];
-  return (
-    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '16px 18px', marginBottom: 22 }}>
-      <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
-        Pay per delivered asset
-      </div>
-      <div className="font-serif" style={{ fontSize: 18, marginTop: 4 }}>Social Media Contributor</div>
-      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 6, marginBottom: 12, maxWidth: 560 }}>
-        A content role, not a route. They shoot and edit at our homes and deliver ready-to-post assets for Stay Cape
-        Ann and Rising Tide. No packets: you approve delivered assets and pay monthly against the rate card.
-      </p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-        {rates.map(([k, v]) => (
-          <span key={k} style={{ fontSize: 12, color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 999, padding: '3px 10px' }}>
-            {k} <strong style={{ color: 'var(--ink)' }}>{v}</strong>
-          </span>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
-        <span style={{ color: 'var(--ink-4)' }}>Public application</span>
-        <CopyCode value={`${base}/field/apply?trade=creative`} mono={false} />
-        <span style={{ color: 'var(--rule)' }}>·</span>
-        <a
-          href="https://claude.ai/code/artifact/b7d40497-85f6-4d06-8cb7-e94bb347a540"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}
-        >
-          Full hiring package ↗
-        </a>
-      </div>
     </div>
   );
 }
@@ -303,7 +267,7 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 }
 
 function ContractorCard({
-  c, base, rating, rank, rel, ps, w9, pm, books,
+  c, base, rating, rank, rel, ps, w9, pm, books, rate,
 }: {
   c: ContractorRow;
   base: string;
@@ -314,6 +278,7 @@ function ContractorCard({
   w9?: W9Val;
   pm?: PayMethodVal;
   books?: BooksVal;
+  rate?: { card: RateCard; isCustom: boolean } | null;
 }) {
   const initials = c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   const earned = ps && (ps.paidCents > 0 || ps.owedCents > 0);
@@ -413,6 +378,9 @@ function ContractorCard({
           </div>
         </Stat>
       </div>
+
+      {/* Creative only: the talent's rate card (standard or custom). */}
+      {rate && <TalentRateStrip c={c} card={rate.card} isCustom={rate.isCustom} />}
 
       {/* Quiet compliance + access strip */}
       <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--rule)', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.7 }}>

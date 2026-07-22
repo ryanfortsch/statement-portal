@@ -30,9 +30,21 @@ const PROPERTY_WORK_TAB = {
   match: (p: string) => p.startsWith('/field/property-work'),
 };
 
-export function FieldNav({ showPropertyWork = false }: { showPropertyWork?: boolean }) {
+// Creative trade only: the contributor's current rate card.
+const RATES_TAB = {
+  href: '/field/rate-card',
+  label: 'Rates',
+  match: (p: string) => p.startsWith('/field/rate-card'),
+};
+
+export function FieldNav({ showPropertyWork = false, showRates = false }: { showPropertyWork?: boolean; showRates?: boolean }) {
   const path = usePathname() || '/field';
-  const tabs = showPropertyWork ? [TABS[0], PROPERTY_WORK_TAB, TABS[1]] : TABS;
+  const tabs = [
+    TABS[0],
+    ...(showPropertyWork ? [PROPERTY_WORK_TAB] : []),
+    ...(showRates ? [RATES_TAB] : []),
+    TABS[1],
+  ];
   return (
     <nav
       style={{
