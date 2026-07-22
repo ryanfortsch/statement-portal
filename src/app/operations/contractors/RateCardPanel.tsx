@@ -89,7 +89,7 @@ export function RateCardPanel({ card, base }: { card: RateCard; base: string }) 
         <CopyCode value={`${base}/field/apply?trade=creative`} mono={false} />
         <span style={{ color: 'var(--rule)' }}>·</span>
         <a
-          href="https://claude.ai/code/artifact/b7d40497-85f6-4d06-8cb7-e94bb347a540"
+          href="/operations/contractors/hiring-package"
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}
