@@ -65,12 +65,10 @@ export default async function GuestPage({
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead current="marketing" />
         <MarketingTabs current="guests" />
-        <HelmHero
-          eyebrow="Helm · Guests"
-          title="Five-star,"
-          emphasis="and the ones that aren't."
-          description="Guest reviews from Airbnb, VRBO, Booking.com, and direct. Synced nightly from Guesty."
-        />
+        {/* No hero headline on Reviews — straight to the work. Keep the eyebrow so the section stays labeled. */}
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 20, width: '100%' }}>
+          <div className="eyebrow">Helm &middot; Guests</div>
+        </section>
         <GuestsTabBar active="reviews" />
         <ReviewsTab params={sp} />
         <HelmFooter module="Guests" right="Source: Guesty" />
