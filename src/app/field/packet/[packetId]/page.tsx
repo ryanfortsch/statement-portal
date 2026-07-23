@@ -660,7 +660,7 @@ export default async function PacketPage({
           wrapper out of layout. */}
       <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
-        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by && !(working && packet.entry_code) ? ` · target ${fmtVisitTime(packet.complete_by)}` : ''}
+        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · start ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by && !(working && packet.entry_code) ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
@@ -728,7 +728,7 @@ export default async function PacketPage({
           </span>
           {packet.complete_by && (
             <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginLeft: 'auto' }}>
-              finish by {fmtVisitTime(packet.complete_by)}
+              done by {fmtVisitTime(packet.complete_by)}
             </span>
           )}
         </div>
