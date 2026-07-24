@@ -1301,11 +1301,12 @@ export async function createPacketFromProperties(args: {
 export async function autoAttachInventorySlips(packetId: string): Promise<number> {
   const { data: pkt } = await fieldDb()
     .from('inspection_packets')
-    .select('id, trade')
+    .select('id, trade, visit_date')
     .eq('id', packetId)
     .maybeSingle();
-  const trade = (pkt as { id: string; trade?: string | null } | null)?.trade ?? 'inspection';
-  if (!pkt || trade !== 'inspection') return 0;
+  const pktRow = pkt as { id: string; trade?: string | null; visit_date: string } | null;
+  const trade = pktRow?.trade ?? 'inspection';
+  if (!pktRow || trade !== 'inspection') return 0;
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -1316,11 +1317,18 @@ export async function autoAttachInventorySlips(packetId: string): Promise<number
 
   const { data: wData } = await fieldDb()
     .from('work_slips')
-    .select('id, property_id')
+    .select('id, property_id, scheduled_date')
     .in('property_id', [...new Set(stops.map((s) => s.property_id))])
     .eq('category', 'inventory')
     .in('status', ['open', 'in_progress', 'scheduled']);
-  const slips = (wData ?? []) as { id: string; property_id: string }[];
+  // Date gate (per Ryan: gear for a July 31 guest must not ride a July 25
+  // visit): a slip scheduled for a specific day only auto-attaches to a visit
+  // in its window — the day before, the day itself, or later (overdue still
+  // needs doing). Undated slips attach as always.
+  const dayAfterVisit = new Date(Date.parse(`${pktRow.visit_date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const slips = ((wData ?? []) as { id: string; property_id: string; scheduled_date: string | null }[]).filter(
+    (w) => !w.scheduled_date || w.scheduled_date <= dayAfterVisit,
+  );
   if (slips.length === 0) return 0;
 
   const byProp = new Map<string, string[]>();
@@ -1554,7 +1562,7 @@ export async function loadOpenMaintenance(): Promise<MaintenanceSlip[]> {
 export async function loadAttachableSlips(propertyId: string): Promise<WorkSlipLite[]> {
   const { data } = await fieldDb()
     .from('work_slips')
-    .select('id, title, description, action_summary, bring_list, location, priority, category, photo_urls, created_at')
+    .select('id, title, description, action_summary, bring_list, location, priority, category, photo_urls, created_at, scheduled_date')
     .eq('property_id', propertyId)
     .neq('status', 'done')
     .order('created_at', { ascending: false });

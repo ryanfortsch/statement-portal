@@ -691,6 +691,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   );
                 })()}
                 <StopAttachments
+                  visitDate={packet.visit_date}
                   packetId={packet.id}
                   stopId={s.id}
                   stopWorkSlipId={s.work_slip_id}

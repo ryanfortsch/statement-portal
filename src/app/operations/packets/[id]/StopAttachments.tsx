@@ -39,6 +39,15 @@ const quietBtn: React.CSSProperties = {
   flexShrink: 0,
 };
 
+/** "Thu, Jul 30" for schedule labels in the attach picker. */
+function fmtSlipDay(d: string): string {
+  try {
+    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
 /** "3 days old" for the attach picker; empty when the loader has no date. */
 function slipAge(iso: string | undefined): string | null {
   if (!iso) return null;
@@ -120,9 +129,13 @@ export function StopAttachments({
   attachable,
   instructions,
   editable,
+  visitDate,
 }: {
   packetId: string;
   stopId: string;
+  /** The packet's visit day — lets the picker warn when a slip is scheduled
+   *  for AFTER this visit (guest gear for a later stay must not ride early). */
+  visitDate: string;
   /** The work slip this stop IS, when it's a maintenance stop — excluded from
    *  the attach picker so the same job can't be duplicated onto itself. */
   stopWorkSlipId: string | null;
@@ -213,9 +226,19 @@ export function StopAttachments({
                         {[
                           w.category === 'inventory' ? 'restock' : null,
                           slipAge(w.created_at),
+                          w.scheduled_date ? `for ${fmtSlipDay(w.scheduled_date)}` : null,
                           w.photo_urls?.length ? `${w.photo_urls.length} ${w.photo_urls.length === 1 ? 'photo' : 'photos'}` : null,
                         ].filter(Boolean).join(' · ')}
                       </div>
+                      {/* The wrong-visit guard: gear scheduled for a LATER stay
+                          (e.g. a July 31 guest's pack 'n play) must not quietly
+                          ride a July 25 visit. Attaching stays possible, but
+                          it's a deliberate act now, not an accident. */}
+                      {w.scheduled_date && w.scheduled_date > visitDate && (
+                        <div style={{ fontSize: 11.5, color: 'var(--signal)', fontWeight: 600, marginTop: 3 }}>
+                          Scheduled for {fmtSlipDay(w.scheduled_date)}, after this visit. It likely belongs on a later trip.
+                        </div>
+                      )}
                       {w.photo_urls && w.photo_urls.length > 0 && (
                         <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
                           {w.photo_urls.slice(0, 4).map((u) => (
