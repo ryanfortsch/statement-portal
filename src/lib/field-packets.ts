@@ -790,12 +790,33 @@ export async function loadPacketStatusByBooking(
   const map = new Map<string, PacketStatusForBooking>();
   const ids = [...new Set(bookingIds.filter(Boolean))];
   if (ids.length === 0) return map;
+  // Match by STAY, not by booking row id. The bookings table holds duplicate
+  // rows per stay (Guesty + iCal ghosts), and the turnover rail and a packet
+  // stop can each hold a DIFFERENT duplicate of the same stay — an id-equality
+  // join then silently drops the attribution (3 Locust showed a bare START
+  // while Delaney held its packet). Key both sides on property + check-in.
+  const { data: reqB } = await fieldDb()
+    .from('bookings')
+    .select('id, property_id, check_in')
+    .in('id', ids);
+  const stayKeyOf = new Map<string, string>();
+  const staysWanted = new Map<string, string[]>(); // stayKey -> requested ids
+  for (const b of (reqB ?? []) as Array<{ id: string; property_id: string | null; check_in: string | null }>) {
+    if (!b.property_id || !b.check_in) continue;
+    const key = `${b.property_id}|${b.check_in}`;
+    stayKeyOf.set(b.id, key);
+    staysWanted.set(key, [...(staysWanted.get(key) ?? []), b.id]);
+  }
+  const props = [...new Set([...staysWanted.keys()].map((k) => k.split('|')[0]))];
+  if (props.length === 0) return map;
   const { data } = await fieldDb()
     .from('packet_stops')
-    .select('booking_id, status, started_at, inspection_packets!inner(id, status, awarded_contractor_id, visit_date)')
-    .in('booking_id', ids);
+    .select('booking_id, property_id, status, started_at, inspection_packets!inner(id, status, awarded_contractor_id, visit_date)')
+    .in('property_id', props)
+    .not('booking_id', 'is', null);
   type Row = {
     booking_id: string | null;
+    property_id: string;
     status: string;
     started_at: string | null;
     inspection_packets: { id: string; status: string; awarded_contractor_id: string | null; visit_date: string };
@@ -803,6 +824,19 @@ export async function loadPacketStatusByBooking(
   const rows = ((data ?? []) as unknown as Row[]).filter(
     (r) => r.inspection_packets && r.inspection_packets.status !== 'cancelled',
   );
+  // Resolve each stop's linked booking to ITS stay key (the stop may hold a
+  // different duplicate row than the rail passed in).
+  const stopBookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean) as string[])];
+  const stopStayKey = new Map<string, string>();
+  if (stopBookingIds.length) {
+    const { data: stopB } = await fieldDb()
+      .from('bookings')
+      .select('id, property_id, check_in')
+      .in('id', stopBookingIds);
+    for (const b of (stopB ?? []) as Array<{ id: string; property_id: string | null; check_in: string | null }>) {
+      if (b.property_id && b.check_in) stopStayKey.set(b.id, `${b.property_id}|${b.check_in}`);
+    }
+  }
   const cids = [
     ...new Set(rows.map((r) => r.inspection_packets.awarded_contractor_id).filter(Boolean) as string[]),
   ];
@@ -813,14 +847,20 @@ export async function loadPacketStatusByBooking(
   }
   for (const r of rows) {
     if (!r.booking_id) continue;
+    const key = stopStayKey.get(r.booking_id);
+    const wanted = key ? staysWanted.get(key) : undefined;
+    if (!wanted) continue; // a stop for a stay the rail didn't ask about
     const ip = r.inspection_packets;
-    map.set(r.booking_id, {
+    const status = {
       packetId: ip.id,
       status: ip.status,
       contractorName: ip.awarded_contractor_id ? names.get(ip.awarded_contractor_id) ?? null : null,
       visitDate: ip.visit_date,
       stopActive: !!r.started_at && r.status === 'in_progress',
-    });
+    };
+    // Attribute EVERY requested duplicate of the stay, so the rail hits no
+    // matter which row it happened to key on.
+    for (const id of wanted) map.set(id, status);
   }
   return map;
 }
