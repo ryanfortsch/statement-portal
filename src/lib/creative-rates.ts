@@ -20,7 +20,11 @@ export type RateCard = {
   carouselCents: number;
   minSeconds: number;
   countDays: number;
+  /** Paid REELS per shoot. */
   maxPerShoot: number;
+  /** Carousels get their own limit: flat-rate, so they can't compete for a
+   *  reel slot in a cap ranked by pay. */
+  maxCarouselsPerShoot: number;
   extraTerms: string[];
   updatedByEmail: string | null;
   updatedAt: string | null;
@@ -42,6 +46,7 @@ export const STANDARD_CARD: RateCard = {
   minSeconds: 25,
   countDays: 14,
   maxPerShoot: 2,
+  maxCarouselsPerShoot: 1,
   extraTerms: ['A carousel must be its own fresh photos or clips, nothing pulled from the reel.'],
   updatedByEmail: null,
   updatedAt: null,
@@ -56,6 +61,7 @@ type Row = {
   min_seconds: number;
   count_days: number;
   max_per_shoot: number;
+  max_carousels_per_shoot: number | null;
   extra_terms: string[] | null;
   updated_by_email: string | null;
   updated_at: string | null;
@@ -79,6 +85,7 @@ function fromRow(r: Row): RateCard {
     minSeconds: r.min_seconds,
     countDays: r.count_days,
     maxPerShoot: r.max_per_shoot,
+    maxCarouselsPerShoot: r.max_carousels_per_shoot ?? STANDARD_CARD.maxCarouselsPerShoot,
     extraTerms: (r.extra_terms ?? []).map((t) => (t ?? '').trim()).filter(Boolean),
     updatedByEmail: r.updated_by_email,
     updatedAt: r.updated_at,
@@ -114,6 +121,7 @@ export type RateCardInput = {
   minSeconds: number;
   countDays: number;
   maxPerShoot: number;
+  maxCarouselsPerShoot: number;
   extraTerms: string[];
 };
 
@@ -131,6 +139,7 @@ export async function saveRateCard(input: RateCardInput, byEmail: string): Promi
     min_seconds: Math.round(input.minSeconds),
     count_days: Math.round(input.countDays),
     max_per_shoot: Math.round(input.maxPerShoot),
+    max_carousels_per_shoot: Math.round(input.maxCarouselsPerShoot),
     extra_terms: input.extraTerms,
     updated_by_email: byEmail,
     updated_at: new Date().toISOString(),

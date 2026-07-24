@@ -65,6 +65,7 @@ export async function saveRateCardAction(formData: FormData) {
       minSeconds: intIn(formData.get('min_seconds'), 0, 600, 25),
       countDays: intIn(formData.get('count_days'), 1, 90, 14),
       maxPerShoot: intIn(formData.get('max_per_shoot'), 1, 10, 2),
+      maxCarouselsPerShoot: intIn(formData.get('max_carousels_per_shoot'), 0, 10, 1),
       extraTerms,
     },
     email,
