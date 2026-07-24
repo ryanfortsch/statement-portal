@@ -203,6 +203,10 @@ export type WorkSlipLite = {
   photo_urls: string[];
   /** Present where the reader needs age (e.g. the operator attach picker). */
   created_at?: string;
+  /** The day this slip should happen (e.g. guest-gear prep the day before a
+   *  check-in). Null = whenever. Drives the attach picker's timing labels and
+   *  the auto-attach date gate. */
+  scheduled_date?: string | null;
 };
 
 /** A work slip ATTACHED to a stop (extra task riding on the visit), as opposed
