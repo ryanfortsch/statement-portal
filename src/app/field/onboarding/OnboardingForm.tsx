@@ -28,7 +28,7 @@ const inputStyle: React.CSSProperties = {
 
 /** Submit button with a live pending state so a click is obviously registered
  *  and the (multi-second) save can't be double-fired. */
-function FinishButton() {
+function FinishButton({ idleLabel }: { idleLabel: string }) {
   const { pending } = useFormStatus();
   return (
     <button
@@ -54,7 +54,7 @@ function FinishButton() {
       {pending && (
         <span aria-hidden="true" className="animate-spin" style={{ display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(250, 247, 241, 0.35)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />
       )}
-      {pending ? 'Setting up your account…' : 'Finish & start browsing'}
+      {pending ? 'Setting up your account…' : idleLabel}
     </button>
   );
 }
@@ -70,6 +70,7 @@ export function OnboardingForm({
   defaultPhone,
   taxClassifications,
   paymentMethods,
+  isCreative = false,
 }: {
   defaultName: string;
   defaultPhone: string | null;
@@ -77,6 +78,8 @@ export function OnboardingForm({
   // (field-w9 / field-pay), so a client component can't import them directly.
   taxClassifications: readonly string[];
   paymentMethods: readonly string[];
+  // Creative contributors never inspect — the agreement clause reflects that.
+  isCreative?: boolean;
 }) {
   const [state, formAction] = useActionState<OnboardingState, FormData>(completeOnboarding, { error: '' });
 
@@ -160,12 +163,16 @@ export function OnboardingForm({
             setup instead of a later trip to their profile. */}
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)', cursor: 'pointer', padding: '0 2px' }}>
           <input type="checkbox" name="sms_opt_in" defaultChecked style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
-          <span>Text me when new work is posted near me. You can turn this off anytime from your profile.</span>
+          <span>{isCreative ? 'Text me when there’s a new shoot or an update. You can turn this off anytime from your profile.' : 'Text me when new work is posted near me. You can turn this off anytime from your profile.'}</span>
         </label>
 
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', padding: '14px 16px', fontSize: 14, lineHeight: 1.5, cursor: 'pointer' }}>
           <input type="checkbox" name="agree" required style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--signal)', flexShrink: 0 }} />
-          <span>I agree to perform inspections as an independent contractor under Rising Tide&apos;s standard terms, and to keep property access details confidential.</span>
+          <span>
+            {isCreative
+              ? 'I agree to create content for Rising Tide as an independent contractor under Rising Tide’s standard terms, and to keep property access details confidential.'
+              : 'I agree to perform inspections as an independent contractor under Rising Tide’s standard terms, and to keep property access details confidential.'}
+          </span>
         </label>
 
         <div>
@@ -185,7 +192,7 @@ export function OnboardingForm({
             tapped — the old top-of-form banner sat ~2000px off-screen after a
             failed submit, so the Finish button just looked dead. */}
         <InlineError error={state.error} />
-        <FinishButton />
+        <FinishButton idleLabel={isCreative ? 'Finish setup' : 'Finish & start browsing'} />
       </form>
     </>
   );

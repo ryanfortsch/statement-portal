@@ -2,9 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace } from '@/lib/field-packets';
+import { loadContractorShoots, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, type PacketDetail } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, TRADE_META, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
@@ -177,6 +178,74 @@ function JourneyRail({ activeIndex, failed }: { activeIndex: number; failed?: bo
   );
 }
 
+// ── Creative contributors: shoots + pay, read-only ────────────────────
+// Their home is a shoot list, not a packet board. Pay reads in the contributor's
+// voice: never "owed" (that's office ledger language) — "on the way" / "paid".
+function fmtShootDate(d: string | null): string {
+  if (!d) return '';
+  try {
+    return new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
+  const shoot = s.shoot;
+  const bonus = shoot.bonus_cents || 0;
+  if (shoot.paid_at) return { text: `${dollars((shoot.final_payout_cents ?? 0) + bonus)} paid`, sub: 'sent', tone: 'var(--positive)' };
+  if (shoot.final_payout_cents != null) return { text: dollars(shoot.final_payout_cents + bonus), sub: 'payment on the way', tone: 'var(--signal)' };
+  // Not finalized yet — reflect where the shoot is without exposing office controls.
+  if (shoot.status === 'shot' || shoot.status === 'delivered' || shoot.status === 'scheduled') {
+    return { text: 'In review', sub: 'pay is set once approved', tone: 'var(--ink-4)' };
+  }
+  // approved, pay follows the views
+  if (s.pay.state === 'empty') return { text: 'Approved', sub: 'awaiting your posts', tone: 'var(--ink-4)' };
+  if (s.pay.state === 'locked') return { text: dollars(s.pay.totalCents + bonus), sub: 'final coming', tone: 'var(--ink)' };
+  return {
+    text: `${dollars(s.pay.floorCents + bonus)}–${dollars(s.pay.ceilingCents + bonus)}`,
+    sub: s.pay.settlesOn ? `settles ${fmtShootDate(s.pay.settlesOn)}` : 'climbing with views',
+    tone: 'var(--ink-3)',
+  };
+}
+
+function CreativeShootCard({ s }: { s: ShootSummary }) {
+  const reels = s.assets.filter((a) => a.kind === 'reel').length;
+  const carousels = s.assets.filter((a) => a.kind === 'carousel').length;
+  const assetLine = s.assets.length
+    ? [reels ? `${reels} reel${reels === 1 ? '' : 's'}` : null, carousels ? `${carousels} carousel${carousels === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ')
+    : 'no posts yet';
+  const pay = contributorPay(s);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        gap: 16,
+        alignItems: 'flex-start',
+        background: 'var(--paper-2)',
+        boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)',
+        padding: '16px 20px',
+        marginBottom: 14,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
+          {fmtShootDate(s.shoot.shoot_date).toUpperCase()}
+        </div>
+        <div className="font-serif" style={{ fontSize: 19, fontWeight: 400, lineHeight: 1.15 }}>{s.shoot.title}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 6 }}>
+          {s.propertyName ? `${s.propertyName} · ` : ''}{assetLine}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div className="font-mono" style={{ fontSize: 20, lineHeight: 1, color: pay.tone }}>{pay.text}</div>
+        {pay.sub && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>{pay.sub}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default async function FieldHome({
   searchParams,
 }: {
@@ -212,6 +281,61 @@ export default async function FieldHome({
           You can&apos;t claim new work right now. Reach out to the Rising Tide office and they&apos;ll get you back
           on the schedule.
         </p>
+      </FieldShell>
+    );
+  }
+
+  // Creative contributors are paid per delivered shoot, not per packet. The
+  // inspector packet board + background-check hero below never apply to them
+  // (no packets, no keys, no background check to wait on), so give them a home
+  // that speaks to content work: finish setup, then their shoots and pay.
+  if (TRADE_META[contractor.trade]?.hasPackets === false) {
+    const setupDone = onboardingComplete(contractor);
+    const first = contractor.full_name.split(' ')[0];
+    const shoots = setupDone ? await loadContractorShoots(contractor.id) : [];
+    return (
+      <FieldShell contractorName={contractor.full_name}>
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 8 }}>
+            {setupDone ? 'Welcome aboard' : 'One step left'}
+          </div>
+          <h1 className="font-serif" style={{ fontSize: 'clamp(28px,7vw,36px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-0.01em', margin: 0, color: 'var(--paper)' }}>
+            {setupDone ? 'You’re on the crew, ' : 'Almost there, '}
+            <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
+          </h1>
+          {!setupDone && (
+            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+              Finish setup: two quick things
+            </Link>
+          )}
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0', maxWidth: '58ch' }}>
+            {setupDone
+              ? 'You’re all set. Rising Tide films with you, logs each reel and carousel, and pays you per your rate card as the views come in. Your rate ladder lives under Rates; your shoots and pay show up below.'
+              : 'Two things and you’re set: your W-9 and how you want to be paid, plus a short agreement. Then we line up shoots and pay you per your rate card as the views land.'}
+          </p>
+        </div>
+
+        {setupDone ? (
+          <section>
+            <SectionHeader title="Your shoots" count={shoots.length} />
+            {shoots.length > 0 ? (
+              shoots.map((s) => <CreativeShootCard key={s.shoot.id} s={s} />)
+            ) : (
+              <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
+                Nothing logged yet. Once Rising Tide films with you, each reel and carousel shows up here with its pay as the views come in.
+              </p>
+            )}
+          </section>
+        ) : (
+          <div>
+            <SectionHeader n="01" title="How the pay works" />
+            <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.7 }}>
+              <p style={{ margin: '0 0 10px' }}>Rising Tide films social content at the properties with you. You deliver the reels and carousels; we handle posting.</p>
+              <p style={{ margin: '0 0 10px' }}>Each reel earns a base rate when it posts, then climbs as it picks up views over the next couple of weeks. Carousels pay a flat rate. Your exact ladder lives under <strong>Rates</strong>.</p>
+              <p style={{ margin: 0 }}>Once your setup is in, every shoot and its pay tracks right here.</p>
+            </div>
+          </div>
+        )}
       </FieldShell>
     );
   }

@@ -37,10 +37,20 @@ const RATES_TAB = {
   match: (p: string) => p.startsWith('/field/rate-card'),
 };
 
-export function FieldNav({ showPropertyWork = false, showRates = false }: { showPropertyWork?: boolean; showRates?: boolean }) {
+export function FieldNav({
+  showPropertyWork = false,
+  showRates = false,
+  homeLabel,
+}: {
+  showPropertyWork?: boolean;
+  showRates?: boolean;
+  // Creative contributors land on a shoot list, not a packet board — so the
+  // first tab reads "Shoots" for them.
+  homeLabel?: string;
+}) {
   const path = usePathname() || '/field';
   const tabs = [
-    TABS[0],
+    homeLabel ? { ...TABS[0], label: homeLabel } : TABS[0],
     ...(showPropertyWork ? [PROPERTY_WORK_TAB] : []),
     ...(showRates ? [RATES_TAB] : []),
     TABS[1],

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { onboardingComplete } from '@/lib/field-types';
+import { onboardingComplete, TRADE_META } from '@/lib/field-types';
 import { TAX_CLASSIFICATIONS } from '@/lib/field-w9';
 import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { FieldShell } from '../FieldShell';
@@ -20,13 +20,17 @@ export default async function OnboardingPage() {
   // ours to clear, not theirs to redo.
   if (onboardingComplete(contractor)) redirect('/field');
 
+  // Creative contributors never "claim" work (no packets) — say what's true for
+  // them: setup unlocks their shoots and pay, not a claim board.
+  const isCreative = TRADE_META[contractor.trade]?.hasPackets === false;
+
   return (
     <FieldShell contractorName={contractor.full_name} showNav={false}>
       <div style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 8 }}>
         Set up your account
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 18 }}>
-        Two quick things before you claim
+        {isCreative ? 'Two quick things to get set up' : 'Two quick things before you claim'}
       </h1>
 
       <OnboardingForm
@@ -34,6 +38,7 @@ export default async function OnboardingPage() {
         defaultPhone={contractor.phone}
         taxClassifications={TAX_CLASSIFICATIONS}
         paymentMethods={PAYMENT_METHODS}
+        isCreative={isCreative}
       />
     </FieldShell>
   );
