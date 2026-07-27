@@ -4,21 +4,15 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadEffectiveCard } from '@/lib/creative-rates';
-import { computeShootPay, cardFromSnapshot, type ShootAsset } from '@/lib/creative-pay';
-import { loadShootDetail } from '@/lib/creative-shoots';
-import { sendApprovedEmail, sendPaidEmail } from '@/lib/field-notify';
+import type { RateCard } from '@/lib/creative-rates';
+import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
+import { sendPaidEmail } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   return session.user.email;
-}
-
-function centsFromDollars(v: FormDataEntryValue | null): number | null {
-  const n = Number(String(v ?? '').trim());
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
 }
 
 /** Log a shoot. property_id optional — b-roll and town days have no home. */
@@ -135,192 +129,156 @@ export async function setAssetQualifies(formData: FormData): Promise<void> {
   revalidatePath(`/operations/creative/${shootId}`);
 }
 
-/**
- * Accept the delivery: FREEZE the rate card onto the shoot and set the floor.
- * Guarded like approvePacket — only from shot/delivered, and never a second
- * time (card_snapshot_at must be null), so an existing snapshot can't be
- * overwritten with a since-edited card.
- */
-export async function approveShoot(formData: FormData): Promise<void> {
-  const email = await staffEmail();
-  const shootId = String(formData.get('shoot_id') || '');
-  if (!shootId) return;
-  const detail = await loadShootDetail(shootId);
-  if (!detail || !['shot', 'delivered'].includes(detail.shoot.status) || detail.shoot.card_snapshot_at != null) return;
-  // Snapshot the EFFECTIVE card (per-talent override or default) as of now.
-  const card = await loadEffectiveCard(detail.shoot.contractor_id);
-  const floor = computeShootPay(card, detail.assets).floorCents;
-
-  const { data: updated } = await fieldDb()
-    .from('creative_shoots')
-    .update({
-      status: 'approved',
-      card_snapshot: card,
-      card_snapshot_at: new Date().toISOString(),
-      posted_price_cents: floor,
-      approved_at: new Date().toISOString(),
-      approved_by_email: email,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', shootId)
-    .in('status', ['shot', 'delivered'])
-    .is('card_snapshot_at', null)
-    .select('id')
-    .maybeSingle();
-
-  if (updated) {
-    const { data: c } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', detail.shoot.contractor_id).maybeSingle();
-    if (c) {
-      // Deliberately no dollar figure: pay isn't known until views land.
-      await sendApprovedEmail(c as Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>, { title: detail.shoot.title }).catch(() => {});
-    }
-  }
-  revalidatePath(`/operations/creative/${shootId}`);
-  revalidatePath('/operations/creative');
-}
-
-/**
- * Lock the payout. Defaults to the computed total from the snapshot card;
- * clamped to that computed ceiling + any bonus so a fat-finger can't pay more
- * than the card allows. Only on an approved, unpaid shoot.
- */
-export async function finalizeShootPayout(formData: FormData): Promise<void> {
-  const email = await staffEmail();
-  const shootId = String(formData.get('shoot_id') || '');
-  if (!shootId) return;
-  const detail = await loadShootDetail(shootId);
-  if (!detail || detail.shoot.status !== 'approved' || detail.shoot.paid_at) return;
-
-  const bonusCents = centsFromDollars(formData.get('bonus_dollars')) ?? 0;
-  const raw = centsFromDollars(formData.get('final_dollars'));
-  const card = cardFromSnapshot(detail.shoot.card_snapshot, detail.card);
-  const pay = computeShootPay(card, detail.assets);
-  const ceiling = pay.ceilingCents;
-  // Clamp to [floor, ceiling]: the base is guaranteed, so a final can never be
-  // set below it (that would mean the base advance already overpaid), and never
-  // above what the card allows. posted_price_cents is the floor frozen at approval.
-  const floor = Math.max(pay.floorCents, detail.shoot.posted_price_cents);
-  const finalCents = raw == null ? Math.max(floor, pay.totalCents) : Math.min(Math.max(raw, floor), ceiling);
-
+// Freeze the shoot's rate card at the FIRST base payment, so every post on the
+// shoot prices against the same card even if the standard card is edited later.
+async function freezeCardIfNeeded(shoot: { id: string; card_snapshot: unknown }, card: RateCard): Promise<void> {
+  if (shoot.card_snapshot) return;
   await fieldDb()
     .from('creative_shoots')
-    .update({
-      final_payout_cents: finalCents,
-      final_payout_by_email: email,
-      final_payout_at: new Date().toISOString(),
-      bonus_cents: Math.min(bonusCents, Math.max(0, ceiling)),
-      bonus_reason: bonusCents > 0 ? String(formData.get('bonus_reason') || '').trim().slice(0, 300) || null : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', shootId)
-    .eq('status', 'approved')
-    .is('paid_at', null);
-  revalidatePath(`/operations/creative/${shootId}`);
-  revalidatePath('/operations/contractors');
+    .update({ card_snapshot: card, card_snapshot_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', shoot.id)
+    .is('card_snapshot_at', null);
+}
+
+// After any per-post payment, flip the shoot to 'settled' once every counting
+// post is fully paid (base + any reel bonus), or back to 'shot' if not. The
+// shoot's paid_at is the "fully settled" marker the board + history read.
+async function refreshShootSettlement(shootId: string): Promise<void> {
+  const detail = await loadShootDetail(shootId);
+  if (!detail || detail.shoot.status === 'cancelled') return;
+  const sum = shootPaySummary(detail.assets, detail.pay);
+  const status = sum.fullySettled ? 'settled' : 'shot';
+  if (detail.shoot.status !== status || !!detail.shoot.paid_at !== sum.fullySettled) {
+    await fieldDb()
+      .from('creative_shoots')
+      .update({ status, paid_at: sum.fullySettled ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+      .eq('id', shootId)
+      .neq('status', 'cancelled');
+  }
 }
 
 /**
- * Pay the BASE advance up front — the floor (posted_price_cents), sent the day
- * the posts go live. The view top-up is settled ~2 weeks later via
- * markShootPaid. Only on an approved shoot whose base hasn't been advanced yet.
+ * Pay a single POST's base — the reel base or the flat carousel rate — the day
+ * it goes live. Idempotent (guarded on base_paid_at IS NULL). Freezes the
+ * shoot's card on the first base paid, so later posts price against the same card.
  */
-export async function payShootBase(formData: FormData): Promise<void> {
+export async function payAssetBase(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const shootId = String(formData.get('shoot_id') || '');
-  if (!shootId) return;
+  const assetId = String(formData.get('asset_id') || '');
+  if (!shootId || !assetId) return;
   const reference = String(formData.get('reference') || '').trim() || null;
-  const { data: sData } = await fieldDb()
-    .from('creative_shoots')
-    .select('contractor_id, posted_price_cents, advance_paid_at')
-    .eq('id', shootId)
-    .eq('status', 'approved')
-    .maybeSingle();
-  const shoot = sData as { contractor_id: string; posted_price_cents: number; advance_paid_at: string | null } | null;
-  if (!shoot || shoot.advance_paid_at || shoot.posted_price_cents <= 0) return;
+  const detail = await loadShootDetail(shootId);
+  if (!detail) return;
+  const asset = detail.assets.find((a) => a.id === assetId);
+  const ap = detail.pay.assets.find((p) => p.assetId === assetId);
+  // Only a counting, posted, not-yet-paid post can take a base payment.
+  if (!asset || !ap || !ap.counts || !asset.posted_at || asset.base_paid_at) return;
+  // Belt-and-suspenders on the cap: never pay a reel base once maxPerShoot reels
+  // already have their base paid (the ranking pins them, but guard the write too).
+  if (asset.kind === 'reel') {
+    const paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at).length;
+    if (paidReels >= detail.card.maxPerShoot) return;
+  }
 
-  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', shoot.contractor_id).maybeSingle();
+  await freezeCardIfNeeded(detail.shoot, detail.card);
+  const base = ap.baseCents;
+  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', detail.shoot.contractor_id).maybeSingle();
   const contractor = c as ContractorRow | null;
 
   const { data: updated } = await fieldDb()
-    .from('creative_shoots')
+    .from('creative_assets')
     .update({
-      advance_cents: shoot.posted_price_cents,
-      advance_paid_at: new Date().toISOString(),
-      advance_by_email: email,
-      advance_method: contractor?.payment_method ?? null,
-      advance_reference: reference,
+      base_cents: base,
+      base_paid_at: new Date().toISOString(),
+      base_by_email: email,
+      base_method: contractor?.payment_method ?? null,
+      base_reference: reference,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', shootId)
-    .eq('status', 'approved')
-    .is('advance_paid_at', null) // idempotent — never double-advance on a double click
+    .eq('id', assetId)
+    .is('base_paid_at', null) // idempotent — no double-pay on a double click
     .select('id')
     .maybeSingle();
 
   if (updated && contractor) {
-    await sendPaidEmail(contractor, shoot.posted_price_cents, {
-      method: contractor.payment_method,
-      reference,
-      creative: true,
-      note: 'This is the base for your shoot. The view bonus on each reel follows in about two weeks, once the counts settle.',
-    }).catch(() => {});
+    const note =
+      asset.kind === 'reel'
+        ? 'This is the base for your reel. The view bonus follows in about two weeks, once the count settles.'
+        : 'This is the full pay for your carousel.';
+    await sendPaidEmail(contractor, base, { method: contractor.payment_method, reference, creative: true, note }).catch(() => {});
   }
+  await refreshShootSettlement(shootId);
   revalidatePath(`/operations/creative/${shootId}`);
-  revalidatePath('/operations/contractors');
   revalidatePath('/operations/creative');
+  revalidatePath('/operations/contractors');
 }
 
 /**
- * Settle the shoot — pay the REMAINDER after the base advance: final total plus
- * bonus, minus whatever base was already advanced. (No advance → pays the full
- * total, exactly as before.) The per-shoot button; the roster button sweeps all.
+ * Pay a reel's VIEW BONUS — the tier total beyond the base — once its count has
+ * locked. Reels only; nothing to pay if the views never beat the base rung.
  */
-export async function markShootPaid(formData: FormData): Promise<void> {
+export async function payAssetTopup(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const shootId = String(formData.get('shoot_id') || '');
-  if (!shootId) return;
+  const assetId = String(formData.get('asset_id') || '');
+  if (!shootId || !assetId) return;
   const reference = String(formData.get('reference') || '').trim() || null;
-  const { data } = await fieldDb()
-    .from('creative_shoots')
-    .update({ paid_at: new Date().toISOString(), paid_by_email: email, paid_reference: reference, status: 'settled', updated_at: new Date().toISOString() })
-    .eq('id', shootId)
-    .eq('status', 'approved')
-    .not('final_payout_cents', 'is', null) // refuse an unlocked payout at the write
-    .is('paid_at', null)
-    .select('contractor_id, final_payout_cents, bonus_cents, advance_cents, advance_paid_at')
+  const detail = await loadShootDetail(shootId);
+  if (!detail) return;
+  const asset = detail.assets.find((a) => a.id === assetId);
+  const ap = detail.pay.assets.find((p) => p.assetId === assetId);
+  if (!asset || !ap || asset.kind !== 'reel' || !asset.base_paid_at || !asset.views_locked_at || asset.topup_paid_at) return;
+  const topup = ap.topupCents;
+  if (topup <= 0) return; // views never beat the base rung — no bonus owed
+
+  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', detail.shoot.contractor_id).maybeSingle();
+  const contractor = c as ContractorRow | null;
+
+  const { data: updated } = await fieldDb()
+    .from('creative_assets')
+    .update({
+      topup_cents: topup,
+      topup_paid_at: new Date().toISOString(),
+      topup_by_email: email,
+      topup_method: contractor?.payment_method ?? null,
+      topup_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', assetId)
+    .not('base_paid_at', 'is', null)
+    .not('views_locked_at', 'is', null)
+    .is('topup_paid_at', null) // idempotent
+    .select('id')
     .maybeSingle();
-  const paid = data as
-    | { contractor_id: string; final_payout_cents: number | null; bonus_cents: number; advance_cents: number; advance_paid_at: string | null }
-    | null;
-  if (paid?.contractor_id) {
-    const advance = paid.advance_paid_at ? paid.advance_cents : 0;
-    const remainder = Math.max(0, (paid.final_payout_cents ?? 0) + (paid.bonus_cents || 0) - advance);
-    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', paid.contractor_id).maybeSingle();
-    if (c) {
-      const contractor = c as ContractorRow;
-      await fieldDb().from('creative_shoots').update({ paid_method: contractor.payment_method ?? null }).eq('id', shootId);
-      // Only email if there's actually money moving (a reel that never beat its
-      // base leaves a $0 top-up once the base was advanced).
-      if (remainder > 0) {
-        await sendPaidEmail(contractor, remainder, {
-          method: contractor.payment_method,
-          reference,
-          creative: true,
-          note: advance > 0 ? 'This is the view bonus, on top of the base you were already paid.' : undefined,
-        }).catch(() => {});
-      }
-    }
+
+  if (updated && contractor) {
+    await sendPaidEmail(contractor, topup, {
+      method: contractor.payment_method,
+      reference,
+      creative: true,
+      note: 'This is the view bonus for your reel, on top of the base you were already paid.',
+    }).catch(() => {});
   }
+  await refreshShootSettlement(shootId);
   revalidatePath(`/operations/creative/${shootId}`);
-  revalidatePath('/operations/contractors');
   revalidatePath('/operations/creative');
+  revalidatePath('/operations/contractors');
 }
 
 export async function cancelShoot(formData: FormData): Promise<void> {
   await staffEmail();
   const shootId = String(formData.get('shoot_id') || '');
   if (!shootId) return;
-  // Never cancel an approved/settled shoot out of the payout ledger.
+  // Never cancel a shoot whose posts have already been paid out of the ledger.
+  const { data: paidAsset } = await fieldDb()
+    .from('creative_assets')
+    .select('id')
+    .eq('shoot_id', shootId)
+    .or('base_paid_at.not.is.null,topup_paid_at.not.is.null')
+    .limit(1)
+    .maybeSingle();
+  if (paidAsset) return;
   await fieldDb()
     .from('creative_shoots')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })

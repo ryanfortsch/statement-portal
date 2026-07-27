@@ -6,7 +6,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
-import { loadContractorShoots } from '@/lib/creative-shoots';
+import { loadContractorShoots, shootPaySummary } from '@/lib/creative-shoots';
 import {
   getContractorPayStats,
   getContractorReliability,
@@ -146,18 +146,19 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
   // Fold in creative shoots as history lines too. A still-counting shoot shows
   // its current best total; a finalized one its locked total.
   const shoots = await loadContractorShoots(contractorId).catch(() => []);
-  const shootItems: ContractorHistoryItem[] = shoots.map((sm) => ({
-    id: sm.shoot.id,
-    date: sm.shoot.shoot_date,
-    title: sm.shoot.title,
-    trade: 'creative',
-    payCents:
-      sm.shoot.final_payout_cents != null
-        ? effectiveBaseCents(sm.shoot) + (sm.shoot.bonus_cents || 0)
-        : sm.pay.totalCents + (sm.shoot.bonus_cents || 0),
-    status: sm.shoot.status,
-    paid: !!sm.shoot.paid_at,
-  }));
+  const shootItems: ContractorHistoryItem[] = shoots.map((sm) => {
+    // Per-post rollup: the shoot's value is what's paid + still to pay + still counting.
+    const sum = shootPaySummary(sm.assets, sm.pay);
+    return {
+      id: sm.shoot.id,
+      date: sm.shoot.shoot_date,
+      title: sm.shoot.title,
+      trade: 'creative' as const,
+      payCents: sum.paidCents + sum.owedCents + sum.pendingCents,
+      status: sum.fullySettled ? 'approved' : 'in_progress',
+      paid: sum.fullySettled,
+    };
+  });
 
   return [...packetItems, ...shootItems].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)).slice(0, 30);
 }

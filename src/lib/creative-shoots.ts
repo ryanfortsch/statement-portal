@@ -50,6 +50,16 @@ export type AssetRow = ShootAsset & {
   shoot_id: string;
   platform: string;
   submitted_by_contractor_at: string | null;
+  // Per-post pay: base is paid the day the post goes live; a reel's view bonus
+  // (topup) is paid ~countDays later once its views lock. Carousels have no topup.
+  base_cents: number | null;
+  base_paid_at: string | null;
+  base_method: string | null;
+  base_reference: string | null;
+  topup_cents: number | null;
+  topup_paid_at: string | null;
+  topup_method: string | null;
+  topup_reference: string | null;
 };
 
 export type ShootSummary = {
@@ -62,7 +72,7 @@ export type ShootSummary = {
 };
 
 const ASSET_COLS =
-  'id, shoot_id, kind, title, platform, post_url, posted_at, duration_seconds, views, views_read_at, views_locked_at, qualifies, disqualified_reason, submitted_by_contractor_at';
+  'id, shoot_id, kind, title, platform, post_url, posted_at, duration_seconds, views, views_read_at, views_locked_at, qualifies, disqualified_reason, submitted_by_contractor_at, base_cents, base_paid_at, base_method, base_reference, topup_cents, topup_paid_at, topup_method, topup_reference';
 
 /** The card in force for a shoot (snapshot > per-talent > default). */
 function cardForShoot(shoot: ShootRow, cards: { def: RateCard; byContractor: Map<string, RateCard> }): RateCard {
@@ -156,21 +166,72 @@ export async function loadContractorShoots(contractorId: string): Promise<ShootS
 // ── Ledger union: creative pay folded into the contractor stats ─────────
 export type ShootPayStats = { approvedCount: number; paidCount: number; owedCents: number; paidCents: number; pendingCents: number };
 
+export type ShootPaySummary = {
+  paidCents: number; // bases + view bonuses already paid out
+  owedCents: number; // bases due (posted, counting, unpaid) + reel bonuses ready to pay (views locked, >0)
+  pendingCents: number; // reel bonuses still counting (base paid, views not locked)
+  fullySettled: boolean; // >=1 counting post, every base paid, every reel bonus resolved, none still un-posted
+  baseDue: number; // posts awaiting their base payment
+  topupDue: number; // reels whose view bonus is ready to pay
+};
+
 /**
- * Per-contributor creative earnings, in the SAME three buckets the packet
- * ledger uses plus one:
- *  - pendingCents: approved shoots still counting views (final not locked) —
- *    the money is real but the number isn't yet.
- *  - owedCents: finalized, unpaid.
- *  - paidCents: paid.
- * getContractorPayStats merges this into its map.
+ * Per-POST money rollup for a shoot — the single source of truth the board, the
+ * shoot header, the roster ledger, and the contributor's portal all read from,
+ * so no two surfaces can drift. Each post pays on its own clock: the base the
+ * day it posts, a reel's view bonus once its count locks.
+ */
+export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySummary {
+  const byId = new Map(pay.assets.map((p) => [p.assetId, p]));
+  let paidCents = 0, owedCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
+  for (const a of assets) {
+    const ap = byId.get(a.id);
+    if (!ap || !ap.counts) continue; // excluded / disqualified / over-cap owe nothing
+    counting++;
+    let assetSettled = true;
+    // Base — paid the day it posts.
+    if (a.base_paid_at) {
+      paidCents += a.base_cents ?? ap.baseCents;
+    } else if (a.posted_at) {
+      owedCents += ap.baseCents;
+      baseDue++;
+      assetSettled = false;
+    } else {
+      assetSettled = false; // logged but not posted yet
+    }
+    // View bonus — reels only, once the base is paid.
+    if (a.kind === 'reel') {
+      if (a.topup_paid_at) {
+        paidCents += a.topup_cents ?? 0;
+      } else if (a.base_paid_at) {
+        if (a.views_locked_at) {
+          if (ap.topupCents > 0) { owedCents += ap.topupCents; topupDue++; assetSettled = false; }
+          // locked under the first rung → no bonus, nothing left to pay
+        } else {
+          pendingCents += ap.topupCents; // current best bonus, still climbing
+          assetSettled = false;
+        }
+      } else {
+        assetSettled = false; // base not paid yet
+      }
+    }
+    if (assetSettled) settled++;
+  }
+  return { paidCents, owedCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
+}
+
+/**
+ * Per-contributor creative earnings, folded into the packet ledger's buckets:
+ *  - paidCents: bases + bonuses already paid out.
+ *  - owedCents: bases due now + reel bonuses whose views have locked.
+ *  - pendingCents: reel bonuses still counting views.
  */
 export async function getContractorShootStats(): Promise<Map<string, ShootPayStats>> {
   const map = new Map<string, ShootPayStats>();
   const { data: sData } = await fieldDb()
     .from('creative_shoots')
     .select('*')
-    .in('status', ['approved', 'settled']);
+    .neq('status', 'cancelled');
   const shoots = (sData ?? []) as ShootRow[];
   if (shoots.length === 0) return map;
 
@@ -186,29 +247,15 @@ export async function getContractorShootStats(): Promise<Map<string, ShootPaySta
   }
 
   for (const s of shoots) {
+    const assets = byShoot.get(s.id) ?? [];
+    if (assets.length === 0) continue;
+    const sum = shootPaySummary(assets, computeShootPay(cardForShoot(s, cards), assets));
     const cur = map.get(s.contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
-    // Best-known full total for the shoot (locked final if set, else the live
-    // computed total while views still count) plus any bonus.
-    const computed = s.final_payout_cents == null ? computeShootPay(cardForShoot(s, cards), byShoot.get(s.id) ?? []).totalCents : 0;
-    const finalTotal = (s.final_payout_cents ?? computed) + (s.bonus_cents || 0);
-    // The base advance already sent (0 or the floor). Counts as paid.
-    const advancePaid = s.advance_paid_at ? s.advance_cents : 0;
-    const remainder = Math.max(0, finalTotal - advancePaid);
-
-    cur.paidCents += advancePaid;
-    if (s.paid_at) {
-      // Fully settled: the base + the view top-up are both out the door.
-      cur.paidCount++;
-      cur.paidCents += remainder;
-    } else if (s.final_payout_cents != null) {
-      // Views locked, top-up ready to settle — this is what the roster sweeps.
-      cur.approvedCount++;
-      cur.owedCents += remainder;
-    } else {
-      // Still counting. Whatever isn't yet advanced (an un-paid base, plus the
-      // climbing top-up) is money in flight — acted on from the shoot page.
-      cur.pendingCents += remainder;
-    }
+    cur.paidCents += sum.paidCents;
+    cur.owedCents += sum.owedCents;
+    cur.pendingCents += sum.pendingCents;
+    if (sum.fullySettled) cur.paidCount++;
+    else if (sum.owedCents > 0) cur.approvedCount++; // shoots with money ready to send
     map.set(s.contractor_id, cur);
   }
   return map;
