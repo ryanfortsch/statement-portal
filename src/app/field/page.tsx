@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorMarketplace } from '@/lib/field-packets';
-import { loadContractorShoots, type ShootSummary } from '@/lib/creative-shoots';
+import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings } from '@/lib/field-ratings';
 import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, TRADE_META, type PacketDetail } from '@/lib/field-types';
@@ -191,37 +191,17 @@ function fmtShootDate(d: string | null): string {
 }
 
 function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
-  const shoot = s.shoot;
-  const bonus = shoot.bonus_cents || 0;
-  const finalTotal = (shoot.final_payout_cents ?? s.pay.totalCents) + bonus;
-  const advance = shoot.advance_paid_at ? shoot.advance_cents : 0;
-  const remainder = Math.max(0, finalTotal - advance);
-  if (shoot.paid_at) return { text: `${dollars(finalTotal)} paid`, sub: 'sent', tone: 'var(--positive)' };
-  // Base already sent (paid the day it posted) — what's left is the view bonus.
-  if (shoot.advance_paid_at) {
-    if (shoot.final_payout_cents != null) {
-      return remainder > 0
-        ? { text: dollars(remainder), sub: 'view bonus on the way', tone: 'var(--signal)' }
-        : { text: `${dollars(advance)} paid`, sub: 'settling', tone: 'var(--positive)' };
-    }
-    return {
-      text: `${dollars(advance)} base paid`,
-      sub: s.pay.settlesOn ? `bonus settles ${fmtShootDate(s.pay.settlesOn)}` : 'bonus climbing with views',
-      tone: 'var(--ink)',
-    };
+  // Per-post rollup: base is paid the day each post goes live, a reel's view
+  // bonus once its count locks. Contributor voice — never the office's "owed".
+  const sum = shootPaySummary(s.assets, s.pay);
+  if (sum.fullySettled) return { text: `${dollars(sum.paidCents)} paid`, sub: 'sent', tone: 'var(--positive)' };
+  if (sum.paidCents > 0) {
+    const sub = sum.owedCents > 0 ? 'more on the way' : sum.pendingCents > 0 ? 'bonus climbing with views' : 'in progress';
+    return { text: `${dollars(sum.paidCents)} paid`, sub, tone: 'var(--ink)' };
   }
-  if (shoot.final_payout_cents != null) return { text: dollars(finalTotal), sub: 'payment on the way', tone: 'var(--signal)' };
-  // Not finalized, base not yet sent — reflect where the shoot is.
-  if (shoot.status === 'shot' || shoot.status === 'delivered' || shoot.status === 'scheduled') {
-    return { text: 'In review', sub: 'pay is set once approved', tone: 'var(--ink-4)' };
-  }
-  if (s.pay.state === 'empty') return { text: 'Approved', sub: 'awaiting your posts', tone: 'var(--ink-4)' };
-  if (s.pay.state === 'locked') return { text: dollars(s.pay.totalCents + bonus), sub: 'final coming', tone: 'var(--ink)' };
-  return {
-    text: `${dollars(s.pay.floorCents + bonus)}–${dollars(s.pay.ceilingCents + bonus)}`,
-    sub: s.pay.settlesOn ? `settles ${fmtShootDate(s.pay.settlesOn)}` : 'climbing with views',
-    tone: 'var(--ink-3)',
-  };
+  if (sum.owedCents > 0) return { text: dollars(sum.owedCents), sub: 'on the way', tone: 'var(--signal)' };
+  if (sum.pendingCents > 0) return { text: dollars(sum.pendingCents), sub: 'bonus climbing with views', tone: 'var(--ink-3)' };
+  return { text: 'In review', sub: 'pay follows each post', tone: 'var(--ink-4)' };
 }
 
 function CreativeShootCard({ s }: { s: ShootSummary }) {

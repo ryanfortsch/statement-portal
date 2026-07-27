@@ -338,11 +338,18 @@ function ContractorCard({
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(ps!.pendingCents)} counting views</div>
               )}
               {ps!.owedCents > 0 && (
-                <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
-                  <input type="hidden" name="contractor_id" value={c.id} />
-                  <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
-                  <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
-                </form>
+                isCreative ? (
+                  // Creative pay is settled per post on the shoot page, not swept here.
+                  <Link href="/operations/creative" style={{ marginTop: 5, display: 'inline-block', fontSize: 11.5, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
+                    Pay {dollars(ps!.owedCents)} on the shoots →
+                  </Link>
+                ) : (
+                  <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
+                    <input type="hidden" name="contractor_id" value={c.id} />
+                    <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
+                    <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
+                  </form>
+                )
               )}
             </>
           ) : (

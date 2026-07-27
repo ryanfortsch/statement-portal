@@ -2,23 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { loadShootDetail } from '@/lib/creative-shoots';
+import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
-import type { AssetRow } from '@/lib/creative-shoots';
-import type { AssetPay } from '@/lib/creative-pay';
 import type { RateCard } from '@/lib/creative-rates';
-import {
-  addAsset,
-  updateAsset,
-  deleteAsset,
-  readAssetViews,
-  setAssetQualifies,
-  approveShoot,
-  payShootBase,
-  finalizeShootPayout,
-  markShootPaid,
-  cancelShoot,
-} from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAssetTopup, cancelShoot } from '../actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -41,26 +28,8 @@ function fmtShort(iso: string | null): string {
 function tierLabel(card: RateCard): string {
   return card.tiers.map((t) => `${t.views.toLocaleString()}+ → ${dollars(t.cents)}`).join(' · ');
 }
-
-/** The office-facing money + status caption for one asset. */
-function assetCaption(a: AssetRow, pay: AssetPay | undefined): { pay: string; note: string; tone: string } {
-  if (!pay) return { pay: '—', note: '', tone: 'var(--ink-4)' };
-  if (!pay.counts) return { pay: '$0', note: pay.excludedReason ?? 'not counted', tone: 'var(--ink-4)' };
-  if (pay.locked) return { pay: `${dollars(pay.currentCents)} locked`, note: pay.rungViews != null ? `${pay.rungViews.toLocaleString()}+ views` : 'base rate', tone: 'var(--positive)' };
-  if (pay.stalled) return { pay: dollars(pay.currentCents), note: 'no post URL / date yet', tone: 'var(--signal)' };
-  if (a.views_read_at) {
-    return {
-      pay: dollars(pay.currentCents),
-      note: `${(a.views ?? 0).toLocaleString()} views${pay.ceilingCents > pay.currentCents ? ` · can still reach ${dollars(pay.ceilingCents)}` : ''}${pay.locksOn ? ` · locks ${fmtShort(pay.locksOn)}` : ''}`,
-      tone: pay.overdue ? 'var(--signal)' : 'var(--ink-3)',
-    };
-  }
-  // posted, not yet read
-  return {
-    pay: dollars(pay.currentCents),
-    note: `${pay.overdue ? 'views OVERDUE — ' : ''}base until views read${pay.locksOn ? ` · locks ${fmtShort(pay.locksOn)}` : ''}`,
-    tone: pay.overdue ? 'var(--signal)' : 'var(--ink-4)',
-  };
+function firstRung(card: RateCard): number {
+  return card.tiers.length ? Math.min(...card.tiers.map((t) => t.views)) : 0;
 }
 
 export default async function ShootDetail({ params }: { params: Promise<{ shootId: string }> }) {
@@ -69,31 +38,10 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
   if (!detail) notFound();
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
+  const sum = shootPaySummary(detail.assets, pay);
+  const active = shoot.status !== 'cancelled';
 
-  const canApprove = shoot.status === 'shot' || shoot.status === 'delivered';
-  const finalizing = shoot.status === 'approved' && !shoot.paid_at;
-  const paid = !!shoot.paid_at;
-  const editableAssets = !paid && shoot.status !== 'cancelled';
-  const bonus = shoot.bonus_cents || 0;
-
-  // Two-step pay: the base (floor, frozen at approval) is advanced on posting
-  // day; the view top-up settles ~2 weeks later. remainder = what's left after
-  // the advance.
-  const advancePaid = !!shoot.advance_paid_at;
-  const advance = advancePaid ? shoot.advance_cents : 0;
-  const finalTotal = (shoot.final_payout_cents ?? pay.totalCents) + bonus;
-  const remainder = Math.max(0, finalTotal - advance);
-
-  // Headline number tracks the same three states the board uses.
-  const headline =
-    paid || shoot.final_payout_cents != null
-      ? dollars((shoot.final_payout_cents ?? 0) + bonus)
-      : pay.state === 'locked'
-        ? dollars(pay.totalCents + bonus)
-        : pay.state === 'counting'
-          ? `${dollars(pay.floorCents + bonus)}–${dollars(pay.ceilingCents + bonus)}`
-          : '—';
-  const headlineTag = paid ? 'Paid' : shoot.final_payout_cents != null ? 'Final' : pay.state === 'locked' ? 'Ready' : pay.state === 'counting' ? 'Range' : 'Floor';
+  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 ? 'In flight' : 'Awaiting posts';
 
   const reels = detail.assets.filter((a) => a.kind === 'reel');
   const carousels = detail.assets.filter((a) => a.kind === 'carousel');
@@ -115,25 +63,21 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
             {shoot.notes && <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 6, maxWidth: 520, lineHeight: 1.5 }}>{shoot.notes}</div>}
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{shoot.status}</div>
-            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{headline}</div>
-            <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>{headlineTag}</div>
-            {bonus > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={shoot.bonus_reason ?? undefined}>
-                incl. {dollars(bonus)} bonus
-              </div>
-            )}
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: sum.fullySettled ? 'var(--positive)' : 'var(--signal)' }}>{statusTag}</div>
+            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(sum.paidCents)}</div>
+            <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>paid to date</div>
+            {sum.owedCents > 0 && <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>{dollars(sum.owedCents)} to pay now</div>}
+            {sum.pendingCents > 0 && <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(sum.pendingCents)} bonus counting</div>}
           </div>
         </div>
 
-        {/* What this contributor is paid on — the frozen card once approved,
-            the live card before that. Keeps the math legible to the office. */}
+        {/* What this contributor is paid on — frozen once the first base is paid. */}
         <div style={{ marginTop: 16, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
           <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>
-            Rate card{shoot.card_snapshot_at ? ' · frozen at approval' : ''}
+            Rate card{shoot.card_snapshot_at ? ' · frozen' : ''}
           </div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-            Reel {dollars(card.baseCents)} base, then {tierLabel(card)} measured {card.countDays} days after posting.
+            Reel {dollars(card.baseCents)} base the day it posts, then {tierLabel(card)} measured {card.countDays} days after posting.
             Carousel flat {dollars(card.carouselCents)}. Reels must run {card.minSeconds}s+.
             Counts up to {card.maxPerShoot} reel{card.maxPerShoot === 1 ? '' : 's'} and {card.maxCarouselsPerShoot} carousel{card.maxCarouselsPerShoot === 1 ? '' : 's'} per shoot.
           </div>
@@ -141,19 +85,21 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
 
         {pay.needsAttention && (
           <div style={{ marginTop: 14, border: '1px solid var(--signal)', borderRadius: 10, padding: '10px 16px', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)' }}>
-            Something here needs a hand: a post is past its count date and still unread, or an asset has no URL/date so the clock never started. Fix it below.
+            A reel is past its count date and still unread, or a post has no URL/date so its clock never started. Fix it below, then read the views.
           </div>
         )}
 
-        {/* Assets — reels then carousels. Each is where views get read + locked. */}
+        {/* Posts — each pays on its own clock: base the day it posts, a reel's
+            view bonus ~2 weeks later once its count locks. */}
         <div style={{ marginTop: 26 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>Posts</div>
           {detail.assets.length === 0 && (
-            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No posts logged yet. Add each reel or carousel as it goes live.</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No posts logged yet. Add each reel or carousel as it goes live — pay follows each one.</div>
           )}
           {[...reels, ...carousels].map((a) => {
             const ap = payByAsset.get(a.id);
-            const cap = assetCaption(a, ap);
+            const paidBase = !!a.base_paid_at;
+            const paidTopup = !!a.topup_paid_at;
             const locked = !!a.views_locked_at;
             return (
               <div key={a.id} style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '13px 16px', marginBottom: 10, background: 'var(--paper-2, #fff)' }}>
@@ -170,18 +116,47 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                         <span style={{ color: 'var(--signal)' }}>no post URL</span>
                       )}
                       {a.posted_at ? <span>posted {fmtShort(a.posted_at)}</span> : <span style={{ color: 'var(--signal)' }}>no post date</span>}
+                      {a.views_read_at && a.views != null && <span>{a.views.toLocaleString()} views{locked ? ' · locked' : ''}</span>}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <div className="font-mono" style={{ fontSize: 15, color: cap.tone }}>{cap.pay}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2, maxWidth: 220, whiteSpace: 'normal' }}>{cap.note}</div>
+                  {/* Per-post pay state: base line, then bonus line for reels. */}
+                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    {!ap || !ap.counts ? (
+                      <div style={{ color: 'var(--ink-4)' }}>$0 · {ap?.excludedReason ?? 'not counted'}</div>
+                    ) : (
+                      <>
+                        <div style={{ color: paidBase ? 'var(--positive)' : a.posted_at ? 'var(--signal)' : 'var(--ink-4)', fontWeight: 600 }}>
+                          {paidBase ? `✓ base ${dollars(a.base_cents ?? ap.baseCents)}` : a.posted_at ? `base ${dollars(ap.baseCents)} due` : `base ${dollars(ap.baseCents)} on post`}
+                        </div>
+                        {a.kind === 'reel' && (
+                          <div style={{ color: paidTopup ? 'var(--positive)' : locked && ap.topupCents > 0 ? 'var(--signal)' : 'var(--ink-4)', marginTop: 2 }}>
+                            {paidTopup
+                              ? `✓ bonus ${dollars(a.topup_cents ?? 0)}`
+                              : !paidBase
+                                ? 'bonus after base'
+                                : locked
+                                  ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} due` : `no bonus · under ${firstRung(card).toLocaleString()}`
+                                  : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {editableAssets && (
+                {active && (
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-                    {/* Read views — the office enters the number; contributor never does. */}
-                    {a.kind === 'reel' && !locked && (
+                    {/* Pay base — the day it posts. */}
+                    {ap && ap.counts && a.posted_at && !paidBase && (
+                      <form action={payAssetBase} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <input type="hidden" name="shoot_id" value={shoot.id} />
+                        <input type="hidden" name="asset_id" value={a.id} />
+                        <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 130 }} />
+                        <PendingButton label={`Pay base · ${dollars(ap.baseCents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                      </form>
+                    )}
+                    {/* Read views — reels, after the base is paid, until locked. */}
+                    {a.kind === 'reel' && paidBase && !locked && (
                       <form action={readAssetViews} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                         <input type="hidden" name="asset_id" value={a.id} />
                         <input type="hidden" name="shoot_id" value={shoot.id} />
@@ -195,9 +170,18 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                         <PendingButton label={a.views_read_at ? 'Update' : 'Record'} busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                       </form>
                     )}
-                    {locked && <div style={{ fontSize: 12, color: 'var(--positive)', paddingBottom: 6 }}>✓ views locked {fmtShort(a.views_locked_at)}</div>}
+                    {/* Pay bonus — reel, views locked, bonus earned. */}
+                    {a.kind === 'reel' && paidBase && locked && ap && ap.topupCents > 0 && !paidTopup && (
+                      <form action={payAssetTopup} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <input type="hidden" name="shoot_id" value={shoot.id} />
+                        <input type="hidden" name="asset_id" value={a.id} />
+                        <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 130 }} />
+                        <PendingButton label={`Pay view bonus · ${dollars(ap.topupCents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                      </form>
+                    )}
 
-                    {/* Quiet utilities: edit metadata, disqualify override, remove. */}
+                    {/* Quiet utilities. Editing is locked once views lock; a paid
+                        post can't be removed (it's a financial record). */}
                     {!locked && (
                       <details style={{ position: 'relative' }}>
                         <summary style={quietSummary}>Edit ▾</summary>
@@ -225,7 +209,7 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                         <PendingButton label={a.qualifies ? "Don't count this" : 'Count it anyway'} busyLabel="…" style={quietCtl} spinnerTone="ink" />
                       </form>
                     )}
-                    {!locked && (
+                    {!paidBase && (
                       <form action={deleteAsset} style={{ margin: 0 }}>
                         <input type="hidden" name="asset_id" value={a.id} />
                         <input type="hidden" name="shoot_id" value={shoot.id} />
@@ -238,7 +222,7 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
             );
           })}
 
-          {editableAssets && (
+          {active && (
             <details>
               <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Add a post ▾</summary>
               <form action={addAsset} style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 520, border: '1px solid var(--rule)', borderRadius: 10, padding: 14, background: 'var(--paper-2, #fff)' }}>
@@ -256,108 +240,15 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
           )}
         </div>
 
-        {/* Lifecycle: approve delivery → finalize payout → mark paid. One loud
-            action per state, mirroring the packet detail page. */}
-        <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
-          {canApprove && (
-            <form action={approveShoot} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-              <input type="hidden" name="shoot_id" value={shoot.id} />
-              <PendingButton label="Approve delivery" busyLabel="Approving…" style={btnDark} />
-              <div style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 460, lineHeight: 1.5 }}>
-                Freezes {detail.contractorName}&apos;s rate card onto this shoot. Pay isn&apos;t locked yet — read the views over the next {card.countDays} days, then finalize.
-              </div>
-            </form>
-          )}
-
-          {finalizing && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Step 1 — the base, paid the day the posts go live. */}
-              {!advancePaid ? (
-                <form action={payShootBase} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)', width: '100%', maxWidth: 480 }}>
-                  <input type="hidden" name="shoot_id" value={shoot.id} />
-                  <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>Step 1 · Pay the base now</div>
-                  <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                    Send {detail.contractorName} the {dollars(shoot.posted_price_cents)} base now that the posts are live. The view bonus on each reel settles in about {card.countDays} days.
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 150 }} />
-                    <PendingButton label={`Mark base paid · ${dollars(shoot.posted_price_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
-                  </div>
-                </form>
-              ) : (
-                <div style={{ fontSize: 13, color: 'var(--positive)' }}>
-                  ✓ Base {dollars(shoot.advance_cents)} paid {fmtShort(shoot.advance_paid_at)}
-                  {shoot.advance_method ? ` · via ${shoot.advance_method}` : ''}
-                  {shoot.advance_reference ? ` · ${shoot.advance_reference}` : ''}
-                </div>
-              )}
-
-              {/* Step 2 — the view top-up: finalize the total, then settle what's
-                  left after the base. */}
-              {pay.state === 'counting' && (
-                <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  Views still counting — {dollars(pay.floorCents)}–{dollars(pay.ceilingCents)} so far{pay.settlesOn ? `, settles ${fmtShort(pay.settlesOn)}` : ''}. Finalize once the counts lock (or now, to close it out).
-                </div>
-              )}
-              <form action={finalizeShootPayout} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)', width: '100%', maxWidth: 480 }}>
-                <input type="hidden" name="shoot_id" value={shoot.id} />
-                <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Step 2 · Finalize the view total</div>
-                <label style={{ ...miniLabel, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--ink-4)' }}>$</span>
-                  <input type="number" name="final_dollars" min={0} step={1} defaultValue={Math.round(pay.totalCents / 100)} style={{ ...input, width: 120 }} />
-                  <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>computed {dollars(pay.totalCents)}{shoot.final_payout_cents != null ? ` · currently ${dollars(shoot.final_payout_cents)}` : ''}</span>
-                </label>
-                <details>
-                  <summary style={quietSummary}>+ Above-and-beyond bonus ▾</summary>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                    <label style={{ ...miniLabel, flexDirection: 'row', alignItems: 'center', gap: 6 }}><span style={{ color: 'var(--ink-4)' }}>$</span><input type="number" name="bonus_dollars" min={0} step={1} defaultValue={bonus > 0 ? Math.round(bonus / 100) : undefined} style={{ ...input, width: 90 }} /></label>
-                    <input name="bonus_reason" defaultValue={shoot.bonus_reason ?? ''} placeholder="reason (optional)" maxLength={300} style={{ ...input, width: 200 }} />
-                  </div>
-                </details>
-                <PendingButton label="Lock the total" busyLabel="Saving…" style={btnDark} />
-              </form>
-
-              {shoot.final_payout_cents != null && (
-                <form action={markShootPaid} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <input type="hidden" name="shoot_id" value={shoot.id} />
-                  <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 150 }} />
-                  <PendingButton
-                    label={advancePaid ? `Settle top-up · ${dollars(remainder)}` : `Mark paid · ${dollars(finalTotal)}`}
-                    busyLabel="Recording + receipt…"
-                    style={btnDark}
-                  />
-                </form>
-              )}
-              {advancePaid && shoot.final_payout_cents != null && remainder === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-                  The views didn&apos;t beat the base, so there&apos;s no top-up — settling just closes this out at {dollars(finalTotal)}.
-                </div>
-              )}
-            </div>
-          )}
-
-          {paid && (
-            <div style={{ fontSize: 13, color: 'var(--positive)' }}>
-              Paid {dollars(finalTotal)}
-              {bonus > 0 ? ` (incl. ${dollars(bonus)} bonus)` : ''}
-              {' '}on {fmtShort(shoot.paid_at)}
-              {shoot.paid_method ? ` · via ${shoot.paid_method}` : ''}
-              {shoot.paid_reference ? ` · ${shoot.paid_reference}` : ''}
-              {advancePaid && (
-                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
-                  base {dollars(shoot.advance_cents)} on {fmtShort(shoot.advance_paid_at)}, then {dollars(remainder)} top-up at settle
-                </div>
-              )}
-            </div>
-          )}
-
-          {(shoot.status === 'scheduled' || shoot.status === 'shot' || shoot.status === 'delivered') && (
-            <form action={cancelShoot} style={{ margin: '16px 0 0' }}>
+        {/* Cancel — only while nothing on the shoot has been paid. */}
+        {active && sum.paidCents === 0 && (
+          <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
+            <form action={cancelShoot} style={{ margin: 0 }}>
               <input type="hidden" name="shoot_id" value={shoot.id} />
               <PendingButton label="Cancel shoot" busyLabel="Cancelling…" style={{ ...quietCtl, color: 'var(--signal)' }} spinnerTone="ink" />
             </form>
-          )}
-        </div>
+          </div>
+        )}
       </section>
       <HelmFooter module="Field" right={shoot.title} />
     </div>

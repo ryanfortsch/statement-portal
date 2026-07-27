@@ -29,6 +29,9 @@ export type ShootAsset = {
   views_locked_at: string | null;
   qualifies: boolean;
   disqualified_reason: string | null;
+  // Whether this post's base has been paid — a paid reel is pinned into the cap
+  // so committed money can never be displaced by a later, higher-earning reel.
+  base_paid_at?: string | null;
 };
 
 export type AssetPay = {
@@ -39,6 +42,10 @@ export type AssetPay = {
   excludedReason: string | null;
   /** Pay if the views stopped here. Base for an unread reel. */
   currentCents: number;
+  /** The floor pay for this post — reel base or carousel flat. Paid on posting. */
+  baseCents: number;
+  /** View bonus beyond the base once counted (currentCents - baseCents); 0 for a carousel or an unread reel. */
+  topupCents: number;
   /** The most this asset can still reach (top rung) while unlocked. */
   ceilingCents: number;
   locked: boolean;
@@ -152,6 +159,8 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
         ? a.disqualified_reason || (short ? `Under ${card.minSeconds}s` : 'Not counted')
         : null,
       currentCents,
+      // The floor pay for THIS post: reel base or carousel flat. Paid on posting.
+      baseCents: baseFor(card, a.kind),
       ceilingCents,
       locked,
       rungViews,
@@ -161,10 +170,20 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
     };
   });
 
-  // Apply the per-kind caps: best-earning first, the rest excluded.
+  // Apply the per-kind caps: best-earning first, the rest excluded. A post whose
+  // base is ALREADY PAID is pinned ahead of unpaid ones, so committed money can
+  // never be displaced from the cap by a later, higher-earning post (posts arrive
+  // weeks apart, so a strong third reel after two paid bases is a real path).
   for (const kind of ['reel', 'carousel'] as const) {
     const cap = kind === 'reel' ? card.maxPerShoot : card.maxCarouselsPerShoot;
-    const eligible = priced.filter((p) => p.kind === kind && p.counts).sort((a, b) => b.currentCents - a.currentCents);
+    const eligible = priced
+      .filter((p) => p.kind === kind && p.counts)
+      .sort((a, b) => {
+        const aPaid = a.raw.base_paid_at ? 1 : 0;
+        const bPaid = b.raw.base_paid_at ? 1 : 0;
+        if (aPaid !== bPaid) return bPaid - aPaid; // paid posts keep their slot
+        return b.currentCents - a.currentCents; // then best-earning wins the rest
+      });
     eligible.forEach((p, i) => {
       if (i >= cap) {
         p.counts = false;
@@ -182,7 +201,9 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
 
   return {
     state: counting.length === 0 ? 'empty' : unsettled.length === 0 ? 'locked' : 'counting',
-    assets: priced.map(({ raw: _raw, ...rest }) => rest),
+    // topupCents = the view bonus beyond the base, once this post counts (0 for a
+    // carousel, or a reel that hasn't beaten its base yet).
+    assets: priced.map(({ raw: _raw, ...rest }) => ({ ...rest, topupCents: rest.counts ? Math.max(0, rest.currentCents - rest.baseCents) : 0 })),
     floorCents,
     ceilingCents,
     totalCents,

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
-import { loadShootBoard, loadCreativeContractors, type ShootSummary } from '@/lib/creative-shoots';
+import { loadShootBoard, loadCreativeContractors, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
 import { createShoot } from './actions';
@@ -26,38 +26,19 @@ function fmtSettles(iso: string | null): string {
   }
 }
 
-/** One money line per shoot, matching the packet ledger's estimate→final voice
- *  but across creative's three states (floor → range → locked) plus paid. */
+/** One money line per shoot, from the per-post rollup: paid → to-pay → counting. */
 function payLine(s: ShootSummary): { text: string; tone: string; sub: string | null } {
-  const shoot = s.shoot;
-  const bonus = shoot.bonus_cents || 0;
-  // What the base advance already covered (0 unless paid on posting).
-  const advance = shoot.advance_paid_at ? shoot.advance_cents : 0;
-  if (shoot.paid_at) {
-    return { text: `Paid ${dollars((shoot.final_payout_cents ?? 0) + bonus)}`, tone: 'var(--positive)', sub: null };
+  const sum = shootPaySummary(s.assets, s.pay);
+  if (sum.fullySettled) return { text: `Paid ${dollars(sum.paidCents)}`, tone: 'var(--positive)', sub: null };
+  if (sum.owedCents > 0) {
+    const bits = [sum.baseDue ? `${sum.baseDue} base` : null, sum.topupDue ? `${sum.topupDue} bonus` : null].filter(Boolean).join(' + ');
+    return { text: `${dollars(sum.owedCents)} to pay`, tone: 'var(--signal)', sub: bits ? `${bits} ready` : 'ready to pay' };
   }
-  if (shoot.final_payout_cents != null) {
-    // Owe only the remainder after the base advance.
-    const remainder = Math.max(0, shoot.final_payout_cents + bonus - advance);
-    return { text: `${dollars(remainder)} owed`, tone: 'var(--signal)', sub: advance > 0 ? 'top-up · base paid' : 'final · ready to pay' };
+  if (sum.pendingCents > 0) {
+    return { text: `${dollars(sum.pendingCents)} counting`, tone: 'var(--ink-3)', sub: s.pay.settlesOn ? `settles ${fmtSettles(s.pay.settlesOn)}` : 'bonus counting' };
   }
-  // Not finalized: show the live computed state.
-  if (s.pay.state === 'empty') {
-    return { text: 'No posts yet', tone: 'var(--ink-4)', sub: shoot.status === 'approved' ? 'approved · awaiting posts' : null };
-  }
-  if (s.pay.state === 'locked') {
-    return {
-      text: dollars(s.pay.totalCents + bonus),
-      tone: 'var(--ink)',
-      sub: advance > 0 ? 'views in · base paid' : shoot.status === 'approved' ? 'views in · finalize to pay' : 'views in · ready to approve',
-    };
-  }
-  // counting
-  return {
-    text: `${dollars(s.pay.floorCents + bonus)}–${dollars(s.pay.ceilingCents + bonus)}`,
-    tone: 'var(--ink-3)',
-    sub: advance > 0 ? 'base paid · bonus counting' : s.pay.settlesOn ? `settles ${fmtSettles(s.pay.settlesOn)}` : 'counting views',
-  };
+  if (sum.paidCents > 0) return { text: `${dollars(sum.paidCents)} paid`, tone: 'var(--ink)', sub: 'in flight' };
+  return { text: s.pay.state === 'empty' ? 'No posts yet' : 'Awaiting posts', tone: 'var(--ink-4)', sub: null };
 }
 
 export default async function CreativeBoard() {
@@ -79,18 +60,17 @@ export default async function CreativeBoard() {
     loadFieldProperties(),
   ]);
 
+  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay)]));
   const attention = board.filter((s) => s.pay.needsAttention);
-  const owed = board.filter((s) => !s.pay.needsAttention && s.shoot.final_payout_cents != null && !s.shoot.paid_at);
-  const live = board.filter(
-    (s) => !s.pay.needsAttention && s.shoot.final_payout_cents == null && s.shoot.status !== 'settled',
-  );
-  const done = board.filter((s) => !s.pay.needsAttention && s.shoot.paid_at);
+  const owed = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.owedCents > 0);
+  const done = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.fullySettled);
+  const live = board.filter((s) => {
+    const su = sums.get(s.shoot.id)!;
+    return !s.pay.needsAttention && su.owedCents === 0 && !su.fullySettled;
+  });
 
-  // "Owed now" = the remainder still to send (full total minus any base already advanced).
-  const owedTotal = owed.reduce(
-    (sum, s) => sum + Math.max(0, (s.shoot.final_payout_cents ?? 0) + (s.shoot.bonus_cents || 0) - (s.shoot.advance_paid_at ? s.shoot.advance_cents : 0)),
-    0,
-  );
+  // "Owed now" = every base + view bonus ready to send, across all shoots.
+  const owedTotal = board.reduce((t, s) => t + sums.get(s.shoot.id)!.owedCents, 0);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
