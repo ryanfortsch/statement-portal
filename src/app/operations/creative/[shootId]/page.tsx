@@ -14,6 +14,7 @@ import {
   readAssetViews,
   setAssetQualifies,
   approveShoot,
+  payShootBase,
   finalizeShootPayout,
   markShootPaid,
   cancelShoot,
@@ -74,6 +75,14 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
   const paid = !!shoot.paid_at;
   const editableAssets = !paid && shoot.status !== 'cancelled';
   const bonus = shoot.bonus_cents || 0;
+
+  // Two-step pay: the base (floor, frozen at approval) is advanced on posting
+  // day; the view top-up settles ~2 weeks later. remainder = what's left after
+  // the advance.
+  const advancePaid = !!shoot.advance_paid_at;
+  const advance = advancePaid ? shoot.advance_cents : 0;
+  const finalTotal = (shoot.final_payout_cents ?? pay.totalCents) + bonus;
+  const remainder = Math.max(0, finalTotal - advance);
 
   // Headline number tracks the same three states the board uses.
   const headline =
@@ -262,14 +271,37 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
 
           {finalizing && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Step 1 — the base, paid the day the posts go live. */}
+              {!advancePaid ? (
+                <form action={payShootBase} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)', width: '100%', maxWidth: 480 }}>
+                  <input type="hidden" name="shoot_id" value={shoot.id} />
+                  <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>Step 1 · Pay the base now</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                    Send {detail.contractorName} the {dollars(shoot.posted_price_cents)} base now that the posts are live. The view bonus on each reel settles in about {card.countDays} days.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 150 }} />
+                    <PendingButton label={`Mark base paid · ${dollars(shoot.posted_price_cents)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                  </div>
+                </form>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--positive)' }}>
+                  ✓ Base {dollars(shoot.advance_cents)} paid {fmtShort(shoot.advance_paid_at)}
+                  {shoot.advance_method ? ` · via ${shoot.advance_method}` : ''}
+                  {shoot.advance_reference ? ` · ${shoot.advance_reference}` : ''}
+                </div>
+              )}
+
+              {/* Step 2 — the view top-up: finalize the total, then settle what's
+                  left after the base. */}
               {pay.state === 'counting' && (
                 <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  Still counting — {dollars(pay.floorCents)}–{dollars(pay.ceilingCents)} so far{pay.settlesOn ? `, settles ${fmtShort(pay.settlesOn)}` : ''}. You can finalize now or wait for the views to lock.
+                  Views still counting — {dollars(pay.floorCents)}–{dollars(pay.ceilingCents)} so far{pay.settlesOn ? `, settles ${fmtShort(pay.settlesOn)}` : ''}. Finalize once the counts lock (or now, to close it out).
                 </div>
               )}
               <form action={finalizeShootPayout} style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)', width: '100%', maxWidth: 480 }}>
                 <input type="hidden" name="shoot_id" value={shoot.id} />
-                <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Finalize payout</div>
+                <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Step 2 · Finalize the view total</div>
                 <label style={{ ...miniLabel, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <span style={{ color: 'var(--ink-4)' }}>$</span>
                   <input type="number" name="final_dollars" min={0} step={1} defaultValue={Math.round(pay.totalCents / 100)} style={{ ...input, width: 120 }} />
@@ -282,26 +314,40 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                     <input name="bonus_reason" defaultValue={shoot.bonus_reason ?? ''} placeholder="reason (optional)" maxLength={300} style={{ ...input, width: 200 }} />
                   </div>
                 </details>
-                <PendingButton label="Lock the payout" busyLabel="Saving…" style={btnDark} />
+                <PendingButton label="Lock the total" busyLabel="Saving…" style={btnDark} />
               </form>
 
               {shoot.final_payout_cents != null && (
                 <form action={markShootPaid} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <input type="hidden" name="shoot_id" value={shoot.id} />
                   <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 150 }} />
-                  <PendingButton label={`Mark paid · ${dollars((shoot.final_payout_cents ?? 0) + bonus)}`} busyLabel="Recording + receipt…" style={btnDark} />
+                  <PendingButton
+                    label={advancePaid ? `Settle top-up · ${dollars(remainder)}` : `Mark paid · ${dollars(finalTotal)}`}
+                    busyLabel="Recording + receipt…"
+                    style={btnDark}
+                  />
                 </form>
+              )}
+              {advancePaid && shoot.final_payout_cents != null && remainder === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+                  The views didn&apos;t beat the base, so there&apos;s no top-up — settling just closes this out at {dollars(finalTotal)}.
+                </div>
               )}
             </div>
           )}
 
           {paid && (
             <div style={{ fontSize: 13, color: 'var(--positive)' }}>
-              Paid {dollars((shoot.final_payout_cents ?? 0) + bonus)}
+              Paid {dollars(finalTotal)}
               {bonus > 0 ? ` (incl. ${dollars(bonus)} bonus)` : ''}
               {' '}on {fmtShort(shoot.paid_at)}
               {shoot.paid_method ? ` · via ${shoot.paid_method}` : ''}
               {shoot.paid_reference ? ` · ${shoot.paid_reference}` : ''}
+              {advancePaid && (
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
+                  base {dollars(shoot.advance_cents)} on {fmtShort(shoot.advance_paid_at)}, then {dollars(remainder)} top-up at settle
+                </div>
+              )}
             </div>
           )}
 

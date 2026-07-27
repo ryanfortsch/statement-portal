@@ -31,11 +31,15 @@ function fmtSettles(iso: string | null): string {
 function payLine(s: ShootSummary): { text: string; tone: string; sub: string | null } {
   const shoot = s.shoot;
   const bonus = shoot.bonus_cents || 0;
+  // What the base advance already covered (0 unless paid on posting).
+  const advance = shoot.advance_paid_at ? shoot.advance_cents : 0;
   if (shoot.paid_at) {
     return { text: `Paid ${dollars((shoot.final_payout_cents ?? 0) + bonus)}`, tone: 'var(--positive)', sub: null };
   }
   if (shoot.final_payout_cents != null) {
-    return { text: `${dollars(shoot.final_payout_cents + bonus)} owed`, tone: 'var(--signal)', sub: 'final · ready to pay' };
+    // Owe only the remainder after the base advance.
+    const remainder = Math.max(0, shoot.final_payout_cents + bonus - advance);
+    return { text: `${dollars(remainder)} owed`, tone: 'var(--signal)', sub: advance > 0 ? 'top-up · base paid' : 'final · ready to pay' };
   }
   // Not finalized: show the live computed state.
   if (s.pay.state === 'empty') {
@@ -45,14 +49,14 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
     return {
       text: dollars(s.pay.totalCents + bonus),
       tone: 'var(--ink)',
-      sub: shoot.status === 'approved' ? 'views in · finalize to pay' : 'views in · ready to approve',
+      sub: advance > 0 ? 'views in · base paid' : shoot.status === 'approved' ? 'views in · finalize to pay' : 'views in · ready to approve',
     };
   }
   // counting
   return {
     text: `${dollars(s.pay.floorCents + bonus)}–${dollars(s.pay.ceilingCents + bonus)}`,
     tone: 'var(--ink-3)',
-    sub: s.pay.settlesOn ? `settles ${fmtSettles(s.pay.settlesOn)}` : 'counting views',
+    sub: advance > 0 ? 'base paid · bonus counting' : s.pay.settlesOn ? `settles ${fmtSettles(s.pay.settlesOn)}` : 'counting views',
   };
 }
 
@@ -82,7 +86,11 @@ export default async function CreativeBoard() {
   );
   const done = board.filter((s) => !s.pay.needsAttention && s.shoot.paid_at);
 
-  const owedTotal = owed.reduce((sum, s) => sum + (s.shoot.final_payout_cents ?? 0) + (s.shoot.bonus_cents || 0), 0);
+  // "Owed now" = the remainder still to send (full total minus any base already advanced).
+  const owedTotal = owed.reduce(
+    (sum, s) => sum + Math.max(0, (s.shoot.final_payout_cents ?? 0) + (s.shoot.bonus_cents || 0) - (s.shoot.advance_paid_at ? s.shoot.advance_cents : 0)),
+    0,
+  );
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>

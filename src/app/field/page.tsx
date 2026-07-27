@@ -193,13 +193,28 @@ function fmtShootDate(d: string | null): string {
 function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
   const shoot = s.shoot;
   const bonus = shoot.bonus_cents || 0;
-  if (shoot.paid_at) return { text: `${dollars((shoot.final_payout_cents ?? 0) + bonus)} paid`, sub: 'sent', tone: 'var(--positive)' };
-  if (shoot.final_payout_cents != null) return { text: dollars(shoot.final_payout_cents + bonus), sub: 'payment on the way', tone: 'var(--signal)' };
-  // Not finalized yet — reflect where the shoot is without exposing office controls.
+  const finalTotal = (shoot.final_payout_cents ?? s.pay.totalCents) + bonus;
+  const advance = shoot.advance_paid_at ? shoot.advance_cents : 0;
+  const remainder = Math.max(0, finalTotal - advance);
+  if (shoot.paid_at) return { text: `${dollars(finalTotal)} paid`, sub: 'sent', tone: 'var(--positive)' };
+  // Base already sent (paid the day it posted) — what's left is the view bonus.
+  if (shoot.advance_paid_at) {
+    if (shoot.final_payout_cents != null) {
+      return remainder > 0
+        ? { text: dollars(remainder), sub: 'view bonus on the way', tone: 'var(--signal)' }
+        : { text: `${dollars(advance)} paid`, sub: 'settling', tone: 'var(--positive)' };
+    }
+    return {
+      text: `${dollars(advance)} base paid`,
+      sub: s.pay.settlesOn ? `bonus settles ${fmtShootDate(s.pay.settlesOn)}` : 'bonus climbing with views',
+      tone: 'var(--ink)',
+    };
+  }
+  if (shoot.final_payout_cents != null) return { text: dollars(finalTotal), sub: 'payment on the way', tone: 'var(--signal)' };
+  // Not finalized, base not yet sent — reflect where the shoot is.
   if (shoot.status === 'shot' || shoot.status === 'delivered' || shoot.status === 'scheduled') {
     return { text: 'In review', sub: 'pay is set once approved', tone: 'var(--ink-4)' };
   }
-  // approved, pay follows the views
   if (s.pay.state === 'empty') return { text: 'Approved', sub: 'awaiting your posts', tone: 'var(--ink-4)' };
   if (s.pay.state === 'locked') return { text: dollars(s.pay.totalCents + bonus), sub: 'final coming', tone: 'var(--ink)' };
   return {
