@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 
-const PHONE_DISPLAY = '(978) 865-2387';
-const PHONE_E164 = '+19788652387';
+const PHONE_DISPLAY = '(978) 865-2500';
+const PHONE_E164 = '+19788652500';
 const PHOTO_SRC = '/ryan.jpg';
 
 /**

@@ -110,7 +110,7 @@ export async function FieldShell({
           textAlign: 'center',
         }}
       >
-        Rising Tide STR · Gloucester, MA · <a href="tel:+19788652387" style={{ color: 'inherit' }}>(978) 865-2387</a>
+        Rising Tide STR · Gloucester, MA · <a href="tel:+19788652500" style={{ color: 'inherit' }}>(978) 865-2500</a>
       </footer>
     </div>
   );
