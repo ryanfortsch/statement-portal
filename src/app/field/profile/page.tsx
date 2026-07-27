@@ -45,29 +45,38 @@ export default async function FieldProfilePage() {
 
   const { payStats, reliability, rating, reviews, history, streak } = await loadContractorProfile(contractor.id);
 
+  // Creative pay follows delivered posts + view counts, not packets — so the
+  // packet streak bonus and on-time reliability simply don't apply to them.
+  const isCreative = contractor.trade === 'creative';
   const paidCents = payStats?.paidCents ?? 0;
   const owedCents = payStats?.owedCents ?? 0;
+  const pendingCents = payStats?.pendingCents ?? 0;
+  const shootsCount = (payStats?.approvedCount ?? 0) + (payStats?.paidCount ?? 0);
   const jobsDone = reliability?.completed ?? payStats?.approvedCount ?? 0;
   const onTimePct =
     reliability && reliability.onTime + reliability.late > 0
       ? Math.round((reliability.onTime / (reliability.onTime + reliability.late)) * 100)
       : null;
-  const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || reviews.length > 0;
+  const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || pendingCents > 0 || reviews.length > 0;
 
 
   return (
     <FieldShell contractorName={contractor.full_name}>
       <ContractorHeader contractor={contractor} rating={rating} />
 
-      {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses. */}
-      <StreakBar streak={streak} />
+      {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses.
+          Inspection/maintenance/cleaning only: creative isn't paid per day. */}
+      {!isCreative && <StreakBar streak={streak} />}
 
       {/* Lifetime stats */}
       {hasActivity && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 30 }}>
           <Stat label="Earned to date" value={dollars(paidCents)} />
-          {owedCents > 0 && <Stat label="Pending" value={dollars(owedCents)} tone="var(--signal)" />}
-          {jobsDone > 0 && <Stat label="Jobs completed" value={String(jobsDone)} />}
+          {owedCents > 0 && <Stat label="Approved, unpaid" value={dollars(owedCents)} tone="var(--signal)" />}
+          {pendingCents > 0 && <Stat label="Counting views" value={dollars(pendingCents)} tone="var(--ink-3)" />}
+          {isCreative
+            ? shootsCount > 0 && <Stat label={shootsCount === 1 ? 'Shoot' : 'Shoots'} value={String(shootsCount)} />
+            : jobsDone > 0 && <Stat label="Jobs completed" value={String(jobsDone)} />}
           {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
         </div>
       )}

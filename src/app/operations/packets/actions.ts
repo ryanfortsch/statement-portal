@@ -761,11 +761,35 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
     (a, r) => a + effectiveBaseCents(r) + (r.bonus_cents || 0),
     0,
   );
-  if (total > 0 && contractor) {
-    await sendPaidEmail(contractor, total, { method: contractor.payment_method, reference }).catch(() => {});
+  // Also sweep the contributor's finalized-but-unpaid creative shoots. Guarded
+  // at the write (final_payout_cents set, not already paid) so an unlocked shoot
+  // can never be booked as paid at its floor.
+  const { data: shootsPaid } = await fieldDb()
+    .from('creative_shoots')
+    .update({
+      paid_at: new Date().toISOString(),
+      paid_by_email: email,
+      paid_method: contractor?.payment_method ?? null,
+      paid_reference: reference,
+      status: 'settled',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('contractor_id', contractorId)
+    .eq('status', 'approved')
+    .not('final_payout_cents', 'is', null)
+    .is('paid_at', null)
+    .select('final_payout_cents, bonus_cents');
+  const shootTotal = ((shootsPaid ?? []) as { final_payout_cents: number | null; bonus_cents: number }[]).reduce(
+    (a, r) => a + (r.final_payout_cents ?? 0) + (r.bonus_cents || 0),
+    0,
+  );
+  const grand = total + shootTotal;
+  if (grand > 0 && contractor) {
+    await sendPaidEmail(contractor, grand, { method: contractor.payment_method, reference }).catch(() => {});
   }
   revalidatePath('/operations/contractors');
   revalidatePath('/operations/packets');
+  revalidatePath('/operations/creative');
 }
 
 /** Record that the awarded contractor has been paid for an approved packet.
