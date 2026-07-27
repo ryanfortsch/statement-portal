@@ -6,6 +6,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
+import { loadContractorShoots } from '@/lib/creative-shoots';
 import {
   getContractorPayStats,
   getContractorReliability,
@@ -121,7 +122,7 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
     .in('status', ['in_progress', 'submitted', 'approved'])
     .order('visit_date', { ascending: false })
     .limit(30);
-  return ((data ?? []) as Array<{
+  const packetItems: ContractorHistoryItem[] = ((data ?? []) as Array<{
     id: string;
     visit_date: string;
     title: string;
@@ -141,6 +142,24 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
     status: p.status,
     paid: !!p.paid_at,
   }));
+
+  // Fold in creative shoots as history lines too. A still-counting shoot shows
+  // its current best total; a finalized one its locked total.
+  const shoots = await loadContractorShoots(contractorId).catch(() => []);
+  const shootItems: ContractorHistoryItem[] = shoots.map((sm) => ({
+    id: sm.shoot.id,
+    date: sm.shoot.shoot_date,
+    title: sm.shoot.title,
+    trade: 'creative',
+    payCents:
+      sm.shoot.final_payout_cents != null
+        ? effectiveBaseCents(sm.shoot) + (sm.shoot.bonus_cents || 0)
+        : sm.pay.totalCents + (sm.shoot.bonus_cents || 0),
+    status: sm.shoot.status,
+    paid: !!sm.shoot.paid_at,
+  }));
+
+  return [...packetItems, ...shootItems].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)).slice(0, 30);
 }
 
 export async function loadContractorProfile(contractorId: string): Promise<ContractorProfile> {

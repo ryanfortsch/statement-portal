@@ -156,9 +156,16 @@ export default async function ContractorsPage({
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
           <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{meta.label}</div>
-          <Link href={`/operations/contractors/applicants?trade=${trade}`} style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
-            Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
-          </Link>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
+            {trade === 'creative' && (
+              <Link href="/operations/creative" style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
+                Shoots &amp; pay →
+              </Link>
+            )}
+            <Link href={`/operations/contractors/applicants?trade=${trade}`} style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
+              Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
+            </Link>
+          </div>
         </div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20 }}>
           Invite {trade === 'creative' ? 'a contributor' : `a ${meta.singular}`} and we email them a personal portal
@@ -281,7 +288,8 @@ function ContractorCard({
   rate?: { card: RateCard; isCustom: boolean } | null;
 }) {
   const initials = c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
-  const earned = ps && (ps.paidCents > 0 || ps.owedCents > 0);
+  const isCreative = c.trade === 'creative';
+  const earned = ps && (ps.paidCents > 0 || ps.owedCents > 0 || ps.pendingCents > 0);
   const onTimePct = rel && rel.onTime + rel.late > 0 ? Math.round((rel.onTime / (rel.onTime + rel.late)) * 100) : null;
   const booksCents = books ? Math.round(books.ytd * 100) : 0;
   const gap = ps && ps.paidCents > 0 && books ? ps.paidCents - booksCents : 0;
@@ -324,6 +332,11 @@ function ContractorCard({
               {ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
               {ps!.owedCents > 0 && ps!.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
               {ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
+              {ps!.pendingCents > 0 && (
+                // Approved creative shoots still counting views: real money, not
+                // a firm number yet, so it can't be "paid" from here.
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(ps!.pendingCents)} counting views</div>
+              )}
               {ps!.owedCents > 0 && (
                 <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
                   <input type="hidden" name="contractor_id" value={c.id} />
@@ -350,18 +363,30 @@ function ContractorCard({
           )}
         </Stat>
 
-        <Stat label="Reliability">
-          {rel ? (
-            <>
-              <span style={{ color: TIER_TINT[rel.tier], fontWeight: 600 }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}</span>
-              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
-                {[`${rel.completed} done`, onTimePct != null ? `${onTimePct}% on-time` : '', rel.reworked ? `${rel.reworked} redo` : '', rel.flaked ? `${rel.flaked} flaked` : ''].filter(Boolean).join(' · ')}
-              </div>
-            </>
-          ) : (
-            <span style={{ color: 'var(--ink-4)' }}>No work yet</span>
-          )}
-        </Stat>
+        {isCreative ? (
+          // Creative pay is per delivered post, not per packet, so packet-based
+          // reliability (on-time / redo / flaked) doesn't apply — show shoots.
+          <Stat label="Shoots">
+            {ps && ps.approvedCount + ps.paidCount > 0 ? (
+              <span>{ps.paidCount} paid{ps.approvedCount > 0 ? ` · ${ps.approvedCount} to pay` : ''}</span>
+            ) : (
+              <span style={{ color: 'var(--ink-4)' }}>No approved shoots</span>
+            )}
+          </Stat>
+        ) : (
+          <Stat label="Reliability">
+            {rel ? (
+              <>
+                <span style={{ color: TIER_TINT[rel.tier], fontWeight: 600 }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}</span>
+                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
+                  {[`${rel.completed} done`, onTimePct != null ? `${onTimePct}% on-time` : '', rel.reworked ? `${rel.reworked} redo` : '', rel.flaked ? `${rel.flaked} flaked` : ''].filter(Boolean).join(' · ')}
+                </div>
+              </>
+            ) : (
+              <span style={{ color: 'var(--ink-4)' }}>No work yet</span>
+            )}
+          </Stat>
+        )}
 
         <Stat label="Books YTD">
           <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>

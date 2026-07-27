@@ -18,6 +18,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
+import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
 import {
@@ -2259,8 +2260,9 @@ export async function loadInspectionCalendar(
 export type ContractorPayStats = {
   approvedCount: number;
   paidCount: number;
-  owedCents: number; // approved packets not yet marked paid
-  paidCents: number; // approved packets marked paid
+  owedCents: number; // finalized, not yet marked paid (packets + settled shoots)
+  paidCents: number; // marked paid
+  pendingCents: number; // approved creative shoots still counting views (real, not yet a firm number)
 };
 
 /** Per-contractor Field earnings: only APPROVED packets count toward pay, so
@@ -2280,7 +2282,7 @@ export async function getContractorPayStats(): Promise<Map<string, ContractorPay
     bonus_cents: number;
     paid_at: string | null;
   }>) {
-    const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0 };
+    const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
     const total = effectiveBaseCents(r) + (r.bonus_cents || 0);
     s.approvedCount++;
     if (r.paid_at) {
@@ -2290,6 +2292,17 @@ export async function getContractorPayStats(): Promise<Map<string, ContractorPay
       s.owedCents += total;
     }
     map.set(r.awarded_contractor_id, s);
+  }
+  // Fold in creative shoot earnings (pending / owed / paid) under the same keys.
+  const shootStats = await getContractorShootStats().catch(() => new Map());
+  for (const [cid, ss] of shootStats) {
+    const s = map.get(cid) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
+    s.approvedCount += ss.approvedCount;
+    s.paidCount += ss.paidCount;
+    s.owedCents += ss.owedCents;
+    s.paidCents += ss.paidCents;
+    s.pendingCents += ss.pendingCents;
+    map.set(cid, s);
   }
   return map;
 }
