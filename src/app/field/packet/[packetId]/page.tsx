@@ -43,7 +43,7 @@ const chip: React.CSSProperties = {
 const signalPill: React.CSSProperties = { ...chip, color: 'var(--signal)' };
 const quietBtn: React.CSSProperties = { ...chip, fontSize: 12, color: 'var(--ink-3)' };
 
-const OFFICE_TEL = '+19788652387';
+const OFFICE_TEL = '+19788652500';
 
 /** A geocodable maps target for a stop, or null when we have neither coords nor
  *  a real street address (so we hide the link instead of sending them to a

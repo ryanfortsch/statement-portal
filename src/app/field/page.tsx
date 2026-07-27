@@ -272,7 +272,7 @@ export default async function FieldHome({
 
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
             {failed ? (
-              <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2387 and we&apos;ll get it sorted.</>
+              <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2500 and we&apos;ll get it sorted.</>
             ) : setupDone ? (
               <>Your setup is done. We&apos;re getting your background check underway (standard, since you&apos;ll have keys to owners&apos; homes). As soon as it&apos;s running we&apos;ll text and email you, and your first packets open up right here.</>
             ) : (
