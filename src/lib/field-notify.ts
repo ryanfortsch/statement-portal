@@ -263,22 +263,28 @@ export async function sendStreakBonusOfficeEmail(
 export async function sendPaidEmail(
   contractor: ContractorRow,
   amountCents: number,
-  opts: { method?: string | null; reference?: string | null } = {},
+  opts: { method?: string | null; reference?: string | null; note?: string; creative?: boolean } = {},
 ): Promise<boolean> {
   const via = opts.method ? ` via <strong>${opts.method}</strong>` : '';
   const ref = opts.reference ? `<p style="font-size:13px;color:#7a8a90;">Reference: ${opts.reference}</p>` : '';
+  // Creative contributors have no packets — don't promise them "more packets",
+  // and let the caller add a note (e.g. "the view bonus follows in ~2 weeks").
+  const escNote = (opts.note ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const noteLine = escNote ? `<p style="border-left:3px solid #c85a3a;padding:10px 14px;background:#faf3ec;">${escNote}</p>` : '';
+  const tail = opts.creative ? '' : ' Thanks for the great work — more packets are always posting.';
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">You've been paid</h1>
-    <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you${via} for completed work. Thanks for the great work — more packets are always posting.</p>
+    <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you${via} for completed work.${tail}</p>
+    ${noteLine}
     ${ref}
-    ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
+    ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, opts.creative ? 'Open my portal' : 'See open work')}
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
     subject: `Payment recorded — ${dollars(amountCents)}`,
     fromName: FROM_NAME,
     html,
-    text: `Rising Tide recorded ${dollars(amountCents)} paid to you${opts.method ? ` via ${opts.method}` : ''}${opts.reference ? ` (ref ${opts.reference})` : ''}.`,
+    text: `Rising Tide recorded ${dollars(amountCents)} paid to you${opts.method ? ` via ${opts.method}` : ''}${opts.reference ? ` (ref ${opts.reference})` : ''}.${opts.note ? ' ' + opts.note : ''}`,
   });
 }
 

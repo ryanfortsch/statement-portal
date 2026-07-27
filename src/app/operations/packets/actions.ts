@@ -778,9 +778,11 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
     .eq('status', 'approved')
     .not('final_payout_cents', 'is', null)
     .is('paid_at', null)
-    .select('final_payout_cents, bonus_cents');
-  const shootTotal = ((shootsPaid ?? []) as { final_payout_cents: number | null; bonus_cents: number }[]).reduce(
-    (a, r) => a + (r.final_payout_cents ?? 0) + (r.bonus_cents || 0),
+    .select('final_payout_cents, bonus_cents, advance_cents, advance_paid_at');
+  // Settle only the REMAINDER: whatever base was already advanced on posting day
+  // was paid then, so the roster sweep pays final + bonus minus that advance.
+  const shootTotal = ((shootsPaid ?? []) as { final_payout_cents: number | null; bonus_cents: number; advance_cents: number; advance_paid_at: string | null }[]).reduce(
+    (a, r) => a + Math.max(0, (r.final_payout_cents ?? 0) + (r.bonus_cents || 0) - (r.advance_paid_at ? r.advance_cents : 0)),
     0,
   );
   const grand = total + shootTotal;
