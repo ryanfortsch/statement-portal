@@ -23,7 +23,7 @@ export function RyanContact() {
         </div>
 
         <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 20px', maxWidth: '58ch' }}>
-          I&apos;m Ryan, I run Rising Tide. A home, a packet, getting set up, whatever it is, text or call me. I would
+          I&apos;m Ryan, I run Rising Tide. A question about the work, getting set up, whatever it is, text or call me. I would
           always rather you ask than guess.
         </p>
 
