@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows } from '../actions';
 import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
@@ -560,6 +560,25 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} title="Optional start time; leave blank for anytime that day" style={{ ...priceInput, width: 110 }} />
                       <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
                     </form>
+                  </div>
+                </details>
+              )}
+              {(packet.status === 'claimed' || packet.status === 'in_progress') && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Start time ▾</summary>
+                  <div style={menuCard}>
+                    <form action={setPacketStartTime} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} title="Start time shown to the inspector; we email them the change" style={{ ...priceInput, width: 110 }} />
+                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                    </form>
+                    {packet.visit_time && (
+                      <form action={setPacketStartTime} style={{ margin: '6px 0 0' }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <input type="hidden" name="visit_time" value="" />
+                        <PendingButton label="Clear start time" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                      </form>
+                    )}
                   </div>
                 </details>
               )}

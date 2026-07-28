@@ -132,6 +132,32 @@ export async function sendReassignedEmail(
 
 /** Contractor notice when the office RAISES the agreed price on a packet they
  *  already hold (scope grew, etc.). Only ever an increase, so it's good news. */
+/** Tell the contractor their claimed trip now has (or changed) a start time. */
+export async function sendStartTimeEmail(
+  contractor: ContractorRow,
+  packet: { id: string; title: string; visit_date: string },
+  timeLabel: string | null,
+): Promise<boolean> {
+  const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${timeLabel ? `Start time: ${timeLabel}` : 'Start time cleared'}</h1>
+    <p>${timeLabel
+      ? `Your trip <strong>${packet.title}</strong> on <strong>${packet.visit_date}</strong> now starts at <strong>${timeLabel}</strong>.`
+      : `Your trip <strong>${packet.title}</strong> on <strong>${packet.visit_date}</strong> no longer has a set start time; any time that day works.`} Nothing else about the trip changed.</p>
+    ${btn(link, 'Open the packet')}
+  `);
+  return sendTransactionalViaResend({
+    to: contractor.email,
+    subject: timeLabel ? `Start time for ${packet.title}: ${timeLabel}` : `Start time cleared: ${packet.title}`,
+    fromName: FROM_NAME,
+    html,
+    text: timeLabel
+      ? `Your trip ${packet.title} on ${packet.visit_date} now starts at ${timeLabel}. ${link}`
+      : `Your trip ${packet.title} on ${packet.visit_date} no longer has a set start time. ${link}`,
+    cc: OFFICE_CC,
+  });
+}
+
 export async function sendEstimateRaisedEmail(
   contractor: Pick<ContractorRow, 'email' | 'full_name' | 'portal_token'>,
   packet: Pick<PacketRow, 'id' | 'title' | 'posted_price_cents'>,
