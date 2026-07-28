@@ -724,6 +724,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   packetId={packet.id}
                   stopId={s.id}
                   stopWorkSlipId={s.work_slip_id}
+                  stopSlip={s.workSlip ? { id: s.workSlip.id, text: s.workSlip.description || s.workSlip.title } : null}
                   attached={s.attachedSlips}
                   attachable={attachableByStop[i]}
                   instructions={s.instructions}

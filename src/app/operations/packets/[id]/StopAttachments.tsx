@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import type { AttachedSlip, WorkSlipLite } from '@/lib/field-types';
-import { attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
+import { updateStopSlipContent, attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
 
 const box: React.CSSProperties = {
   // display:block matters: textareas/selects are inline-level, so without it
@@ -130,12 +130,16 @@ export function StopAttachments({
   instructions,
   editable,
   visitDate,
+  stopSlip,
 }: {
   packetId: string;
   stopId: string;
   /** The packet's visit day — lets the picker warn when a slip is scheduled
    *  for AFTER this visit (guest gear for a later stay must not ride early). */
   visitDate: string;
+  /** When the stop IS a task (one-off / setup / maintenance): its editable
+   *  text, so the office can fix or expand the job after creation. */
+  stopSlip?: { id: string; text: string } | null;
   /** The work slip this stop IS, when it's a maintenance stop — excluded from
    *  the attach picker so the same job can't be duplicated onto itself. */
   stopWorkSlipId: string | null;
@@ -190,6 +194,28 @@ export function StopAttachments({
             <span style={eyebrow}>At this stop</span>
             <SaveState pending={pending} />
           </div>
+
+          {/* The stop's OWN task (one-off / setup / maintenance): editable, so
+              the office can fix or expand the job after creation. Saves on
+              click-away like everything else here; the contractor's view
+              refreshes mid-trip. */}
+          {stopSlip && (
+            <div>
+              <div style={{ fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+                The job
+              </div>
+              <textarea
+                rows={3}
+                defaultValue={stopSlip.text}
+                disabled={!editable}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v && v !== stopSlip.text) onSave(() => updateStopSlipContent(packetId, stopSlip.id, v));
+                }}
+                style={box}
+              />
+            </div>
+          )}
 
           {/* Attached slips */}
           {attached.length > 0 && (
