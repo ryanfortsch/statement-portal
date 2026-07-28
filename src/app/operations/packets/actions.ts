@@ -10,9 +10,9 @@ import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromP
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail } from '@/lib/field-notify';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
-import { canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
+import { fmtVisitTime, canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus, isAttachableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -159,6 +159,37 @@ export async function setPacketVisitDate(formData: FormData): Promise<void> {
  *  visit day). Unlike the start time, this is settable AFTER claim: a deadline
  *  is exactly what the office adjusts once someone's on the hook. An empty or
  *  malformed value clears it. Shown to the inspector; feeds the at-risk flag. */
+/** Set (or clear) just the start time — the claimed-trip sibling of Move
+ *  date/time (which is draft/published only; a claimed trip's DATE is the
+ *  deal, but its start time is coordination). Emails the contractor on a
+ *  claimed/in-progress trip, after the response. */
+export async function setPacketStartTime(formData: FormData): Promise<void> {
+  await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  if (!packetId) return;
+  const raw = String(formData.get('visit_time') || '').trim();
+  const visitTime = /^\d{2}:\d{2}$/.test(raw) ? raw : null; // <input type=time> gives HH:MM; anything else clears
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .update({ visit_time: visitTime, updated_at: new Date().toISOString() })
+    .eq('id', packetId)
+    .in('status', ['draft', 'published', 'claimed', 'in_progress'])
+    .select('id, title, visit_date, status, awarded_contractor_id')
+    .maybeSingle();
+  const pk = data as { id: string; title: string; visit_date: string; status: string; awarded_contractor_id: string | null } | null;
+  if (pk?.awarded_contractor_id && ['claimed', 'in_progress'].includes(pk.status)) {
+    const contractorId = pk.awarded_contractor_id;
+    after(async () => {
+      const { data: c } = await fieldDb().from('contractors').select('*').eq('id', contractorId).maybeSingle();
+      if (!c) return;
+      const label = visitTime ? fmtVisitTime(`${visitTime}:00`) : null;
+      await sendStartTimeEmail(c as ContractorRow, { id: pk.id, title: pk.title, visit_date: pk.visit_date }, label).catch(() => {});
+    });
+  }
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+}
+
 export async function setPacketCompleteBy(formData: FormData): Promise<void> {
   await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
