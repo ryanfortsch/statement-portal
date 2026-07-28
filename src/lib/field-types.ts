@@ -145,6 +145,9 @@ export type PacketRow = {
   // locks it, otherwise the posted estimate.
   bonus_cents: number;
   bonus_reason: string | null;
+  /** Receipt reimbursements recorded by the contractor, summed from this
+   *  packet's slips (recomputePacketExpenses keeps it honest). */
+  expenses_cents: number;
   // Final base payout the operator locks in at/after approval, computed from
   // ACTUAL time on site (null = still an estimate; posted_price_cents is that
   // estimate). Effective base = final_payout_cents ?? posted_price_cents; the
@@ -338,7 +341,7 @@ export function dollars(cents: number): string {
 // posted_price_cents is the claim-time ESTIMATE. Once the operator finalizes
 // from actual time on site, final_payout_cents holds the locked base. Total
 // owed to the contractor = effective base + any above-and-beyond bonus.
-type PayoutShape = { posted_price_cents: number; final_payout_cents: number | null; bonus_cents?: number };
+type PayoutShape = { posted_price_cents: number; final_payout_cents: number | null; bonus_cents?: number; expenses_cents?: number };
 
 /** The base pay in effect: the operator's locked final once set, else the
  *  claim-time estimate. */
@@ -353,7 +356,10 @@ export function isPayoutFinal(p: { final_payout_cents: number | null }): boolean
 
 /** Everything the contractor is owed: effective base + above-and-beyond bonus. */
 export function totalPayoutCents(p: PayoutShape): number {
-  return effectiveBaseCents(p) + (p.bonus_cents || 0);
+  // base (final once set, else posted) + above-and-beyond bonus + receipt
+  // reimbursements. Receipts are a first-class component so a drain-o run
+  // flows into every money surface with no manual fold-in.
+  return effectiveBaseCents(p) + (p.bonus_cents || 0) + (p.expenses_cents || 0);
 }
 
 /** Drop the trailing state ("Gloucester MA" -> "Gloucester") for display. */

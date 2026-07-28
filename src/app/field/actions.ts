@@ -10,7 +10,7 @@ import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
-import { revalidatePacket, getContractorReliability } from '@/lib/field-packets';
+import { recomputePacketExpenses, revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
@@ -673,6 +673,9 @@ export async function completeMaintenanceStop(formData: FormData) {
   // A completion note is optional now — a restock or a quick fix shouldn't be
   // gated on writing a paragraph. resolution_notes just stores whatever's there.
 
+  // Optional receipt reimbursement ("$14.99 for drain-o"), capped at $500.
+  const expRaw = Number(formData.get('expense_dollars') || 0);
+  const expenseCents = Number.isFinite(expRaw) && expRaw > 0 ? Math.min(Math.round(expRaw * 100), 50000) : null;
   const photos = (() => {
     try {
       const v = JSON.parse(String(formData.get('photo_urls') || '[]'));
@@ -691,9 +694,11 @@ export async function completeMaintenanceStop(formData: FormData) {
       status: 'in_progress',
       resolution_notes: note,
       photo_urls: photos,
+      expense_cents: expenseCents,
       updated_at: new Date().toISOString(),
     })
     .eq('id', stop.work_slip_id);
+  if (expenseCents != null) await recomputePacketExpenses(packetId).catch(() => {});
   await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
   await advancePacketToInProgress(packetId);
   await logEvent({
@@ -725,6 +730,8 @@ async function applyAttachedSlipCompletion(args: {
   attachmentId: string;
   note: string;
   photoUrls: string[];
+  /** Optional receipt reimbursement in cents (capped at $500). */
+  expenseCents?: number | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
@@ -749,7 +756,7 @@ async function applyAttachedSlipCompletion(args: {
   const mergedPhotos = [...new Set([...existing, ...args.photoUrls])];
   await fieldDb()
     .from('work_slips')
-    .update({ status: 'in_progress', resolution_notes: args.note, photo_urls: mergedPhotos, updated_at: new Date().toISOString() })
+    .update({ status: 'in_progress', resolution_notes: args.note, photo_urls: mergedPhotos, expense_cents: args.expenseCents && args.expenseCents > 0 ? Math.min(Math.round(args.expenseCents), 50000) : null, updated_at: new Date().toISOString() })
     .eq('id', att.work_slip_id);
   // Guard the stamp so a race (two submits both seeing null) can't double-fire
   // the packet bump + audit event.
@@ -770,6 +777,7 @@ async function applyAttachedSlipCompletion(args: {
     propertyId: att.packet_stops.property_id,
     payload: { attachment_id: args.attachmentId, work_slip_id: att.work_slip_id },
   });
+  if (args.expenseCents) await recomputePacketExpenses(args.packetId).catch(() => {});
   return { ok: true };
 }
 
@@ -787,7 +795,9 @@ export async function completeAttachedSlip(formData: FormData) {
       return [];
     }
   })();
-  await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos });
+  const expRaw = Number(formData.get('expense_dollars') || 0);
+  const expenseCents = Number.isFinite(expRaw) && expRaw > 0 ? Math.round(expRaw * 100) : null;
+  await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos, expenseCents });
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
 }
@@ -800,6 +810,8 @@ export async function completeAttachedSlipInFlow(input: {
   attachmentId: string;
   note: string;
   photoUrls: string[];
+  /** Optional receipt reimbursement in cents. */
+  expenseCents?: number | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) return { ok: false, error: 'not-signed-in' };
@@ -809,6 +821,7 @@ export async function completeAttachedSlipInFlow(input: {
     attachmentId: input.attachmentId,
     note: (input.note || '').trim(),
     photoUrls: Array.isArray(input.photoUrls) ? input.photoUrls.filter((x): x is string => typeof x === 'string') : [],
+    expenseCents: input.expenseCents,
   });
   if (res.ok) revalidatePath(`/field/packet/${input.packetId}`);
   return res;
