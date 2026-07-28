@@ -198,7 +198,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{packet.title}</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · ${fmtVisitTime(packet.visit_time)}` : ''} · {packet.stop_count} stops</span>
+              <span>{fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · from ${fmtVisitTime(packet.visit_time)}` : ''} · {packet.stop_count} stops</span>
               {packet.complete_by && (
                 <>
                   <span>·</span>
@@ -565,18 +565,18 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               )}
               {(packet.status === 'claimed' || packet.status === 'in_progress') && (
                 <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Start time ▾</summary>
+                  <summary style={quietSummary}>Earliest start ▾</summary>
                   <div style={menuCard}>
                     <form action={setPacketStartTime} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} title="Start time shown to the inspector; we email them the change" style={{ ...priceInput, width: 110 }} />
+                      <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} title="Earliest she can start (a window opening, not an appointment); we email the change" style={{ ...priceInput, width: 110 }} />
                       <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
                     </form>
                     {packet.visit_time && (
                       <form action={setPacketStartTime} style={{ margin: '6px 0 0' }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
                         <input type="hidden" name="visit_time" value="" />
-                        <PendingButton label="Clear start time" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                        <PendingButton label="Clear earliest start" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
                       </form>
                     )}
                   </div>

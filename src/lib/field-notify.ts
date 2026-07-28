@@ -140,20 +140,20 @@ export async function sendStartTimeEmail(
 ): Promise<boolean> {
   const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${timeLabel ? `Start time: ${timeLabel}` : 'Start time cleared'}</h1>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${timeLabel ? `You can start from ${timeLabel}` : 'Start window cleared'}</h1>
     <p>${timeLabel
-      ? `Your trip <strong>${packet.title}</strong> on <strong>${packet.visit_date}</strong> now starts at <strong>${timeLabel}</strong>.`
+      ? `Your trip <strong>${packet.title}</strong> on <strong>${packet.visit_date}</strong> opens at <strong>${timeLabel}</strong>; start any time from then.`
       : `Your trip <strong>${packet.title}</strong> on <strong>${packet.visit_date}</strong> no longer has a set start time; any time that day works.`} Nothing else about the trip changed.</p>
     ${btn(link, 'Open the packet')}
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
-    subject: timeLabel ? `Start time for ${packet.title}: ${timeLabel}` : `Start time cleared: ${packet.title}`,
+    subject: timeLabel ? `${packet.title}: start any time from ${timeLabel}` : `Start window cleared: ${packet.title}`,
     fromName: FROM_NAME,
     html,
     text: timeLabel
-      ? `Your trip ${packet.title} on ${packet.visit_date} now starts at ${timeLabel}. ${link}`
-      : `Your trip ${packet.title} on ${packet.visit_date} no longer has a set start time. ${link}`,
+      ? `Your trip ${packet.title} on ${packet.visit_date} opens at ${timeLabel}; start any time from then. ${link}`
+      : `Your trip ${packet.title} on ${packet.visit_date} no longer has a start window; any time that day works. ${link}`,
     cc: OFFICE_CC,
   });
 }
@@ -235,12 +235,12 @@ export async function sendClaimConfirmation(
   const link = packetLink(contractor.portal_token, packet.id);
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
-    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}</strong>${packet.complete_by ? `, to be <strong>completed by ${fmtVisitTime(packet.complete_by)}</strong>` : ''}. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
+    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? `, starting any time from ${fmtVisitTime(packet.visit_time)}` : ''}</strong>${packet.complete_by ? `, to be <strong>completed by ${fmtVisitTime(packet.complete_by)}</strong>` : ''}. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
-    subject: `Confirmed: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` at ${fmtVisitTime(packet.visit_time)}` : ''}`,
+    subject: `Confirmed: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` from ${fmtVisitTime(packet.visit_time)}` : ''}`,
     fromName: FROM_NAME,
     cc: OFFICE_CC,
     html,
@@ -381,7 +381,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
       return packet.visit_date;
     }
   })();
-  const when = fmtVisitTime(packet.visit_time) ? `${date} ${fmtVisitTime(packet.visit_time)}` : date;
+  const when = fmtVisitTime(packet.visit_time) ? `${date} from ${fmtVisitTime(packet.visit_time)}` : date;
   const headline = packetHeadline(packet);
 
   let sent = 0;

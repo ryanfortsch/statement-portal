@@ -65,7 +65,7 @@ export default async function AdhocPacketPage() {
             <input type="date" name="visit_date" required style={inp} />
           </label>
           <label style={lbl}>
-            Time <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional; blank means anytime that day)</span>
+            Earliest start <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional; they can begin any time from here, blank means anytime that day)</span>
             <input type="time" name="visit_time" style={inp} />
           </label>
           <label style={lbl}>
