@@ -93,7 +93,7 @@ function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; feat
       <div className="rt-packet-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
-            {eyebrowDate(p.visit_date)}{fmtVisitTime(p.visit_time) ? ` · ${fmtVisitTime(p.visit_time)}` : ''}
+            {eyebrowDate(p.visit_date)}{fmtVisitTime(p.visit_time) ? ` · from ${fmtVisitTime(p.visit_time)}` : ''}
           </div>
           <div className="font-serif" style={{ fontSize: 20, fontWeight: 400, lineHeight: 1.15 }}>
             {packetHeadline(p)}
