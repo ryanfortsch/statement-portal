@@ -55,6 +55,21 @@ export async function updateStopSlipNote(packetId: string, attachmentId: string,
   return { ok: !error };
 }
 
+/** Edit the TASK a one-off/setup/maintenance stop IS (its work slip's text).
+ *  The title mirrors the first 120 chars so lists stay readable; the full text
+ *  is the description the contractor reads at the door. */
+export async function updateStopSlipContent(packetId: string, workSlipId: string, text: string): Promise<{ ok: boolean }> {
+  await staffEmail();
+  const clean = text.trim().slice(0, 4000);
+  if (!workSlipId || !clean) return { ok: false };
+  const { error } = await fieldDb()
+    .from('work_slips')
+    .update({ title: clean.slice(0, 120), description: clean, updated_at: new Date().toISOString() })
+    .eq('id', workSlipId);
+  revalidatePath(`/operations/packets/${packetId}`);
+  return { ok: !error };
+}
+
 export async function setStopInstructions(packetId: string, stopId: string, text: string): Promise<{ ok: boolean }> {
   await staffEmail();
   const { error } = await fieldDb()
