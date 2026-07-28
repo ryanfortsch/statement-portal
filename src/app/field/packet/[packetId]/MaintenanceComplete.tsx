@@ -75,6 +75,21 @@ export function MaintenanceComplete({
             placeholder={placeholder ?? 'What you did (optional)'}
             style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
           />
+          {/* Receipt reimbursement: what they spent out of pocket (drain-o,
+              batteries). Rides the payout automatically once entered. */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--ink-3)' }}>
+            <span style={{ color: 'var(--ink-4)' }}>$</span>
+            <input
+              type="number"
+              name="expense_dollars"
+              min={0}
+              step={0.01}
+              inputMode="decimal"
+              placeholder="0.00"
+              style={{ width: 110, font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px' }}
+            />
+            receipt total, if you bought something (add the receipt photo above)
+          </label>
         </div>
       )}
 

@@ -28,6 +28,7 @@ export function StopWorkList({ packetId, items, readOnly = false }: { packetId: 
   const [openId, setOpenId] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [expense, setExpense] = useState('');
   const [saving, setSaving] = useState(false);
   const [, start] = useTransition();
 
@@ -53,7 +54,14 @@ export function StopWorkList({ packetId, items, readOnly = false }: { packetId: 
     if (doneIds.has(id) || saving) return;
     setSaving(true);
     markDone(id);
-    const payload = { packetId, attachmentId: id, note: note.trim(), photoUrls: photos };
+    const expNum = Number(expense);
+    const payload = {
+      packetId,
+      attachmentId: id,
+      note: note.trim(),
+      photoUrls: photos,
+      expenseCents: Number.isFinite(expNum) && expNum > 0 ? Math.round(expNum * 100) : null,
+    };
     start(async () => {
       const res = await completeAttachedSlipInFlow(payload);
       setSaving(false);
@@ -63,6 +71,7 @@ export function StopWorkList({ packetId, items, readOnly = false }: { packetId: 
         setOpenId(null);
         setPhotos([]);
         setNote('');
+        setExpense('');
       }
     });
   }
@@ -123,6 +132,20 @@ export function StopWorkList({ packetId, items, readOnly = false }: { packetId: 
                   placeholder="What you did (optional)"
                   style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
                 />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--ink-3)' }}>
+                  <span style={{ color: 'var(--ink-4)' }}>$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={expense}
+                    onChange={(e) => setExpense(e.target.value)}
+                    style={{ width: 110, font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px' }}
+                  />
+                  receipt total, if you bought something
+                </label>
                 <button
                   type="button"
                   onClick={() => submitWithDetail(i.attachmentId)}
@@ -141,6 +164,7 @@ export function StopWorkList({ packetId, items, readOnly = false }: { packetId: 
                 setOpenId(open ? null : i.attachmentId);
                 setPhotos([]);
                 setNote('');
+                setExpense('');
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 12.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: '10px 12px', margin: '-6px -8px', minHeight: 40, flexShrink: 0 }}
             >

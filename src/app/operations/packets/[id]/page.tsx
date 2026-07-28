@@ -220,6 +220,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
               {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
             </div>
+            {packet.expenses_cents > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 2 }} title="Receipt reimbursements recorded by the contractor — included in the payout automatically">
+                + {dollars(packet.expenses_cents)} receipts
+              </div>
+            )}
             {packet.bonus_cents > 0 && (
               <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={packet.bonus_reason ?? undefined}>
                 + {dollars(packet.bonus_cents)} bonus
@@ -328,6 +333,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     r.issues.length > 0 && (
                       <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 2 }}>{r.issues.join(', ')}</div>
                     )
+                  )}
+                  {r.kind === 'maintenance' && r.expenseCents != null && r.expenseCents > 0 && (
+                    <div style={{ fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 3 }}>
+                      Receipt: {dollars(r.expenseCents)} (added to payout)
+                    </div>
                   )}
                   {r.kind === 'maintenance' && r.photoUrls && r.photoUrls.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>

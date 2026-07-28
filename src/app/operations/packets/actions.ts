@@ -756,9 +756,9 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
     .eq('awarded_contractor_id', contractorId)
     .eq('status', 'approved')
     .is('paid_at', null)
-    .select('posted_price_cents, final_payout_cents, bonus_cents');
-  const total = ((marked ?? []) as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number }[]).reduce(
-    (a, r) => a + effectiveBaseCents(r) + (r.bonus_cents || 0),
+    .select('posted_price_cents, final_payout_cents, bonus_cents, expenses_cents');
+  const total = ((marked ?? []) as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; expenses_cents: number }[]).reduce(
+    (a, r) => a + effectiveBaseCents(r) + (r.bonus_cents || 0) + (r.expenses_cents || 0),
     0,
   );
   // Creative pay is settled per POST on the shoot page (base on posting, view
@@ -783,9 +783,9 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
     .eq('id', packetId)
     .eq('status', 'approved')
     .is('paid_at', null)
-    .select('posted_price_cents, final_payout_cents, bonus_cents, awarded_contractor_id')
+    .select('posted_price_cents, final_payout_cents, bonus_cents, expenses_cents, awarded_contractor_id')
     .maybeSingle();
-  const paid = data as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; awarded_contractor_id: string | null } | null;
+  const paid = data as { posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; expenses_cents: number; awarded_contractor_id: string | null } | null;
   // The recording is done the moment paid_at lands. The method stamp and the
   // contractor's receipt email run AFTER the response, so a slow (or wedged)
   // email API can never hold the operator's button hostage.
@@ -796,7 +796,7 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
       if (!c) return;
       const contractor = c as ContractorRow;
       await fieldDb().from('inspection_packets').update({ paid_method: contractor.payment_method ?? null }).eq('id', packetId);
-      await sendPaidEmail(contractor, effectiveBaseCents(paid) + (paid.bonus_cents || 0), { method: contractor.payment_method, reference }).catch(() => {});
+      await sendPaidEmail(contractor, effectiveBaseCents(paid) + (paid.bonus_cents || 0) + (paid.expenses_cents || 0), { method: contractor.payment_method, reference }).catch(() => {});
     });
   }
   revalidatePath(`/operations/packets/${packetId}`);

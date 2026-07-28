@@ -2021,10 +2021,40 @@ export type StopReview = {
   title?: string | null; // maintenance: the job
   note?: string | null; // maintenance: the resolution
   photoUrls?: string[]; // maintenance: the actual photos
+  expenseCents?: number | null; // maintenance: receipt reimbursement recorded
 };
 
 /** Per-stop inspection findings for the office's approve review — pass/issue/
  *  na counts, photo count, and the titles of flagged issues. */
+/** Re-sum receipt reimbursements from every slip this packet carries (its
+ *  maintenance/task stops plus attached slips) onto the packet's
+ *  expenses_cents. Idempotent recompute, never an increment, so retries and
+ *  edits can't double-count. */
+export async function recomputePacketExpenses(packetId: string): Promise<void> {
+  const [{ data: stopSlips }, { data: attached }] = await Promise.all([
+    fieldDb().from('packet_stops').select('work_slip_id').eq('packet_id', packetId).not('work_slip_id', 'is', null),
+    fieldDb()
+      .from('packet_stop_work_slips')
+      .select('work_slip_id, packet_stops!inner(packet_id)')
+      .eq('packet_stops.packet_id', packetId),
+  ]);
+  const slipIds = [
+    ...new Set([
+      ...((stopSlips ?? []) as { work_slip_id: string }[]).map((r) => r.work_slip_id),
+      ...((attached ?? []) as unknown as { work_slip_id: string }[]).map((r) => r.work_slip_id),
+    ]),
+  ];
+  let total = 0;
+  if (slipIds.length) {
+    const { data: w } = await fieldDb().from('work_slips').select('expense_cents').in('id', slipIds);
+    total = ((w ?? []) as { expense_cents: number | null }[]).reduce((a, r) => a + (r.expense_cents || 0), 0);
+  }
+  await fieldDb()
+    .from('inspection_packets')
+    .update({ expenses_cents: total, updated_at: new Date().toISOString() })
+    .eq('id', packetId);
+}
+
 export async function loadPacketReview(packetId: string): Promise<StopReview[]> {
   const { data: sData } = await fieldDb()
     .from('packet_stops')
@@ -2043,13 +2073,13 @@ export async function loadPacketReview(packetId: string): Promise<StopReview[]> 
 
   // Maintenance stops: surface the work-slip resolution + photos for review.
   const slipIds = stops.map((s) => s.work_slip_id).filter((v): v is string => !!v);
-  const slipById = new Map<string, { title: string; resolution_notes: string | null; photo_urls: string[] | null }>();
+  const slipById = new Map<string, { title: string; resolution_notes: string | null; photo_urls: string[] | null; expense_cents: number | null }>();
   if (slipIds.length) {
     const { data: wData } = await fieldDb()
       .from('work_slips')
-      .select('id, title, resolution_notes, photo_urls')
+      .select('id, title, resolution_notes, photo_urls, expense_cents')
       .in('id', slipIds);
-    for (const w of (wData ?? []) as Array<{ id: string; title: string; resolution_notes: string | null; photo_urls: string[] | null }>) {
+    for (const w of (wData ?? []) as Array<{ id: string; title: string; resolution_notes: string | null; photo_urls: string[] | null; expense_cents: number | null }>) {
       slipById.set(w.id, w);
     }
   }
@@ -2069,6 +2099,7 @@ export async function loadPacketReview(packetId: string): Promise<StopReview[]> 
         title: w?.title ?? 'Maintenance job',
         note: w?.resolution_notes ?? null,
         photoUrls: w?.photo_urls ?? [],
+        expenseCents: w?.expense_cents ?? null,
       });
       continue;
     }
@@ -2271,7 +2302,7 @@ export type ContractorPayStats = {
 export async function getContractorPayStats(): Promise<Map<string, ContractorPayStats>> {
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .select('awarded_contractor_id, posted_price_cents, final_payout_cents, bonus_cents, paid_at')
+    .select('awarded_contractor_id, posted_price_cents, final_payout_cents, bonus_cents, expenses_cents, paid_at')
     .eq('status', 'approved')
     .not('awarded_contractor_id', 'is', null);
   const map = new Map<string, ContractorPayStats>();
@@ -2280,10 +2311,11 @@ export async function getContractorPayStats(): Promise<Map<string, ContractorPay
     posted_price_cents: number;
     final_payout_cents: number | null;
     bonus_cents: number;
+    expenses_cents: number;
     paid_at: string | null;
   }>) {
     const s = map.get(r.awarded_contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
-    const total = effectiveBaseCents(r) + (r.bonus_cents || 0);
+    const total = effectiveBaseCents(r) + (r.bonus_cents || 0) + (r.expenses_cents || 0);
     s.approvedCount++;
     if (r.paid_at) {
       s.paidCount++;
