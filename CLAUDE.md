@@ -161,12 +161,12 @@ Internal name is the street address WITHOUT the suffix (`St`, `Ave`, `Rd`, `Ln`)
 | 3_south_st | 3 South | 3 South Street, Rockport MA | Stay at Old Garden Beach | Bailey | 25% | 5622 |
 | 21_horton | 21 Horton | 21 Horton Street, Gloucester MA | Stay at Rocky Neck | Kittredge | 22% | 1323 |
 | 53_rocky_neck | 53 Rocky Neck | 53 Rocky Neck Avenue, Gloucester MA | Stay at The Neck | Prudenzi | 25% | 9910 |
-| 4_brier_neck | 4 Brier Neck | 4 Brier Neck Road, Gloucester MA | (none) | Armstrong | 20% | 7876 |
+| 4_brier_neck | 4 Brier Neck | 4 Brier Neck Road, Gloucester MA | Stay at Good Harbor Beach | Armstrong | 20% | 7876 |
 | 30_woodward | 30 Woodward | 30 Woodward Avenue, Gloucester MA | Stay at Little River | McWethy | 25% | 8221 |
 | 20_hammond | 20 Hammond | 20 Hammond Street, Gloucester MA | Stay at East Gloucester | Ramsey | 25% | 9969 |
 | 20_enon | 20 Enon | 20 Enon Road, Beverly MA | Stay at Beverly Shops | Snyder | 25% | 1307 |
 | 73_rocky_neck | 73 Rocky Neck | 73 Rocky Neck Avenue, Gloucester MA | Stay at Smith Cove | Moynahan | 25% | 3227 |
-| 17_beach_rd | 17 Beach | 17 Beach Road, Gloucester MA | (none) | Nolan | 22% | 5621 |
+| 17_beach_rd | 17 Beach | 17 Beach Road, Gloucester MA | Stay at Good Harbor Beach | Nolan | 22% | 5621 |
 | 65_calderwood | 65 Calderwood | 65 Calderwood Lane, Fairfield CT | Stay at Black Rock Harbor | Liu | 25% | - |
 | 3_locust | 3 Locust | 3 Locust Lane, Gloucester MA | Stay at Niles Beach | Lucas | 25% | - |
 | 3246_ne_27th | 3246 NE 27th | 3246 NE 27th Avenue, Lighthouse Point FL | Stay At Lighthouse Point | Enriquez | 25% | - |
