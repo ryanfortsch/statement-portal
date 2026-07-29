@@ -172,8 +172,9 @@ export async function payAssetBase(formData: FormData): Promise<void> {
   if (!detail) return;
   const asset = detail.assets.find((a) => a.id === assetId);
   const ap = detail.pay.assets.find((p) => p.assetId === assetId);
-  // Only a counting, posted, not-yet-paid post can take a base payment.
-  if (!asset || !ap || !ap.counts || !asset.posted_at || asset.base_paid_at) return;
+  // Base is owed on DELIVERY (the asset is logged), not on posting — posting can
+  // come weeks later, or never. Only a counting, unpaid post can take a base.
+  if (!asset || !ap || !ap.counts || asset.base_paid_at) return;
   // Belt-and-suspenders on the cap: never pay a reel base once maxPerShoot reels
   // already have their base paid (the ranking pins them, but guard the write too).
   if (asset.kind === 'reel') {
@@ -204,14 +205,82 @@ export async function payAssetBase(formData: FormData): Promise<void> {
   if (updated && contractor) {
     const note =
       asset.kind === 'reel'
-        ? 'This is the base for your reel. The view bonus follows in about two weeks, once the count settles.'
-        : 'This is the full pay for your carousel.';
+        ? 'This is your base for delivering the reel. Once we post it, a view bonus follows about two weeks after that.'
+        : 'This is the full pay for delivering your carousel.';
     await sendPaidEmail(contractor, base, { method: contractor.payment_method, reference, creative: true, note }).catch(() => {});
   }
   await refreshShootSettlement(shootId);
   revalidatePath(`/operations/creative/${shootId}`);
   revalidatePath('/operations/creative');
   revalidatePath('/operations/contractors');
+}
+
+/**
+ * Pay the base on EVERY delivered, counting, unpaid post at once — the
+ * "$100 per asset on delivery" lump ($300 for two reels + a carousel). Per-post
+ * records are still written; this is just the one-click convenience.
+ */
+export async function payAllDeliveredBases(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const reference = String(formData.get('reference') || '').trim() || null;
+  const detail = await loadShootDetail(shootId);
+  if (!detail) return;
+  await freezeCardIfNeeded(detail.shoot, detail.card);
+  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', detail.shoot.contractor_id).maybeSingle();
+  const contractor = c as ContractorRow | null;
+  const now = new Date().toISOString();
+  let paid = 0;
+  let paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at).length;
+  for (const a of detail.assets) {
+    const ap = detail.pay.assets.find((p) => p.assetId === a.id);
+    if (!ap || !ap.counts || a.base_paid_at) continue; // ap.counts already applies the reel cap
+    if (a.kind === 'reel' && paidReels >= detail.card.maxPerShoot) continue;
+    const { data: u } = await fieldDb()
+      .from('creative_assets')
+      .update({ base_cents: ap.baseCents, base_paid_at: now, base_by_email: email, base_method: contractor?.payment_method ?? null, base_reference: reference, updated_at: now })
+      .eq('id', a.id)
+      .is('base_paid_at', null)
+      .select('id')
+      .maybeSingle();
+    if (u) {
+      paid += ap.baseCents;
+      if (a.kind === 'reel') paidReels++;
+    }
+  }
+  if (paid > 0 && contractor) {
+    await sendPaidEmail(contractor, paid, {
+      method: contractor.payment_method,
+      reference,
+      creative: true,
+      note: 'This is your base for the assets you delivered. View bonuses on the reels follow after we post them.',
+    }).catch(() => {});
+  }
+  await refreshShootSettlement(shootId);
+  revalidatePath(`/operations/creative/${shootId}`);
+  revalidatePath('/operations/creative');
+  revalidatePath('/operations/contractors');
+}
+
+/**
+ * Mark a delivered post as POSTED — records the go-live date (and URL). This is
+ * what starts a reel's view-bonus clock; posting can be weeks after delivery, or
+ * never. Locked once the views lock.
+ */
+export async function markAssetPosted(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  const assetId = String(formData.get('asset_id') || '');
+  const postedAt = String(formData.get('posted_at') || '').trim();
+  if (!shootId || !assetId || !postedAt) return;
+  const patch: Record<string, unknown> = { posted_at: postedAt, updated_at: new Date().toISOString() };
+  const url = String(formData.get('post_url') || '').trim();
+  if (url) patch.post_url = url;
+  await fieldDb().from('creative_assets').update(patch).eq('id', assetId).is('views_locked_at', null);
+  await refreshShootSettlement(shootId);
+  revalidatePath(`/operations/creative/${shootId}`);
+  revalidatePath('/operations/creative');
 }
 
 /**

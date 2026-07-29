@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAssetTopup, cancelShoot } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, cancelShoot } from '../actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -41,7 +41,7 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
   const sum = shootPaySummary(detail.assets, pay);
   const active = shoot.status !== 'cancelled';
 
-  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 ? 'In flight' : 'Awaiting posts';
+  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 ? 'In flight' : 'Awaiting delivery';
 
   const reels = detail.assets.filter((a) => a.kind === 'reel');
   const carousels = detail.assets.filter((a) => a.kind === 'carousel');
@@ -77,16 +77,27 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
             Rate card{shoot.card_snapshot_at ? ' · frozen' : ''}
           </div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-            Reel {dollars(card.baseCents)} base the day it posts, then {tierLabel(card)} measured {card.countDays} days after posting.
-            Carousel flat {dollars(card.carouselCents)}. Reels must run {card.minSeconds}s+.
+            Reel {dollars(card.baseCents)} base on delivery, then {tierLabel(card)} measured {card.countDays} days after it&apos;s posted.
+            Carousel flat {dollars(card.carouselCents)} on delivery. Reels must run {card.minSeconds}s+.
             Counts up to {card.maxPerShoot} reel{card.maxPerShoot === 1 ? '' : 's'} and {card.maxCarouselsPerShoot} carousel{card.maxCarouselsPerShoot === 1 ? '' : 's'} per shoot.
           </div>
         </div>
 
         {pay.needsAttention && (
           <div style={{ marginTop: 14, border: '1px solid var(--signal)', borderRadius: 10, padding: '10px 16px', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)' }}>
-            A reel is past its count date and still unread, or a post has no URL/date so its clock never started. Fix it below, then read the views.
+            A reel we posted is past its {card.countDays}-day count and its views were never read — read them below to release the bonus.
           </div>
+        )}
+
+        {/* Delivery base: $100/asset the moment it's handed over — one click for
+            everything delivered-but-unpaid. Bonuses come later, per posted reel. */}
+        {active && sum.baseDue > 0 && (
+          <form action={payAllDeliveredBases} style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
+            <input type="hidden" name="shoot_id" value={shoot.id} />
+            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{sum.baseDue} delivered {sum.baseDue === 1 ? 'asset' : 'assets'} — base owed on delivery.</span>
+            <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 130 }} />
+            <PendingButton label={`Pay all bases · ${dollars(sum.owedBaseCents ?? 0)}`} busyLabel="Recording + receipt…" style={btnDark} />
+          </form>
         )}
 
         {/* Posts — each pays on its own clock: base the day it posts, a reel's
@@ -94,7 +105,7 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
         <div style={{ marginTop: 26 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>Posts</div>
           {detail.assets.length === 0 && (
-            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No posts logged yet. Add each reel or carousel as it goes live — pay follows each one.</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No assets logged yet. Log each reel or carousel as Cooper delivers it — the base is owed on delivery, the reel bonus follows once we post it.</div>
           )}
           {[...reels, ...carousels].map((a) => {
             const ap = payByAsset.get(a.id);
@@ -112,31 +123,31 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                     <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
                       {a.post_url ? (
                         <a href={a.post_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>view post ↗</a>
-                      ) : (
-                        <span style={{ color: 'var(--signal)' }}>no post URL</span>
-                      )}
-                      {a.posted_at ? <span>posted {fmtShort(a.posted_at)}</span> : <span style={{ color: 'var(--signal)' }}>no post date</span>}
+                      ) : null}
+                      {a.posted_at ? <span>posted {fmtShort(a.posted_at)}</span> : <span style={{ color: 'var(--ink-4)' }}>delivered · not posted yet</span>}
                       {a.views_read_at && a.views != null && <span>{a.views.toLocaleString()} views{locked ? ' · locked' : ''}</span>}
                     </div>
                   </div>
-                  {/* Per-post pay state: base line, then bonus line for reels. */}
+                  {/* Per-post pay state: base (on delivery) line, then bonus (on posting) line for reels. */}
                   <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12 }}>
                     {!ap || !ap.counts ? (
                       <div style={{ color: 'var(--ink-4)' }}>$0 · {ap?.excludedReason ?? 'not counted'}</div>
                     ) : (
                       <>
-                        <div style={{ color: paidBase ? 'var(--positive)' : a.posted_at ? 'var(--signal)' : 'var(--ink-4)', fontWeight: 600 }}>
-                          {paidBase ? `✓ base ${dollars(a.base_cents ?? ap.baseCents)}` : a.posted_at ? `base ${dollars(ap.baseCents)} due` : `base ${dollars(ap.baseCents)} on post`}
+                        <div style={{ color: paidBase ? 'var(--positive)' : 'var(--signal)', fontWeight: 600 }}>
+                          {paidBase ? `✓ base ${dollars(a.base_cents ?? ap.baseCents)}` : `base ${dollars(ap.baseCents)} due`}
                         </div>
                         {a.kind === 'reel' && (
-                          <div style={{ color: paidTopup ? 'var(--positive)' : locked && ap.topupCents > 0 ? 'var(--signal)' : 'var(--ink-4)', marginTop: 2 }}>
+                          <div style={{ color: paidTopup ? 'var(--positive)' : a.posted_at && paidBase && locked && ap.topupCents > 0 ? 'var(--signal)' : 'var(--ink-4)', marginTop: 2 }}>
                             {paidTopup
                               ? `✓ bonus ${dollars(a.topup_cents ?? 0)}`
-                              : !paidBase
-                                ? 'bonus after base'
-                                : locked
-                                  ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} due` : `no bonus · under ${firstRung(card).toLocaleString()}`
-                                  : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
+                              : !a.posted_at
+                                ? 'bonus after posting'
+                                : !paidBase
+                                  ? 'bonus after base'
+                                  : locked
+                                    ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} due` : `no bonus · under ${firstRung(card).toLocaleString()}`
+                                    : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
                           </div>
                         )}
                       </>
@@ -146,8 +157,8 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
 
                 {active && (
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-                    {/* Pay base — the day it posts. */}
-                    {ap && ap.counts && a.posted_at && !paidBase && (
+                    {/* Pay base — owed on delivery, whether or not it's posted. */}
+                    {ap && ap.counts && !paidBase && (
                       <form action={payAssetBase} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <input type="hidden" name="shoot_id" value={shoot.id} />
                         <input type="hidden" name="asset_id" value={a.id} />
@@ -155,8 +166,19 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                         <PendingButton label={`Pay base · ${dollars(ap.baseCents)}`} busyLabel="Recording + receipt…" style={btnDark} />
                       </form>
                     )}
-                    {/* Read views — reels, after the base is paid, until locked. */}
-                    {a.kind === 'reel' && paidBase && !locked && (
+                    {/* Mark posted — records the go-live date, which starts a reel's
+                        view-bonus clock. Posting can be weeks after delivery. */}
+                    {!a.posted_at && !locked && (
+                      <form action={markAssetPosted} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                        <input type="hidden" name="shoot_id" value={shoot.id} />
+                        <input type="hidden" name="asset_id" value={a.id} />
+                        <label style={miniLabel}>Posted date<input type="date" name="posted_at" required style={{ ...input, width: 150 }} /></label>
+                        <label style={miniLabel}>Post URL<input name="post_url" placeholder="optional" style={{ ...input, width: 170 }} /></label>
+                        <PendingButton label={a.kind === 'reel' ? 'Mark posted · start bonus clock' : 'Mark posted'} busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                      </form>
+                    )}
+                    {/* Read views — a posted reel, after its base, until locked. */}
+                    {a.kind === 'reel' && a.posted_at && paidBase && !locked && (
                       <form action={readAssetViews} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                         <input type="hidden" name="asset_id" value={a.id} />
                         <input type="hidden" name="shoot_id" value={shoot.id} />
@@ -170,8 +192,8 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
                         <PendingButton label={a.views_read_at ? 'Update' : 'Record'} busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                       </form>
                     )}
-                    {/* Pay bonus — reel, views locked, bonus earned. */}
-                    {a.kind === 'reel' && paidBase && locked && ap && ap.topupCents > 0 && !paidTopup && (
+                    {/* Pay bonus — posted reel, base paid, views locked, bonus earned. */}
+                    {a.kind === 'reel' && a.posted_at && paidBase && locked && ap && ap.topupCents > 0 && !paidTopup && (
                       <form action={payAssetTopup} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <input type="hidden" name="shoot_id" value={shoot.id} />
                         <input type="hidden" name="asset_id" value={a.id} />
@@ -224,16 +246,19 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
 
           {active && (
             <details>
-              <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Add a post ▾</summary>
+              <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Log a delivered asset ▾</summary>
               <form action={addAsset} style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 520, border: '1px solid var(--rule)', borderRadius: 10, padding: 14, background: 'var(--paper-2, #fff)' }}>
                 <input type="hidden" name="shoot_id" value={shoot.id} />
+                <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+                  Log each reel or carousel when Cooper delivers it — the {dollars(card.baseCents)} base is owed then. Leave the posted date blank until it actually goes live; that&apos;s what starts a reel&apos;s bonus clock.
+                </div>
                 <label style={miniLabel}>Type<select name="kind" defaultValue="reel" style={input}><option value="reel">Reel</option><option value="carousel">Carousel</option></select></label>
                 <label style={miniLabel}>Duration (s)<input type="number" name="duration_seconds" min={1} step={1} placeholder="reels only" style={input} /></label>
                 <label style={{ ...miniLabel, gridColumn: '1 / -1' }}>Title<input name="title" maxLength={200} placeholder="Optional label" style={input} /></label>
-                <label style={{ ...miniLabel, gridColumn: '1 / -1' }}>Post URL<input name="post_url" placeholder="https://instagram.com/…" style={input} /></label>
-                <label style={miniLabel}>Posted date<input type="date" name="posted_at" style={input} /></label>
+                <label style={miniLabel}>Post URL <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(if live)</span><input name="post_url" placeholder="https://instagram.com/…" style={input} /></label>
+                <label style={miniLabel}>Posted date <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(if live)</span><input type="date" name="posted_at" style={input} /></label>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gridColumn: '1 / -1' }}>
-                  <PendingButton label="Add post" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
+                  <PendingButton label="Log asset" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
                 </div>
               </form>
             </details>
