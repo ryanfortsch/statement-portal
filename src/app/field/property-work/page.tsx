@@ -6,6 +6,9 @@ import { loadPropertyWorkBoard } from '@/lib/field-work-board';
 import { FieldShell } from '../FieldShell';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { BoardSlipDone, BoardNewSlip } from './BoardControls';
+import { GearGrid } from '@/components/GearGrid';
+import { loadGearGrid, GEAR_ITEMS } from '@/lib/property-gear';
+import { saveGearCellField } from '../actions';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
@@ -34,7 +37,7 @@ export default async function PropertyWorkPage({
     redirect('/field');
   }
 
-  const board = await loadPropertyWorkBoard();
+  const [board, gearRows] = await Promise.all([loadPropertyWorkBoard(), loadGearGrid()]);
   const totalSlips = board.groups.reduce((a, g) => a + g.slips.length, 0);
 
   return (
@@ -54,6 +57,19 @@ export default async function PropertyWorkPage({
       <div style={{ marginBottom: 26 }}>
         <BoardNewSlip properties={board.properties} />
       </div>
+
+      {/* The guest-gear matrix (per Ryan): which homes have a pack 'n play /
+          high chair and where each lives. Collapsed so the slip list stays
+          the page's main event; both field and office edit the same grid. */}
+      <details style={{ marginBottom: 30 }}>
+        <summary className="font-serif" style={{ cursor: 'pointer', fontSize: 20, fontWeight: 400, borderBottom: '1px solid var(--ink)', paddingBottom: 8, listStyle: 'none', display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          Guest gear
+          <span style={{ fontSize: 12, color: 'var(--ink-4)', fontFamily: 'var(--font-inter), sans-serif' }}>where the pack &apos;n plays and high chairs live ▾</span>
+        </summary>
+        <div style={{ marginTop: 12 }}>
+          <GearGrid items={GEAR_ITEMS} rows={gearRows} save={saveGearCellField} />
+        </div>
+      </details>
 
       {/* Chevron rotation for open groups — the only CSS the page needs. */}
       <style>{`details.pw-g[open] > summary .pw-c { transform: rotate(180deg); }`}</style>
