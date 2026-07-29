@@ -168,42 +168,45 @@ export type ShootPayStats = { approvedCount: number; paidCount: number; owedCent
 
 export type ShootPaySummary = {
   paidCents: number; // bases + view bonuses already paid out
-  owedCents: number; // bases due (posted, counting, unpaid) + reel bonuses ready to pay (views locked, >0)
-  pendingCents: number; // reel bonuses still counting (base paid, views not locked)
-  fullySettled: boolean; // >=1 counting post, every base paid, every reel bonus resolved, none still un-posted
-  baseDue: number; // posts awaiting their base payment
-  topupDue: number; // reels whose view bonus is ready to pay
+  owedCents: number; // delivered-unpaid bases + reel bonuses ready to pay (posted, views locked, >0)
+  owedBaseCents: number; // just the delivered-unpaid base portion of owedCents
+  pendingCents: number; // reel bonuses still counting (base paid, posted, views not locked)
+  fullySettled: boolean; // >=1 counting post, every base paid, every POSTED reel's bonus resolved
+  baseDue: number; // delivered posts awaiting their base payment
+  topupDue: number; // posted reels whose view bonus is ready to pay
 };
 
 /**
  * Per-POST money rollup for a shoot — the single source of truth the board, the
  * shoot header, the roster ledger, and the contributor's portal all read from,
- * so no two surfaces can drift. Each post pays on its own clock: the base the
- * day it posts, a reel's view bonus once its count locks.
+ * so no two surfaces can drift. The base is owed on DELIVERY (as soon as the
+ * post is logged); a reel's view bonus only starts once we POST it — which can
+ * be weeks later, or never.
  */
 export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySummary {
   const byId = new Map(pay.assets.map((p) => [p.assetId, p]));
-  let paidCents = 0, owedCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
+  let paidCents = 0, owedCents = 0, owedBaseCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
   for (const a of assets) {
     const ap = byId.get(a.id);
     if (!ap || !ap.counts) continue; // excluded / disqualified / over-cap owe nothing
     counting++;
     let assetSettled = true;
-    // Base — paid the day it posts.
+    // Base — owed the moment it's delivered (logged), whether or not it's posted.
     if (a.base_paid_at) {
       paidCents += a.base_cents ?? ap.baseCents;
-    } else if (a.posted_at) {
+    } else {
       owedCents += ap.baseCents;
+      owedBaseCents += ap.baseCents;
       baseDue++;
       assetSettled = false;
-    } else {
-      assetSettled = false; // logged but not posted yet
     }
-    // View bonus — reels only, once the base is paid.
+    // View bonus — reels only, and only once the reel has been POSTED (its clock
+    // running) AND its delivery base is paid. An un-posted reel earns no bonus
+    // yet; a posted reel whose base isn't paid waits on the base first.
     if (a.kind === 'reel') {
       if (a.topup_paid_at) {
         paidCents += a.topup_cents ?? 0;
-      } else if (a.base_paid_at) {
+      } else if (a.posted_at && a.base_paid_at) {
         if (a.views_locked_at) {
           if (ap.topupCents > 0) { owedCents += ap.topupCents; topupDue++; assetSettled = false; }
           // locked under the first rung → no bonus, nothing left to pay
@@ -211,13 +214,11 @@ export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySumm
           pendingCents += ap.topupCents; // current best bonus, still climbing
           assetSettled = false;
         }
-      } else {
-        assetSettled = false; // base not paid yet
       }
     }
     if (assetSettled) settled++;
   }
-  return { paidCents, owedCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
+  return { paidCents, owedCents, owedBaseCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
 }
 
 /**

@@ -208,7 +208,9 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
     ceilingCents,
     totalCents,
     settlesOn,
-    needsAttention: counting.some((p) => p.overdue || p.stalled),
+    // A post with no date is normal now (delivered, not yet posted). Attention =
+    // a POSTED reel whose count has closed but whose views were never read.
+    needsAttention: counting.some((p) => p.overdue),
   };
 }
 
