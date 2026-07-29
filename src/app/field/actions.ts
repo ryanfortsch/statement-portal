@@ -200,6 +200,18 @@ export async function createBoardSlip(formData: FormData) {
   redirect('/field/property-work');
 }
 
+/** Field-side cell save for the guest-gear grid — the property-work board
+ *  grant is the gate, so only office-approved specialists can edit. */
+export async function saveGearCellField(propertyId: string, itemKey: string, location: string): Promise<{ ok: boolean }> {
+  const contractor = await boardContractor();
+  if (!contractor) return { ok: false };
+  const { upsertGearCell } = await import('@/lib/property-gear');
+  const res = await upsertGearCell(propertyId, itemKey, location, `${contractor.full_name} (Field)`);
+  revalidatePath('/field/property-work');
+  revalidatePath('/work/gear');
+  return res;
+}
+
 async function reqContext() {
   const h = await headers();
   return {
