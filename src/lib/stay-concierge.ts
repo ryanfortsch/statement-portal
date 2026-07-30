@@ -496,6 +496,9 @@ export type OwnerApproval = {
   created_at: string;
   resolved_at: string | null;
   age_minutes: number | null;
+  /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
+   * Empty otherwise. */
+  send_at: string;
 };
 
 export type OwnerApprovalsResponse = {
@@ -524,6 +527,27 @@ export async function rejectOwnerApproval(id: string) {
 
 export async function markHandledOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+/** Queue an owner draft to send at a future UTC ISO time. `finalText` is the
+ * operator's hand-edited reply (same contract as approve): it persists before
+ * scheduling so the queued send fires the edited text. */
+export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string) {
+  return request<{ status: string; id: string; send_at: string }>(
+    `/api/owner-approvals/${id}/schedule`,
+    {
+      method: 'POST',
+      body: { send_at: sendAtUtc, ...(finalText !== undefined ? { final_text: finalText } : {}) },
+    },
+  );
+}
+
+/** Unschedule a queued owner send, returning it to the pending queue. */
+export async function cancelScheduleOwnerApproval(id: string) {
+  return request<{ status: string; id: string }>(
+    `/api/owner-approvals/${id}/cancel_schedule`,
+    { method: 'POST' },
+  );
 }
 
 export async function coachOwnerApproval(id: string, feedback: string, base?: string) {
@@ -667,6 +691,9 @@ export type CleanerApproval = {
   /** Work-slip proposal mined from the message; null when there is none.
    * property_id/property_name above may be non-empty (inferred) for these. */
   proposed_slip: ProposedWorkSlip | null;
+  /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
+   * Empty otherwise. */
+  send_at: string;
 };
 
 export type CleanerApprovalsResponse = {
@@ -707,6 +734,24 @@ export async function rejectCleanerApproval(id: string) {
 
 export async function markHandledCleanerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/mark_handled`, { method: 'POST' });
+}
+
+/** Queue a cleaner draft to send at a future UTC ISO time. The UI disables
+ * this on cards carrying a work-slip proposal (those send immediately so the
+ * operator's slip decision is never dropped). */
+export async function scheduleCleanerApproval(id: string, sendAtUtc: string) {
+  return request<{ status: string; id: string; send_at: string }>(
+    `/api/cleaner-approvals/${id}/schedule`,
+    { method: 'POST', body: { send_at: sendAtUtc } },
+  );
+}
+
+/** Unschedule a queued cleaner send, returning it to the pending queue. */
+export async function cancelScheduleCleanerApproval(id: string) {
+  return request<{ status: string; id: string }>(
+    `/api/cleaner-approvals/${id}/cancel_schedule`,
+    { method: 'POST' },
+  );
 }
 
 export async function coachCleanerApproval(id: string, feedback: string) {
@@ -760,6 +805,9 @@ export type ContractorApproval = {
   /** Work-slip proposal mined from the message; null when there is none.
    * property_id/property_name above may be non-empty (inferred) for these. */
   proposed_slip: ProposedWorkSlip | null;
+  /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
+   * Empty otherwise. */
+  send_at: string;
 };
 
 export type ContractorApprovalsResponse = {
@@ -791,6 +839,24 @@ export async function approveContractorApproval(
         ? { body: { file_slip: opts.fileSlip, slip_property_id: opts.slipPropertyId } }
         : {}),
     },
+  );
+}
+
+/** Queue a contractor draft to send at a future UTC ISO time. The UI disables
+ * this on cards carrying a work-slip proposal (those send immediately so the
+ * operator's slip decision is never dropped). */
+export async function scheduleContractorApproval(id: string, sendAtUtc: string) {
+  return request<{ status: string; id: string; send_at: string }>(
+    `/api/contractor-approvals/${id}/schedule`,
+    { method: 'POST', body: { send_at: sendAtUtc } },
+  );
+}
+
+/** Unschedule a queued contractor send, returning it to the pending queue. */
+export async function cancelScheduleContractorApproval(id: string) {
+  return request<{ status: string; id: string }>(
+    `/api/contractor-approvals/${id}/cancel_schedule`,
+    { method: 'POST' },
   );
 }
 
