@@ -36,26 +36,24 @@ export async function GET() {
   // page considers "pending." The only definition that stays in sync is:
   // what the page itself shows.
   //
-  // Guests (MessagingQueue): everything in approvals minus scheduled rows.
+  // Every queue now shows pending + scheduled (queued) cards, and every
+  // page's badge-worthy count is the PENDING slice only — a queued card is
+  // handled work waiting on a timer, not an ask on the operator.
   //   pending = approvals.filter(a => a.status !== 'scheduled')
-  //
-  // Owners (OwnerMessagingQueue): everything in approvals (no filter).
-  //   pending = approvals
   //
   // Proactive cleaner/owner messages (ProactiveRemindersPanel) need no
   // handling here: when one fires in approve mode it arrives as a normal
-  // pending approval in its queue's list, and neither page filters, so the
-  // counts below already include them.
+  // pending approval in its queue's list, so the counts below already
+  // include them.
   //
   // If the badge says N, open the corresponding tab and you will see N
-  // cards. If those numbers ever diverge again, the fix is to mirror
+  // pending cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
-  const guests = guestRes.ok
-    ? guestRes.data.approvals.filter((a) => a.status !== 'scheduled').length
-    : 0;
-  const owners = ownerRes.ok ? ownerRes.data.approvals.length : 0;
-  const cleaners = cleanerRes.ok ? cleanerRes.data.approvals.length : 0;
-  const contractors = contractorRes.ok ? contractorRes.data.approvals.length : 0;
+  const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
+  const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : 0;
+  const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : 0;
+  const cleaners = cleanerRes.ok ? cleanerRes.data.approvals.filter(notScheduled).length : 0;
+  const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : 0;
   return NextResponse.json({
     count: guests + owners + cleaners + contractors,
     guests,

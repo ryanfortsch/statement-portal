@@ -7,6 +7,8 @@ import {
   rejectOwnerApproval,
   markHandledOwnerApproval,
   coachOwnerApproval,
+  scheduleOwnerApproval,
+  cancelScheduleOwnerApproval,
   saveOwnerCuratedFacts,
   explainError,
 } from '@/lib/stay-concierge';
@@ -43,6 +45,33 @@ export async function markOwnerHandled(id: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await markHandledOwnerApproval(id);
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/owner-messaging');
+  return { ok: true };
+}
+
+/** Queue the draft to send at a future time (the send-later element).
+ * `finalText` mirrors approve: the operator's hand-edited reply persists
+ * before scheduling so the queued send fires the edited text. */
+export async function scheduleOwnerDraft(
+  id: string,
+  sendAt: string,
+  finalText?: string,
+): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
+  const res = await scheduleOwnerApproval(id, sendAt, finalText);
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/owner-messaging');
+  return { ok: true };
+}
+
+/** Unschedule a queued send, returning the draft to the pending queue. */
+export async function cancelOwnerSchedule(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await cancelScheduleOwnerApproval(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };

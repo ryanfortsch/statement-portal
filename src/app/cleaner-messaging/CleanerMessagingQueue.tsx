@@ -9,8 +9,16 @@ import {
   rejectCleanerDraft,
   markCleanerHandled,
   coachCleanerDraft,
+  scheduleCleanerDraft,
+  cancelCleanerSchedule,
 } from './actions';
-import { prettifyTopic, ageToneColor, relativeTimeShort } from '@/app/messaging/format';
+import { prettifyTopic, ageToneColor, relativeTimeShort, sendsInLabel } from '@/app/messaging/format';
+import {
+  QUEUED_TONE,
+  QueuedBadge,
+  SplitSendButton,
+  SchedulePopover,
+} from '@/components/ScheduleSend';
 
 type PropertyOption = { id: string; name: string };
 
@@ -45,16 +53,30 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
     return () => clearInterval(t);
   }, [softRefresh]);
 
+  // Queued (scheduled) cards float to the top, ordered by when they fire;
+  // pending drafts stay in newest-first order below (guest-queue pattern).
+  const queued = initialPending
+    .filter((a) => a.status === 'scheduled')
+    .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
+  const pending = initialPending.filter((a) => a.status !== 'scheduled');
+  const ordered = [...queued, ...pending];
+  const title =
+    initialPending.length === 0
+      ? 'Inbox zero'
+      : pending.length === 0
+        ? `Queued (${queued.length})`
+        : `Pending (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+
   return (
     <Section
-      title={initialPending.length === 0 ? 'Inbox zero' : `Pending (${initialPending.length})`}
+      title={title}
       eyebrow={`refreshes every ${REFRESH_MS / 1000}s`}
       right={<RefreshChip onClick={softRefresh} />}
       empty={initialPending.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {initialPending.map((approval) => (
+        {ordered.map((approval) => (
           <CleanerApprovalCard
             key={approval.id}
             approval={approval}
@@ -104,7 +126,15 @@ function RefreshChip({ onClick }: { onClick: () => void }) {
   );
 }
 
-type PendingAction = 'approve' | 'reject' | 'mark-handled' | 'coach' | null;
+type PendingAction =
+  | 'approve'
+  | 'reject'
+  | 'mark-handled'
+  | 'coach'
+  | 'schedule'
+  | 'send-now'
+  | 'cancel-schedule'
+  | null;
 
 function CleanerApprovalCard({
   approval,
@@ -120,6 +150,28 @@ function CleanerApprovalCard({
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // Send-later drawer + collapsed state for queued cards (guest pattern).
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const isScheduled = approval.status === 'scheduled';
+
+  // Dismiss the schedule menu on Escape or a click outside this card.
+  useEffect(() => {
+    if (!showSchedule) return;
+    const onDown = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setShowSchedule(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSchedule(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showSchedule]);
 
   // Proposed work slip mined from the cleaner's message. The operator picks
   // the property and can untick filing entirely; the decision rides along on
@@ -170,10 +222,81 @@ function CleanerApprovalCard({
     approval.inbound_language === 'pt' || approval.inbound_language === 'mixed';
   const inboundEnglishText = approval.cleaner_text_english?.trim();
 
+  const doSchedule = (sendAtIso: string) => {
+    setShowSchedule(false);
+    run('schedule', () => scheduleCleanerDraft(approval.id, sendAtIso));
+  };
+  const doSendNow = () => run('send-now', () => approveCleanerDraft(approval.id));
+  const doCancelSchedule = () => run('cancel-schedule', () => cancelCleanerSchedule(approval.id));
+
+  // Collapsed queued card: a single dense row so waiting sends stay quiet.
+  if (isScheduled && !expanded) {
+    return (
+      <article
+        ref={cardRef}
+        style={{
+          border: '1px solid var(--rule)',
+          borderLeft: `3px solid ${QUEUED_TONE}`,
+          background: 'var(--paper-2)',
+          padding: '11px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <QueuedBadge />
+        <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>
+          {nameLabel}
+        </span>
+        <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
+          {sendsInLabel(approval.send_at)}
+        </span>
+        <span
+          style={{
+            flex: '1 1 120px',
+            minWidth: 0,
+            fontSize: 12,
+            color: 'var(--ink-4)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={approval.draft}
+        >
+          {approval.draft}
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            Show ▾
+          </button>
+          <SecondaryButton onClick={doSendNow} disabled={isPending}>
+            {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
+          </SecondaryButton>
+          <SecondaryButton onClick={doCancelSchedule} disabled={isPending}>
+            {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
+          </SecondaryButton>
+        </div>
+        {error && (
+          <p style={{ width: '100%', margin: '4px 0 0', fontSize: 12, color: 'var(--signal)', fontWeight: 500 }} role="alert">
+            {error}
+          </p>
+        )}
+      </article>
+    );
+  }
+
   return (
     <article
+      ref={cardRef}
       style={{
         border: '1px solid var(--rule)',
+        borderLeft: isScheduled ? `3px solid ${QUEUED_TONE}` : '1px solid var(--rule)',
         background: 'var(--paper-2)',
         padding: 20,
       }}
@@ -195,20 +318,39 @@ function CleanerApprovalCard({
           <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
             {topicLabel} · {langChip}
           </span>
+          {isScheduled && (
+            <>
+              <QueuedBadge />
+              <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
+                {sendsInLabel(approval.send_at)}
+              </span>
+            </>
+          )}
         </div>
-        <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
-          {'drafted '}
-          <span
-            style={{
-              color: ageToneColor(approval.age_minutes),
-              fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
-            }}
+        {isScheduled ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="eyebrow"
+            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
           >
-            {ageLabel}
+            Hide ▴
+          </button>
+        ) : (
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
+            {'drafted '}
+            <span
+              style={{
+                color: ageToneColor(approval.age_minutes),
+                fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
+              }}
+            >
+              {ageLabel}
+            </span>
+            {' · id '}
+            {approval.short_id}
           </span>
-          {' · id '}
-          {approval.short_id}
-        </span>
+        )}
       </header>
 
       <div className="rt-msg-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
@@ -311,47 +453,85 @@ function CleanerApprovalCard({
           alignItems: 'center',
         }}
       >
-        <PrimaryButton
-          onClick={() =>
-            run('approve', () =>
-              approveCleanerDraft(
-                approval.id,
+        {isScheduled ? (
+          <>
+            <SecondaryButton
+              onClick={doSendNow}
+              disabled={isPending}
+              title="Send this reply right now instead of waiting."
+            >
+              {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={doCancelSchedule}
+              disabled={isPending}
+              title="Stop the scheduled send and return this draft to the queue."
+            >
+              {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
+            </SecondaryButton>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              Cancel send to edit or coach
+            </span>
+          </>
+        ) : (
+          <>
+            <SplitSendButton
+              onApprove={() =>
+                run('approve', () =>
+                  approveCleanerDraft(
+                    approval.id,
+                    slip
+                      ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
+                      : undefined,
+                  ),
+                )
+              }
+              onToggle={() => setShowSchedule((v) => !v)}
+              disabled={isPending || slipBlocked}
+              // A queued send would file the slip with mined defaults, silently
+              // dropping the operator's untick / property pick — so slip cards
+              // send immediately only.
+              toggleDisabled={!!slip}
+              toggleTitle={
                 slip
-                  ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
-                  : undefined,
-              ),
-            )
-          }
-          disabled={isPending || slipBlocked}
-        >
-          {pendingAction === 'approve' ? 'Sending…' : 'Approve & send'}
-        </PrimaryButton>
-        {/* Proactive reminders are the operator's own composed message, not an
-            AI draft of an inbound, so there is nothing to coach/regenerate. */}
-        {approval.topic !== 'proactive_reminder' && (
-          <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
-            {pendingAction === 'coach'
-              ? 'Regenerating…'
-              : showCoach
-                ? 'Cancel coaching'
-                : 'Coach the AI'}
-          </SecondaryButton>
+                  ? 'This card files a work slip, so it sends immediately (your slip choices ride along on approve).'
+                  : undefined
+              }
+              loading={pendingAction === 'approve'}
+              open={showSchedule}
+            />
+            {/* Proactive reminders are the operator's own composed message, not an
+                AI draft of an inbound, so there is nothing to coach/regenerate. */}
+            {approval.topic !== 'proactive_reminder' && (
+              <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+                {pendingAction === 'coach'
+                  ? 'Regenerating…'
+                  : showCoach
+                    ? 'Cancel coaching'
+                    : 'Coach the AI'}
+              </SecondaryButton>
+            )}
+            <SecondaryButton
+              onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
+              disabled={isPending}
+              title="Already replied directly. Clears the queue without sending."
+            >
+              {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={() => run('reject', () => rejectCleanerDraft(approval.id))}
+              disabled={isPending}
+              title="This message doesn't need a reply. Drops the draft."
+            >
+              {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
+            </SecondaryButton>
+          </>
         )}
-        <SecondaryButton
-          onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
-          disabled={isPending}
-          title="Already replied directly. Clears the queue without sending."
-        >
-          {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
-        </SecondaryButton>
-        <SecondaryButton
-          onClick={() => run('reject', () => rejectCleanerDraft(approval.id))}
-          disabled={isPending}
-          title="This message doesn't need a reply. Drops the draft."
-        >
-          {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
-        </SecondaryButton>
       </footer>
+
+      {showSchedule && !isScheduled && (
+        <SchedulePopover onSchedule={doSchedule} disabled={isPending} />
+      )}
 
       {pendingAction === 'coach' && (
         <p

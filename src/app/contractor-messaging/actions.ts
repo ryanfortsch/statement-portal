@@ -7,6 +7,8 @@ import {
   rejectContractorApproval,
   markHandledContractorApproval,
   coachContractorApproval,
+  scheduleContractorApproval,
+  cancelScheduleContractorApproval,
   saveContractorCuratedFacts,
   explainError,
 } from '@/lib/stay-concierge';
@@ -47,6 +49,28 @@ export async function markContractorHandled(id: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await markHandledContractorApproval(id);
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/contractor-messaging');
+  return { ok: true };
+}
+
+/** Queue the draft to send at a future time (the send-later element). The
+ * card disables this when a work-slip proposal is present. */
+export async function scheduleContractorDraft(id: string, sendAt: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
+  const res = await scheduleContractorApproval(id, sendAt);
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/contractor-messaging');
+  return { ok: true };
+}
+
+/** Unschedule a queued send, returning the draft to the pending queue. */
+export async function cancelContractorSchedule(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await cancelScheduleContractorApproval(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/contractor-messaging');
   return { ok: true };
