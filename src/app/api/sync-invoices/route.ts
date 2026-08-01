@@ -139,21 +139,32 @@ async function fetchInvoicesFromGmail(month: string): Promise<ParsedInvoice[]> {
 
   const accessToken = await getAccessToken();
 
-  const searchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
+  const baseSearchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
     `from:quickbooks@notification.intuit.com subject:"Cape Ann Elite" after:${startDate} before:${endDate}`
-  )}&maxResults=50`;
+  )}&maxResults=100`;
 
-  const searchRes = await fetch(searchUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  // Follow nextPageToken until the month is exhausted. A busy month runs
+  // well past one page (July 2026 hit exactly 50 under the old single-page
+  // fetch, silently dropping the rest). Hard cap as a runaway guard.
+  const MAX_MESSAGES = 500;
+  const messages: { id: string }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const searchUrl = pageToken ? `${baseSearchUrl}&pageToken=${encodeURIComponent(pageToken)}` : baseSearchUrl;
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!searchRes.ok) throw new Error(`Gmail search failed: ${await searchRes.text()}`);
+    const searchData = await searchRes.json();
+    messages.push(...(searchData.messages ?? []));
+    pageToken = searchData.nextPageToken;
+  } while (pageToken && messages.length < MAX_MESSAGES);
 
-  if (!searchRes.ok) throw new Error(`Gmail search failed: ${await searchRes.text()}`);
-  const searchData = await searchRes.json();
-  if (!searchData.messages || searchData.messages.length === 0) return [];
+  if (messages.length === 0) return [];
 
   const invoices: ParsedInvoice[] = [];
 
-  for (const msg of searchData.messages) {
+  for (const msg of messages) {
     const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject`;
     const msgRes = await fetch(msgUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
