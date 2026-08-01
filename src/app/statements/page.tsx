@@ -1140,7 +1140,11 @@ function PropertyCard({
   const [addingReceipt, setAddingReceipt] = useState(false);
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
-  const cleaning = prop.cleaning_events || [];
+  // Sort on the same date the row displays (bank charge date, falling back to
+  // checkout). The fetch has no order, so without this the list renders in
+  // insertion order: bank rows from ingest first, invoice rows appended later.
+  const cleaning = [...(prop.cleaning_events || [])].sort((a, b) =>
+    (a.bank_charge_date || a.checkout_date || '').localeCompare(b.bank_charge_date || b.checkout_date || ''));
   const repairs = prop.repair_events || [];
   const bankMatched = reservations.filter(r => r.bank_match_status === 'matched').length;
   const pctMatched = reservations.length > 0 ? Math.round((bankMatched / reservations.length) * 100) : 0;
