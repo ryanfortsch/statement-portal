@@ -64,6 +64,8 @@ export type AddonCharge = {
   sms_body: string;
   /** Guest's phone in E.164, '' when none on file (SMS impossible). */
   guest_phone: string;
+  /** UTC ISO when the guest completed checkout; '' / absent = not yet paid. */
+  paid_at?: string;
 };
 
 export type ApprovalsResponse = {
