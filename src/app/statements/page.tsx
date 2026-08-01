@@ -1432,11 +1432,18 @@ function PropertyCard({
                       }}>
                         {ce.source === 'bank-linen'
                           ? 'Linen service'
-                          : (ce.guest_name || (ce.invoice_no ? `Invoice ${ce.invoice_no}` : 'Unmatched charge'))}
+                          : ce.source === 'bank-laundry'
+                            ? (ce.guest_name || 'Laundry service')
+                            : (ce.guest_name || (ce.invoice_no ? `Invoice ${ce.invoice_no}` : 'Unmatched charge'))}
                       </span>
                       {ce.source === 'bank-linen' && (
                         <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--tide)' }}>
                           {ce.vendor || "Nor'East"} · Linens
+                        </span>
+                      )}
+                      {ce.source === 'bank-laundry' && (
+                        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--tide)' }}>
+                          {ce.vendor || 'Laundry Plus'} · Laundry
                         </span>
                       )}
                       {ce.source === 'corroborated' && (
