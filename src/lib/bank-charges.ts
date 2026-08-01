@@ -57,6 +57,9 @@ export const MAINTENANCE_VENDORS: CleaningVendor[] = [
   // Morris Heating & Air -- HVAC service contract for the rentals. Bank
   // descriptor truncates to "Morris Heating &" so we match the prefix.
   { name: 'Morris Heating & Air', matches: ['MORRIS HEATING'] },
+  // SP Properties -- Anthony Silva, handyman. Card descriptor reads
+  // "IN *SP PROPERTIES 978-9491399 NH".
+  { name: 'SP Properties', matches: ['SP PROPERTIES'] },
 ];
 
 function firstMatch(descUpper: string, vendors: CleaningVendor[]): string | null {
