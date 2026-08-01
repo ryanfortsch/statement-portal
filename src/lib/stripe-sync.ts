@@ -586,6 +586,83 @@ export async function syncPropertyStripe(opts: {
       }
     }
 
+    // Date-range fallback (Dotti 2026-08-01: "use the actuals from
+    // Stripe"). SCA Payment Link descriptions carry the stay window
+    // ("Stay at Gloucester Harbor - 2026-07-27 to 2026-07-31"). On a
+    // property where Guesty has neither TOTAL_PAID nor total_taxes (the
+    // 19 Rackliffe pattern), the amount fallback expects the pre-tax
+    // figure and can never see the tax-inclusive charge ($4,643.44
+    // expected vs $5,128.71 charged), so the 3.9% fee estimate survived
+    // every sync. The Stripe account is per-property and the description
+    // names the exact stay dates, so check-in/check-out equality is
+    // decisive. Sum every orphan charge carrying the range (split
+    // payments share one description) and write the summed actual fee.
+    // The range must belong to exactly one still-unmatched reservation:
+    // cancel-and-rebook can leave two rows around one window, and a
+    // wrong link writes money onto the wrong guest.
+    const DATE_RANGE_RE = /(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/;
+    for (const r of reservations) {
+      if (matchedCodes.has(r.confirmation_code)) continue;
+      const p = (r.platform || '').toUpperCase();
+      const isRTStripeChannel = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL';
+      if (!isRTStripeChannel) continue;
+      const isHomeownerStay = p === 'MANUAL' && (!r.guesty_rental_income || r.guesty_rental_income === 0);
+      if (isHomeownerStay) continue;
+      if (!r.check_in || !r.check_out) continue;
+
+      const hits = orphanCodes.filter(o => {
+        const agg = byCodeAgg.get(o.code);
+        if (!agg || agg.isGuestyCoded) return false;
+        const m = DATE_RANGE_RE.exec(agg.fullDesc);
+        return !!m && m[1] === r.check_in && m[2] === r.check_out;
+      });
+      if (hits.length === 0) continue;
+
+      const claimants = reservations.filter(x => {
+        const xp = (x.platform || '').toUpperCase();
+        const rt = xp.includes('HOMEAWAY') || xp === 'VRBO' || xp === 'MANUAL';
+        return rt && !matchedCodes.has(x.confirmation_code) && x.check_in === r.check_in && x.check_out === r.check_out;
+      });
+      if (claimants.length !== 1) continue;
+
+      let refundedCents = 0, feeCents = 0;
+      let feeKnown = true;
+      for (const o of hits) {
+        const agg = byCodeAgg.get(o.code);
+        if (!agg) { feeKnown = false; continue; }
+        refundedCents += agg.refundedCents;
+        feeCents += agg.feeCents;
+        if (!agg.feeKnown) feeKnown = false;
+      }
+
+      matchedCodes.add(r.confirmation_code);
+      result.matched += 1;
+      for (const o of hits) {
+        orphanCodes.splice(orphanCodes.indexOf(o), 1);
+        byCodeAgg.delete(o.code);
+        linkedOrphanKeys.push(`stripe:${o.code}`);
+      }
+
+      const actualFee = feeKnown ? round2(feeCents / 100) : null;
+      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
+        const prev = round2(r.stripe_fee);
+        if (prev !== actualFee) {
+          const deltaFee = round2(actualFee - prev);
+          const newAdjusted = round2((r.adjusted_revenue || 0) - deltaFee);
+          await supabase
+            .from('reservations')
+            .update({ stripe_fee: actualFee, adjusted_revenue: newAdjusted })
+            .eq('id', r.id);
+          result.fee_updates.push({ code: r.confirmation_code, guest: r.guest_name || 'Guest', prev, next: actualFee, delta: deltaFee });
+        }
+      }
+
+      const refunded = round2(refundedCents / 100);
+      if (refunded > 0) {
+        result.refunds_detected.push({ code: r.confirmation_code, guest: r.guest_name || 'Guest', amount: refunded });
+      }
+    }
+
     result.unmatched_charges = orphanCodes.map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
 
     // One-off Payment Link charges (early check-in, extra night, pet fee
