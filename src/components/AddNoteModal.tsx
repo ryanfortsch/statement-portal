@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { PROPERTIES } from '@/lib/properties';
 
 /**
  * Two-step modal for capturing reservation eccentricities (the "Allie
@@ -53,9 +54,33 @@ type ExtractResponse = {
 
 type Step = 'paste' | 'confirm' | 'saving' | 'saved';
 
-export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; defaultAuthor?: string }) {
+/**
+ * The pasted text survives an accidental close, a stuck confirm step, or a
+ * page reload -- it only clears after a successful save. Notes here are often
+ * several minutes of typing; losing one to a dead-end is worse than a stale
+ * draft reappearing.
+ */
+const DRAFT_KEY = 'helm-add-note-draft';
+
+function monthLabel(m: string): string {
+  const [y, mo] = m.split('-').map(Number);
+  if (!y || !mo) return m;
+  return new Date(y, mo - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+
+export function AddNoteModal({ onClose, defaultAuthor, month, onSavedPeriodNote }: {
+  onClose: () => void;
+  defaultAuthor?: string;
+  /** Selected statement month (YYYY-MM). Enables the "not tied to a reservation" save path. */
+  month?: string;
+  /** Called after a note is filed as a close-out note so the parent can refresh the card. */
+  onSavedPeriodNote?: () => void;
+}) {
   const [step, setStep] = useState<Step>('paste');
-  const [text, setText] = useState('');
+  const [text, setTextRaw] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try { return window.localStorage.getItem(DRAFT_KEY) || ''; } catch { return ''; }
+  });
   const [attachment, setAttachment] = useState<File | null>(null);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -65,6 +90,18 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
   const [editedBody, setEditedBody] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [savedNoteId, setSavedNoteId] = useState<string | null>(null);
+  const [noReservation, setNoReservation] = useState(false);
+  const [generalPropertyId, setGeneralPropertyId] = useState('');
+  const [savedAsCloseOut, setSavedAsCloseOut] = useState(false);
+
+  function setText(v: string) {
+    setTextRaw(v);
+    try { window.localStorage.setItem(DRAFT_KEY, v); } catch { /* private mode */ }
+  }
+
+  function clearDraft() {
+    try { window.localStorage.removeItem(DRAFT_KEY); } catch { /* private mode */ }
+  }
 
   async function handleProcess() {
     if (!text.trim() && !attachment) {
@@ -90,6 +127,11 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
       setCandidates(data.candidates || []);
       setPropertyIdMatch(data.property_id_match);
       setEditedBody(data.extraction.body);
+      setGeneralPropertyId(data.property_id_match || '');
+      setSavedAsCloseOut(false);
+      // No candidates and no code to type is a dead end without this default:
+      // general notes (repairs, vendor payments, FYIs) have no reservation.
+      setNoReservation(Boolean(month) && data.candidates.length === 0);
       // Auto-select the first candidate if confidence is high and there's exactly one match.
       if (data.candidates.length === 1 && data.extraction.confidence === 'high') {
         setSelectedCode(data.candidates[0].confirmation_code);
@@ -104,13 +146,45 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
   }
 
   async function handleSave() {
-    const code = (selectedCode || manualCode).trim();
-    if (!code) {
-      setError('Pick a candidate or type a confirmation code.');
-      return;
-    }
     if (!editedBody.trim()) {
       setError('Body cannot be empty.');
+      return;
+    }
+
+    // No-reservation path: file the note with the month's close-out notes
+    // (period_notes) instead of pinning it to a confirmation code.
+    if (noReservation && month) {
+      setError(null);
+      setStep('saving');
+      try {
+        const res = await fetch('/api/period-notes', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ month, body: editedBody.trim(), property_id: generalPropertyId || null }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setError(data.error || 'Save failed.');
+          setStep('confirm');
+          return;
+        }
+        setSavedNoteId(data.note?.id || 'saved');
+        setSavedAsCloseOut(true);
+        clearDraft();
+        setStep('saved');
+        onSavedPeriodNote?.();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Save failed.');
+        setStep('confirm');
+      }
+      return;
+    }
+
+    const code = (selectedCode || manualCode).trim();
+    if (!code) {
+      setError(month
+        ? 'Pick a candidate, type a confirmation code, or tick "Not tied to a reservation" to file it with the close-out notes.'
+        : 'Pick a candidate or type a confirmation code.');
       return;
     }
     setError(null);
@@ -140,6 +214,7 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
         return;
       }
       setSavedNoteId(data.note?.id || 'saved');
+      clearDraft();
       setStep('saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed.');
@@ -356,7 +431,10 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
               <div className="eyebrow" style={{ marginBottom: 6 }}>Pick the reservation</div>
               {candidates.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 8 }}>
-                  No matching reservations found by guest name. Type the confirmation code manually:
+                  No matching reservations found by guest name.
+                  {month
+                    ? ' If the note is about a reservation, type the confirmation code manually; otherwise file it as a close-out note below.'
+                    : ' Type the confirmation code manually:'}
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--rule)', maxHeight: 240, overflow: 'auto' }}>
@@ -380,7 +458,7 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
                           type="radio"
                           name="candidate"
                           checked={checked}
-                          onChange={() => { setSelectedCode(c.confirmation_code); setManualCode(''); }}
+                          onChange={() => { setSelectedCode(c.confirmation_code); setManualCode(''); setNoReservation(false); }}
                           style={{ marginTop: 3 }}
                         />
                         <div>
@@ -413,7 +491,7 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
                 <input
                   type="text"
                   value={manualCode}
-                  onChange={(e) => { setManualCode(e.target.value); if (e.target.value) setSelectedCode(''); }}
+                  onChange={(e) => { setManualCode(e.target.value); if (e.target.value) { setSelectedCode(''); setNoReservation(false); } }}
                   placeholder="HA-XlpeL8K"
                   style={{
                     flex: 1,
@@ -425,6 +503,45 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
                   }}
                 />
               </div>
+              {month && (
+                <div style={{
+                  marginTop: 10, padding: '10px 12px',
+                  border: '1px dashed var(--rule)',
+                  background: noReservation ? 'var(--paper-2)' : 'transparent',
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-2)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={noReservation}
+                      onChange={(e) => {
+                        setNoReservation(e.target.checked);
+                        if (e.target.checked) { setSelectedCode(''); setManualCode(''); }
+                      }}
+                    />
+                    Not tied to a reservation - file with the {monthLabel(month)} close-out notes
+                  </label>
+                  {noReservation && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Property (optional):</span>
+                      <select
+                        value={generalPropertyId}
+                        onChange={(e) => setGeneralPropertyId(e.target.value)}
+                        style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12 }}
+                      >
+                        <option value="">- general -</option>
+                        {Object.values(PROPERTIES).sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      {attachment && (
+                        <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>
+                          Attachments are kept only on reservation notes.
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: 18 }}>
@@ -501,8 +618,13 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
               fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5,
             }}>
               <div style={{ fontWeight: 600, color: 'var(--positive)', marginBottom: 4 }}>Saved.</div>
-              The note will appear on the affected statement and on the property card. You can keep
-              adding more, or close this window.
+              {savedAsCloseOut ? (
+                <>The note is filed with the {month ? monthLabel(month) : ''} close-out notes at the
+                bottom of the statements page. You can keep adding more, or close this window.</>
+              ) : (
+                <>The note will appear on the affected statement and on the property card. You can keep
+                adding more, or close this window.</>
+              )}
               {savedNoteId && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', marginTop: 6 }}>
                   id: {savedNoteId}
@@ -517,6 +639,7 @@ export function AddNoteModal({ onClose, defaultAuthor }: { onClose: () => void; 
                   setExtraction(null); setCandidates([]); setPropertyIdMatch(null);
                   setSelectedCode(''); setManualCode(''); setEditedBody('');
                   setSavedNoteId(null); setError(null);
+                  setNoReservation(false); setGeneralPropertyId(''); setSavedAsCloseOut(false);
                   setStep('paste');
                 }}
                 style={{
