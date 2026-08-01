@@ -22,9 +22,14 @@
  *   3. For each reservation in the statement, replaces stripe_fee with
  *      the real summed fee, recomputes adjusted_revenue, and propagates
  *      the delta into property_statements totals.
- *   4. Emits stripe_* data gaps for refunds, gross mismatches vs Guesty's
- *      TOTAL_PAID, and missing charges. Wipes prior stripe gaps on every
- *      run so re-runs don't accumulate duplicates.
+ *   4. When Stripe shows MORE collected than Guesty's TOTAL_PAID (Guesty
+ *      under-recording one of a two-installment payment plan, seen fleet-
+ *      wide starting July 2026), rebuilds adjusted_revenue from Stripe
+ *      actuals instead of just flagging it.
+ *   5. Emits stripe_* data gaps for refunds, unreconstructed gross
+ *      mismatches vs Guesty's TOTAL_PAID, and missing charges. Wipes
+ *      prior stripe gaps on every run so re-runs don't accumulate
+ *      duplicates.
  *
  * Airbnb + Booking.com reservations are skipped -- those don't flow
  * through Rising Tide's Stripe accounts.
@@ -41,6 +46,7 @@ export type StripeSyncResult = {
   fee_updates: { code: string; guest: string; prev: number; next: number; delta: number }[];
   refunds_detected: { code: string; guest: string; amount: number }[];
   gross_mismatches: { code: string; guest: string; stripe: number; guesty: number }[];
+  gross_reconstructions: { code: string; guest: string; stripe: number; guesty: number; prev_net: number; next_net: number; fee: number }[];
   reservations_missing_charge: { code: string; guest: string; expected: number }[];
   error?: string;
 };
@@ -295,6 +301,7 @@ export async function syncPropertyStripe(opts: {
     fee_updates: [],
     refunds_detected: [],
     gross_mismatches: [],
+    gross_reconstructions: [],
     reservations_missing_charge: [],
   };
 
@@ -443,28 +450,71 @@ export async function syncPropertyStripe(opts: {
       const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
 
       const guestyGross = grossByCode.get(code);
-      if (guestyGross != null && Math.abs(guestyGross - stripeGross) > 1) {
-        result.gross_mismatches.push({ code, guest: res.guest_name || 'Guest', stripe: stripeGross, guesty: guestyGross });
-      }
+      const mismatched = guestyGross != null && Math.abs(guestyGross - stripeGross) > 1;
+      const rowWritable = actualFee != null && res.stripe_fee != null
+        && res.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(code);
 
       if (refunded > 0) {
         result.refunds_detected.push({ code, guest: res.guest_name || 'Guest', amount: refunded });
       }
 
+      // Stripe-actuals reconstruction (Dotti 2026-08-01). Starting July
+      // 2026 Guesty's TOTAL_PAID began under-reporting two-installment
+      // stays: exactly one of the guest's 50/50 payments, while both
+      // charges sit succeeded in Stripe. Ingest builds adjusted_revenue
+      // from TOTAL_PAID for VRBO/Manual stays, so those statements
+      // under-recognize revenue by roughly half the stay. When Stripe --
+      // the account the money actually landed in -- shows MORE collected
+      // than Guesty recorded, rebuild the net from Stripe actuals using
+      // the same formula ingest uses, with the real summed fee:
+      //   net = stripe_gross - taxes - commission - actual_fee
+      // Commission mirrors ingest's post-kludge semantics: 5% of pre-tax
+      // for VRBO, 0 for Manual/Direct (total_taxes is booking-level, so
+      // it is correct against the full gross). Guarded to only ever
+      // revise upward, never on refunded or installment-split rows;
+      // anything that fails a guard falls through to the old flag-only
+      // gross_mismatch behavior.
+      let reconstructedRow = false;
+      if (mismatched && rowWritable && refunded === 0 && stripeGross > (guestyGross as number) + 1) {
+        const taxes = taxesByCode.get(code) ?? 0;
+        const preTax = Math.max(stripeGross - taxes, 0);
+        const isVrbo = p.includes('HOMEAWAY') || p === 'VRBO';
+        const commission = isVrbo ? round2(preTax * 0.05) : 0;
+        const nextNet = round2(stripeGross - taxes - commission - (actualFee as number));
+        const prevNet = round2(res.adjusted_revenue || 0);
+        if (nextNet > prevNet && nextNet > 0) {
+          await supabase
+            .from('reservations')
+            .update({ stripe_fee: actualFee, adjusted_revenue: nextNet })
+            .eq('id', res.id);
+          result.gross_reconstructions.push({
+            code, guest: res.guest_name || 'Guest',
+            stripe: stripeGross, guesty: guestyGross as number,
+            prev_net: prevNet, next_net: nextNet, fee: actualFee as number,
+          });
+          reconstructedRow = true;
+        }
+      }
+
+      if (mismatched && !reconstructedRow) {
+        result.gross_mismatches.push({ code, guest: res.guest_name || 'Guest', stripe: stripeGross, guesty: guestyGross as number });
+      }
+
       // Replace estimate with actual whenever Stripe returned the fee --
       // every penny matters because deltas snowball across N reservations.
       // Skip rows marked paid_off_stripe (paid by check/wire; their
-      // stripe_fee is intentionally fixed).
-      if (actualFee != null && res.stripe_fee != null && res.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(code)) {
-        const prev = round2(res.stripe_fee);
+      // stripe_fee is intentionally fixed). A reconstructed row already
+      // carries the actual fee inside its rebuilt net.
+      if (!reconstructedRow && rowWritable) {
+        const prev = round2(res.stripe_fee as number);
         if (prev !== actualFee) {
-          const deltaFee = round2(actualFee - prev);
+          const deltaFee = round2((actualFee as number) - prev);
           const newAdjusted = round2((res.adjusted_revenue || 0) - deltaFee);
           await supabase
             .from('reservations')
             .update({ stripe_fee: actualFee, adjusted_revenue: newAdjusted })
             .eq('id', res.id);
-          result.fee_updates.push({ code, guest: res.guest_name || 'Guest', prev, next: actualFee, delta: deltaFee });
+          result.fee_updates.push({ code, guest: res.guest_name || 'Guest', prev, next: actualFee as number, delta: deltaFee });
         }
       }
     }
@@ -661,7 +711,7 @@ export async function syncPropertyStripe(opts: {
     // and the reserve come off the payout. A statement with no
     // attributions gets zeros for all three terms and lands on numbers
     // identical to the pre-add-on formula.
-    if (result.fee_updates.length > 0) {
+    if (result.fee_updates.length > 0 || result.gross_reconstructions.length > 0) {
       const { data: freshRes } = await supabase
         .from('reservations')
         .select('adjusted_revenue')
@@ -691,7 +741,7 @@ export async function syncPropertyStripe(opts: {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_missing_charge', 'stripe_orphan_charge']);
+      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_gross_reconstructed', 'stripe_missing_charge', 'stripe_orphan_charge']);
 
     // Pull any reservation_notes for the codes we're about to flag, so
     // gap descriptions inherit the durable context that arrived
@@ -703,6 +753,7 @@ export async function syncPropertyStripe(opts: {
     const flaggedCodes = new Set<string>([
       ...result.refunds_detected.map(r => r.code),
       ...result.gross_mismatches.map(m => m.code),
+      ...result.gross_reconstructions.map(g => g.code),
       ...result.reservations_missing_charge.map(mc => mc.code),
     ]);
     const notesByCode = new Map<string, { body: string; created_at: string }>();
@@ -728,7 +779,7 @@ export async function syncPropertyStripe(opts: {
       return note ? ` Note: ${note.body}` : '';
     };
 
-    const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
+    const newGaps: { gap_type: string; description: string; severity: string; expected_data: string; resolved?: boolean }[] = [];
     for (const r of result.refunds_detected) {
       newGaps.push({
         gap_type: 'stripe_refund_detected',
@@ -743,6 +794,18 @@ export async function syncPropertyStripe(opts: {
         description: `Stripe gross $${m.stripe.toFixed(2)} disagrees with Guesty TOTAL_PAID $${m.guesty.toFixed(2)} for ${m.guest} (${m.code}).${noteSuffix(m.code)}`,
         severity: 'info',
         expected_data: `Re-check the Guesty reservation amount for this stay`,
+      });
+    }
+    // Audit trail for auto-corrections: recorded pre-resolved so the gap
+    // counter stays quiet, but the row documents exactly what moved and
+    // why if an owner ever asks about the month's numbers.
+    for (const g of result.gross_reconstructions) {
+      newGaps.push({
+        gap_type: 'stripe_gross_reconstructed',
+        description: `Guesty TOTAL_PAID $${g.guesty.toFixed(2)} under-reported ${g.guest} (${g.code}); Stripe collected $${g.stripe.toFixed(2)}. Net rebuilt from Stripe actuals: $${g.prev_net.toFixed(2)} -> $${g.next_net.toFixed(2)} (real fee $${g.fee.toFixed(2)}).${noteSuffix(g.code)}`,
+        severity: 'info',
+        expected_data: `None -- auto-corrected. Fix TOTAL_PAID in Guesty to stop this recurring`,
+        resolved: true,
       });
     }
     for (const mc of result.reservations_missing_charge) {

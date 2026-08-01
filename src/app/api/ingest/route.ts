@@ -1473,7 +1473,7 @@ export async function POST(request: NextRequest) {
             reserve_holdback: preservedReserveHoldback,
           },
         });
-        if (stripeSync.fee_updates.length > 0) {
+        if (stripeSync.fee_updates.length > 0 || stripeSync.gross_reconstructions.length > 0) {
           // Sync just rewrote rental_revenue/management_fee/owner_payout.
           // Refetch so the response summary shows the post-sync numbers,
           // not the pre-sync estimates.
@@ -1483,6 +1483,24 @@ export async function POST(request: NextRequest) {
             .eq('id', stmt.id)
             .single();
           if (refreshed) postSyncTotals = refreshed as PostSyncTotals;
+          // Same for the per-reservation rows the response table renders:
+          // fee corrections and gross reconstructions land on the DB rows
+          // after processedReservations was built, so re-read the two
+          // mutated columns and patch by confirmation code. Without this
+          // the Parsed Reservations table shows pre-sync nets that no
+          // longer add up to the summary totals.
+          const { data: freshRows } = await supabase
+            .from('reservations')
+            .select('confirmation_code, stripe_fee, adjusted_revenue')
+            .eq('property_statement_id', stmt.id);
+          const freshByCode = new Map((freshRows || []).map(r => [r.confirmation_code, r]));
+          for (const pr of processedReservations) {
+            const fresh = freshByCode.get(pr.confirmation_code);
+            if (fresh) {
+              pr.stripe_fee = fresh.stripe_fee ?? pr.stripe_fee;
+              pr.adjusted_revenue = fresh.adjusted_revenue ?? pr.adjusted_revenue;
+            }
+          }
         }
       } catch (err) {
         console.warn('Stripe auto-sync failed:', err);
@@ -1490,7 +1508,7 @@ export async function POST(request: NextRequest) {
           property_id: propertyId,
           charges_found: 0, matched: 0,
           unmatched_charges: [], fee_updates: [], refunds_detected: [],
-          gross_mismatches: [], reservations_missing_charge: [],
+          gross_mismatches: [], gross_reconstructions: [], reservations_missing_charge: [],
           error: err instanceof Error ? err.message : String(err),
         };
       }

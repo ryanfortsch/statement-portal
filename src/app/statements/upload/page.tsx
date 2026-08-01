@@ -64,6 +64,7 @@ type StripeSyncSummary = {
   fee_updates: { code: string; guest: string; prev: number; next: number; delta: number }[];
   refunds_detected: { code: string; guest: string; amount: number }[];
   gross_mismatches: { code: string; guest: string; stripe: number; guesty: number }[];
+  gross_reconstructions?: { code: string; guest: string; stripe: number; guesty: number; prev_net: number; next_net: number; fee: number }[];
   reservations_missing_charge: { code: string; guest: string; expected: number }[];
   error?: string;
 };
@@ -162,8 +163,10 @@ function Insight({ label, value, sub, accent, last }: { label: string; value: st
 function StripeSyncCallout({ sync }: { sync: NonNullable<IngestResult['stripe_sync']> }) {
   const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(n));
   const totalDelta = sync.fee_updates.reduce((s, u) => s + u.delta, 0);
+  const reconstructions = sync.gross_reconstructions ?? [];
+  const reconstructedGain = reconstructions.reduce((s, g) => s + (g.next_net - g.prev_net), 0);
   const hasWarnings = sync.refunds_detected.length + sync.gross_mismatches.length + sync.reservations_missing_charge.length > 0;
-  const hasChanges = sync.fee_updates.length > 0 || hasWarnings;
+  const hasChanges = sync.fee_updates.length > 0 || reconstructions.length > 0 || hasWarnings;
   const everythingClean = !sync.error && !hasChanges;
 
   return (
@@ -173,8 +176,9 @@ function StripeSyncCallout({ sync }: { sync: NonNullable<IngestResult['stripe_sy
         title="Stripe sync"
         meta={
           sync.error ? 'failed'
-            : hasChanges ? `${sync.fee_updates.length} fee${sync.fee_updates.length === 1 ? '' : 's'} corrected`
-              : `${sync.charges_found} charge${sync.charges_found === 1 ? '' : 's'} verified`
+            : reconstructions.length > 0 ? `${reconstructions.length} sta${reconstructions.length === 1 ? 'y' : 'ys'} rebuilt from Stripe`
+              : hasChanges ? `${sync.fee_updates.length} fee${sync.fee_updates.length === 1 ? '' : 's'} corrected`
+                : `${sync.charges_found} charge${sync.charges_found === 1 ? '' : 's'} verified`
         }
       />
 
@@ -198,6 +202,44 @@ function StripeSyncCallout({ sync }: { sync: NonNullable<IngestResult['stripe_sy
           fontSize: 12, color: 'var(--ink-2)',
         }}>
           All Stripe fees match what we estimated -- no adjustments needed.
+        </div>
+      )}
+
+      {reconstructions.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{
+            padding: '10px 14px',
+            borderLeft: '2px solid var(--positive)',
+            background: 'var(--paper-2)',
+            fontSize: 12, color: 'var(--ink-2)', marginBottom: 8,
+          }}>
+            Guesty under-reported what these guests paid (a two-installment payment plan
+            where TOTAL_PAID only captured one charge). Net rebuilt from the actual money
+            in Stripe: <strong style={{ color: 'var(--ink)' }}>+{fmt(reconstructedGain)}</strong> recovered
+            for this statement.
+          </div>
+          <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Guest</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Guesty paid</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Stripe actual</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Net before</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Net now</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reconstructions.map((g, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                  <td style={{ padding: '8px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{g.guest}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)', textDecoration: 'line-through' }}>{fmt(g.guesty)}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink)' }}>{fmt(g.stripe)}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{fmt(g.prev_net)}</td>
+                  <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--positive)', fontWeight: 600 }}>{fmt(g.next_net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
