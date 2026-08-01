@@ -407,17 +407,19 @@ export async function syncPropertyStripe(opts: {
     for (const charge of succeeded) {
       const desc = ((charge.description || synthDesc.get(charge.id) || '')).trim();
       const firstToken = desc.split(/\s+/)[0];
-      if (!firstToken) {
-        result.unmatched_charges.push(`no description (${charge.id})`);
-        continue;
-      }
       // Guesty-coded charges aggregate by code; custom Payment Link charges
       // stay atomic so the orphan list shows one entry per real charge.
-      const looksLikeCode = GUESTY_CODE.test(firstToken);
+      // A charge with no description AND no recoverable line-item text stays
+      // in play as an atomic orphan too: the amount-based fallback matches on
+      // gross alone, and the extras queue wants the money either way.
+      // Dropping these left flat-priced Payment Link stays permanently stuck
+      // on the 3.9% fee estimate.
+      const looksLikeCode = !!firstToken && GUESTY_CODE.test(firstToken);
       const code = looksLikeCode ? firstToken : charge.id;
-      const displayLabel = looksLikeCode ? firstToken : (desc.length > 48 ? desc.slice(0, 45) + '…' : desc);
+      const label = desc || `(no description) …${charge.id.slice(-8)}`;
+      const displayLabel = looksLikeCode ? firstToken : (label.length > 48 ? label.slice(0, 45) + '…' : label);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: desc, createdUnix: charge.created, isGuestyCoded: looksLikeCode };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode };
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
