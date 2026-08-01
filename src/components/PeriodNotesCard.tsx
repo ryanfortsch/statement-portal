@@ -33,7 +33,11 @@ function formatTimestamp(iso: string): string {
   } catch { return iso; }
 }
 
-export function PeriodNotesCard({ month }: { month: string }) {
+export function PeriodNotesCard({ month, refreshKey }: {
+  month: string;
+  /** Bump to re-fetch, e.g. after the AddNoteModal files a close-out note. */
+  refreshKey?: number;
+}) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -42,6 +46,7 @@ export function PeriodNotesCard({ month }: { month: string }) {
   const [showResolved, setShowResolved] = useState(false);
 
   const load = useCallback(async () => {
+    void refreshKey; // dependency only: parent bumps it to force a re-fetch
     if (!month) return;
     setError(null);
     try {
@@ -52,7 +57,7 @@ export function PeriodNotesCard({ month }: { month: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load notes');
     }
-  }, [month]);
+  }, [month, refreshKey]);
 
   // Initial load + refresh when the selected month changes. This is the
   // canonical fetch-on-mount pattern; the eslint rule below is intended to

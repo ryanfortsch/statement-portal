@@ -1875,6 +1875,7 @@ function DashboardContent() {
     commission: number;
   }> | null>(null);
   const [addNoteOpen, setAddNoteOpen] = useState(false);
+  const [periodNotesRefreshKey, setPeriodNotesRefreshKey] = useState(0);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   // Reconcile (compare what we emailed against what Helm now thinks).
@@ -3003,7 +3004,7 @@ function DashboardContent() {
            drops context into throughout the month (cancellations, refunds,
            weird charges, follow-ups) so it's all in one place at close-out.
            Stored in period_notes (supabase-schema-period-notes.sql). */}
-      {selectedMonth && <PeriodNotesCard month={selectedMonth} />}
+      {selectedMonth && <PeriodNotesCard month={selectedMonth} refreshKey={periodNotesRefreshKey} />}
 
       {/* ─── CLOSE-OUT PANEL ─── */}
       {props.length > 0 && (
@@ -3468,6 +3469,8 @@ function DashboardContent() {
         <AddNoteModal
           onClose={() => setAddNoteOpen(false)}
           defaultAuthor="helm-portal"
+          month={selectedMonth || undefined}
+          onSavedPeriodNote={() => setPeriodNotesRefreshKey(k => k + 1)}
         />
       )}
 
