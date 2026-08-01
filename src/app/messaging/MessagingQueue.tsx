@@ -855,6 +855,21 @@ function ApprovalCard({
             >
               ${addon.amount_usd.toFixed(addon.amount_usd % 1 === 0 ? 0 : 2)}
             </span>
+            {addon.paid_at ? (
+              <span
+                title={`Paid ${new Date(addon.paid_at).toLocaleString()}`}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: '0.04em',
+                  border: '1px solid var(--go, #2e7d32)',
+                  color: 'var(--go, #2e7d32)',
+                  padding: '1px 7px',
+                }}
+              >
+                PAID ✓
+              </span>
+            ) : null}
           </div>
 
           {addonSmsPossible ? (

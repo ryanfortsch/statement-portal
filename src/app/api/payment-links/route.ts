@@ -39,6 +39,19 @@ export const revalidate = 0;
 
 const STRIPE = 'https://api.stripe.com/v1';
 
+async function stripeGetJson(
+  key: string,
+  path: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown> | null> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${STRIPE}/${path}?${qs}`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+}
+
 /** Stripe write helper: POSTs are application/x-www-form-urlencoded. The
  * existing stripeGet in lib/stripe-sync.ts is read-only by design; writes
  * live only here, on the shared-secret plane. */
@@ -80,6 +93,45 @@ export async function GET(req: Request) {
   if (provided !== expected) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+
+  // Paid-status lookup for the concierge poller: ?status_key=<request_key>.
+  // Resolves the minted link via payment_link_requests, then asks the
+  // property's own Stripe for the link's checkout sessions - any session
+  // with payment_status 'paid' means the guest completed the page.
+  const statusKey = searchParams.get('status_key');
+  if (statusKey) {
+    if (!isConfigured) {
+      return NextResponse.json({ ok: false, error: 'supabase not configured' }, { status: 200 });
+    }
+    const { data: row } = await supabase
+      .from('payment_link_requests')
+      .select('property_id, stripe_link_id, amount_cents')
+      .eq('request_key', statusKey)
+      .maybeSingle();
+    if (!row?.stripe_link_id) {
+      return NextResponse.json({ ok: false, error: 'unknown_request_key' }, { status: 200 });
+    }
+    const stripeKey = getStripeKeysMap()[row.property_id as string];
+    if (!stripeKey) {
+      return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });
+    }
+    const sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
+      payment_link: String(row.stripe_link_id),
+      limit: '10',
+    });
+    if (!sessions) {
+      return NextResponse.json({ ok: false, error: 'stripe_error' }, { status: 200 });
+    }
+    const list = (sessions.data as { payment_status?: string; created?: number }[] | undefined) ?? [];
+    const paidSession = list.find((s) => s.payment_status === 'paid');
+    return NextResponse.json({
+      ok: true,
+      paid: !!paidSession,
+      paid_at: paidSession?.created ? new Date(paidSession.created * 1000).toISOString() : '',
+      sessions_seen: list.length,
+    });
+  }
+
   const probe = (name: string) => {
     const raw = process.env[name] || '';
     if (!raw.trim()) return { present: false, parses: false, ids: [] as string[] };
