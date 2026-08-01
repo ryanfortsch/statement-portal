@@ -127,9 +127,10 @@ function buildMimeMessage(args: {
   cc?: string[];
   subject: string;
   body: string;
-  attachment?: { filename: string; contentType: string; content: Buffer };
+  attachments?: { filename: string; contentType: string; content: Buffer }[];
 }): string {
-  const { from, to, cc, subject, body, attachment } = args;
+  const { from, to, cc, subject, body } = args;
+  const attachments = args.attachments ?? [];
   const headers = [
     `From: ${from}`,
     `To: ${to.join(', ')}`,
@@ -158,12 +159,13 @@ function buildMimeMessage(args: {
     `--${altBoundary}--`,
   ].join('\r\n');
 
-  if (!attachment) {
+  if (attachments.length === 0) {
     headers.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
     return headers.join('\r\n') + '\r\n\r\n' + altPart + '\r\n';
   }
 
-  // With an attachment: multipart/mixed wrapping the alternative + PDF.
+  // With attachments: multipart/mixed wrapping the alternative + each PDF.
+  // Multi-property owners get one email with every statement attached.
   const mixedBoundary = `rt_boundary_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   headers.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
 
@@ -174,21 +176,20 @@ function buildMimeMessage(args: {
     altPart,
   ].join('\r\n');
 
-  const attachmentB64 = wrapBase64(attachment.content.toString('base64'));
-  const attachmentPart = [
+  const attachmentParts = attachments.map(attachment => [
     `--${mixedBoundary}`,
     `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
     'Content-Transfer-Encoding: base64',
     `Content-Disposition: attachment; filename="${attachment.filename}"`,
     '',
-    attachmentB64,
-  ].join('\r\n');
+    wrapBase64(attachment.content.toString('base64')),
+  ].join('\r\n'));
 
   return [
     headers.join('\r\n'),
     '',
     bodyPart,
-    attachmentPart,
+    ...attachmentParts,
     `--${mixedBoundary}--`,
     '',
   ].join('\r\n');
@@ -202,6 +203,12 @@ export async function POST(request: NextRequest) {
     const template: EmailTemplate = body.template || 'monthly';
     const fundsSentIso: string = body.funds_sent_date || '';
     const periodId: string | undefined = body.period_id;
+    // Draft All passes bulk:true. It precomputes its candidate list, so
+    // when a combined owner draft stamps a sibling property mid-loop the
+    // sibling's own call still fires -- the bulk flag lets us no-op it
+    // instead of drafting the same owner twice. Manual per-property
+    // drafting (no flag) always creates a fresh draft.
+    const bulk: boolean = body.bulk === true;
 
     if (!propertyId || !month) {
       return NextResponse.json({ error: 'property_id and month are required' }, { status: 400 });
@@ -215,62 +222,132 @@ export async function POST(request: NextRequest) {
     if (!prop) {
       return NextResponse.json({ error: `Unknown property: ${propertyId}` }, { status: 400 });
     }
-    if (prop.owner_emails.length === 0) {
+
+    const sbForStmt = getSupabase();
+
+    if (bulk && periodId) {
+      const { data: existingTask } = await sbForStmt
+        .from('close_tasks')
+        .select('email_drafted_at')
+        .eq('period_id', periodId)
+        .eq('property_id', propertyId)
+        .maybeSingle();
+      if (existingTask?.email_drafted_at) {
+        return NextResponse.json({
+          success: true,
+          already_drafted: true,
+          covered_property_ids: [propertyId],
+        });
+      }
+    }
+
+    // Owner grouping: an owner with 2+ active properties (Prudenzi's 53
+    // Rocky Neck + Downstairs) gets ONE email covering every property of
+    // theirs that has a statement this period, each PDF attached. Keyed
+    // on properties.owner_id -- properties without one never group.
+    type GroupMember = { property_id: string; name: string; owner_emails: string[]; statement_id: string; owner_payout: number };
+    const members: GroupMember[] = [];
+    {
+      const { data: ownRow } = await sbForStmt
+        .from('properties')
+        .select('owner_id')
+        .eq('id', propertyId)
+        .maybeSingle();
+      const ownerId = ownRow?.owner_id || null;
+
+      let siblingRows: { id: string; name: string; owner_emails: string[] | null }[] =
+        [{ id: propertyId, name: prop.name, owner_emails: prop.owner_emails }];
+      if (ownerId) {
+        const { data: sibs } = await sbForStmt
+          .from('properties')
+          .select('id, name, owner_emails')
+          .eq('owner_id', ownerId)
+          .eq('is_active', true);
+        if (sibs && sibs.length > 0) {
+          // Requested property first, then siblings by name, so the
+          // subject and attachment order are stable.
+          siblingRows = [...sibs].sort((a, b) =>
+            a.id === propertyId ? -1 : b.id === propertyId ? 1 : a.name.localeCompare(b.name));
+        }
+      }
+
+      const { data: stmtRows } = await sbForStmt
+        .from('property_statements')
+        .select('id, property_id, owner_payout')
+        .eq('period_id', periodId)
+        .in('property_id', siblingRows.map(s => s.id));
+      const stmtByProp = new Map((stmtRows || []).map(s => [s.property_id, s]));
+
+      for (const sib of siblingRows) {
+        const stmt = stmtByProp.get(sib.id);
+        // Siblings only join the email when their statement exists this
+        // period; the requested property joins regardless (its missing-
+        // statement case is handled below, same as before grouping).
+        if (stmt) {
+          members.push({
+            property_id: sib.id, name: sib.name,
+            owner_emails: sib.owner_emails || [],
+            statement_id: stmt.id, owner_payout: Number(stmt.owner_payout) || 0,
+          });
+        }
+      }
+    }
+
+    const stmtRow = members.find(m => m.property_id === propertyId) || null;
+    const grouped = members.length >= 2;
+
+    // Recipients: union across the group -- the sub-unit row may carry no
+    // email of its own (Prudenzi's downstairs), the main house's covers it.
+    const recipientSet = new Set<string>(prop.owner_emails);
+    for (const m of members) m.owner_emails.forEach(e => recipientSet.add(e));
+    const recipients = Array.from(recipientSet);
+    if (recipients.length === 0) {
       return NextResponse.json({
         error: `No owner email on file for ${prop.name}. Add it on the property's page in Helm.`,
       }, { status: 400 });
     }
-
-    // Load the statement BEFORE renderEmail so we can pass owner_payout in
-    // and the body's highlighted payout line gets populated. statement_id is
-    // also needed below for the PDF render, so this is just one fetch.
-    const sbForStmt = getSupabase();
-    const { data: stmtRow } = await sbForStmt
-      .from('property_statements')
-      .select('id, period_id, owner_payout')
-      .eq('property_id', propertyId)
-      .eq('period_id', periodId)
-      .maybeSingle();
 
     const { subject, body: emailBody } = renderEmail({
       greeting: prop.owner_greeting,
       monthName: monthLabel(month),
       propertyShort: prop.name,
       fundsSentIso,
-      ownerPayout: stmtRow ? Number(stmtRow.owner_payout) || undefined : undefined,
+      ownerPayout: stmtRow ? stmtRow.owner_payout || undefined : undefined,
       template,
+      properties: grouped ? members.map(m => ({ name: m.name, payout: m.owner_payout || undefined })) : undefined,
     });
 
-    // Render the statement PDF via headless Chromium so the draft lands in
-    // Gmail with the owner statement already attached. If PDF generation
-    // fails we still create the draft (no attachment) -- operator can
-    // attach manually -- and report the render failure in a `warnings` field.
+    // Render each statement PDF via headless Chromium so the draft lands in
+    // Gmail with every owner statement already attached. If a PDF render
+    // fails we still create the draft (without that attachment) -- operator
+    // can attach manually -- and report the failure in `warnings`.
     const warnings: string[] = [];
-    let pdfAttachment: { filename: string; contentType: string; content: Buffer } | undefined;
+    const pdfAttachments: { filename: string; contentType: string; content: Buffer }[] = [];
 
-    try {
-      if (stmtRow?.id) {
+    if (members.length === 0) {
+      warnings.push('No property_statement found for this month; draft created without PDF attachment.');
+    }
+    for (const m of members) {
+      try {
         const origin = request.nextUrl.origin;
-        const pdf = await renderStatementPdf({ statementId: stmtRow.id, month, origin });
-        pdfAttachment = {
-          filename: statementPdfFilename(prop.name, month),
+        const pdf = await renderStatementPdf({ statementId: m.statement_id, month, origin });
+        pdfAttachments.push({
+          filename: statementPdfFilename(m.name, month),
           contentType: 'application/pdf',
           content: pdf,
-        };
-      } else {
-        warnings.push('No property_statement found for this month; draft created without PDF attachment.');
+        });
+      } catch (pdfErr) {
+        warnings.push(`PDF render failed for ${m.name}: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}. Draft created without that attachment.`);
       }
-    } catch (pdfErr) {
-      warnings.push(`PDF render failed: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}. Draft created without attachment.`);
     }
 
     const mime = buildMimeMessage({
       from: `${SEND_FROM.name} <${SEND_FROM.email}>`,
-      to: prop.owner_emails,
+      to: recipients,
       cc: ALWAYS_CC,
       subject,
       body: emailBody,
-      attachment: pdfAttachment,
+      attachments: pdfAttachments,
     });
 
     const accessToken = await getGmailAccessToken();
@@ -303,30 +380,34 @@ export async function POST(request: NextRequest) {
     // and focuses the one we just made.
     const draftUrl = `https://mail.google.com/mail/u/0/#drafts/${draft.id}`;
 
-    // Stamp close_tasks if we have a period_id. Failure here shouldn't fail
-    // the whole request; the draft itself is created.
+    // Stamp close_tasks for EVERY property covered by this draft (a
+    // combined owner email drafts all of them at once). Failure here
+    // shouldn't fail the whole request; the draft itself is created.
+    const coveredIds = members.length > 0 ? members.map(m => m.property_id) : [propertyId];
     if (periodId) {
       try {
         const sb = getSupabase();
         const nowIso = new Date().toISOString();
-        const { data: existing } = await sb
-          .from('close_tasks')
-          .select('*')
-          .eq('period_id', periodId)
-          .eq('property_id', propertyId)
-          .maybeSingle();
+        for (const pid of coveredIds) {
+          const { data: existing } = await sb
+            .from('close_tasks')
+            .select('*')
+            .eq('period_id', periodId)
+            .eq('property_id', pid)
+            .maybeSingle();
 
-        const row = {
-          period_id: periodId,
-          property_id: propertyId,
-          email_template: template,
-          email_drafted_at: nowIso,
-          email_sent_at: existing?.email_sent_at || null,
-          owner_transfer_done_at: existing?.owner_transfer_done_at || null,
-          mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
-          notes: existing?.notes || null,
-        };
-        await sb.from('close_tasks').upsert(row, { onConflict: 'period_id,property_id' });
+          const row = {
+            period_id: periodId,
+            property_id: pid,
+            email_template: template,
+            email_drafted_at: nowIso,
+            email_sent_at: existing?.email_sent_at || null,
+            owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+            mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+            notes: existing?.notes || null,
+          };
+          await sb.from('close_tasks').upsert(row, { onConflict: 'period_id,property_id' });
+        }
       } catch (persistErr) {
         console.error('draft-email: close_tasks upsert failed', persistErr);
       }
@@ -337,8 +418,10 @@ export async function POST(request: NextRequest) {
       draft_id: draft.id,
       draft_url: draftUrl,
       subject,
-      recipients: prop.owner_emails,
-      attached_pdf: !!pdfAttachment,
+      recipients,
+      attached_pdf: pdfAttachments.length > 0,
+      attached_pdf_count: pdfAttachments.length,
+      covered_property_ids: coveredIds,
       warnings,
     });
   } catch (err) {

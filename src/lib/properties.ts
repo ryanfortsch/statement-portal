@@ -68,6 +68,19 @@ export const PROPERTIES: Record<string, Property> = {
     // Newer cert from Allie's Apr 29 doc; older C053801070 also listed there.
     tax_cert_id: 'C0554181070',
   },
+  '53_rocky_neck_2': {
+    // The downstairs apartment at 53 Rocky Neck -- its own Helm property
+    // since 2026-07-07 (own bank account, own statement), same owner as
+    // the main house. Guesty nickname: "53 Rocky Neck (DOWN)". The
+    // listing_match needle is deliberately a superstring of the parent's
+    // so longest-match-wins routing sends sub-unit rows here, never to
+    // 53_rocky_neck.
+    id: '53_rocky_neck_2', name: '53 Rocky Neck, Downstairs', address: '53 Rocky Neck Avenue', city: 'Gloucester, MA',
+    owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi, Smith Cove LLC', owner_greeting: 'Simon',
+    owner_emails: ['prudenziwelding@yahoo.com'],
+    fee_pct: 25, bank_last4: '1228', listing_match: '53 rocky neck (down',
+    tax_cert_id: null,
+  },
   '4_brier_neck': {
     id: '4_brier_neck', name: '4 Brier Neck', address: '4 Brier Neck Road', city: 'Gloucester, MA',
     owner_last: 'Armstrong', owner_full: 'The Armstrong Family', owner_greeting: 'Jane',

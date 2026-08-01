@@ -31,6 +31,14 @@ const INVOICE_PROPERTY_MAP: Record<string, string> = {
   '3 south': '3_south_st',
   '3 south st': '3_south_st',
   '53 rocky neck': '53_rocky_neck',
+  // Downstairs apartment -- its own property since 2026-07. These needles
+  // are superstrings of the parent's, and matchProperty picks the LONGEST
+  // hit, so a downstairs invoice can never fall through to the main house.
+  // Cover the spellings Cape Ann Elite might use in the greeting.
+  '53 rocky neck (down': '53_rocky_neck_2',
+  '53 rocky neck down': '53_rocky_neck_2',
+  '53 rocky neck downstairs': '53_rocky_neck_2',
+  '53r rocky neck down': '53_rocky_neck_2',
   '53r rocky neck': '53_rocky_neck',
   '73 rocky neck': '73_rocky_neck',
   '73r rocky neck': '73_rocky_neck',
@@ -60,10 +68,18 @@ const INVOICE_PROPERTY_MAP: Record<string, string> = {
 
 function matchProperty(text: string): string | null {
   const lower = text.toLowerCase();
+  // Longest matching key wins, not insertion order: sub-unit keys
+  // ("53 rocky neck down") contain their parent's key, and a first-hit
+  // scan would silently attribute downstairs invoices to the main house.
+  let best: string | null = null;
+  let bestLen = 0;
   for (const [key, propId] of Object.entries(INVOICE_PROPERTY_MAP)) {
-    if (lower.includes(key)) return propId;
+    if (key.length > bestLen && lower.includes(key)) {
+      best = propId;
+      bestLen = key.length;
+    }
   }
-  return null;
+  return best;
 }
 
 // Parse invoice number from subject: "Invoice 4.19.26CM318"

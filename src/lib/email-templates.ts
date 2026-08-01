@@ -19,6 +19,15 @@ export type RenderArgs = {
   fundsSentIso: string;    // "2026-05-04"
   ownerPayout?: number;    // optional -- when present, surfaces as a highlighted line in the body
   template: EmailTemplate;
+  /**
+   * Multi-property owners (Prudenzi: 53 Rocky Neck + the Downstairs
+   * apartment) get ONE email covering every property, each statement PDF
+   * attached. When 2+ entries are present they override propertyShort /
+   * ownerPayout: the subject lists all property names and the body gets a
+   * per-property payout sentence. Single-entry or absent -> the classic
+   * one-property render, byte-identical to before this field existed.
+   */
+  properties?: { name: string; payout?: number }[];
 };
 
 /** "2026-05-04" -> "Monday 5/4" */
@@ -43,15 +52,29 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
   const fundsSent = fmtFundsSentDate(fundsSentIso);
   const shortMonth = monthName.split(' ')[0]; // "April"
 
-  const subject = `${monthName} Owner Statement, ${propertyShort}`;
+  // Multi-property render: subject carries every property name; the body's
+  // payout line itemizes per property. "Owner Statement" stays singular in
+  // the subject on purpose -- /api/reconcile-emails matches sent mail on
+  // that exact phrase.
+  const multi = (args.properties?.length ?? 0) >= 2 ? args.properties! : null;
+  const subjectProperty = multi ? multi.map(p => p.name).join(' & ') : propertyShort;
+
+  const subject = `${monthName} Owner Statement, ${subjectProperty}`;
   const greetingLine = `Hi ${greeting},`;
   // Highlighted payout line -- "what everybody comes for" so they don't have
   // to open the PDF. Skipped if the caller didn't pass a payout (e.g. a
   // template render in a UI where the statement isn't on file yet).
-  const payoutLine = ownerPayout != null && ownerPayout > 0
+  let payoutLine = ownerPayout != null && ownerPayout > 0
     ? `Your ${shortMonth} payout is ${fmtMoneyRound(ownerPayout)}.\n\n`
     : '';
-  const statementLine = `Please see the attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
+  let statementLine = `Please see the attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
+  if (multi) {
+    const withPayout = multi.filter(p => p.payout != null && p.payout > 0);
+    payoutLine = withPayout.length > 0
+      ? `Your ${shortMonth} payouts are ${withPayout.map(p => `${fmtMoneyRound(p.payout!)} for ${p.name}`).join(' and ')}.\n\n`
+      : '';
+    statementLine = `Please see the attached ${shortMonth} statements, one per property. The funds will be sent to your bank accounts on ${fundsSent}. If you have any questions, please let us know.`;
+  }
 
   if (template === 'touch_base') {
     const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;

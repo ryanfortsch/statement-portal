@@ -25,8 +25,74 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Parse Guesty Owner Statement PDF text into reservations
 // pdf-parse v1 concatenates fields without spaces, e.g.:
 // "Rental payment for HM33A9MBBRRental Income$1,338.48"
-function parseGuestyPDF(text: string): { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] {
+//
+// Multi-property owner statements (Guesty generates one statement per
+// OWNER, e.g. Prudenzi's covers both 53 Rocky Neck and 53 Rocky Neck
+// (DOWN)) carry one section per property, headed by a line like
+// "53 Rocky Neck8 reservations" / "53 Rocky Neck (DOWN)2 reservations".
+// When 2+ section headers are present, only reservations inside the
+// section(s) belonging to the target property are ingested -- the same
+// owner PDF gets uploaded once per property and each ingest picks its
+// own slice. Longest-listing_match-wins assigns headers to properties,
+// so "53 rocky neck (down" beats its parent's "53 rocky neck" substring
+// (same rule as sync-guesty's LISTING_MATCH). PDFs with 0-1 headers
+// (every single-property statement) parse the whole text, exactly the
+// pre-section behavior.
+type ParsedPdf = {
+  reservations: { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[];
+  /** Section headings found in the PDF (empty for single-property PDFs). */
+  sections: { heading: string; property_id: string | null }[];
+  /** True when 2+ sections were found and filtering was applied. */
+  multiSection: boolean;
+};
+
+function parseGuestyPDF(
+  text: string,
+  sectionFilter?: { targetPropertyId: string; listingMatches: Record<string, string> },
+): ParsedPdf {
   const reservations: { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[] = [];
+
+  // Section headers: "<listing name><count> reservations" on its own line.
+  const headerRegex = /^(.+?)(\d+)\s*reservations?$/gm;
+  const rawSections: { heading: string; start: number }[] = [];
+  let headerMatch;
+  while ((headerMatch = headerRegex.exec(text)) !== null) {
+    rawSections.push({ heading: headerMatch[0].trim(), start: headerMatch.index });
+  }
+
+  // Assign each section to a property by longest listing_match contained
+  // in the heading line. Matching against the full heading (count digits
+  // included) sidesteps any ambiguity in splitting name from count.
+  const assign = (heading: string): string | null => {
+    if (!sectionFilter) return null;
+    const hay = heading.toLowerCase();
+    let best: string | null = null;
+    let bestLen = 0;
+    for (const [propId, needle] of Object.entries(sectionFilter.listingMatches)) {
+      if (needle && needle.length > bestLen && hay.includes(needle)) {
+        best = propId;
+        bestLen = needle.length;
+      }
+    }
+    return best;
+  };
+
+  const sections = rawSections.map((s, i) => ({
+    heading: s.heading,
+    property_id: assign(s.heading),
+    start: s.start,
+    end: i + 1 < rawSections.length ? rawSections[i + 1].start : text.length,
+  }));
+
+  const multiSection = sections.length >= 2 && !!sectionFilter;
+  const targetRanges = multiSection
+    ? sections.filter(s => s.property_id === sectionFilter!.targetPropertyId)
+    : [];
+
+  const inTargetSection = (index: number): boolean => {
+    if (!multiSection) return true;
+    return targetRanges.some(r => index >= r.start && index < r.end);
+  };
 
   // Match date range blocks: "(Mar 30 - Apr 3, 2026) - 4 nights"
   const dateRangeRegex = /\((\w+ \d+)\s*-\s*(\w+ \d+),?\s*(\d{4})\)\s*-\s*(\d+)\s*nights?/g;
@@ -34,6 +100,7 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
   let match;
 
   while ((match = dateRangeRegex.exec(text)) !== null) {
+    if (!inTargetSection(match.index)) continue;
     const startStr = match[1];
     const endStr = match[2];
     const year = match[3];
@@ -72,7 +139,11 @@ function parseGuestyPDF(text: string): { confirmation_code: string; check_in: st
     }
   }
 
-  return reservations;
+  return {
+    reservations,
+    sections: sections.map(s => ({ heading: s.heading, property_id: s.property_id })),
+    multiSection,
+  };
 }
 
 function parseShortDate(dateStr: string, year: string): string {
@@ -374,8 +445,27 @@ export async function POST(request: NextRequest) {
       const pdfText: string = pdfData.text;
       pdfDebug = pdfText.substring(0, 500);
 
-      const parsed = parseGuestyPDF(pdfText);
-      reservations = parsed.map(r => ({ ...r, guest_name: '' }));
+      // Listing matches for every active property, so a multi-property
+      // owner PDF (one Guesty statement per OWNER, sectioned per listing)
+      // can route each section to the right property. Longest match wins
+      // inside the parser, so sub-unit needles beat their parent's prefix.
+      const { data: matchRows } = await supabase
+        .from('properties')
+        .select('id, listing_match')
+        .eq('is_active', true);
+      const listingMatches: Record<string, string> = {};
+      for (const row of matchRows || []) {
+        if (row.id && row.listing_match) listingMatches[row.id] = String(row.listing_match).toLowerCase();
+      }
+
+      const parsed = parseGuestyPDF(pdfText, { targetPropertyId: propertyId, listingMatches });
+      if (parsed.multiSection && !parsed.sections.some(s => s.property_id === propertyId)) {
+        const headings = parsed.sections.map(s => `"${s.heading}"${s.property_id ? ` -> ${s.property_id}` : ' (unmatched)'}`).join(', ');
+        return NextResponse.json({
+          error: `This owner statement PDF has ${parsed.sections.length} property sections (${headings}) and none belong to ${propConfig.name}. Check that the right PDF was uploaded for this property.`,
+        }, { status: 400 });
+      }
+      reservations = parsed.reservations.map(r => ({ ...r, guest_name: '' }));
     }
 
     // 2. Parse platform CSV (maps confirmation codes to platforms + guest names).

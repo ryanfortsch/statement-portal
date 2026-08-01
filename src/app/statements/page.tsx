@@ -2502,21 +2502,29 @@ function DashboardContent() {
             template: tmpl,
             funds_sent_date: fundsSentDate,
             period_id: period.id,
+            // Lets the route no-op a sibling already covered by a combined
+            // owner draft earlier in this same loop (multi-property owners
+            // get ONE email; both siblings sit in `candidates`).
+            bulk: true,
           }),
         });
         const data = await res.json();
         if (data.success) {
-          drafted++;
+          if (!data.already_drafted) drafted++;
           // Reflect the server-side stamp locally so the property card's
           // "drafted" state updates without a reload, same as the
-          // single-property createGmailDraft flow does.
+          // single-property createGmailDraft flow does. A combined owner
+          // draft covers several properties -- stamp them all.
+          const covered: string[] = Array.isArray(data.covered_property_ids) && data.covered_property_ids.length > 0
+            ? data.covered_property_ids
+            : [p.property_id];
           setCloseTasks(prev => {
-            const existing = prev[p.property_id];
-            return {
-              ...prev,
-              [p.property_id]: {
+            const next = { ...prev };
+            for (const pid of covered) {
+              const existing = prev[pid];
+              next[pid] = {
                 period_id: period.id,
-                property_id: p.property_id,
+                property_id: pid,
                 email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
                 email_drafted_at: new Date().toISOString(),
                 email_sent_at: existing?.email_sent_at || null,
@@ -2524,8 +2532,9 @@ function DashboardContent() {
                 mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
                 notes: existing?.notes || null,
                 statement_drive_url: existing?.statement_drive_url || null,
-              },
-            };
+              };
+            }
+            return next;
           });
         } else {
           failed.push({ property: p.property_name, error: data.error || 'unknown error' });
