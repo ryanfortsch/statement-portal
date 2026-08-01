@@ -743,12 +743,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="cell">
                 <div className="label">Period</div>
                 <div className="val">{mo.substring(0, 3)} 1 &mdash; {mo.substring(0, 3)} {totalDays}, {yr}</div>
-                <div className="sub">{totalDays} days &middot; {occupiedNights} nights booked</div>
               </div>
               <div className="cell">
-                <div className="label">Issued &middot; Payout</div>
+                <div className="label">Payout</div>
                 <div className="val">{issued}</div>
-                <div className="sub">Direct deposit</div>
               </div>
             </section>
 
