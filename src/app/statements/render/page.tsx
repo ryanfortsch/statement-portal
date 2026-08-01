@@ -379,6 +379,19 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     // 4 real guest bookings to show.
     .limit(30);
 
+  // Stays that span PAST the end of the statement month (checkout in a later
+  // month). Payout-wise they belong to the next month's statement (revenue
+  // recognizes at checkout), but the nights slept this month count toward
+  // THIS month's occupancy. The statement's own reservations only cover
+  // checkouts in the month, so these come from guesty_reservations.
+  const { data: spanningDb } = await supabase
+    .from('guesty_reservations')
+    .select('confirmation_code, guest_name, check_in, check_out, channel, guesty_channel_id, status')
+    .eq('property_id', prop.property_id)
+    .lte('check_in', monthEndStr)
+    .gt('check_out', monthEndStr)
+    .or('status.is.null,status.in.(confirmed,reserved)');
+
   const dbProp = await getActivePropertyForStatements(prop.property_id);
   const d: PropertyDetails = dbProp
     ? {
@@ -393,19 +406,20 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const numStays = prop.num_stays || (reservations?.length || 0);
   const nightsBooked = prop.nights_booked || 0;
   const totalDays = daysInMonth(month);
-  // occupiedNights = nights that actually fall inside the statement month.
-  // A guest who checks in Mar 2 and out Apr 2 contributes zero April nights
-  // (all 31 nights were slept in March) but one April check-out. Used for
-  // the "N nights booked" display under the Period cell and for occupancy.
+  // statementNights = nights from this statement's stays that actually fall
+  // inside the month. A guest who checks in Mar 2 and out Apr 2 contributes
+  // zero April nights (all 31 nights were slept in March) but one April
+  // check-out.
   //
   // nightsBooked (from prop.nights_booked) = full accounting-nights total
   // attributed to this month by check-out date -- includes nights from
   // prior-month stays that checked out this month. Used only for ADR so
   // the per-night rate matches what guests actually paid.
-  const occupiedNights = (reservations || []).reduce(
+  const statementNights = (reservations || []).reduce(
     (sum, r) => sum + nightsInMonth(r.check_in, r.check_out, month), 0,
   );
-  const occupancy = totalDays > 0 ? Math.round((occupiedNights / totalDays) * 100) : 0;
+  // occupiedNights and occupancy (calendar basis, including stays that span
+  // into next month) are computed below, after the owner-stay filter exists.
   // ADR is computed below, after `rows` is built (guest-facing gross needs the
   // enriched per-row platform values). Denominator stays nightsBooked so the
   // per-night rate matches what guests actually paid for the month's stays.
@@ -486,6 +500,31 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     // but not something like "Baileys Inc" by accident.
     return new RegExp(`\\b${ownerLast}\\b`, 'i').test(guest);
   };
+
+  // Calendar-basis occupancy: this statement's in-month nights plus the
+  // in-month nights of stays that check out in a LATER month. Those stays
+  // ride the next statement for payout, but the nights slept this month
+  // belong to this month's occupancy. Skip owner stays, rows duplicating a
+  // statement reservation, and API/CSV double-rows for the same stay.
+  const statementCodes = new Set(
+    (reservations || [])
+      .map(r => String(r.confirmation_code || '').trim())
+      .filter(Boolean),
+  );
+  const spanningSeen = new Set<string>();
+  const spanningNights = (spanningDb || [])
+    .filter(r => !looksLikeOwnerStay(r))
+    .filter(r => {
+      const code = (r.confirmation_code || '').trim();
+      if (code && statementCodes.has(code)) return false;
+      const key = code || `${r.check_in}|${r.check_out}`;
+      if (spanningSeen.has(key)) return false;
+      spanningSeen.add(key);
+      return true;
+    })
+    .reduce((sum, r) => sum + nightsInMonth(r.check_in, r.check_out, month), 0);
+  const occupiedNights = Math.min(totalDays, statementNights + spanningNights);
+  const occupancy = totalDays > 0 ? Math.round((occupiedNights / totalDays) * 100) : 0;
 
   type UpcomingItem = { guest: string; checkIn: string; nights: number; platform: string };
   // Dedupe: API-source and CSV-source can both land rows for the same
