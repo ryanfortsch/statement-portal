@@ -588,44 +588,70 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     };
   });
 
-  // Fold "(Extension)" rows into their parent stay. Guesty books a stay
-  // extension as a separate reservation with its own confirmation code, but
-  // the owner reads it as one continuous stay, so the table shows one line
-  // with the combined dates and revenue. DISPLAY-ONLY: ADR, channel mix,
-  // and every stored total still come from the unmerged rows, so the
-  // statement's financials are identical either way. The reservations query
-  // orders by check_out, which guarantees a parent row lands in displayRows
-  // before its extension (parent check_out = extension check_in).
+  // Fold stay continuations into one line. A guest who extends shows up in
+  // Guesty as SEPARATE reservations: sometimes labeled ("Dahlia Johnson
+  // (Extension)"), sometimes not (an Airbnb stay extended by direct add-on
+  // nights books as a second unlabeled reservation, often on a different
+  // channel). The owner reads all of it as one continuous stay, so any row
+  // whose check-in lands exactly on an earlier row's check-out for the same
+  // guest folds into that row: combined dates and revenue, add-ons and
+  // notes carried across. DISPLAY-ONLY: ADR, channel mix, and every stored
+  // total still come from the unmerged rows, so the statement's financials
+  // are identical either way. The reservations query orders by check_out,
+  // which guarantees a parent row lands in displayRows before its
+  // continuation (parent check_out = continuation check_in < check_out).
   const EXTENSION_RE = /\s*\(extension\)\s*$/i;
-  type DisplayRow = (typeof rows)[number] & { extraCodes: string[] };
+  const normGuest = (name: string | null | undefined) =>
+    (name || '').replace(EXTENSION_RE, '').trim().toLowerCase();
+  type DisplayRow = (typeof rows)[number] & {
+    extraCodes: string[];
+    segNights: { platform: string; nts: number }[];
+  };
   const displayRows: DisplayRow[] = [];
   for (const r of rows) {
-    if (EXTENSION_RE.test(r.guest_name || '')) {
-      const base = (r.guest_name || '').replace(EXTENSION_RE, '').trim().toLowerCase();
-      const parent = displayRows.find(p =>
-        (p.guest_name || '').trim().toLowerCase() === base && p.check_out === r.check_in);
-      if (parent) {
-        parent.check_out = r.check_out;
-        parent.nts += r.nts;
-        parent.adjusted_revenue =
-          Number(parent.adjusted_revenue || parent.rental_income || 0) +
-          Number(r.adjusted_revenue || r.rental_income || 0);
-        parent.rental_income = parent.adjusted_revenue;
-        parent.perNt = parent.nts > 0 ? Math.round(parent.adjusted_revenue / parent.nts) : 0;
-        if (r.confirmation_code) parent.extraCodes.push(r.confirmation_code);
-        if (!parent.note && r.note) {
-          parent.note = r.note;
-          parent.noteAmounts = r.noteAmounts;
-          parent.noteAttachment = r.noteAttachment;
-        }
-        continue;
+    const base = normGuest(r.guest_name);
+    // Never merge on a placeholder identity: two anonymous "Guest" rows or
+    // two code-named rows can be different people who happened to book
+    // back-to-back.
+    const mergeable = base && base !== 'guest' && !looksLikeConfirmationCode(r.guest_name || '');
+    const parent = mergeable
+      ? displayRows.find(p => normGuest(p.guest_name) === base && p.check_out === r.check_in)
+      : undefined;
+    if (parent) {
+      parent.check_out = r.check_out;
+      parent.nts += r.nts;
+      parent.adjusted_revenue =
+        Number(parent.adjusted_revenue || parent.rental_income || 0) +
+        Number(r.adjusted_revenue || r.rental_income || 0);
+      parent.rental_income = parent.adjusted_revenue;
+      parent.perNt = parent.nts > 0 ? Math.round(parent.adjusted_revenue / parent.nts) : 0;
+      parent.segNights.push({ platform: r.platform, nts: r.nts });
+      if (r.confirmation_code) parent.extraCodes.push(r.confirmation_code);
+      if (!parent.note && r.note) {
+        parent.note = r.note;
+        parent.noteAmounts = r.noteAmounts;
+        parent.noteAttachment = r.noteAttachment;
       }
-      // No adjoining parent on this statement (the original stay closed out
-      // in a prior month): keep the row but drop Guesty's bookkeeping label.
-      displayRows.push({ ...r, guest_name: (r.guest_name || '').replace(EXTENSION_RE, '').trim(), extraCodes: [] });
       continue;
     }
-    displayRows.push({ ...r, extraCodes: [] });
+    // Standalone row. Drop Guesty's "(Extension)" bookkeeping label either
+    // way -- an orphan extension (original stay closed out the prior month)
+    // shouldn't carry internal labels onto an owner document.
+    displayRows.push({
+      ...r,
+      guest_name: (r.guest_name || '').replace(EXTENSION_RE, '').trim() || r.guest_name,
+      extraCodes: [],
+      segNights: [{ platform: r.platform, nts: r.nts }],
+    });
+  }
+  // A merged stay spanning channels wears the channel the guest slept under
+  // most (nights, summed per channel across segments).
+  for (const dr of displayRows) {
+    if (dr.segNights.length > 1) {
+      const byCh: Record<string, number> = {};
+      dr.segNights.forEach((s: { platform: string; nts: number }) => { byCh[s.platform] = (byCh[s.platform] || 0) + s.nts; });
+      dr.platform = Object.entries(byCh).sort((a, b) => b[1] - a[1])[0][0];
+    }
   }
   // Keep the hero STAYS figure in step with the rows the owner can count.
   const extensionsFolded = rows.length - displayRows.length;
