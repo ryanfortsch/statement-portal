@@ -588,6 +588,48 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     };
   });
 
+  // Fold "(Extension)" rows into their parent stay. Guesty books a stay
+  // extension as a separate reservation with its own confirmation code, but
+  // the owner reads it as one continuous stay, so the table shows one line
+  // with the combined dates and revenue. DISPLAY-ONLY: ADR, channel mix,
+  // and every stored total still come from the unmerged rows, so the
+  // statement's financials are identical either way. The reservations query
+  // orders by check_out, which guarantees a parent row lands in displayRows
+  // before its extension (parent check_out = extension check_in).
+  const EXTENSION_RE = /\s*\(extension\)\s*$/i;
+  type DisplayRow = (typeof rows)[number] & { extraCodes: string[] };
+  const displayRows: DisplayRow[] = [];
+  for (const r of rows) {
+    if (EXTENSION_RE.test(r.guest_name || '')) {
+      const base = (r.guest_name || '').replace(EXTENSION_RE, '').trim().toLowerCase();
+      const parent = displayRows.find(p =>
+        (p.guest_name || '').trim().toLowerCase() === base && p.check_out === r.check_in);
+      if (parent) {
+        parent.check_out = r.check_out;
+        parent.nts += r.nts;
+        parent.adjusted_revenue =
+          Number(parent.adjusted_revenue || parent.rental_income || 0) +
+          Number(r.adjusted_revenue || r.rental_income || 0);
+        parent.rental_income = parent.adjusted_revenue;
+        parent.perNt = parent.nts > 0 ? Math.round(parent.adjusted_revenue / parent.nts) : 0;
+        if (r.confirmation_code) parent.extraCodes.push(r.confirmation_code);
+        if (!parent.note && r.note) {
+          parent.note = r.note;
+          parent.noteAmounts = r.noteAmounts;
+          parent.noteAttachment = r.noteAttachment;
+        }
+        continue;
+      }
+      // No adjoining parent on this statement (the original stay closed out
+      // in a prior month): keep the row but drop Guesty's bookkeeping label.
+      displayRows.push({ ...r, guest_name: (r.guest_name || '').replace(EXTENSION_RE, '').trim(), extraCodes: [] });
+      continue;
+    }
+    displayRows.push({ ...r, extraCodes: [] });
+  }
+  // Keep the hero STAYS figure in step with the rows the owner can count.
+  const extensionsFolded = rows.length - displayRows.length;
+
   // Guest-facing (grossed-up) ADR. DISPLAY-ONLY -- reconstructs what the guest
   // paid per night from RT's net deposit, using the SAME nightsBooked
   // denominator as the legacy net ADR. Payout math is untouched. See the
@@ -697,7 +739,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               <div className="mini-grid">
                 <div className="mini">
                   <div className="mini-label">Stays</div>
-                  <div className="mini-value">{numStays}</div>
+                  <div className="mini-value">{Math.max(0, numStays - extensionsFolded)}</div>
                 </div>
                 <div className="mini">
                   <div className="mini-label">Nights</div>
@@ -721,8 +763,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <table className="res-table">
                   <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Rental Rev</th></tr></thead>
                   <tbody>
-                    {rows.map((r, i) => {
-                      const addOns = r.confirmation_code ? (addOnsByCode.get(r.confirmation_code) || []) : [];
+                    {displayRows.map((r, i) => {
+                      const rowCodes = [r.confirmation_code, ...r.extraCodes].filter(Boolean) as string[];
+                      const addOns = rowCodes.flatMap(c => addOnsByCode.get(c) || []);
                       return (
                         <React.Fragment key={i}>
                           <tr>
