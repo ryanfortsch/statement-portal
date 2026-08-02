@@ -845,6 +845,36 @@ export async function POST(request: NextRequest) {
       repairsTotal = Math.round((repairsTotal + receiptsTotal) * 100) / 100;
     }
 
+    // Central Booking.com deposits account (...5623) transfers to THIS
+    // property. Booking.com pays every property into that one Chase account
+    // and the money reaches the property's checking as a plain "Online
+    // Transfer" -- nothing Booking.com-labeled ever hits the property's own
+    // bank CSV, so Booking.com stays had no corroboration path. The operator
+    // uploads the 5623 activity monthly from the Statements page (see
+    // /api/upload-booking-deposits); a transfer out to this property's last4
+    // in the statement window corroborates the channel paid us. Window runs
+    // 60 days past month end because Booking.com payouts lag checkout.
+    // Tolerates the booking_account_activity migration not having run yet.
+    let centralBookingTransfers = 0;
+    {
+      const windowStart = `${month}-01`;
+      const windowEndD = new Date(`${month}-01T00:00:00Z`);
+      windowEndD.setUTCMonth(windowEndD.getUTCMonth() + 1);
+      windowEndD.setUTCDate(windowEndD.getUTCDate() + 60);
+      const windowEnd = windowEndD.toISOString().slice(0, 10);
+      const { data: centralRows, error: centralErr } = await supabase
+        .from('booking_account_activity')
+        .select('id')
+        .eq('property_id', propertyId)
+        .eq('kind', 'property_transfer')
+        .gte('posting_date', windowStart)
+        .lte('posting_date', windowEnd);
+      if (centralErr && centralErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(centralErr.message || '')) {
+        console.warn('booking_account_activity read skipped:', centralErr.message);
+      }
+      centralBookingTransfers = (centralRows || []).length;
+    }
+
     // 4. Process reservations with channel logic.
     //
     // Revenue reconstruction (post-accounting-overhaul):
@@ -1033,6 +1063,12 @@ export async function POST(request: NextRequest) {
               return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
             });
             if (hasBookingActivity) {
+              bankMatch = { amount: res.rental_income, status: 'matched' };
+            } else if (centralBookingTransfers > 0) {
+              // The payout landed in the central Bookingcom Deposits account
+              // (...5623) and was transferred to this property's checking in
+              // the statement window -- corroborated even though nothing
+              // Booking.com-labeled appears in the property's own bank CSV.
               bankMatch = { amount: res.rental_income, status: 'matched' };
             }
           }

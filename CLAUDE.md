@@ -98,7 +98,7 @@ Stripe deposits include prepayments for future stays. A March bank deposit might
 - **Airbnb**: Guesty rental income is correct as-is. Airbnb pays net of their fees.
 - **VRBO (HomeAway)** or **Manual/Direct**: Guest pays via Stripe. Guesty reports rental income WITHOUT Stripe fees. Must deduct: `(rental_income * 0.039) + $0.40` (two $0.20 transactions per reservation).
 - **Manual with $0 revenue**: Homeowner stay. Skip entirely, no fee.
-- **Booking.com**: Uses their own payout schedule. Rental income from Guesty is used as-is.
+- **Booking.com**: Uses their own payout schedule. Rental income from Guesty is used as-is. Payouts land in the central "Bookingcom Deposits" Chase account (...5623), then transfer to the property's own checking as a plain "Online Transfer" -- nothing Booking.com-labeled ever hits the property's bank CSV. The operator uploads the 5623 activity CSV monthly from the Statements page ("Booking.com deposits" card, `/api/upload-booking-deposits`); rows accumulate in `booking_account_activity` (dedupe-hashed, re-uploads idempotent) and `/api/ingest` corroborates a Booking.com stay when a transfer to the property's `bank_last4` posts in the statement window (month start to 60 days past month end).
 
 ### staycapeann.com bookings (intentionally not Guesty-routed)
 Rising Tide's own direct-booking site, **staycapeann.com**, is built so the payment does **not** route through Guesty -- Guesty would charge a per-booking fee on anything that flows through its portal. SCA bookings:
