@@ -649,7 +649,17 @@ export async function syncPropertyStripe(opts: {
       const expectedGross = knownGross > 0 ? knownGross : reconstructed;
       if (expectedGross <= 0) continue;
 
-      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1);
+      // Fully-refunded charges can never be the stay's payment, so they
+      // don't get to create ambiguity either. Kristen Oteri's $600
+      // one-nighter on 19 Rackliffe: the guest double-paid a Payment
+      // Link and one charge was refunded -- two identical $600 orphans
+      // made candidates.length 2 and the stay sat on the fee estimate,
+      // flagged missing, while the real money was right there.
+      const isFullyRefunded = (code: string) => {
+        const a = byCodeAgg.get(code);
+        return !!a && a.grossCents > 0 && a.refundedCents >= a.grossCents;
+      };
+      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1 && !isFullyRefunded(o.code));
       if (candidates.length !== 1) continue;
       const orphan = candidates[0];
       const agg = byCodeAgg.get(orphan.code);
@@ -715,6 +725,7 @@ export async function syncPropertyStripe(opts: {
       const hits = orphanCodes.filter(o => {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) return false;
+        if (agg.grossCents > 0 && agg.refundedCents >= agg.grossCents) return false; // fully refunded: not the payment
         const m = DATE_RANGE_RE.exec(agg.fullDesc);
         return !!m && m[1] === r.check_in && m[2] === r.check_out;
       });
@@ -806,7 +817,9 @@ export async function syncPropertyStripe(opts: {
 
         const hits = orphanCodes.filter(o => {
           const agg = byCodeAgg.get(o.code);
-          return !!agg && !agg.isGuestyCoded && agg.fullDesc.toLowerCase().includes(nameKey);
+          if (!agg || agg.isGuestyCoded) return false;
+          if (agg.grossCents > 0 && agg.refundedCents >= agg.grossCents) return false; // fully refunded: not the payment
+          return agg.fullDesc.toLowerCase().includes(nameKey);
         });
         if (hits.length !== 1) continue;
         const orphan = hits[0];
