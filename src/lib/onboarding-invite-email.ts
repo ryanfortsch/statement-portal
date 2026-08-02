@@ -24,7 +24,7 @@ export type RenderedOnboardingInvite = {
 };
 
 export function renderOnboardingInviteEmail(args: OnboardingInviteArgs): RenderedOnboardingInvite {
-  const greeting = (args.greeting || '').trim() || 'there';
+  const greeting = (args.greeting || '').trim().replace(/[,.;\s]+$/, '') || 'there';
   const propertyShort = (args.propertyShort || 'your property').trim();
   const url = args.onboardingUrl;
 

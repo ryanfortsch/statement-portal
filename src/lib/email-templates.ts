@@ -60,7 +60,11 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
   const subjectProperty = multi ? multi.map(p => p.name).join(' & ') : propertyShort;
 
   const subject = `${monthName} Owner Statement, ${subjectProperty}`;
-  const greetingLine = `Hi ${greeting},`;
+  // Strip stray trailing punctuation from the stored greeting ("John
+  // Gavin," in properties.owner_greeting) so the template's own comma
+  // can't double up into "Hi John Gavin,,".
+  const cleanGreeting = greeting.trim().replace(/[,.;\s]+$/, '') || 'there';
+  const greetingLine = `Hi ${cleanGreeting},`;
   // Highlighted payout line -- "what everybody comes for" so they don't have
   // to open the PDF. Skipped if the caller didn't pass a payout (e.g. a
   // template render in a UI where the statement isn't on file yet).
