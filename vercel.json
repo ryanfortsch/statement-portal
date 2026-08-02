@@ -17,6 +17,7 @@
     { "path": "/api/cron/prep-trash-bags", "schedule": "20 5 * * *" },
     { "path": "/api/cron/thermostats", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/sync-quo-contacts", "schedule": "0 7 * * *" },
-    { "path": "/api/cron/confirm-cleanings", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/confirm-cleanings", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/sync-stripe", "schedule": "0 9 * * *" }
   ]
 }
