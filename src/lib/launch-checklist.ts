@@ -111,6 +111,24 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     why: "Direct/SCA bookings charge into this account. Automatic payouts sweep funds to the property's bank account like the rest of the fleet; a manual schedule strands guest money in the Stripe balance.",
   },
   {
+    key: 'airbnb_bank_linked',
+    phase: 'financial',
+    title: 'Property bank account linked in Airbnb',
+    required: true,
+    description:
+      "In Airbnb: Account > Payments & payouts > add the property's bank account as a payout method, then complete verification.",
+    why: "Each property pays out to its own bank account. The routing rule below can't be created until Airbnb confirms the account.",
+  },
+  {
+    key: 'airbnb_payout_routing',
+    phase: 'financial',
+    title: 'Airbnb payout routing rule created',
+    required: true,
+    description:
+      "Once the bank account is confirmed, add a payout routing rule in Airbnb assigning this listing's payouts to that account.",
+    why: "Without a routing rule the property's earnings land in the default payout account and have to be untangled by hand.",
+  },
+  {
     key: 'tax_cert',
     phase: 'financial',
     title: 'MA short-term rental tax certificate recorded',
