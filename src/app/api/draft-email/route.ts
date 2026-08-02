@@ -401,7 +401,13 @@ export async function POST(request: NextRequest) {
             property_id: pid,
             email_template: template,
             email_drafted_at: nowIso,
-            email_sent_at: existing?.email_sent_at || null,
+            // A deliberate redraft supersedes any scheduled send: clear the
+            // sent stamp so the statement is revisable again (and the
+            // stripe-sync sent-gate reopens) until the new draft is sent.
+            // Learned 2026-08-02: July's emails were stamped sent at
+            // SCHEDULE time while delivery was set for the next morning,
+            // which cemented statements Dotti still needed to revise.
+            email_sent_at: null,
             owner_transfer_done_at: existing?.owner_transfer_done_at || null,
             mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
             notes: existing?.notes || null,

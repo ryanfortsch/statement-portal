@@ -500,14 +500,12 @@ export async function syncPropertyStripe(opts: {
       const nights = Math.round((new Date(res.check_out + 'T00:00:00Z').getTime() - new Date(res.check_in + 'T00:00:00Z').getTime()) / 86400000);
       if (!Number.isFinite(nights) || nights <= 0 || nights > 28) return false;
       const collectedGross = round2(agg.grossCents / 100);
-      // Flat-rent link guard (36 Granite, Dahlia's $275 extension night):
-      // when the charge equals the folio's PRE-TAX rent exactly, the
-      // operator sent a flat link with no tax added. Whether the owner or
-      // RT bears the uncollected occupancy tax is a business decision,
-      // not an inversion this code should apply on its own -- treating
-      // $275 as tax-inclusive knocked $28.81 off the owner after the
-      // statement had gone out. Leave the folio-based net alone.
-      if (Math.abs(collectedGross - base) <= 1) return false;
+      // Every Direct charge reads tax-inclusive, INCLUDING flat-rent links
+      // where the operator charged the pre-tax folio amount with no tax
+      // added (Dahlia's $275 extension night on 36 Granite). Dotti's
+      // ruling 2026-08-02: occupancy tax comes out of whatever the guest
+      // paid, so the owner's rent share on a $275 flat link is $275/1.117.
+      // The tax still gets remitted either way; this decides who bears it.
       const collectedPreTax = round2(collectedGross / SCA_TAX_MULTIPLIER);
       if (Math.abs(collectedPreTax - base) <= 1) return false;              // folio and charge agree
       if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
