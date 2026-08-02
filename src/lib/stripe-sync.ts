@@ -47,6 +47,7 @@ export type StripeSyncResult = {
   refunds_detected: { code: string; guest: string; amount: number }[];
   gross_mismatches: { code: string; guest: string; stripe: number; guesty: number }[];
   gross_reconstructions: { code: string; guest: string; stripe: number; guesty: number; prev_net: number; next_net: number; fee: number }[];
+  discount_adjustments: { code: string; guest: string; discount: number; prev_net: number; next_net: number; fee: number }[];
   reservations_missing_charge: { code: string; guest: string; expected: number }[];
   error?: string;
 };
@@ -59,6 +60,7 @@ type StripeCharge = {
   created: number;             // unix seconds
   description: string | null;
   payment_intent: string | null;
+  metadata?: Record<string, string> | null;
   status: string;              // 'succeeded' | 'pending' | 'failed'
   refunded: boolean;
   paid: boolean;
@@ -302,6 +304,7 @@ export async function syncPropertyStripe(opts: {
     refunds_detected: [],
     gross_mismatches: [],
     gross_reconstructions: [],
+    discount_adjustments: [],
     reservations_missing_charge: [],
   };
 
@@ -396,7 +399,7 @@ export async function syncPropertyStripe(opts: {
     // "Stay" pile and defeat the amount-based fallback below. Keep those
     // atomic by using the charge id as the grouping key.
     const GUESTY_CODE = /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]+/;
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean };
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; discountDollars: number };
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
@@ -419,18 +422,66 @@ export async function syncPropertyStripe(opts: {
       const label = desc || `(no description) …${charge.id.slice(-8)}`;
       const displayLabel = looksLikeCode ? firstToken : (label.length > 48 ? label.slice(0, 45) + '…' : label);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, discountDollars: 0 };
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
         ? charge.balance_transaction.fee
         : null;
       if (fee != null) { agg.feeCents += fee; agg.feeKnown = true; }
+      // SCA "This Week's Opening" bookings stamp the dollars taken off the
+      // charge into PI metadata (see stay-cape-ann /api/book). Summed here
+      // so the discounted-net rebuild below can put the discount on the
+      // owner's revenue, per policy: revenue is what actually came in.
+      const discount = parseFloat(charge.metadata?.openingDiscount || '');
+      if (Number.isFinite(discount) && discount > 0) agg.discountDollars += discount;
       agg.chargeCount += 1;
       byCodeAgg.set(code, agg);
     }
 
     const matchedCodes = new Set<string>();
+
+    // Discount-aware net rebuild (Dotti 2026-08-01: "we don't wear the
+    // promo spend - revenue is what's coming in"). An SCA opening booking
+    // charges the guest quote.total minus the opening discount while the
+    // Guesty folio keeps full price, so the owner's recognized revenue
+    // must come down by the discount's pre-tax share along with the
+    // actual fee:
+    //   net = guesty_rental_income - discount/1.117 - actual_fee
+    // (1.117 = SCA's MASS_CAPE_ANN_TAX_RATE constant; the discount is
+    // taken off the tax-inclusive total, so only its pre-tax share
+    // reduces rent revenue - the rest is tax never owed.)
+    // Derives from stored columns, never the current adjusted value, so
+    // re-syncs are idempotent. Returns true when the row was handled
+    // here (written or already correct); the caller then skips the
+    // plain fee write. Bails to the plain path on any implausible
+    // number so a malformed metadata value can never zero out a stay.
+    const SCA_TAX_MULTIPLIER = 1.117;
+    const applyDiscountedNet = async (
+      res: ReservationRow,
+      agg: { feeCents: number; feeKnown: boolean; discountDollars: number },
+    ): Promise<boolean> => {
+      if (!(agg.discountDollars > 0) || !agg.feeKnown) return false;
+      if (res.stripe_fee == null || res.bank_match_status === 'paid_off_stripe' || installmentCodes.has(res.confirmation_code)) return false;
+      const base = res.guesty_rental_income || 0;
+      const actualFee = round2(agg.feeCents / 100);
+      const discountPreTax = round2(agg.discountDollars / SCA_TAX_MULTIPLIER);
+      if (discountPreTax <= 0 || discountPreTax > base * 0.5) return false;
+      const nextNet = round2(base - discountPreTax - actualFee);
+      if (nextNet <= 0) return false;
+      const prevNet = round2(res.adjusted_revenue || 0);
+      if (prevNet !== nextNet || round2(res.stripe_fee) !== actualFee) {
+        await supabase
+          .from('reservations')
+          .update({ stripe_fee: actualFee, adjusted_revenue: nextNet })
+          .eq('id', res.id);
+        result.discount_adjustments.push({
+          code: res.confirmation_code, guest: res.guest_name || 'Guest',
+          discount: round2(agg.discountDollars), prev_net: prevNet, next_net: nextNet, fee: actualFee,
+        });
+      }
+      return true;
+    };
 
     for (const [code, agg] of byCodeAgg.entries()) {
       const res = byCode.get(code);
@@ -506,17 +557,21 @@ export async function syncPropertyStripe(opts: {
       // every penny matters because deltas snowball across N reservations.
       // Skip rows marked paid_off_stripe (paid by check/wire; their
       // stripe_fee is intentionally fixed). A reconstructed row already
-      // carries the actual fee inside its rebuilt net.
+      // carries the actual fee inside its rebuilt net. A discounted
+      // opening booking rebuilds its net absolutely instead.
       if (!reconstructedRow && rowWritable) {
-        const prev = round2(res.stripe_fee as number);
-        if (prev !== actualFee) {
-          const deltaFee = round2((actualFee as number) - prev);
-          const newAdjusted = round2((res.adjusted_revenue || 0) - deltaFee);
-          await supabase
-            .from('reservations')
-            .update({ stripe_fee: actualFee, adjusted_revenue: newAdjusted })
-            .eq('id', res.id);
-          result.fee_updates.push({ code, guest: res.guest_name || 'Guest', prev, next: actualFee as number, delta: deltaFee });
+        const discounted = await applyDiscountedNet(res, agg);
+        if (!discounted) {
+          const prev = round2(res.stripe_fee as number);
+          if (prev !== actualFee) {
+            const deltaFee = round2((actualFee as number) - prev);
+            const newAdjusted = round2((res.adjusted_revenue || 0) - deltaFee);
+            await supabase
+              .from('reservations')
+              .update({ stripe_fee: actualFee, adjusted_revenue: newAdjusted })
+              .eq('id', res.id);
+            result.fee_updates.push({ code, guest: res.guest_name || 'Guest', prev, next: actualFee as number, delta: deltaFee });
+          }
         }
       }
     }
@@ -565,9 +620,11 @@ export async function syncPropertyStripe(opts: {
 
       // Replace the approximated fee with Stripe's actual whenever the
       // balance_transaction was returned -- same write the description-
-      // match path does. Skip rows marked paid_off_stripe.
+      // match path does. Skip rows marked paid_off_stripe. Discounted
+      // opening bookings rebuild their net absolutely instead.
       const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
-      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
+      const discounted = await applyDiscountedNet(r, agg);
+      if (!discounted && actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
         if (prev !== actualFee) {
           const deltaFee = round2(actualFee - prev);
@@ -625,13 +682,14 @@ export async function syncPropertyStripe(opts: {
       });
       if (claimants.length !== 1) continue;
 
-      let refundedCents = 0, feeCents = 0;
+      let refundedCents = 0, feeCents = 0, discountDollars = 0;
       let feeKnown = true;
       for (const o of hits) {
         const agg = byCodeAgg.get(o.code);
         if (!agg) { feeKnown = false; continue; }
         refundedCents += agg.refundedCents;
         feeCents += agg.feeCents;
+        discountDollars += agg.discountDollars;
         if (!agg.feeKnown) feeKnown = false;
       }
 
@@ -644,7 +702,8 @@ export async function syncPropertyStripe(opts: {
       }
 
       const actualFee = feeKnown ? round2(feeCents / 100) : null;
-      if (actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
+      const discounted = await applyDiscountedNet(r, { feeCents, feeKnown, discountDollars });
+      if (!discounted && actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
         if (prev !== actualFee) {
           const deltaFee = round2(actualFee - prev);
@@ -790,7 +849,7 @@ export async function syncPropertyStripe(opts: {
     // and the reserve come off the payout. A statement with no
     // attributions gets zeros for all three terms and lands on numbers
     // identical to the pre-add-on formula.
-    if (result.fee_updates.length > 0 || result.gross_reconstructions.length > 0) {
+    if (result.fee_updates.length > 0 || result.gross_reconstructions.length > 0 || result.discount_adjustments.length > 0) {
       const { data: freshRes } = await supabase
         .from('reservations')
         .select('adjusted_revenue')
@@ -820,7 +879,7 @@ export async function syncPropertyStripe(opts: {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_gross_reconstructed', 'stripe_missing_charge', 'stripe_orphan_charge']);
+      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_gross_reconstructed', 'stripe_opening_discount', 'stripe_missing_charge', 'stripe_orphan_charge']);
 
     // Pull any reservation_notes for the codes we're about to flag, so
     // gap descriptions inherit the durable context that arrived
@@ -833,6 +892,7 @@ export async function syncPropertyStripe(opts: {
       ...result.refunds_detected.map(r => r.code),
       ...result.gross_mismatches.map(m => m.code),
       ...result.gross_reconstructions.map(g => g.code),
+      ...result.discount_adjustments.map(d => d.code),
       ...result.reservations_missing_charge.map(mc => mc.code),
     ]);
     const notesByCode = new Map<string, { body: string; created_at: string }>();
@@ -884,6 +944,18 @@ export async function syncPropertyStripe(opts: {
         description: `Guesty TOTAL_PAID $${g.guesty.toFixed(2)} under-reported ${g.guest} (${g.code}); Stripe collected $${g.stripe.toFixed(2)}. Net rebuilt from Stripe actuals: $${g.prev_net.toFixed(2)} -> $${g.next_net.toFixed(2)} (real fee $${g.fee.toFixed(2)}).${noteSuffix(g.code)}`,
         severity: 'info',
         expected_data: `None -- auto-corrected. Fix TOTAL_PAID in Guesty to stop this recurring`,
+        resolved: true,
+      });
+    }
+    // Audit trail for opening-discount pass-through: pre-resolved so the
+    // gap counter stays quiet, but the row documents why this stay's
+    // revenue is below the Guesty folio if an owner ever asks.
+    for (const d of result.discount_adjustments) {
+      newGaps.push({
+        gap_type: 'stripe_opening_discount',
+        description: `Opening discount $${d.discount.toFixed(2)} on ${d.guest} (${d.code}): guest paid the discounted total. Net rebuilt from actuals: $${d.prev_net.toFixed(2)} -> $${d.next_net.toFixed(2)} (real fee $${d.fee.toFixed(2)}).${noteSuffix(d.code)}`,
+        severity: 'info',
+        expected_data: `None -- discounts flow through to owner revenue (policy 2026-08-01)`,
         resolved: true,
       });
     }
