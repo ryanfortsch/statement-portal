@@ -73,10 +73,19 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
     : '';
   let statementLine = `Please see the attached ${shortMonth} statement. The funds will be sent to your bank account on ${fundsSent}. If you have any questions, please let us know.`;
   if (multi) {
+    // A grouped owner can still end up with one payable property (a sibling
+    // at $0 from a reserve holdback drops out of the list) -- keep the
+    // sentence singular there instead of "payouts are $X for <one name>".
     const withPayout = multi.filter(p => p.payout != null && p.payout > 0);
-    payoutLine = withPayout.length > 0
-      ? `Your ${shortMonth} payouts are ${withPayout.map(p => `${fmtMoneyRound(p.payout!)} for ${p.name}`).join(' and ')}.\n\n`
-      : '';
+    if (withPayout.length >= 2) {
+      const total = withPayout.reduce((sum, p) => sum + p.payout!, 0);
+      const itemized = withPayout.map(p => `${fmtMoneyRound(p.payout!)} for ${p.name}`).join(' and ');
+      payoutLine = `Your ${shortMonth} payouts total ${fmtMoneyRound(total)}: ${itemized}.\n\n`;
+    } else if (withPayout.length === 1) {
+      payoutLine = `Your ${shortMonth} payout is ${fmtMoneyRound(withPayout[0].payout!)} for ${withPayout[0].name}.\n\n`;
+    } else {
+      payoutLine = '';
+    }
     statementLine = `Please see the attached ${shortMonth} statements, one per property. The funds will be sent to your bank accounts on ${fundsSent}. If you have any questions, please let us know.`;
   }
 
