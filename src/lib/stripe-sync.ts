@@ -776,10 +776,12 @@ export async function syncPropertyStripe(opts: {
         const orphan = hits[0];
         const agg = byCodeAgg.get(orphan.code);
         if (!agg) continue;
-        // Opening-discount links rebuild per-stay nets; a combined charge
-        // can't apportion a discount safely, so leave it to the operator.
-        if (agg.discountDollars > 0) continue;
-
+        // Note: the collected-net rebuild (#1177) is single-reservation
+        // only; a combined charge whose total disagrees with the combined
+        // folio can't apportion that difference across stays safely, so
+        // this pass corrects FEES only. The amountOk band below keeps
+        // wildly-off charges out; residual folio-vs-collected deltas stay
+        // visible to the operator on the per-stay rows.
         const combinedRental = round2(rows.reduce((s, r) => s + (r.guesty_rental_income || 0), 0));
         if (combinedRental <= 0) continue;
         const taxesKnown = rows.every(r => grossByCode.has(r.confirmation_code) || taxesByCode.has(r.confirmation_code));
