@@ -112,6 +112,13 @@ export async function recordSyncFailure(
  * succeeded, failure with the first error otherwise. Caller decides what
  * counts as a "failed" entity vs an expected no-op (e.g. SEAM_API_KEY missing
  * is configuration, not failure).
+ *
+ * Partial success (some entities synced, some failed) records BOTH: the
+ * failure fields so the daily brief keeps flagging the broken entity, and a
+ * fresh last_synced_at so freshness badges reflect the data that did update.
+ * Without the stamp, one persistently-broken entity (a property missing its
+ * monthly ingest, an offline lock) makes the whole feed read as
+ * never-syncing even though every other entity updates on schedule.
  */
 export async function recordSyncResult(
   source: SyncSource,
@@ -126,7 +133,33 @@ export async function recordSyncResult(
     const msg =
       opts.firstError ?? `${opts.failed}/${opts.processed + opts.failed} entities failed`;
     await recordSyncFailure(source, msg);
+    if (opts.processed > 0) {
+      await stampSyncedAt(source, opts.result);
+    }
   } else {
     await recordSyncSuccess(source, opts.result);
+  }
+}
+
+/**
+ * Stamp last_synced_at without touching the error fields recordSyncFailure
+ * just wrote. Plain update, not upsert: the failure write above guarantees
+ * the row exists.
+ */
+async function stampSyncedAt(
+  source: SyncSource,
+  lastResult?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    const payload: Record<string, unknown> = { last_synced_at: now, updated_at: now };
+    if (lastResult !== undefined) payload.last_result = lastResult;
+    const { error } = await supabaseAdmin
+      .from('sync_status')
+      .update(payload)
+      .eq('source', source);
+    if (error) console.error('[sync-status] stampSyncedAt failed', source, error.message);
+  } catch (e) {
+    console.error('[sync-status] stampSyncedAt threw', source, e);
   }
 }
