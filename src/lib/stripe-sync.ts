@@ -916,26 +916,68 @@ export async function syncPropertyStripe(opts: {
         if (createdIso.slice(0, 7) !== month) continue;
         if (agg.refundedCents >= agg.grossCents) {
           // Fully refunded, usually a double-paid link we refunded. Stripe
-          // keeps its processing fee on refunds, so the account is out that
-          // fee even though revenue nets to zero. Queue the KEPT FEE as a
-          // pending DEBIT: attribute it to put the loss on the statement,
-          // dismiss it if RT eats the fee. Any still-pending deposit row
-          // from before the refund is dropped below; an already-attributed
-          // one is deliberately left -- this debit row's description is the
-          // operator's breadcrumb to go unattribute it.
+          // keeps its processing fee on refunds. Policy (Dotti 2026-08-02,
+          // Kristen Oteri's double-paid $600 on 19 Rackliffe): card fees
+          // back out of REVENUE, never land as a repairs-style debit. When
+          // the refunded charge unambiguously pairs with one matched stay
+          // (refunded gross equals the stay's folio pre-tax or its
+          // tax-inclusive total: the double-pay signature), fold the kept
+          // fee into that stay's stripe_fee, so the owner shares it through
+          // the management-fee base like every other card fee. Re-reads the
+          // row the matchers just wrote, so re-syncs stay deterministic.
+          // No unambiguous pair -> the old debit-queue fallback so the
+          // loss is never silent.
           if (agg.feeKnown && agg.feeCents > 0) {
-            staleRefundedDepositKeys.push(`stripe:${o.code}`);
-            queueRows.push({
-              property_id: propertyId,
-              month,
-              direction: 'debit',
-              deposit_date: createdIso,
-              amount: round2(agg.feeCents / 100),
-              description: `Stripe fee kept on refunded charge: ${agg.fullDesc} ($${round2(agg.grossCents / 100).toFixed(2)} refunded)`.slice(0, 300),
-              source: 'stripe_charge',
-              suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
-              dedupe_key: `stripe:${o.code}:refundfee`,
+            const refundedGross = round2(agg.grossCents / 100);
+            const keptFee = round2(agg.feeCents / 100);
+            const pairs = reservations.filter(x => {
+              const xp = (x.platform || '').toUpperCase();
+              const rt = xp.includes('HOMEAWAY') || xp === 'VRBO' || xp === 'MANUAL';
+              if (!rt || !matchedCodes.has(x.confirmation_code)) return false;
+              if (x.stripe_fee == null || x.bank_match_status === 'paid_off_stripe' || installmentCodes.has(x.confirmation_code)) return false;
+              const folio = x.guesty_rental_income || 0;
+              if (folio <= 0) return false;
+              return Math.abs(refundedGross - folio) <= 1 || Math.abs(refundedGross - round2(folio * SCA_TAX_MULTIPLIER)) <= 1;
             });
+            let folded = false;
+            if (pairs.length === 1) {
+              const { data: freshRow } = await supabase
+                .from('reservations')
+                .select('stripe_fee, adjusted_revenue')
+                .eq('id', pairs[0].id)
+                .maybeSingle();
+              if (freshRow && freshRow.stripe_fee != null) {
+                const newFee = round2(Number(freshRow.stripe_fee) + keptFee);
+                const newAdjusted = round2(Number(freshRow.adjusted_revenue || 0) - keptFee);
+                if (newAdjusted > 0) {
+                  await supabase
+                    .from('reservations')
+                    .update({ stripe_fee: newFee, adjusted_revenue: newAdjusted })
+                    .eq('id', pairs[0].id);
+                  result.fee_updates.push({
+                    code: pairs[0].confirmation_code, guest: pairs[0].guest_name || 'Guest',
+                    prev: round2(Number(freshRow.stripe_fee)), next: newFee, delta: keptFee,
+                  });
+                  // Any pending rows from prior syncs (deposit or debit) are stale now.
+                  staleRefundedDepositKeys.push(`stripe:${o.code}`, `stripe:${o.code}:refundfee`);
+                  folded = true;
+                }
+              }
+            }
+            if (!folded) {
+              staleRefundedDepositKeys.push(`stripe:${o.code}`);
+              queueRows.push({
+                property_id: propertyId,
+                month,
+                direction: 'debit',
+                deposit_date: createdIso,
+                amount: keptFee,
+                description: `Stripe fee kept on refunded charge: ${agg.fullDesc} ($${refundedGross.toFixed(2)} refunded)`.slice(0, 300),
+                source: 'stripe_charge',
+                suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
+                dedupe_key: `stripe:${o.code}:refundfee`,
+              });
+            }
           }
           continue;
         }
