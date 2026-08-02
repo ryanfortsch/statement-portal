@@ -36,6 +36,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { loadAddOnTotals } from './statement-addons';
 
 export type StripeSyncResult = {
@@ -476,9 +477,12 @@ export async function syncPropertyStripe(opts: {
     // between quote and reservation, drift inside the booking flow's 2%
     // tolerance. Whatever the cause, the owner's recognized revenue
     // follows the charge:
-    //   net = (collected_gross / 1.117) - actual_fee
-    // (1.117 inverts SCA's MASS_CAPE_ANN_TAX_RATE; the charge total is
-    // tax-inclusive, and only the pre-tax share is rent revenue.)
+    //   net = (collected_gross / tax_multiplier) - actual_fee
+    // (the multiplier inverts the occupancy rate the guest was actually
+    // charged -- 1.117 base, 1.147 for CIF properties like 79 Main, per
+    // lib/occupancy-tax keyed on the CHARGE's creation date so pre-CIF
+    // charges keep inverting at 11.7%. The charge total is tax-inclusive,
+    // and only the pre-tax share is rent revenue.)
     // Manual/Direct only: VRBO grosses carry channel-commission
     // semantics, and legacy Guesty Payments charges (application fee)
     // plus 29+ night stays (MA occupancy tax does not apply to 31+ day
@@ -487,10 +491,9 @@ export async function syncPropertyStripe(opts: {
     // never the current adjusted value, so re-syncs are idempotent.
     // Returns true when the row was handled here (written or already
     // agreeing within $1); the caller then skips the plain fee write.
-    const SCA_TAX_MULTIPLIER = 1.117;
     const applyCollectedNet = async (
       res: ReservationRow,
-      agg: { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; hasAppFee: boolean },
+      agg: { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; hasAppFee: boolean; createdUnix: number },
     ): Promise<boolean> => {
       if ((res.platform || '').toUpperCase() !== 'MANUAL') return false;
       if (!agg.feeKnown || agg.refundedCents > 0 || agg.hasAppFee) return false;
@@ -506,7 +509,8 @@ export async function syncPropertyStripe(opts: {
       // ruling 2026-08-02: occupancy tax comes out of whatever the guest
       // paid, so the owner's rent share on a $275 flat link is $275/1.117.
       // The tax still gets remitted either way; this decides who bears it.
-      const collectedPreTax = round2(collectedGross / SCA_TAX_MULTIPLIER);
+      const chargeIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
+      const collectedPreTax = round2(collectedGross / occupancyTaxMultiplier(propertyId, chargeIso));
       if (Math.abs(collectedPreTax - base) <= 1) return false;              // folio and charge agree
       if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
       const actualFee = round2(agg.feeCents / 100);
@@ -740,6 +744,7 @@ export async function syncPropertyStripe(opts: {
 
       let grossCents = 0, refundedCents = 0, feeCents = 0;
       let feeKnown = true, hasAppFee = false;
+      let createdUnix = Number.MAX_SAFE_INTEGER;
       for (const o of hits) {
         const agg = byCodeAgg.get(o.code);
         if (!agg) { feeKnown = false; continue; }
@@ -748,7 +753,11 @@ export async function syncPropertyStripe(opts: {
         feeCents += agg.feeCents;
         if (agg.hasAppFee) hasAppFee = true;
         if (!agg.feeKnown) feeKnown = false;
+        // Earliest charge dates the payment for the tax-rate lookup:
+        // split payments of one booking were all quoted at the same rate.
+        if (agg.createdUnix < createdUnix) createdUnix = agg.createdUnix;
       }
+      if (createdUnix === Number.MAX_SAFE_INTEGER) createdUnix = 0;
 
       matchedCodes.add(r.confirmation_code);
       result.matched += 1;
@@ -759,7 +768,7 @@ export async function syncPropertyStripe(opts: {
       }
 
       const actualFee = feeKnown ? round2(feeCents / 100) : null;
-      const rebuilt = await applyCollectedNet(r, { grossCents, refundedCents, feeCents, feeKnown, hasAppFee });
+      const rebuilt = await applyCollectedNet(r, { grossCents, refundedCents, feeCents, feeKnown, hasAppFee, createdUnix });
       if (!rebuilt && actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
         if (prev !== actualFee) {
