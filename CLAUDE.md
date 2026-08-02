@@ -138,6 +138,8 @@ owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - 
 
 All three roll into a single `cleaning_total` on the property statement — owner sees one "Cleaning" line. The turns count on the editorial statement (`(N turns)`) filters non-turnover vendors via `NON_TURNOVER_VENDORS` in `src/lib/bank-charges.ts` — extend that list if a new additive vendor is added.
 
+**Vendor credits are refunds, never income.** A positive bank amount on any recognized vendor descriptor is auto-netted at ingest against that vendor's same-amount charge in the month: the charge row stays on file with `credit_amount`/`credit_reason` (same fields as the operator's Mark Duplicate control, renders as a strikethrough) and `cleaning_total` bills the owner only the net. A vendor credit with NO same-month exact-amount match (partial refund, prior-month refund, maintenance vendor) is never guessed at — it raises a critical `vendor_refund_unapplied` data gap on the property card and parks in the bank review queue (`source='vendor-refund'`).
+
 Laundry rows attribute to the nearest Cape Ann Elite cleaning by bank_charge_date within 7 days for display grouping on the dashboard; outside that window they render as standalone "Laundry service" rows like linens.
 
 Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total. The matcher restricts to `source IN ('matched', 'bank')` so a Cape Ann Elite invoice cannot false-match a Laundry Plus or Nor'East row that happens to share an amount.
