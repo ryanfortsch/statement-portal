@@ -921,7 +921,9 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
               </div>
               <div className="insight">
                 <div className="insight-label">ADR</div>
-                <div className="insight-value">${fmt(adr).split('.')[0]}</div>
+                {/* Whole-dollar display rounds (1,234.66 -> 1,235) rather
+                    than truncating, so it agrees with the header stat. */}
+                <div className="insight-value">${Math.round(adr).toLocaleString('en-US')}</div>
                 <div className="insight-sub">avg. daily rate</div>
               </div>
               <div className="insight">
@@ -937,7 +939,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                 <div className="sec-head">
                   <span className="sec-num">03</span>
                   <h2 className="sec-title">On the horizon</h2>
-                  <span className="sec-meta">Upcoming reservations</span>
                 </div>
                 <div className="upcoming-list">
                   {upcoming.length > 0 ? upcoming.map((b, i) => {
