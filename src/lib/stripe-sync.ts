@@ -49,6 +49,8 @@ export type StripeSyncResult = {
   gross_reconstructions: { code: string; guest: string; stripe: number; guesty: number; prev_net: number; next_net: number; fee: number }[];
   collected_rebuilds: { code: string; guest: string; collected: number; folio: number; prev_net: number; next_net: number; fee: number }[];
   reservations_missing_charge: { code: string; guest: string; expected: number }[];
+  /** True when the statement was already emailed to the owner; the sync wrote nothing. */
+  skipped_sent?: boolean;
   error?: string;
 };
 
@@ -310,6 +312,33 @@ export async function syncPropertyStripe(opts: {
   };
 
   try {
+    // HARD GATE (2026-08-02): a statement that has been EMAILED to the
+    // owner never shifts again. 36 Granite's July email went out at
+    // 14:31 UTC and a sync moved its payout $21.60 ten minutes later --
+    // the owner's PDF and Helm silently diverged. Post-send corrections
+    // are an operator decision on the NEXT month's statement, never an
+    // automatic rewrite of a sent one. Sent-ness = close_tasks
+    // email_sent_at for this period + property (stamped by /api/draft-
+    // email's send flow). Fails open if close_tasks is missing
+    // (pre-migration env) -- same as the table's other readers.
+    const { data: periodRow } = await supabase
+      .from('statement_periods')
+      .select('id')
+      .eq('month', month)
+      .maybeSingle();
+    if (periodRow?.id) {
+      const { data: closeTask } = await supabase
+        .from('close_tasks')
+        .select('email_sent_at')
+        .eq('period_id', periodRow.id)
+        .eq('property_id', propertyId)
+        .maybeSingle();
+      if (closeTask?.email_sent_at) {
+        result.skipped_sent = true;
+        return result;
+      }
+    }
+
     const charges = await listChargesAroundMonth(restrictedKey, month);
     const succeeded = charges.filter(c => c.status === 'succeeded' || c.paid);
     result.charges_found = succeeded.length;
@@ -470,7 +499,16 @@ export async function syncPropertyStripe(opts: {
       if (base <= 0 || !res.check_in || !res.check_out) return false;
       const nights = Math.round((new Date(res.check_out + 'T00:00:00Z').getTime() - new Date(res.check_in + 'T00:00:00Z').getTime()) / 86400000);
       if (!Number.isFinite(nights) || nights <= 0 || nights > 28) return false;
-      const collectedPreTax = round2(agg.grossCents / 100 / SCA_TAX_MULTIPLIER);
+      const collectedGross = round2(agg.grossCents / 100);
+      // Flat-rent link guard (36 Granite, Dahlia's $275 extension night):
+      // when the charge equals the folio's PRE-TAX rent exactly, the
+      // operator sent a flat link with no tax added. Whether the owner or
+      // RT bears the uncollected occupancy tax is a business decision,
+      // not an inversion this code should apply on its own -- treating
+      // $275 as tax-inclusive knocked $28.81 off the owner after the
+      // statement had gone out. Leave the folio-based net alone.
+      if (Math.abs(collectedGross - base) <= 1) return false;
+      const collectedPreTax = round2(collectedGross / SCA_TAX_MULTIPLIER);
       if (Math.abs(collectedPreTax - base) <= 1) return false;              // folio and charge agree
       if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
       const actualFee = round2(agg.feeCents / 100);
