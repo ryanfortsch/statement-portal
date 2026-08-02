@@ -68,7 +68,7 @@ export function BankDepositReview({
 }) {
   const router = useRouter();
   const [items, setItems] = useState<Deposit[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, { label: string; code: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, { label: string; code: string; manualCode?: string }>>({});
   // Collapsed by default so the queue doesn't dominate the property card.
   // Click the header to expand the review list. Three independent toggles
   // for deposits-pending / debits-pending / already-attributed.
@@ -113,15 +113,25 @@ export function BankDepositReview({
       code: dep.suggested_reservation_code && validCodes.includes(dep.suggested_reservation_code)
         ? dep.suggested_reservation_code
         : (validCodes[0] || ''),
+      manualCode: '',
     };
     return initial;
   }
-  function setDraft(id: string, next: { label?: string; code?: string }) {
+  function setDraft(id: string, next: { label?: string; code?: string; manualCode?: string }) {
     setDrafts(prev => ({ ...prev, [id]: { ...draftFor({ id, suggested_reservation_code: null } as Deposit), ...prev[id], ...next } }));
+  }
+  // "__other__" in the dropdown = a stay not on this month's statement (e.g.
+  // a prior-month reservation whose charge was carried forward). The typed
+  // confirmation code is what gets attributed; the render page shows such
+  // add-ons as standalone rows.
+  function effectiveCode(d: { code: string; manualCode?: string }): string {
+    return d.code === '__other__' ? (d.manualCode || '').trim() : d.code;
   }
 
   async function attribute(dep: Deposit) {
-    const { label, code } = draftFor(dep);
+    const draft = draftFor(dep);
+    const label = draft.label;
+    const code = effectiveCode(draft);
     // Deposits MUST pick a reservation (the credit ties to a specific
     // stay's revenue). Debits don't have to -- the trash-can reimbursement
     // is a property-level expense, not tied to a guest. Also require a
@@ -266,9 +276,20 @@ export function BankDepositReview({
                         {reservations.filter(r => r.confirmation_code).map(r => (
                           <option key={r.confirmation_code!} value={r.confirmation_code!}>{r.guest_name || r.confirmation_code}</option>
                         ))}
+                        <option value="__other__">Other stay (enter code)…</option>
                       </select>
-                      <button type="button" onClick={() => attribute(dep)} disabled={busy || !d.code}
-                        style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--paper)', background: 'var(--ink)', border: '1px solid var(--ink)', padding: '5px 10px', cursor: busy ? 'wait' : 'pointer', opacity: !d.code ? 0.5 : 1 }}>
+                      {d.code === '__other__' && (
+                        <input
+                          type="text"
+                          value={d.manualCode || ''}
+                          onChange={(e) => setDraft(dep.id, { manualCode: e.target.value })}
+                          disabled={busy}
+                          placeholder="BC-XXXXXXX"
+                          style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 120, fontFamily: 'var(--font-mono)' }}
+                        />
+                      )}
+                      <button type="button" onClick={() => attribute(dep)} disabled={busy || !effectiveCode(d)}
+                        style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--paper)', background: 'var(--ink)', border: '1px solid var(--ink)', padding: '5px 10px', cursor: busy ? 'wait' : 'pointer', opacity: !effectiveCode(d) ? 0.5 : 1 }}>
                         {busy ? 'Saving…' : '+ Add to revenue'}
                       </button>
                       <button type="button" onClick={() => dismiss(dep)} disabled={busy}

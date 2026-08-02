@@ -275,7 +275,10 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .from('bank_deposit_attributions')
     .select('attributed_reservation_code, amount, label')
     .eq('property_id', prop.property_id)
-    .eq('month', prop.month)
+    // NB: month must come from the URL param -- property_statements has no
+    // month column, so prop.month is undefined and matches zero rows (the
+    // bug that kept attributed add-ons from ever rendering on statements).
+    .eq('month', month)
     .eq('status', 'attributed')
     // Deposits only: an attributed DEBIT tagged to a reservation belongs in
     // the deduction totals, not as a "+" add-on line under the guest.
@@ -656,6 +659,21 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Keep the hero STAYS figure in step with the rows the owner can count.
   const extensionsFolded = rows.length - displayRows.length;
 
+  // Add-ons attributed to a stay that is NOT on this statement -- a charge
+  // carried onto a later month because the stay's own month already paid out
+  // (e.g. an extra night bought late in June, put on July's statement). The
+  // payout math already includes these via (property, month), so they must
+  // be visible: rendered as standalone add-on rows after the reservations.
+  const onStatementCodes = new Set<string>();
+  for (const dr of displayRows) {
+    if (dr.confirmation_code) onStatementCodes.add(dr.confirmation_code);
+    for (const c of dr.extraCodes) onStatementCodes.add(c);
+  }
+  const carriedAddOns: { label: string; amount: number }[] = [];
+  for (const [code, list] of addOnsByCode.entries()) {
+    if (!onStatementCodes.has(code)) carriedAddOns.push(...list);
+  }
+
   // Guest-facing (grossed-up) ADR. DISPLAY-ONLY -- reconstructs what the guest
   // paid per night from RT's net deposit, using the SAME nightsBooked
   // denominator as the legacy net ADR. Payout math is untouched. See the
@@ -825,6 +843,14 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                         </React.Fragment>
                       );
                     })}
+                    {carriedAddOns.map((a, j) => (
+                      <tr key={`carried-addon-${j}`} className="addon-row">
+                        <td><div className="addon-label">+ {a.label}</div></td>
+                        <td></td>
+                        <td></td>
+                        <td className="num addon-amt">+${fmt(a.amount)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </section>
