@@ -722,6 +722,106 @@ export async function syncPropertyStripe(opts: {
       }
     }
 
+    // Multi-stay guest-name fallback. A guest who extends by phone often
+    // pays ONE human-written Payment Link covering several reservations
+    // ("Niari Keverian, July 2 + July 6 extension" -- one $972 charge for
+    // two Manual stays on 79 Main). No single stay's expected gross equals
+    // the charge and the description carries neither a confirmation code
+    // nor a YYYY-MM-DD range, so every pass above misses it and both stays
+    // keep their 3.9% estimates. Anchor on the guest's full name in the
+    // charge description -- these links are written by the operator, who
+    // types the guest's name -- then sanity-check the amount against the
+    // group's combined gross: exact (within $1) when taxes are known for
+    // every stay, else a tax-inclusive band (combined rental up to +25%,
+    // MA STR tax is ~14.7%) since Guesty leaves total_taxes null on these
+    // direct bookings. Requires exactly one name-carrying orphan and every
+    // row writable, so ambiguity or a protected row falls through to the
+    // missing-charge gap unchanged. The actual fee apportions pro-rata by
+    // rental income; the last row absorbs the rounding remainder so the
+    // per-stay fees sum to Stripe's fee to the penny.
+    {
+      const nameGroups = new Map<string, ReservationRow[]>();
+      for (const r of reservations) {
+        if (matchedCodes.has(r.confirmation_code)) continue;
+        const p = (r.platform || '').toUpperCase();
+        const isRTStripeChannel = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL';
+        if (!isRTStripeChannel) continue;
+        const isHomeownerStay = p === 'MANUAL' && (!r.guesty_rental_income || r.guesty_rental_income === 0);
+        if (isHomeownerStay) continue;
+        const nameKey = (r.guest_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (nameKey.length < 5) continue;
+        const group = nameGroups.get(nameKey) || [];
+        group.push(r);
+        nameGroups.set(nameKey, group);
+      }
+
+      for (const [nameKey, rows] of nameGroups.entries()) {
+        if (rows.length < 2) continue;
+
+        const hits = orphanCodes.filter(o => {
+          const agg = byCodeAgg.get(o.code);
+          return !!agg && !agg.isGuestyCoded && agg.fullDesc.toLowerCase().includes(nameKey);
+        });
+        if (hits.length !== 1) continue;
+        const orphan = hits[0];
+        const agg = byCodeAgg.get(orphan.code);
+        if (!agg) continue;
+        // Opening-discount links rebuild per-stay nets; a combined charge
+        // can't apportion a discount safely, so leave it to the operator.
+        if (agg.discountDollars > 0) continue;
+
+        const combinedRental = round2(rows.reduce((s, r) => s + (r.guesty_rental_income || 0), 0));
+        if (combinedRental <= 0) continue;
+        const taxesKnown = rows.every(r => grossByCode.has(r.confirmation_code) || taxesByCode.has(r.confirmation_code));
+        const expectedCombined = round2(rows.reduce((s, r) => {
+          const known = grossByCode.get(r.confirmation_code) || 0;
+          return s + (known > 0 ? known : round2((r.guesty_rental_income || 0) + (taxesByCode.get(r.confirmation_code) || 0)));
+        }, 0));
+        const amountOk = taxesKnown
+          ? Math.abs(orphan.amount - expectedCombined) <= 1
+          : orphan.amount >= combinedRental - 1 && orphan.amount <= round2(combinedRental * 1.25) + 1;
+        if (!amountOk) continue;
+
+        const allWritable = agg.feeKnown && rows.every(r =>
+          r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code));
+        if (!allWritable) continue;
+
+        // Claim the charge for the whole group.
+        orphanCodes.splice(orphanCodes.indexOf(orphan), 1);
+        byCodeAgg.delete(orphan.code);
+        linkedOrphanKeys.push(`stripe:${orphan.code}`);
+        for (const r of rows) { matchedCodes.add(r.confirmation_code); result.matched += 1; }
+
+        const actualFee = round2(agg.feeCents / 100);
+        let assigned = 0;
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i];
+          const share = i === rows.length - 1
+            ? round2(actualFee - assigned)
+            : round2(actualFee * ((r.guesty_rental_income || 0) / combinedRental));
+          assigned = round2(assigned + share);
+          const prev = round2(r.stripe_fee as number);
+          if (prev === share) continue;
+          const deltaFee = round2(share - prev);
+          const newAdjusted = round2((r.adjusted_revenue || 0) - deltaFee);
+          await supabase
+            .from('reservations')
+            .update({ stripe_fee: share, adjusted_revenue: newAdjusted })
+            .eq('id', r.id);
+          result.fee_updates.push({ code: r.confirmation_code, guest: r.guest_name || 'Guest', prev, next: share, delta: deltaFee });
+        }
+
+        const refunded = round2(agg.refundedCents / 100);
+        if (refunded > 0) {
+          result.refunds_detected.push({
+            code: rows.map(r => r.confirmation_code).join(' + '),
+            guest: rows[0].guest_name || 'Guest',
+            amount: refunded,
+          });
+        }
+      }
+    }
+
     result.unmatched_charges = orphanCodes.map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
 
     // One-off Payment Link charges (early check-in, extra night, pet fee
