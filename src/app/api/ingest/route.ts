@@ -321,10 +321,10 @@ function isInMonth(dateStr: string, month: string): boolean {
  * that don't get a cleaning in this month are fine -- theirs will
  * typically appear in the next month's ingest.
  */
-function matchCleaningsToReservations<R extends { check_out: string; guest_name: string }>(
-  cleaningCharges: { date: string; amount: number; description: string }[],
+function matchCleaningsToReservations<C extends { date: string; amount: number; description: string }, R extends { check_out: string; guest_name: string }>(
+  cleaningCharges: C[],
   reservations: R[],
-): { charge: typeof cleaningCharges[number]; matchedGuest: string | null; matchedCheckout: string | null }[] {
+): { charge: C; matchedGuest: string | null; matchedCheckout: string | null }[] {
   const toISO = (d: string) => {
     const parts = d.split('/');
     if (parts.length !== 3) return '';
@@ -681,10 +681,23 @@ export async function POST(request: NextRequest) {
     // roll into cleaning_total so the owner statement shows one combined
     // "Cleaning" line (linens were bundled into Cape Ann Elite's invoices
     // before May 2026; folding them back in keeps owner payouts correct).
-    const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const laundryCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    type VendorCharge = {
+      date: string; amount: number; description: string; vendor: string;
+      // Set when a same-vendor CREDIT in the same month nets this charge
+      // out (see the vendor-refund pass below the bank loop).
+      credit_amount?: number; credit_reason?: string;
+    };
+    const cleaningCharges: VendorCharge[] = [];
+    const linenCharges: VendorCharge[] = [];
+    const laundryCharges: VendorCharge[] = [];
+    const repairCharges: VendorCharge[] = [];
+    // CREDITS from a known vendor. Vendors bill us; they never pay us --
+    // a positive amount on a vendor descriptor is always a refund of one
+    // of their own charges, so it must reduce what the owner is billed,
+    // never sit silently in a review queue (the $47.40 Laundry Plus refund
+    // on 20 Hammond July 2026 that quietly parked as an unattributed
+    // deposit while the owner was charged the full amount).
+    const vendorCredits: { kind: 'cleaning' | 'linen' | 'laundry' | 'repair'; vendor: string; date: string; amount: number; description: string }[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     // Unmatched in-month DEBITS (negative amounts that didn't classify as
     // cleaning / linen / known repair vendor). These often turn out to be
@@ -725,6 +738,14 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Vendor CREDIT (refund). Held out of the deposits pool on purpose:
+      // a $47.40 laundry refund must never amount-match an Airbnb payout.
+      // Netted against its own vendor's charges after the loop.
+      if (cls && amount > 0 && isInMonth(date, month)) {
+        vendorCredits.push({ kind: cls.kind, vendor: cls.vendor, date, amount: Math.round(amount * 100) / 100, description: desc });
+        continue;
+      }
+
       if (amount > 0) {
         // Deposits: collect ALL dates for cross-month matching
         let source = 'other';
@@ -738,14 +759,59 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Net vendor refunds against their own charges. Exact-amount match
+    // within the same vendor category, nearest bank date wins, each charge
+    // absorbs at most one credit. A matched charge keeps its row (audit
+    // trail) but carries credit_amount/credit_reason -- the same fields the
+    // operator's Mark Duplicate control writes -- so the dashboard shows
+    // the strikethrough and cleaning_total recomputes stay consistent.
+    // Credits with no same-month exact match (partial refunds, refunds of a
+    // prior month's charge) are NOT guessed at: they raise a critical data
+    // gap and land in the bank review queue below.
+    const bankDateMs = (d: string): number => {
+      const parts = d.split('/');
+      if (parts.length !== 3) return NaN;
+      return Date.UTC(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
+    };
+    const unmatchedVendorCredits: typeof vendorCredits = [];
+    for (const credit of vendorCredits) {
+      // Auto-net only the cleaning family: cleaning_events carries
+      // credit_amount/credit_reason so the netted row stays visible.
+      // repair_events has no credit fields yet, so a maintenance-vendor
+      // refund goes the loud route (critical gap + review queue) instead
+      // of silently diverging rows from repairs_total.
+      const pool: VendorCharge[] | null =
+        credit.kind === 'cleaning' ? cleaningCharges :
+        credit.kind === 'linen' ? linenCharges :
+        credit.kind === 'laundry' ? laundryCharges : null;
+      let target: VendorCharge | null = null;
+      const creditMs = bankDateMs(credit.date);
+      for (const ch of pool || []) {
+        if (ch.credit_amount) continue;
+        if (Math.abs(ch.amount - credit.amount) > 0.005) continue;
+        if (!target) { target = ch; continue; }
+        const a = Math.abs(bankDateMs(ch.date) - creditMs);
+        const b = Math.abs(bankDateMs(target.date) - creditMs);
+        if (!isNaN(a) && (isNaN(b) || a < b)) target = ch;
+      }
+      if (target) {
+        target.credit_amount = credit.amount;
+        target.credit_reason = `${credit.vendor} refund posted ${credit.date} (auto-netted at ingest)`;
+      } else {
+        unmatchedVendorCredits.push(credit);
+      }
+    }
+    const chargeNet = (c: VendorCharge) => c.amount - (c.credit_amount || 0);
+
     // cleaning_total folds cleaning + linens into one number (owner-facing
     // single "Cleaning" line). owner_payout already deducts cleaning_total,
-    // so no payout-formula change is needed.
-    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    // so no payout-formula change is needed. Auto-netted refunds are
+    // excluded here so the owner is only billed the vendor's net.
+    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + chargeNet(c), 0) * 100) / 100;
+    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + chargeNet(c), 0) * 100) / 100;
+    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + chargeNet(c), 0) * 100) / 100;
     const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
-    let repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    let repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + chargeNet(c), 0) * 100) / 100;
 
     // Receipt-backed expenses fold into repairs_total. property_receipts is
     // keyed (property_id, month) -- NOT the statement UUID -- so operator-
@@ -1306,6 +1372,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Vendor refunds that could NOT be auto-netted (no same-month exact-
+    // amount charge: partial refund, refund of a prior month's charge, or a
+    // maintenance vendor). Park them in the review queue -- they also raise
+    // a critical data gap in section 12 so nobody has to scan line items to
+    // notice a vendor sent money back.
+    if (unmatchedVendorCredits.length > 0) {
+      const creditReviewRows = unmatchedVendorCredits.map(c => {
+        const isoDate = depToISO(c.date);
+        const safeDesc = (c.description || '').slice(0, 60);
+        return {
+          property_id: propertyId,
+          month: monthOnly,
+          direction: 'deposit',
+          deposit_date: isoDate,
+          amount: Math.round(c.amount * 100) / 100,
+          description: c.description || null,
+          source: 'vendor-refund',
+          suggested_reservation_code: null,
+          dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(c.amount * 100) / 100}|${safeDesc}`,
+        };
+      }).filter(r => r.deposit_date);
+      if (creditReviewRows.length > 0) {
+        const { error: bdaCreditErr } = await supabase
+          .from('bank_deposit_attributions')
+          .upsert(creditReviewRows, { onConflict: 'dedupe_key', ignoreDuplicates: true });
+        if (bdaCreditErr && bdaCreditErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|direction/i.test(bdaCreditErr.message || '')) {
+          console.warn('bank_deposit_attributions (vendor refund) insert failed:', bdaCreditErr.message);
+        }
+      }
+    }
+
     // 11. Insert cleaning events. Cape Ann Elite cleanings get the 1:1
     //     reservation-checkout match (see matchCleaningsToReservations).
     //     Nor'East linen charges are appended as additive, vendor-tagged
@@ -1326,7 +1423,12 @@ export async function POST(request: NextRequest) {
       amount: number;
       source: string;
       vendor: string;
+      // Auto-netted vendor refund (same fields Mark Duplicate writes).
+      credit_amount?: number;
+      credit_reason?: string;
     };
+    const creditFields = (c: VendorCharge) =>
+      c.credit_amount ? { credit_amount: c.credit_amount, credit_reason: c.credit_reason } : {};
     const cleaningInserts: CleaningEventInsert[] = [];
     if (cleaningCharges.length > 0) {
       for (const m of matchCleaningsToReservations(cleaningCharges, processedReservations)) {
@@ -1339,6 +1441,7 @@ export async function POST(request: NextRequest) {
           amount: m.charge.amount,
           source: m.matchedGuest ? 'matched' : 'bank',
           vendor: CLEANING_VENDOR_DEFAULT,
+          ...creditFields(m.charge),
         });
       }
     }
@@ -1352,6 +1455,7 @@ export async function POST(request: NextRequest) {
         amount: c.amount,
         source: 'bank-linen',
         vendor: LINEN_VENDOR_NAME,
+        ...creditFields(c),
       });
     }
     // Laundry Plus charges. Additive to cleaning_total (owner-facing single
@@ -1386,6 +1490,7 @@ export async function POST(request: NextRequest) {
         amount: c.amount,
         source: 'bank-laundry',
         vendor: LAUNDRY_VENDOR_NAME,
+        ...creditFields(c),
       });
     }
     await insertCleaningEvents(supabase, cleaningInserts);
@@ -1446,6 +1551,18 @@ export async function POST(request: NextRequest) {
     if (!hasGuesty) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
     if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV -- cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
     if (!hasBank) gaps.push({ gap_type: 'missing_bank_csv', description: 'No bank statement for deposit/cleaning verification', severity: 'warning', expected_data: `Chase bank CSV for ...${propConfig.bank_last4}` });
+
+    // Vendors never pay us -- a vendor credit is always a refund. When one
+    // can't be netted automatically (no same-month exact-amount charge), it
+    // must be resolved by hand, so make it impossible to miss.
+    for (const c of unmatchedVendorCredits) {
+      gaps.push({
+        gap_type: 'vendor_refund_unapplied',
+        description: `${c.vendor} sent money BACK: $${c.amount.toFixed(2)} credit on ${c.date} with no same-amount ${c.kind} charge this month to net it against. If it refunds a prior month's charge, apply a credit on that statement's row (Mark Duplicate); the credit is also parked in the bank review queue.`,
+        severity: 'critical',
+        expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)}`,
+      });
+    }
 
     if (unresolvedNameCodes.length > 0) {
       gaps.push({
