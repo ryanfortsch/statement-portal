@@ -1598,7 +1598,7 @@ export async function POST(request: NextRequest) {
           property_id: propertyId,
           charges_found: 0, matched: 0,
           unmatched_charges: [], fee_updates: [], refunds_detected: [],
-          gross_mismatches: [], gross_reconstructions: [], reservations_missing_charge: [],
+          gross_mismatches: [], gross_reconstructions: [], discount_adjustments: [], reservations_missing_charge: [],
           error: err instanceof Error ? err.message : String(err),
         };
       }
