@@ -938,7 +938,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Bank deposit matching
-      // Airbnb: 1:1 match by amount (within $5) across all dates, prefer dates near check-in
+      // Airbnb: 1:1 match by amount (within $5) across all dates, prefer dates near check-in.
+      //   Falls back to an unambiguous PAIR of deposits summing to the amount -- Airbnb
+      //   sometimes splits one reservation's payout into two same-day ACH credits.
       // Stripe (VRBO/Direct): Stripe batches multiple reservations into single transfers,
       //   so 1:1 matching is impossible. Mark as "stripe_covered" if any Stripe deposits exist
       //   around the reservation dates.
@@ -975,6 +977,37 @@ export async function POST(request: NextRequest) {
           if (bestIdx >= 0) {
             bankMatch = { amount: deposits[bestIdx].amount, status: 'matched' };
             deposits.splice(bestIdx, 1);
+          } else {
+            // Split-payout fallback: Airbnb sometimes pays one reservation as
+            // TWO deposits (e.g. base payout + resolution adjustment landing
+            // the same day: $999.63 + $351.52 = $1,351.15). Link a pair only
+            // when it's unambiguous -- exactly one candidate pair, or exactly
+            // one same-day pair among several. Anything murkier stays
+            // unmatched; this is corroboration, never revenue.
+            const elig: number[] = [];
+            for (let i = 0; i < deposits.length; i++) {
+              if (deposits[i].source === 'airbnb' || deposits[i].source === 'other') elig.push(i);
+            }
+            const pairs: [number, number][] = [];
+            for (let a = 0; a < elig.length; a++) {
+              for (let b = a + 1; b < elig.length; b++) {
+                if (Math.abs(deposits[elig[a]].amount + deposits[elig[b]].amount - targetAmount) < 5) {
+                  pairs.push([elig[a], elig[b]]);
+                }
+              }
+            }
+            let pick: [number, number] | null = pairs.length === 1 ? pairs[0] : null;
+            if (!pick && pairs.length > 1) {
+              const sameDay = pairs.filter(([a, b]) => deposits[a].date === deposits[b].date);
+              if (sameDay.length === 1) pick = sameDay[0];
+            }
+            if (pick) {
+              const [a, b] = pick;
+              const sum = Math.round((deposits[a].amount + deposits[b].amount) * 100) / 100;
+              bankMatch = { amount: sum, status: 'matched' };
+              deposits.splice(Math.max(a, b), 1);
+              deposits.splice(Math.min(a, b), 1);
+            }
           }
         } else if (isStripeChannel) {
           // VRBO/Direct: Stripe batches deposits, can't do 1:1 matching.
