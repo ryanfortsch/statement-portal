@@ -102,6 +102,15 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     action: 'set_bank_last4',
   },
   {
+    key: 'stripe_auto_payouts',
+    phase: 'financial',
+    title: 'Stripe account set up with automatic payouts',
+    required: true,
+    description:
+      "In the property's own Stripe account: Settings > Payouts > payout schedule = Automatic. Add the restricted key to STRIPE_KEYS_JSON while you're in there.",
+    why: "Direct/SCA bookings charge into this account. Automatic payouts sweep funds to the property's bank account like the rest of the fleet; a manual schedule strands guest money in the Stripe balance.",
+  },
+  {
     key: 'tax_cert',
     phase: 'financial',
     title: 'MA short-term rental tax certificate recorded',
@@ -225,7 +234,7 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
 
 export const LAUNCH_PHASES: ReadonlyArray<{ key: LaunchStepPhase; label: string; blurb: string }> = [
   { key: 'identity', label: 'Identity', blurb: 'Who owns it, what it is.' },
-  { key: 'financial', label: 'Financial', blurb: 'Fee, payout, bank, tax.' },
+  { key: 'financial', label: 'Financial', blurb: 'Fee, payout, bank, Stripe, tax.' },
   { key: 'listing', label: 'Listing', blurb: 'Copy, photos, channels live.' },
   { key: 'integrations', label: 'Integrations', blurb: 'Quo, Seam, invoice routing.' },
   { key: 'owner', label: 'Owner-facing', blurb: 'Welcome, statement template.' },
