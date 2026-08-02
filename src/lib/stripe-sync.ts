@@ -511,9 +511,33 @@ export async function syncPropertyStripe(opts: {
       // The tax still gets remitted either way; this decides who bears it.
       const chargeIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
       const collectedPreTax = round2(collectedGross / occupancyTaxMultiplier(propertyId, chargeIso));
-      if (Math.abs(collectedPreTax - base) <= 1) return false;              // folio and charge agree
-      if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
       const actualFee = round2(agg.feeCents / 100);
+      if (Math.abs(collectedPreTax - base) <= 1) {
+        // Folio and charge agree at the property's true tax rate. Still
+        // snap the row to the absolute base - fee: a PRIOR sync that ran
+        // with the wrong rate can have left an inflated net behind (79
+        // Main July: 1.117 inversion counted the guest's 3% CIF as rent,
+        // over-crediting the owner $132.74 across two stays; Dotti
+        // 2026-08-02: tax comes out of revenue). The plain fee path only
+        // writes deltas when the FEE changes, so it can never heal a
+        // wrong net that carries the right fee -- this absolute write
+        // can, and is a no-op when the row is already correct.
+        const agreeNet = round2(base - actualFee);
+        const prevAgreeNet = round2(res.adjusted_revenue || 0);
+        if (agreeNet > 0 && (prevAgreeNet !== agreeNet || round2(res.stripe_fee) !== actualFee)) {
+          await supabase
+            .from('reservations')
+            .update({ stripe_fee: actualFee, adjusted_revenue: agreeNet })
+            .eq('id', res.id);
+          result.collected_rebuilds.push({
+            code: res.confirmation_code, guest: res.guest_name || 'Guest',
+            collected: collectedGross, folio: base,
+            prev_net: prevAgreeNet, next_net: agreeNet, fee: actualFee,
+          });
+        }
+        return true;
+      }
+      if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
       const nextNet = round2(collectedPreTax - actualFee);
       if (nextNet <= 0) return false;
       const prevNet = round2(res.adjusted_revenue || 0);
@@ -939,6 +963,12 @@ export async function syncPropertyStripe(opts: {
           if (agg.feeKnown && agg.feeCents > 0) {
             const refundedGross = round2(agg.grossCents / 100);
             const keptFee = round2(agg.feeCents / 100);
+            // Per-property tax rate at this refunded charge's creation date
+            // (79 Main charges include the 3% CIF in the tax-inclusive total).
+            const refundMultiplier = occupancyTaxMultiplier(
+              propertyId,
+              new Date(agg.createdUnix * 1000).toISOString().slice(0, 10),
+            );
             const pairs = reservations.filter(x => {
               const xp = (x.platform || '').toUpperCase();
               const rt = xp.includes('HOMEAWAY') || xp === 'VRBO' || xp === 'MANUAL';
@@ -946,7 +976,7 @@ export async function syncPropertyStripe(opts: {
               if (x.stripe_fee == null || x.bank_match_status === 'paid_off_stripe' || installmentCodes.has(x.confirmation_code)) return false;
               const folio = x.guesty_rental_income || 0;
               if (folio <= 0) return false;
-              return Math.abs(refundedGross - folio) <= 1 || Math.abs(refundedGross - round2(folio * SCA_TAX_MULTIPLIER)) <= 1;
+              return Math.abs(refundedGross - folio) <= 1 || Math.abs(refundedGross - round2(folio * refundMultiplier)) <= 1;
             });
             let folded = false;
             if (pairs.length === 1) {
