@@ -776,9 +776,10 @@ export async function syncPropertyStripe(opts: {
         const orphan = hits[0];
         const agg = byCodeAgg.get(orphan.code);
         if (!agg) continue;
-        // Opening-discount links rebuild per-stay nets; a combined charge
-        // can't apportion a discount safely, so leave it to the operator.
-        if (agg.discountDollars > 0) continue;
+        // Legacy Guesty Payments charges carry an application fee the
+        // summed balance_transaction.fee doesn't include -- same bail as
+        // the collected-net rebuild, so the operator handles those.
+        if (agg.hasAppFee) continue;
 
         const combinedRental = round2(rows.reduce((s, r) => s + (r.guesty_rental_income || 0), 0));
         if (combinedRental <= 0) continue;
