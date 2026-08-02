@@ -13,6 +13,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
 import { PlatformCSVUploadCard } from '@/components/PlatformCSVUploadCard';
+import { BookingDepositsUploadCard } from '@/components/BookingDepositsUploadCard';
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
@@ -2962,6 +2963,13 @@ function DashboardContent() {
            refreshes the per-stay guesty_reservations cache. Does NOT modify
            property_statements -- /api/ingest stays the only statement path. */}
       <PlatformCSVUploadCard defaultMonth={selectedMonth || undefined} />
+
+      {/* ─── BOOKING.COM DEPOSITS UPLOAD ─── the central Chase ...5623 account
+           where Booking.com pays every property before the money transfers to
+           the property's own checking. One upload a month; /api/ingest reads
+           the transfers to corroborate Booking.com stays (their payouts never
+           show Booking.com-labeled in a property's own bank CSV). */}
+      <BookingDepositsUploadCard defaultMonth={selectedMonth || undefined} />
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>
