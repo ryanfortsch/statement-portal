@@ -3,9 +3,10 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
+import { loadShootDriveFiles, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, cancelShoot } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -32,10 +33,18 @@ function firstRung(card: RateCard): number {
   return card.tiers.length ? Math.min(...card.tiers.map((t) => t.views)) : 0;
 }
 
-export default async function ShootDetail({ params }: { params: Promise<{ shootId: string }> }) {
+export default async function ShootDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ shootId: string }>;
+  searchParams: Promise<{ drive?: string }>;
+}) {
   const { shootId } = await params;
-  const detail = await loadShootDetail(shootId);
+  const [detail, sp] = await Promise.all([loadShootDetail(shootId), searchParams]);
   if (!detail) notFound();
+  const driveFiles = await loadShootDriveFiles(shootId);
+  const driveNote = sp.drive ?? null;
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
   const sum = shootPaySummary(detail.assets, pay);
@@ -86,6 +95,78 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
         {pay.needsAttention && (
           <div style={{ marginTop: 14, border: '1px solid var(--signal)', borderRadius: 10, padding: '10px 16px', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)' }}>
             A reel we posted is past its {card.countDays}-day count and its views were never read — read them below to release the bonus.
+          </div>
+        )}
+
+        {/* Drive delivery — the watched folder. Uploads here auto-log assets,
+            which is what puts the delivery base due on the board. */}
+        {isCreativeDriveConfigured() && active && (
+          <div style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+                Drive delivery
+                {shoot.drive_folder_id && (
+                  <a
+                    href={`https://drive.google.com/drive/folders/${shoot.drive_folder_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--tide-deep)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 600 }}
+                  >
+                    open folder ↗
+                  </a>
+                )}
+              </div>
+              <form action={syncDriveNow} style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                <input type="hidden" name="return_to" value={`/operations/creative/${shoot.id}`} />
+                {shoot.drive_synced_at && (
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                    checked {fmtShort(shoot.drive_synced_at)} · auto every 2h
+                  </span>
+                )}
+                <PendingButton label="Check now" busyLabel="Checking…" style={{ ...quietCtl, color: 'var(--tide-deep)', fontWeight: 600 }} spinnerTone="ink" />
+              </form>
+            </div>
+
+            {driveNote && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: driveNote.startsWith('err:') ? 'var(--signal)' : 'var(--ink-3)' }}>
+                {driveNote.startsWith('err:') ? driveNote.slice(4) : driveNote.replace(/^ok:/, '')}
+              </div>
+            )}
+
+            {!shoot.drive_folder_id ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+                  No folder linked yet. Sync auto-matches a subfolder named like the property inside
+                  &ldquo;Creative Assets - {detail.contractorName.split(' ')[0]}&rdquo; — or paste the folder link:
+                </div>
+                <form action={setShootDriveFolder} style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <input type="hidden" name="shoot_id" value={shoot.id} />
+                  <input name="folder" placeholder="https://drive.google.com/drive/folders/…" style={{ ...input, width: 320 }} />
+                  <PendingButton label="Link folder" busyLabel="Linking…" style={btnGhost} spinnerTone="ink" />
+                </form>
+              </div>
+            ) : driveFiles.length === 0 ? (
+              <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-4)' }}>
+                Folder linked — nothing uploaded yet. The moment files land, they&apos;re logged here and the delivery base goes due.
+              </div>
+            ) : (
+              <div style={{ marginTop: 10 }}>
+                {driveFiles.map((f) => (
+                  <DriveFileLine key={f.id} f={f} assetLabel={assetLabelFor(f, detail.assets)} />
+                ))}
+              </div>
+            )}
+
+            {shoot.drive_folder_id && (
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ ...quietSummary, fontSize: 11.5 }}>Change folder ▾</summary>
+                <form action={setShootDriveFolder} style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <input type="hidden" name="shoot_id" value={shoot.id} />
+                  <input name="folder" placeholder="Paste a folder link, or leave empty to unlink" style={{ ...input, width: 320 }} />
+                  <PendingButton label="Save" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                </form>
+              </details>
+            )}
           </div>
         )}
 
@@ -278,6 +359,38 @@ export default async function ShootDetail({ params }: { params: Promise<{ shootI
       <HelmFooter module="Field" right={shoot.title} />
     </div>
   );
+}
+
+/** One row per delivered Drive file: what it is, when it landed, what it pays. */
+function DriveFileLine({ f, assetLabel }: { f: DriveFileRow; assetLabel: string | null }) {
+  const kind = f.mime_type?.startsWith('video/') ? 'reel' : f.mime_type?.startsWith('image/') ? 'photo' : 'file';
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12.5, padding: '5px 0', borderTop: '1px solid var(--rule)', opacity: f.trashed_at ? 0.55 : 1 }}>
+      <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: kind === 'reel' ? 'var(--tide-deep)' : 'var(--ink-4)', width: 38, flexShrink: 0 }}>{kind}</span>
+      <a
+        href={f.web_view_link ?? '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: 'var(--ink)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300, textDecorationLine: f.trashed_at ? 'line-through' : 'none' }}
+      >
+        {f.name}
+      </a>
+      <span style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>
+        {f.trashed_at ? 'removed from Drive' : f.drive_created_at ? `up ${fmtShort(f.drive_created_at)}` : ''}
+        {f.duration_seconds ? ` · ${f.duration_seconds}s` : ''}
+      </span>
+      <span style={{ marginLeft: 'auto', color: assetLabel ? 'var(--ink-3)' : 'var(--ink-4)', whiteSpace: 'nowrap' }}>
+        {assetLabel ? `→ ${assetLabel}` : 'not an asset'}
+      </span>
+    </div>
+  );
+}
+
+function assetLabelFor(f: DriveFileRow, assets: Array<{ id: string; kind: string; title: string | null }>): string | null {
+  if (!f.asset_id) return null;
+  const a = assets.find((x) => x.id === f.asset_id);
+  if (!a) return null;
+  return a.title || (a.kind === 'reel' ? 'Reel' : 'Carousel');
 }
 
 const btnDark: React.CSSProperties = {

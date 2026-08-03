@@ -3,9 +3,10 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, loadCreativeContractors, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
+import { loadDriveFileCounts, isCreativeDriveConfigured } from '@/lib/creative-drive';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
-import { createShoot } from './actions';
+import { createShoot, syncDriveNow } from './actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -41,7 +42,11 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
   return { text: s.pay.state === 'empty' ? 'No posts yet' : 'Awaiting posts', tone: 'var(--ink-4)', sub: null };
 }
 
-export default async function CreativeBoard() {
+export default async function CreativeBoard({
+  searchParams,
+}: {
+  searchParams: Promise<{ drive?: string }>;
+}) {
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -54,11 +59,20 @@ export default async function CreativeBoard() {
     );
   }
 
+  const sp = await searchParams;
   const [board, contributors, properties] = await Promise.all([
     loadShootBoard(),
     loadCreativeContractors(),
     loadFieldProperties(),
   ]);
+  const driveCounts = await loadDriveFileCounts(board.map((s) => s.shoot.id));
+  // "Drive checked 2:40 PM" trust stamp: the freshest scan across the board.
+  const lastSynced = board
+    .map((s) => s.shoot.drive_synced_at)
+    .filter((v): v is string => !!v)
+    .sort()
+    .at(-1);
+  const driveNote = sp.drive ?? null;
 
   const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay)]));
   const attention = board.filter((s) => s.pay.needsAttention);
@@ -90,9 +104,37 @@ export default async function CreativeBoard() {
                 <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>owed now</div>
               </div>
             )}
+            {isCreativeDriveConfigured() && (
+              <div style={{ textAlign: 'right' }}>
+                <form action={syncDriveNow} style={{ margin: 0 }}>
+                  <PendingButton label="Sync Drive" busyLabel="Checking Drive…" style={btnGhost} spinnerTone="ink" />
+                </form>
+                <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 4 }}>
+                  {lastSynced
+                    ? `checked ${new Date(lastSynced).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} · auto every 2h`
+                    : 'auto every 2h'}
+                </div>
+              </div>
+            )}
             <Link href="/operations/contractors" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>Roster →</Link>
           </div>
         </div>
+
+        {driveNote && (
+          <div
+            style={{
+              marginTop: 14,
+              border: `1px solid ${driveNote.startsWith('err:') ? 'var(--signal)' : 'var(--rule)'}`,
+              borderRadius: 10,
+              padding: '9px 14px',
+              background: driveNote.startsWith('err:') ? 'rgba(200,90,58,0.06)' : 'var(--paper-2, #fff)',
+              fontSize: 13,
+              color: driveNote.startsWith('err:') ? 'var(--signal)' : 'var(--ink-3)',
+            }}
+          >
+            {driveNote.startsWith('err:') ? `Drive sync: ${driveNote.slice(4)}` : `Drive checked — ${driveNote.replace(/^ok:/, '')}.`}
+          </div>
+        )}
 
         {/* Log a shoot — the office records what was shot; views come later. */}
         <details style={{ marginTop: 18 }}>
@@ -150,10 +192,10 @@ export default async function CreativeBoard() {
           </div>
         ) : (
           <>
-            <ShootGroup title="Needs attention" hint="Views overdue to read, or nothing posted yet" shoots={attention} accent />
-            <ShootGroup title="Ready to pay" hint="Payout locked, awaiting send" shoots={owed} />
-            <ShootGroup title="In flight" hint="Shot, posted, or counting views" shoots={live} />
-            <ShootGroup title="Paid" hint="Settled" shoots={done} muted />
+            <ShootGroup title="Needs attention" hint="Views overdue to read, or nothing posted yet" shoots={attention} driveCounts={driveCounts} accent />
+            <ShootGroup title="Ready to pay" hint="Payout locked, awaiting send" shoots={owed} driveCounts={driveCounts} />
+            <ShootGroup title="In flight" hint="Shot, posted, or counting views" shoots={live} driveCounts={driveCounts} />
+            <ShootGroup title="Paid" hint="Settled" shoots={done} driveCounts={driveCounts} muted />
           </>
         )}
       </section>
@@ -162,7 +204,7 @@ export default async function CreativeBoard() {
   );
 }
 
-function ShootGroup({ title, hint, shoots, accent, muted }: { title: string; hint: string; shoots: ShootSummary[]; accent?: boolean; muted?: boolean }) {
+function ShootGroup({ title, hint, shoots, driveCounts, accent, muted }: { title: string; hint: string; shoots: ShootSummary[]; driveCounts: Map<string, number>; accent?: boolean; muted?: boolean }) {
   if (shoots.length === 0) return null;
   return (
     <div style={{ marginTop: 28 }}>
@@ -176,6 +218,12 @@ function ShootGroup({ title, hint, shoots, accent, muted }: { title: string; hin
           const assetLine = s.assets.length
             ? `${s.assets.filter((a) => a.kind === 'reel').length} reel${s.assets.filter((a) => a.kind === 'reel').length === 1 ? '' : 's'}${s.assets.some((a) => a.kind === 'carousel') ? ` · ${s.assets.filter((a) => a.kind === 'carousel').length} carousel` : ''}`
             : 'no posts yet';
+          const nFiles = driveCounts.get(s.shoot.id) ?? 0;
+          const driveChip = nFiles > 0
+            ? `${nFiles} file${nFiles === 1 ? '' : 's'} in Drive`
+            : s.shoot.drive_folder_id
+              ? 'Drive linked · nothing yet'
+              : null;
           return (
             <Link
               key={s.shoot.id}
@@ -186,6 +234,7 @@ function ShootGroup({ title, hint, shoots, accent, muted }: { title: string; hin
                 <div className="font-serif" style={{ fontSize: 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.shoot.title}</div>
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                   {s.contractorName} · {fmtDate(s.shoot.shoot_date)}{s.propertyName ? ` · ${s.propertyName}` : ''} · {assetLine}
+                  {driveChip && <span style={{ color: 'var(--tide-deep)' }}> · {driveChip}</span>}
                 </div>
               </div>
               <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -210,6 +259,17 @@ const btnDark: React.CSSProperties = {
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
   padding: '10px 18px',
+};
+const btnGhost: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink-3)',
+  border: '1px solid var(--rule)',
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  padding: '9px 16px',
 };
 const quietCtl: React.CSSProperties = {
   background: 'none',
