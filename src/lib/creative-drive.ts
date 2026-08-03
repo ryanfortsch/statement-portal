@@ -391,43 +391,102 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         await db.from('creative_drive_files').update(patch).eq('id', k.id);
       }
 
-      // New files, oldest upload first so links land in delivery order.
-      const fresh = found
-        .filter((f) => !known.has(f.id))
-        .sort((a, b) => (a.createdTime ?? '') < (b.createdTime ?? '') ? -1 : 1);
+      // One reconcile queue: fresh files PLUS known files that never became
+      // assets (they arrived past a full quota, or a previous run died
+      // mid-link) and are still present in the folder — so a cleanup or a
+      // freed slot picks them up on the next pass instead of never.
+      type Cand = {
+        rowId: string | null; // existing creative_drive_files.id, null = fresh
+        driveId: string;
+        name: string;
+        mime: string;
+        createdTime: string | null;
+        duration: number | null;
+        parentFolderId: string | null;
+        parentFolderName: string | null;
+        webViewLink: string | null;
+        size: number | null;
+      };
+      const cands: Cand[] = [
+        ...found
+          .filter((f) => !known.has(f.id))
+          .map((f) => ({
+            rowId: null,
+            driveId: f.id,
+            name: f.name,
+            mime: f.mimeType,
+            createdTime: f.createdTime ?? null,
+            duration: fileDuration(f),
+            parentFolderId: f.parentFolderId,
+            parentFolderName: f.parentFolderName,
+            webViewLink: f.webViewLink ?? `https://drive.google.com/file/d/${f.id}/view`,
+            size: Number(f.size) || null,
+          })),
+        ...(filesByShoot.get(shoot.id) ?? [])
+          .filter((r) => !r.asset_id && !r.trashed_at && seenIds.has(r.drive_file_id) && !!r.mime_type)
+          .map((r) => ({
+            rowId: r.id,
+            driveId: r.drive_file_id,
+            name: r.name,
+            mime: r.mime_type!,
+            createdTime: r.drive_created_at,
+            duration: r.duration_seconds,
+            parentFolderId: r.parent_folder_id,
+            parentFolderName: r.parent_folder_name ?? shoot.title,
+            webViewLink: r.web_view_link,
+            size: r.size_bytes,
+          })),
+      ].sort((a, b) => {
+        // Finished deliverables are named like finals ("StayCapeAnn_Reel_2");
+        // log those before raw takes, then oldest upload first.
+        const ar = norm(a.name).includes('reel') ? 0 : 1;
+        const br = norm(b.name).includes('reel') ? 0 : 1;
+        if (ar !== br) return ar - br;
+        return (a.createdTime ?? '') < (b.createdTime ?? '') ? -1 : 1;
+      });
 
       const freeReels = assets.filter((a) => a.kind === 'reel' && !linkedAssetIds.has(a.id));
       const freeCarousels = assets.filter((a) => a.kind === 'carousel' && !linkedAssetIds.has(a.id));
       const reelCount = () => assets.filter((a) => a.kind === 'reel').length;
       const carouselCount = () => assets.filter((a) => a.kind === 'carousel').length;
+      // Quotas count QUALIFYING reels (long enough, or length unknown) so a
+      // pile of short takes can't use up the slots a finished reel needs.
+      const qualifiesDur = (d: number | null) => d == null || d >= card.minSeconds;
+      const qualifyingReels = () => assets.filter((a) => a.kind === 'reel' && qualifiesDur(a.duration_seconds)).length;
+      const addNote = (msg: string) => { sr.note = sr.note ?? msg; };
+      let assetTouches = 0;
 
-      for (const f of fresh) {
-        const kind = f.mimeType.startsWith('video/') ? 'reel' : f.mimeType.startsWith('image/') ? 'image' : 'other';
+      for (const f of cands) {
+        const kind = f.mime.startsWith('video/') ? 'reel' : f.mime.startsWith('image/') ? 'image' : 'other';
 
-        // Claim the file first (unique drive_file_id) — if another run beat us
-        // to it, skip entirely so nothing is ever double-logged.
-        const { data: claimed } = await db
-          .from('creative_drive_files')
-          .upsert(
-            {
-              shoot_id: shoot.id,
-              drive_file_id: f.id,
-              name: f.name,
-              mime_type: f.mimeType,
-              size_bytes: Number(f.size) || null,
-              duration_seconds: fileDuration(f),
-              parent_folder_id: f.parentFolderId,
-              parent_folder_name: f.parentFolderName,
-              web_view_link: f.webViewLink ?? `https://drive.google.com/file/d/${f.id}/view`,
-              drive_created_at: f.createdTime ?? null,
-            },
-            { onConflict: 'drive_file_id', ignoreDuplicates: true },
-          )
-          .select('id')
-          .maybeSingle();
-        if (!claimed) continue;
-        sr.newFiles++;
-        report.newFiles++;
+        let rowId = f.rowId;
+        if (!rowId) {
+          // Claim the fresh file first (unique drive_file_id) — if another run
+          // beat us to it, skip entirely so nothing is ever double-logged.
+          const { data: claimed } = await db
+            .from('creative_drive_files')
+            .upsert(
+              {
+                shoot_id: shoot.id,
+                drive_file_id: f.driveId,
+                name: f.name,
+                mime_type: f.mime,
+                size_bytes: f.size,
+                duration_seconds: f.duration,
+                parent_folder_id: f.parentFolderId,
+                parent_folder_name: f.parentFolderName,
+                web_view_link: f.webViewLink,
+                drive_created_at: f.createdTime,
+              },
+              { onConflict: 'drive_file_id', ignoreDuplicates: true },
+            )
+            .select('id')
+            .maybeSingle();
+          if (!claimed) continue;
+          rowId = claimed.id;
+          sr.newFiles++;
+          report.newFiles++;
+        }
 
         let assetId: string | null = null;
         if (kind === 'reel') {
@@ -440,10 +499,16 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
             if (!existing.base_paid_at && !existing.views_locked_at) {
               const patch: Record<string, unknown> = { updated_at: now };
               if (!existing.submitted_by_contractor_at) patch.submitted_by_contractor_at = f.createdTime ?? now;
-              if (existing.duration_seconds == null && fileDuration(f) != null) patch.duration_seconds = fileDuration(f);
+              if (existing.duration_seconds == null && f.duration != null) patch.duration_seconds = f.duration;
               await db.from('creative_assets').update(patch).eq('id', existing.id).is('views_locked_at', null);
             }
-          } else if (reelCount() < card.maxPerShoot + 2) {
+          } else if (
+            // A qualifying video gets a slot while qualifying reels are under
+            // the cap (+1 spare for judgment calls); a short take only gets one
+            // when it's the sole video (so a real short delivery still surfaces
+            // for the office's "count it anyway" override).
+            qualifiesDur(f.duration) ? qualifyingReels() < card.maxPerShoot + 1 : reelCount() === 0
+          ) {
             const { data: created } = await db
               .from('creative_assets')
               .insert({
@@ -451,7 +516,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 kind: 'reel',
                 title: titleFromFilename(f.name),
                 platform: 'instagram',
-                duration_seconds: fileDuration(f),
+                duration_seconds: f.duration,
                 submitted_by_contractor_at: f.createdTime ?? now,
               })
               .select('id, shoot_id, kind, title, duration_seconds, base_paid_at, views_locked_at, submitted_by_contractor_at, created_at')
@@ -463,10 +528,14 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
               report.assetsCreated++;
             }
           } else {
-            sr.note = sr.note ?? `more videos than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`;
+            addNote(
+              qualifiesDur(f.duration)
+                ? `more qualifying videos than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`
+                : `short clips under ${card.minSeconds}s recorded, not logged`,
+            );
           }
         } else if (kind === 'image') {
-          const grouped = carouselByFolder.get(f.parentFolderId);
+          const grouped = f.parentFolderId ? carouselByFolder.get(f.parentFolderId) : undefined;
           if (grouped) {
             assetId = grouped;
           } else {
@@ -487,7 +556,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 .insert({
                   shoot_id: shoot.id,
                   kind: 'carousel',
-                  title: norm(f.parentFolderName) !== norm(shoot.title) ? f.parentFolderName.slice(0, 200) : 'Carousel',
+                  title: f.parentFolderName && norm(f.parentFolderName) !== norm(shoot.title) ? f.parentFolderName.slice(0, 200) : 'Carousel',
                   platform: 'instagram',
                   submitted_by_contractor_at: f.createdTime ?? now,
                 })
@@ -500,15 +569,16 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 report.assetsCreated++;
               }
             }
-            if (assetId) carouselByFolder.set(f.parentFolderId, assetId);
+            if (assetId && f.parentFolderId) carouselByFolder.set(f.parentFolderId, assetId);
           }
-        } else {
+        } else if (!f.rowId) {
           sr.otherFiles++;
         }
 
         if (assetId) {
           linkedAssetIds.add(assetId);
-          await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', claimed.id);
+          assetTouches++;
+          await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', rowId);
         }
       }
 
@@ -520,10 +590,12 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         }
       }
 
-      // 3. Stamp the scan; new files = a delivery moment.
+      // 3. Stamp the scan; new files or newly logged/linked assets = a
+      // delivery moment (recovery can log an asset with zero fresh files).
+      const delivered = sr.newFiles > 0 || assetTouches > 0;
       const shootPatch: Record<string, unknown> = { drive_synced_at: now, updated_at: now };
-      if (sr.newFiles > 0) shootPatch.drive_delivered_at = now;
-      if (sr.newFiles > 0 && assets.length > 0 && (shoot.status === 'scheduled' || shoot.status === 'shot')) {
+      if (delivered) shootPatch.drive_delivered_at = now;
+      if (delivered && assets.length > 0 && (shoot.status === 'scheduled' || shoot.status === 'shot')) {
         shootPatch.status = 'delivered';
       }
       await db.from('creative_shoots').update(shootPatch).eq('id', shoot.id).neq('status', 'cancelled');
