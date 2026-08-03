@@ -1,8 +1,19 @@
 import { ProfilePhoto } from './ProfilePhoto';
 import { TRADE_META, type ContractorRow } from '@/lib/field-types';
 import type { ContractorRating } from '@/lib/field-ratings';
+import { formatViews } from '@/lib/creative-shoots';
 
 const GOLD = '#b8860b';
+
+/** The contributor's reputation numbers for the hero's right side — the
+ *  creative twin of the inspector's guest-rating block. */
+export type CreativeHeadline = {
+  avgViewsPerReel: number | null;
+  reelsRead: number;
+  viewsTotal: number;
+  reelsPosted: number;
+  firstCountOn: string | null;
+};
 
 function monthYear(d: string | null): string {
   if (!d) return '';
@@ -18,6 +29,14 @@ function stars(n: number): string {
   return '★'.repeat(Math.max(0, Math.min(5, full))) + '☆'.repeat(Math.max(0, 5 - full));
 }
 
+function shortMonthDay(d: string): string {
+  try {
+    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
 /**
  * The contractor hero, shared by the Work and Profile tabs so the two can
  * never drift: photo, name, role · since, and the guest rating on the right.
@@ -26,9 +45,11 @@ function stars(n: number): string {
 export function ContractorHeader({
   contractor,
   rating,
+  creative,
 }: {
   contractor: ContractorRow;
   rating: ContractorRating | undefined;
+  creative?: CreativeHeadline;
 }) {
   const roleLabel = TRADE_META[contractor.trade]?.role ?? contractor.trade;
   return (
@@ -55,6 +76,32 @@ export function ContractorHeader({
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>{rating.count} {rating.count === 1 ? 'review' : 'reviews'}</div>
         </div>
+      )}
+      {/* Contributor reputation: average views per posted reel — the number the
+          pay rungs run on. Total views rides underneath as context. Before the
+          first count lands, say what's coming instead of showing a dash. */}
+      {creative && creative.reelsPosted > 0 && (
+        creative.avgViewsPerReel != null ? (
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, justifyContent: 'flex-end' }}>
+              <span className="font-mono" style={{ fontSize: 27, color: 'var(--tide-deep)', fontWeight: 500, lineHeight: 1 }}>
+                {formatViews(creative.avgViewsPerReel)}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>avg views / reel</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 4 }}>
+              {formatViews(creative.viewsTotal)} total · {creative.reelsRead} {creative.reelsRead === 1 ? 'reel' : 'reels'} counted
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>Views counting</div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>
+              {creative.reelsPosted} {creative.reelsPosted === 1 ? 'reel' : 'reels'} live
+              {creative.firstCountOn ? ` · first count ~${shortMonthDay(creative.firstCountOn)}` : ''}
+            </div>
+          </div>
+        )
       )}
     </div>
   );

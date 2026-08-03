@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
+import { creativeProfileStats, shootPaySummary, formatViews, type ShootSummary } from '@/lib/creative-shoots';
 import { dollars, type ContractorRow } from '@/lib/field-types';
 import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/field-streaks';
 import { FieldShell } from '../FieldShell';
@@ -43,26 +44,35 @@ export default async function FieldProfilePage() {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { payStats, reliability, rating, reviews, history, streak } = await loadContractorProfile(contractor.id);
+  const { payStats, reliability, rating, reviews, history, streak, shoots } = await loadContractorProfile(contractor.id);
 
   // Creative pay follows delivered posts + view counts, not packets — so the
-  // packet streak bonus and on-time reliability simply don't apply to them.
+  // packet streak bonus and on-time reliability simply don't apply to them,
+  // and their numbers come from the shoot ledger (same math as the office
+  // board), not the packet stats.
   const isCreative = contractor.trade === 'creative';
-  const paidCents = payStats?.paidCents ?? 0;
-  const owedCents = payStats?.owedCents ?? 0;
-  const pendingCents = payStats?.pendingCents ?? 0;
-  const shootsCount = (payStats?.approvedCount ?? 0) + (payStats?.paidCount ?? 0);
+  const creative = isCreative ? creativeProfileStats(shoots) : null;
+  const paidCents = creative ? creative.paidCents : payStats?.paidCents ?? 0;
+  const owedCents = creative ? creative.owedCents : payStats?.owedCents ?? 0;
+  const pendingCents = creative ? creative.pendingCents : payStats?.pendingCents ?? 0;
   const jobsDone = reliability?.completed ?? payStats?.approvedCount ?? 0;
   const onTimePct =
-    reliability && reliability.onTime + reliability.late > 0
+    !isCreative && reliability && reliability.onTime + reliability.late > 0
       ? Math.round((reliability.onTime / (reliability.onTime + reliability.late)) * 100)
       : null;
-  const hasActivity = jobsDone > 0 || paidCents > 0 || owedCents > 0 || pendingCents > 0 || reviews.length > 0;
-
+  const hasActivity =
+    jobsDone > 0 || paidCents > 0 || owedCents > 0 || pendingCents > 0 || reviews.length > 0 ||
+    (creative ? creative.shootsDone > 0 || creative.upNext.length > 0 : false);
+  // Creative shoots render as their own richer section below; keep only the
+  // packet rows in the generic history so nothing shows twice.
+  const packetHistory = isCreative ? history.filter((h) => h.trade !== 'creative') : history;
+  const doneShoots = creative
+    ? shoots.filter((sm) => !creative.upNext.some((u) => u.shoot.id === sm.shoot.id))
+    : [];
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <ContractorHeader contractor={contractor} rating={rating} />
+      <ContractorHeader contractor={contractor} rating={rating} creative={creative ?? undefined} />
 
       {/* Work streak — a milestone bar toward the day-5 and day-10 bonuses.
           Inspection/maintenance/cleaning only: creative isn't paid per day. */}
@@ -72,13 +82,54 @@ export default async function FieldProfilePage() {
       {hasActivity && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 30 }}>
           <Stat label="Earned to date" value={dollars(paidCents)} />
-          {owedCents > 0 && <Stat label="Approved, unpaid" value={dollars(owedCents)} tone="var(--signal)" />}
-          {pendingCents > 0 && <Stat label="Counting views" value={dollars(pendingCents)} tone="var(--ink-3)" />}
-          {isCreative
-            ? shootsCount > 0 && <Stat label={shootsCount === 1 ? 'Shoot' : 'Shoots'} value={String(shootsCount)} />
+          {owedCents > 0 && <Stat label={isCreative ? 'On the way' : 'Approved, unpaid'} value={dollars(owedCents)} tone="var(--signal)" />}
+          {pendingCents > 0 && <Stat label="Bonus counting" value={dollars(pendingCents)} tone="var(--ink-3)" />}
+          {creative
+            ? creative.shootsDone > 0 && <Stat label={creative.shootsDone === 1 ? 'Shoot done' : 'Shoots done'} value={String(creative.shootsDone)} />
             : jobsDone > 0 && <Stat label="Jobs completed" value={String(jobsDone)} />}
+          {creative && creative.viewsTotal > 0 && <Stat label="Total views" value={formatViews(creative.viewsTotal)} />}
           {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
         </div>
+      )}
+
+      {/* Booked shoots still ahead — the contributor's calendar at a glance. */}
+      {creative && creative.upNext.length > 0 && (
+        <Section title={`Up next · ${creative.upNext.length}`}>
+          {creative.upNext.map((sm) => (
+            <div key={sm.shoot.id} style={{ borderTop: '1px solid var(--rule)', padding: '12px 0', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="font-serif" style={{ fontSize: 15 }}>{sm.shoot.title}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
+                  {shortDate(sm.shoot.shoot_date)}
+                  {sm.propertyName ? ` · ${sm.propertyName}` : sm.shoot.location_note ? ` · ${sm.shoot.location_note}` : ''}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--tide-deep)' }}>Booked</div>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* Shoot history — each shoot with its deliverables, views, and where
+          its pay stands, from the same rollup the office board reads. */}
+      {creative && doneShoots.length > 0 && (
+        <Section title="Shoots">
+          {doneShoots.slice(0, 3).map((sm) => (
+            <ShootRowLine key={sm.shoot.id} sm={sm} />
+          ))}
+          {doneShoots.length > 3 && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
+                Show {doneShoots.length - 3} more {doneShoots.length - 3 === 1 ? 'shoot' : 'shoots'} <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
+              </summary>
+              <div>
+                {doneShoots.slice(3).map((sm) => (
+                  <ShootRowLine key={sm.shoot.id} sm={sm} />
+                ))}
+              </div>
+            </details>
+          )}
+        </Section>
       )}
 
       {/* Guest reviews — the most recent 3, the rest one tap away. */}
@@ -107,18 +158,18 @@ export default async function FieldProfilePage() {
 
       {/* Work history — the most recent 3, the rest one tap away (same fold
           as reviews; a long history was burying the notifications card). */}
-      {history.length > 0 && (
+      {packetHistory.length > 0 && (
         <Section title="Work history">
-          {history.slice(0, 3).map((h) => (
+          {packetHistory.slice(0, 3).map((h) => (
             <HistoryRow key={h.id} h={h} />
           ))}
-          {history.length > 3 && (
+          {packetHistory.length > 3 && (
             <details style={{ marginTop: 4 }}>
               <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, padding: '8px 2px', listStyle: 'none' }}>
-                Show {history.length - 3} more {history.length - 3 === 1 ? 'job' : 'jobs'} <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
+                Show {packetHistory.length - 3} more {packetHistory.length - 3 === 1 ? 'job' : 'jobs'} <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
               </summary>
               <div>
-                {history.slice(3).map((h) => (
+                {packetHistory.slice(3).map((h) => (
                   <HistoryRow key={h.id} h={h} />
                 ))}
               </div>
@@ -287,6 +338,60 @@ function HistoryRow({ h }: { h: ContractorHistoryItem }) {
       <div style={{ textAlign: 'right' }}>
         <div className="font-mono" style={{ fontSize: 14 }}>{dollars(h.payCents)}</div>
         <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: HISTORY_TINT[h.status] ?? 'var(--ink-4)' }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/** One shoot in the contributor's history: deliverables + views on the left,
+ *  where the money stands on the right — same rollup the office board reads. */
+function ShootRowLine({ sm }: { sm: ShootSummary }) {
+  const sum = shootPaySummary(sm.assets, sm.pay);
+  const reels = sm.assets.filter((a) => a.kind === 'reel').length;
+  const cars = sm.assets.filter((a) => a.kind === 'carousel').length;
+  const viewsBits = sm.assets
+    .filter((a) => a.kind === 'reel' && a.posted_at && a.views != null)
+    .map((a) => formatViews(a.views!));
+  const deliverables =
+    sm.assets.length > 0
+      ? `${reels} reel${reels === 1 ? '' : 's'}${cars > 0 ? ` · ${cars} carousel${cars === 1 ? '' : 's'}` : ''}`
+      : 'finals not in yet';
+
+  let payMain = '—';
+  let payTone = 'var(--ink-4)';
+  let paySub = 'awaiting delivery';
+  if (sm.assets.length > 0) {
+    if (sum.owedCents > 0) {
+      payMain = dollars(sum.owedCents);
+      payTone = 'var(--signal)';
+      paySub = 'on the way';
+    } else if (sum.fullySettled) {
+      payMain = dollars(sum.paidCents);
+      payTone = 'var(--positive)';
+      paySub = 'paid';
+    } else if (sum.paidCents > 0) {
+      payMain = dollars(sum.paidCents);
+      payTone = 'var(--ink)';
+      paySub = sum.pendingCents > 0 ? 'paid · bonus counting' : 'paid · views counting';
+    } else {
+      payMain = dollars(0);
+      payTone = 'var(--ink-4)';
+      paySub = 'in review';
+    }
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 0 }}>
+        <div className="font-serif" style={{ fontSize: 15 }}>{sm.shoot.title}</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
+          {shortDate(sm.shoot.shoot_date)} · {deliverables}
+          {viewsBits.length > 0 && <span style={{ color: 'var(--tide-deep)' }}> · {viewsBits.join(' + ')} views</span>}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div className="font-mono" style={{ fontSize: 14, color: payTone }}>{payMain}</div>
+        <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>{paySub}</div>
       </div>
     </div>
   );

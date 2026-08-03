@@ -269,6 +269,86 @@ export async function getContractorShootStats(): Promise<Map<string, ShootPaySta
   return map;
 }
 
+// ── Contributor profile rollup ──────────────────────────────────────────
+
+export type CreativeProfileStats = {
+  /** Shoots that actually happened: delivered assets, or a shoot date that has
+   *  arrived. Scheduled future shoots live in upNext, not this count. */
+  shootsDone: number;
+  /** Booked shoots still ahead, soonest first. */
+  upNext: ShootSummary[];
+  paidCents: number;
+  owedCents: number;
+  pendingCents: number;
+  /** Posted reels, and how many of those have a views reading yet. */
+  reelsPosted: number;
+  reelsRead: number;
+  viewsTotal: number;
+  /** The reputation number: average views per posted reel, over reels with a
+   *  reading. Null until the first count lands. */
+  avgViewsPerReel: number | null;
+  /** When the earliest still-counting posted reel locks — "first count ~Aug 6". */
+  firstCountOn: string | null;
+};
+
+function todayET(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+/** One pass over a contributor's shoots for their portal profile. The money
+ *  buckets reuse shootPaySummary so they can never drift from the office board. */
+export function creativeProfileStats(shoots: ShootSummary[], today: string = todayET()): CreativeProfileStats {
+  let shootsDone = 0, paidCents = 0, owedCents = 0, pendingCents = 0;
+  let reelsPosted = 0, reelsRead = 0, viewsTotal = 0;
+  let firstCountOn: string | null = null;
+  const upNext: ShootSummary[] = [];
+
+  for (const sm of shoots) {
+    const sum = shootPaySummary(sm.assets, sm.pay);
+    paidCents += sum.paidCents;
+    owedCents += sum.owedCents;
+    pendingCents += sum.pendingCents;
+
+    const happened = sm.assets.length > 0 || sm.shoot.shoot_date <= today;
+    if (happened) shootsDone++;
+    else upNext.push(sm);
+
+    const payById = new Map(sm.pay.assets.map((p) => [p.assetId, p]));
+    for (const a of sm.assets) {
+      if (a.kind !== 'reel' || !a.posted_at) continue;
+      reelsPosted++;
+      if (a.views != null && a.views_read_at) {
+        reelsRead++;
+        viewsTotal += a.views;
+      } else {
+        const locksOn = payById.get(a.id)?.locksOn ?? null;
+        if (locksOn && (!firstCountOn || locksOn < firstCountOn)) firstCountOn = locksOn;
+      }
+    }
+  }
+
+  upNext.sort((a, b) => (a.shoot.shoot_date < b.shoot.shoot_date ? -1 : 1));
+  return {
+    shootsDone,
+    upNext,
+    paidCents,
+    owedCents,
+    pendingCents,
+    reelsPosted,
+    reelsRead,
+    viewsTotal,
+    avgViewsPerReel: reelsRead > 0 ? Math.round(viewsTotal / reelsRead) : null,
+    firstCountOn,
+  };
+}
+
+/** 12,340 → "12.3k" — the compact views form used across the portal. */
+export function formatViews(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return String(n);
+}
+
 /** Active creative-trade contributors, for the "log a shoot" picker. */
 export async function loadCreativeContractors(): Promise<{ id: string; full_name: string }[]> {
   const { data } = await fieldDb()

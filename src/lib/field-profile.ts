@@ -6,7 +6,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
-import { loadContractorShoots, shootPaySummary } from '@/lib/creative-shoots';
+import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import {
   getContractorPayStats,
   getContractorReliability,
@@ -42,6 +42,10 @@ export type ContractorProfile = {
   /** Live consecutive-days streak (null under 2 days). Quiet note only. */
   streak: StreakInfo | null;
   history: ContractorHistoryItem[];
+  /** The contributor's full shoot summaries (creative trade) — the profile
+   *  page derives its stats + shoot history from these, same math as the
+   *  office board. Empty for packet trades. */
+  shoots: ShootSummary[];
 };
 
 /** Guest reviews of the stays this inspector prepped (newest first). Same
@@ -114,7 +118,7 @@ async function loadContractorReviews(contractorId: string): Promise<ContractorRe
 }
 
 /** The inspector's worked packets (claimed onward), newest first. */
-async function loadContractorHistory(contractorId: string): Promise<ContractorHistoryItem[]> {
+async function loadContractorHistory(contractorId: string, shoots: ShootSummary[]): Promise<ContractorHistoryItem[]> {
   const { data } = await fieldDb()
     .from('inspection_packets')
     .select('id, visit_date, title, trade, posted_price_cents, final_payout_cents, bonus_cents, status, paid_at')
@@ -145,7 +149,6 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
 
   // Fold in creative shoots as history lines too. A still-counting shoot shows
   // its current best total; a finalized one its locked total.
-  const shoots = await loadContractorShoots(contractorId).catch(() => []);
   const shootItems: ContractorHistoryItem[] = shoots.map((sm) => {
     // Per-post rollup: the shoot's value is what's paid + still to pay + still counting.
     const sum = shootPaySummary(sm.assets, sm.pay);
@@ -164,12 +167,13 @@ async function loadContractorHistory(contractorId: string): Promise<ContractorHi
 }
 
 export async function loadContractorProfile(contractorId: string): Promise<ContractorProfile> {
+  const shoots = await loadContractorShoots(contractorId).catch(() => [] as ShootSummary[]);
   const [payMap, relMap, ratingMap, reviews, history, streak] = await Promise.all([
     getContractorPayStats(),
     getContractorReliability(),
     getContractorRatings(),
     loadContractorReviews(contractorId),
-    loadContractorHistory(contractorId),
+    loadContractorHistory(contractorId, shoots),
     getStreakInfo(contractorId).catch(() => null),
   ]);
   return {
@@ -179,5 +183,6 @@ export async function loadContractorProfile(contractorId: string): Promise<Contr
     reviews,
     history,
     streak,
+    shoots,
   };
 }
