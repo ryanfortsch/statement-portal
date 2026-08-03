@@ -237,6 +237,30 @@ async function refreshListingMap(
       { onConflict: 'listing_id' },
     );
     if (error) throw new Error(`Failed to upsert guesty_listings: ${error.message}`);
+
+    // Stamp the resolved id onto the property row itself, fill-empty-only.
+    // properties.guesty_listing_id is what the SCA launch form prefills and
+    // what the launch checklist's listing-match derive reads, but nothing
+    // populated it (0 of 19 active rows on 2026-08-03), so every SCA launch
+    // hand-hunted the Mongo id from a Guesty URL. Only single-listing
+    // properties are stamped: a property with several mapped listings in
+    // this run has no unambiguous canonical id, and an operator-set value
+    // is never overwritten either way.
+    const byProp = new Map<string, string[]>();
+    for (const r of rows) {
+      const arr = byProp.get(r.property_id) ?? [];
+      arr.push(r.listing_id);
+      byProp.set(r.property_id, arr);
+    }
+    for (const [propId, ids] of byProp) {
+      if (ids.length !== 1) continue;
+      const { error: stampErr } = await getSupabase()
+        .from('properties')
+        .update({ guesty_listing_id: ids[0] })
+        .eq('id', propId)
+        .is('guesty_listing_id', null);
+      if (stampErr) console.warn('[sync-guesty] listing-id stamp skipped:', propId, stampErr.message);
+    }
   }
   return { rows, unmatched };
 }
