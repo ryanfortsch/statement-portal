@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import type { RateCard } from '@/lib/creative-rates';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
+import { syncCreativeDrive } from '@/lib/creative-drive';
 import { sendPaidEmail } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -333,6 +334,59 @@ export async function payAssetTopup(formData: FormData): Promise<void> {
   revalidatePath(`/operations/creative/${shootId}`);
   revalidatePath('/operations/creative');
   revalidatePath('/operations/contractors');
+}
+
+/**
+ * Scan the contributors' Drive folders now (same sync the 2-hour cron runs)
+ * and land back where the click came from with a one-line result. New files
+ * become logged assets, so their delivery base goes due immediately.
+ */
+export async function syncDriveNow(formData: FormData): Promise<void> {
+  await staffEmail();
+  const returnTo = String(formData.get('return_to') || '/operations/creative');
+  const safe = returnTo.startsWith('/operations/creative') ? returnTo : '/operations/creative';
+  let note: string;
+  try {
+    const r = await syncCreativeDrive();
+    if (r.ok || r.newFiles > 0) {
+      const bits = [
+        r.newFiles > 0 ? `${r.newFiles} new file${r.newFiles === 1 ? '' : 's'}` : 'no new files',
+        r.assetsCreated > 0 ? `${r.assetsCreated} asset${r.assetsCreated === 1 ? '' : 's'} logged` : null,
+        r.errors.length > 0 ? `${r.errors.length} folder issue${r.errors.length === 1 ? '' : 's'}` : null,
+      ].filter(Boolean);
+      note = `ok:${bits.join(', ')}`;
+    } else {
+      note = `err:${(r.errors[0] ?? 'Drive sync failed').slice(0, 160)}`;
+    }
+  } catch (err) {
+    note = `err:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`;
+  }
+  revalidatePath('/operations/creative');
+  revalidatePath(safe);
+  redirect(`${safe}?drive=${encodeURIComponent(note)}`);
+}
+
+/** Pin (or clear) a shoot's Drive folder by pasted link or id — the manual
+ *  override for folders the name-matcher can't resolve. */
+export async function setShootDriveFolder(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const raw = String(formData.get('folder') || '').trim();
+  let folderId: string | null = null;
+  if (raw) {
+    const m = raw.match(/folders\/([A-Za-z0-9_-]{10,})/) ?? raw.match(/^([A-Za-z0-9_-]{10,})$/);
+    if (!m) {
+      redirect(`/operations/creative/${shootId}?drive=${encodeURIComponent('err:that does not look like a Drive folder link')}`);
+    }
+    folderId = m![1];
+  }
+  await fieldDb()
+    .from('creative_shoots')
+    .update({ drive_folder_id: folderId, updated_at: new Date().toISOString() })
+    .eq('id', shootId);
+  revalidatePath(`/operations/creative/${shootId}`);
+  redirect(`/operations/creative/${shootId}?drive=${encodeURIComponent(folderId ? 'ok:folder linked — sync to pull its files' : 'ok:folder cleared')}`);
 }
 
 export async function cancelShoot(formData: FormData): Promise<void> {
