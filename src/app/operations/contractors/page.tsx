@@ -157,6 +157,11 @@ export default async function ContractorsPage({
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
           <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{meta.label}</div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
+            {/* What the invitee's portal looks like at each stage — workshop it
+                here before any invite goes out. */}
+            <Link href={`/field?office=1&trade=${trade}`} target="_blank" style={{ fontSize: 13, color: 'var(--tide-deep)', textDecoration: 'none' }}>
+              Preview their portal →
+            </Link>
             {trade === 'creative' && (
               <Link href="/operations/creative" style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
                 Shoots &amp; pay →
