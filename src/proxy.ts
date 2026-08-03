@@ -63,6 +63,10 @@ const PUBLIC_PATH_PREFIXES = [
  *   /api/markets/airdna/...  town-level AirDNA snapshots for the
  *                            risingtidestr.com /markets pages (public
  *                            aggregate data, read-only)
+ *   /api/version             deployment id probe for AutoRefresh's skew
+ *                            check; must answer even when the session has
+ *                            expired so a stale tab still reloads onto the
+ *                            new build (and only then hits sign-in)
  *
  * Everything else under /api requires a valid session.
  */
@@ -97,6 +101,10 @@ const PUBLIC_API_PREFIXES = [
   // market_metrics_monthly, CORS headers) but the #697 default-gate cut off
   // its anonymous callers, so the town pages fell back to prose.
   "/api/markets/airdna/",
+  // Deployment id probe (skew detection). Returns only the build-time
+  // deployment id, which every page already exposes in its ?dpl= asset
+  // URLs; no DB access, no request data read.
+  "/api/version",
 ];
 
 /**
