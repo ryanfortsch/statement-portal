@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
+import { isFieldConfigured } from '@/lib/field-db';
 import { loadContractorMarketplace } from '@/lib/field-packets';
+import { MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
-import { getContractorRatings } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, TRADE_META, type PacketDetail } from '@/lib/field-types';
+import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
+import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
@@ -62,6 +65,190 @@ function eyebrowDate(d: string): string {
   } catch {
     return d.toUpperCase();
   }
+}
+
+// ── Per-trade narrative for the pre-claim welcome ─────────────────────────
+// The welcome page tells the invitee what the work IS before they can claim.
+// Inspection copy is the original; maintenance speaks to repair work. Cleaning
+// (hidden from nav) reads the inspection story until it earns its own.
+const NARRATIVE: Record<
+  'inspection' | 'maintenance',
+  {
+    /** "Who we are" headline tail, after "We need you to". */
+    mission: React.ReactNode;
+    /** "Who we are" second paragraph: what the on-site role is. */
+    role: string;
+    steps: Array<[string, string]>;
+  }
+> = {
+  inspection: {
+    mission: (
+      <>help keep them <span style={{ color: 'var(--signal-soft)' }}>guest-ready</span></>
+    ),
+    role:
+      'You are the on-site hands for it. Inspect and stage each home to the standard, restock it, and catch issues before a guest does. The turnover runs on you being the last set of eyes before check-in.',
+    steps: [
+      ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
+      ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
+      ['Make it guest-ready', 'Walk every room the way a guest will. Set it right, restock what is thin, and get every detail to flawless. Photos document your work.'],
+      ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
+    ],
+  },
+  maintenance: {
+    mission: (
+      <>keep them <span style={{ color: 'var(--signal-soft)' }}>running like new</span></>
+    ),
+    role:
+      "You are the fix-it hands for it. When a home needs a repair we bundle the jobs, price them up front, and hand you everything: what's wrong, where it sits in the home, what to bring, and how to get in. Fix it right and the next guest never knows anything was broken.",
+    steps: [
+      ['Claim a packet', 'A bundle of repair jobs at our homes near you, priced up front. First come, first served.'],
+      ['Read the jobs', 'Every job carries the problem, photos, where it is in the home, and a bring list for parts and tools.'],
+      ['Fix it and photo it', 'Do the repair, leave the space guest-ready, and photo-document the finished work.'],
+      ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
+    ],
+  },
+};
+
+function narrativeFor(trade: ContractorTrade) {
+  return trade === 'maintenance' ? NARRATIVE.maintenance : NARRATIVE.inspection;
+}
+
+// ── Office preview (?office=1&trade=…&stage=…) ────────────────────────────
+// A Helm-signed-in staffer renders this page exactly as an invitee would see
+// it, per lifecycle stage, before any invite goes out. Mirrors the packet
+// page's ?office=1 pattern: explicit param, auth() gate, actions inert.
+type PreviewStage = 'invited' | 'setup' | 'ready';
+
+function parseStage(v: string | undefined): PreviewStage {
+  return v === 'ready' || v === 'setup' ? v : 'invited';
+}
+
+/** A synthetic contractor at the requested lifecycle stage. The name matches
+ *  the invite form's placeholder so the office recognizes it as a stand-in. */
+function previewContractor(trade: ContractorTrade, stage: PreviewStage): ContractorRow {
+  const now = new Date().toISOString();
+  return {
+    id: '__office_preview__',
+    full_name: 'Marcus Reed',
+    company: null,
+    email: 'marcus@example.com',
+    phone: null,
+    trade,
+    status: stage === 'invited' ? 'invited' : 'active',
+    photo_url: null,
+    w9_on_file: stage !== 'invited',
+    agreement_signed_at: stage === 'invited' ? null : now,
+    background_check_status: stage === 'ready' ? 'cleared' : 'not_started',
+    home_lat: null,
+    home_lng: null,
+    sms_opt_in: true,
+    created_at: now,
+  } as unknown as ContractorRow;
+}
+
+/** Plausible-but-fake maintenance packets so the office can judge the layout
+ *  before any real job is published. Fleet-true homes, honest per-job pricing
+ *  (MAINTENANCE_BASE_CENTS), clearly framed as samples by the preview bar. */
+function samplePackets(trade: ContractorTrade): PacketDetail[] {
+  if (trade !== 'maintenance') return [];
+  const day = (offset: number): string => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
+  };
+  const stop = (propertyId: string, name: string, city: string, order: number) => ({
+    id: `sample-stop-${propertyId}-${order}`,
+    property_id: propertyId,
+    walk_order: order,
+    next_checkin: null,
+    status: 'pending',
+    property: { id: propertyId, name, city },
+  });
+  const packet = (
+    id: string,
+    visitDate: string,
+    stops: ReturnType<typeof stop>[],
+    spreadMiles: number | null,
+  ) =>
+    ({
+      id,
+      status: 'published',
+      trade: 'maintenance',
+      kind: 'standard',
+      visit_date: visitDate,
+      visit_time: null,
+      stop_count: stops.length,
+      max_pairwise_miles: spreadMiles,
+      posted_price_cents: stops.length * MAINTENANCE_BASE_CENTS,
+      final_payout_cents: null,
+      bonus_cents: 0,
+      expenses_cents: 0,
+      awarded_contractor_id: null,
+      stops,
+      contractor: null,
+    }) as unknown as PacketDetail;
+  return [
+    packet(
+      'sample-rocky-neck',
+      day(3),
+      [
+        stop('53_rocky_neck', '53 Rocky Neck', 'Gloucester', 1),
+        stop('53_rocky_neck', '53 Rocky Neck', 'Gloucester', 2),
+        stop('73_rocky_neck', '73 Rocky Neck', 'Gloucester', 3),
+      ],
+      0.2,
+    ),
+    packet('sample-hammond', day(5), [stop('20_hammond', '20 Hammond', 'Gloucester', 1)], null),
+  ];
+}
+
+/** The strip the office sees above the preview: what this is, whose eyes,
+ *  and switchers for lifecycle stage + trade. */
+function PreviewBar({ trade, stage, sampled }: { trade: ContractorTrade; stage: PreviewStage; sampled: boolean }) {
+  const stages: Array<[PreviewStage, string]> = [
+    ['invited', 'Day one'],
+    ['setup', 'Setup done'],
+    ['ready', 'Cleared to claim'],
+  ];
+  const trades = (['maintenance', 'inspection', 'creative'] as const).filter((t) => TRADE_META[t]?.nav);
+  const pill = (active: boolean): React.CSSProperties => ({
+    fontSize: 12,
+    fontWeight: 600,
+    textDecoration: 'none',
+    color: active ? 'var(--paper)' : 'var(--tide-deep)',
+    background: active ? 'var(--tide-deep)' : 'transparent',
+    border: '1px solid var(--tide-deep)',
+    borderRadius: 999,
+    padding: '4px 12px',
+    whiteSpace: 'nowrap',
+  });
+  return (
+    <div style={{ border: '1px solid var(--tide-deep)', background: 'rgba(58,107,138,0.08)', borderRadius: 10, padding: '12px 14px', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: 'var(--tide-deep)', lineHeight: 1.5 }}>
+          <strong>Office preview</strong>: exactly what {TRADE_META[trade].singular === 'inspector' ? 'an' : 'a'}{' '}
+          {TRADE_META[trade].singular} sees at this stage. Buttons are disabled, nothing is live
+          {sampled ? ', and the work shown is sample data' : ''}. No invite goes out from here.
+        </span>
+        <Link href={`/operations/contractors?trade=${trade}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          ← Back to the roster
+        </Link>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+        {stages.map(([s, label]) => (
+          <Link key={s} href={`/field?office=1&trade=${trade}&stage=${s}`} style={pill(s === stage)}>
+            {label}
+          </Link>
+        ))}
+        <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--rule)', margin: '0 4px' }} />
+        {trades.map((t) => (
+          <Link key={t} href={`/field?office=1&trade=${t}&stage=${stage}`} style={pill(t === trade)}>
+            {TRADE_META[t].label}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function PacketCard({ p, href, featured }: { p: PacketDetail; href: string; featured?: boolean }) {
@@ -244,10 +431,27 @@ function CreativeShootCard({ s }: { s: ShootSummary }) {
 export default async function FieldHome({
   searchParams,
 }: {
-  searchParams: Promise<{ invalid?: string }>;
+  searchParams: Promise<{ invalid?: string; office?: string; trade?: string; stage?: string }>;
 }) {
   const sp = await searchParams;
-  const contractor = await resolveContractorFromCookie();
+
+  // Office preview (?office=1): a Helm-signed-in staffer renders this page as
+  // an invitee at any lifecycle stage, before any invite exists. Explicit
+  // param (not just cookie absence) so a staffer who also carries a
+  // test-contractor cookie still gets the preview they asked for; auth()
+  // gates it to Helm staff, and a signed-out visitor falls through to the
+  // normal gate. The synthetic contractor drives the page's real branches.
+  const wantsPreview = sp.office === '1';
+  const previewStage = parseStage(sp.stage);
+  let preview = false;
+  let contractor = wantsPreview ? null : await resolveContractorFromCookie();
+  if (!contractor && wantsPreview) {
+    const session = await auth();
+    if (session?.user?.email) {
+      preview = true;
+      contractor = previewContractor(parseTrade(sp.trade), previewStage);
+    }
+  }
 
   if (!contractor) {
     return (
@@ -258,7 +462,7 @@ export default async function FieldHome({
         <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
           {sp.invalid
             ? 'Your invite link has expired or was revoked. Ask Rising Tide to send a fresh one.'
-            : 'Open the personal link Rising Tide emailed you to see inspection work near you. If you think you should have access, reach out to the office.'}
+            : 'Open the personal link Rising Tide emailed you to see paid work near you. If you think you should have access, reach out to the office.'}
         </p>
       </FieldShell>
     );
@@ -284,6 +488,11 @@ export default async function FieldHome({
     );
   }
 
+  // The office preview must render even where the Field DB isn't reachable
+  // (e.g. a local checkout without the service key): skip the queries and let
+  // the sample work stand in. Real contractor traffic never takes this path.
+  const previewCanQuery = !preview || isFieldConfigured;
+
   // Creative contributors are paid per delivered shoot, not per packet. The
   // inspector packet board + background-check hero below never apply to them
   // (no packets, no keys, no background check to wait on), so give them a home
@@ -291,9 +500,11 @@ export default async function FieldHome({
   if (TRADE_META[contractor.trade]?.hasPackets === false) {
     const setupDone = onboardingComplete(contractor);
     const first = contractor.full_name.split(' ')[0];
-    const shoots = setupDone ? await loadContractorShoots(contractor.id) : [];
+    const shoots = setupDone && previewCanQuery ? await loadContractorShoots(contractor.id) : [];
     return (
-      <FieldShell contractorName={contractor.full_name}>
+      <FieldShell contractorName={contractor.full_name} showSignOut={!preview} showNav={!preview}>
+        {preview && <PreviewBar trade={contractor.trade} stage={previewStage} sampled={false} />}
+        <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
         <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
           <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 8 }}>
             {setupDone ? 'Welcome aboard' : 'One step left'}
@@ -303,7 +514,7 @@ export default async function FieldHome({
             <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
           </h1>
           {!setupDone && (
-            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+            <Link href={preview ? '#' : '/field/onboarding'} style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px', ...(preview ? { pointerEvents: 'none' as const } : {}) }}>
               Finish setup: two quick things
             </Link>
           )}
@@ -335,6 +546,7 @@ export default async function FieldHome({
             </div>
           </div>
         )}
+        </fieldset>
       </FieldShell>
     );
   }
@@ -345,11 +557,18 @@ export default async function FieldHome({
   if (!claimable) {
     // Read-only marketplace: invitees (and people awaiting their check) can see
     // the work/pay; the welcome treatment + CTA differ by sub-state.
-    const { available } = await loadContractorMarketplace(contractor);
+    const { available } = previewCanQuery
+      ? await loadContractorMarketplace(contractor)
+      : { available: [] as PacketDetail[] };
+    const story = narrativeFor(contractor.trade);
     const first = contractor.full_name.split(' ')[0];
     const failed = contractor.background_check_status === 'failed';
     const activeIndex = setupDone ? 2 : 1;
-    const preview = available.slice(0, 3);
+    // Office preview with nothing published for this trade yet: show sample
+    // work so the layout can be judged; the preview bar says it's sample data.
+    const samples = preview && available.length === 0 ? samplePackets(contractor.trade) : [];
+    const sampled = samples.length > 0;
+    const teaser = (sampled ? samples : available).slice(0, 3);
 
     const numbered = (rows: Array<[string, string]>, accent: string) => (
       <div>
@@ -366,7 +585,12 @@ export default async function FieldHome({
     );
 
     return (
-      <FieldShell contractorName={contractor.full_name}>
+      <FieldShell contractorName={contractor.full_name} showSignOut={!preview} showNav={!preview}>
+        {preview && <PreviewBar trade={contractor.trade} stage={previewStage} sampled={sampled} />}
+        {/* In preview every button/input goes inert (fieldset semantics);
+            links are neutralized individually. display:contents keeps the
+            wrapper out of layout. */}
+        <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
         {/* Hero plate: the page's one navy ground, the welcome moment */}
         <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 4 }}>
@@ -388,7 +612,7 @@ export default async function FieldHome({
               past the explainer below. Label matches onboarding's "two quick
               things" so the rail, button, and next screen tell one story. */}
           {!setupDone && !failed && (
-            <Link href="/field/onboarding" style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px' }}>
+            <Link href={preview ? '#' : '/field/onboarding'} style={{ display: 'inline-block', marginTop: 22, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', padding: '12px 24px', ...(preview ? { pointerEvents: 'none' as const } : {}) }}>
               Finish setup: two quick things
             </Link>
           )}
@@ -410,46 +634,43 @@ export default async function FieldHome({
             Who we are
           </div>
           <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,32px)', fontWeight: 300, lineHeight: 1.18, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 20px' }}>
-            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to help keep them <span style={{ color: 'var(--signal-soft)' }}>guest-ready</span>.
+            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to {story.mission}.
           </h2>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 14px', maxWidth: '60ch' }}>
             We are a boutique manager, local by design. We do not run a sprawling region. We hold a curated portfolio
             to a standard larger operators cannot, and our whole edge is the guest experience.
           </p>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: 0, maxWidth: '60ch' }}>
-            You are the on-site hands for it. Inspect and stage each home to the standard, restock it, and catch
-            issues before a guest does. The turnover runs on you being the last set of eyes before check-in.
+            {story.role}
           </p>
         </div>
 
         {/* The standard: three flip cards */}
         <div style={{ marginBottom: 40 }}>
           <SectionHeader n="01" title="The standard" />
-          <FieldPillars />
+          <FieldPillars trade={contractor.trade} />
         </div>
 
         {/* How a visit works */}
         <div style={{ marginBottom: 40 }}>
           <SectionHeader n="02" title="How a visit works" />
-          {numbered(
-            [
-              ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
-              ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
-              ['Make it guest-ready', 'Walk every room the way a guest will. Set it right, restock what is thin, and get every detail to flawless. Photos document your work.'],
-              ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
-            ],
-            'var(--tide)',
-          )}
+          {numbered(story.steps, 'var(--tide)')}
         </div>
 
         {/* A preview of the work */}
         <div>
-          <SectionHeader n="03" title={preview.length > 0 ? 'What’s waiting' : 'The work'} />
-          {preview.length > 0 ? (
+          <SectionHeader n="03" title={teaser.length > 0 ? 'What’s waiting' : 'The work'} />
+          {teaser.length > 0 ? (
             <>
-              {preview.map((p, i) => (
-                <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
-              ))}
+              {teaser.map((p, i) =>
+                sampled ? (
+                  <div key={p.id} style={{ pointerEvents: 'none' }}>
+                    <PacketCard p={p} href="#" featured={i === 0} />
+                  </div>
+                ) : (
+                  <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}${preview ? '?office=1' : ''}`} featured={i === 0} />
+                ),
+              )}
             </>
           ) : (
             <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
@@ -457,19 +678,30 @@ export default async function FieldHome({
             </p>
           )}
         </div>
+        </fieldset>
       </FieldShell>
     );
   }
 
   const [{ available, mine }, ratings, recentVisits] = await Promise.all([
-    loadContractorMarketplace(contractor),
-    getContractorRatings(),
-    loadRecentVisits(contractor.id),
+    previewCanQuery
+      ? loadContractorMarketplace(contractor)
+      : Promise.resolve({ available: [] as PacketDetail[], mine: [] as PacketDetail[] }),
+    previewCanQuery ? getContractorRatings() : Promise.resolve(new Map<string, ContractorRating>()),
+    previewCanQuery ? loadRecentVisits(contractor.id) : Promise.resolve([]),
   ]);
   const rating = ratings.get(contractor.id);
+  // Office preview with an empty board: sample work stands in so the layout
+  // can be judged; the preview bar says it's sample data.
+  const samples = preview && available.length === 0 && mine.length === 0 ? samplePackets(contractor.trade) : [];
+  const sampled = samples.length > 0;
+  const board = sampled ? samples : available;
+  const jobNoun = contractor.trade === 'maintenance' ? 'jobs' : 'packets';
 
   return (
-    <FieldShell contractorName={contractor.full_name}>
+    <FieldShell contractorName={contractor.full_name} showSignOut={!preview} showNav={!preview}>
+      {preview && <PreviewBar trade={contractor.trade} stage={previewStage} sampled={sampled} />}
+      <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       {/* Identical hero to the Profile tab (shared component, no extras). */}
       <ContractorHeader contractor={contractor} rating={rating} />
 
@@ -542,14 +774,33 @@ export default async function FieldHome({
         );
       })()}
 
-      {available.length > 0 && (
+      {board.length > 0 && (
         <section>
-          <SectionHeader title="Available now" count={available.length} />
-          {available.map((p, i) => (
-            <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} featured={i === 0} />
-          ))}
+          <SectionHeader title="Available now" count={board.length} />
+          {board.map((p, i) =>
+            sampled ? (
+              <div key={p.id} style={{ pointerEvents: 'none' }}>
+                <PacketCard p={p} href="#" featured={i === 0} />
+              </div>
+            ) : (
+              <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}${preview ? '?office=1' : ''}`} featured={i === 0} />
+            ),
+          )}
         </section>
       )}
+
+      {/* Day-one honesty: a cleared contractor with nothing published yet
+          should read "quiet right now", not a blank page under their name. */}
+      {mine.length === 0 && board.length === 0 && (
+        <section>
+          <SectionHeader title="Available now" />
+          <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
+            No open {jobNoun} right now. New work posts all the time, and we&apos;ll text you the moment
+            something goes up near you.
+          </p>
+        </section>
+      )}
+      </fieldset>
     </FieldShell>
   );
 }
