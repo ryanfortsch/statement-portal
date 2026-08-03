@@ -1,35 +1,40 @@
 /**
  * Drive delivery watcher for the Creative module.
  *
- * A contributor delivers raw assets by dropping files into their Drive folder:
+ * A contributor delivers by dropping files into their Drive folder:
  * "Creative Assets - <first name>" at the top, one subfolder per shoot (named
- * like the property: "4 Brier Neck"), files loose or in nested folders (e.g.
- * "Carousel - July 2026"). This module scans those folders, mirrors every file
- * into creative_drive_files, and logs/links creative_assets so the delivery
- * base goes DUE on the board the moment the files land — no one has to chase
- * or bug the contributor about the upload.
+ * like the property: "4 Brier Neck"). Inside each shoot folder Helm CREATES a
+ * dated finals folder ("Finals - Jul 27") — the deliver-to box.
  *
- * Classification: video/* = a reel; image/* files sharing one immediate parent
- * folder = one carousel; anything else is recorded but never becomes an asset.
- * Folders named like raw/b-roll are skipped so a footage dump can't spawn
- * phantom reels.
+ * The pay gate: a shoot is worth $0 until the FULL package per its rate card
+ * (maxPerShoot qualifying reels + maxCarouselsPerShoot carousels) is in the
+ * finals folder. Completing the set is the trigger — the sync materializes the
+ * assets in one pass and the whole delivery base goes due on the board at
+ * once. Anything outside the finals folder (raw takes, sidecars) is recorded
+ * as evidence but never becomes an asset, and partial deliveries show progress
+ * ("1 of 2 reels in"), not money.
  *
- * Money safety: this file never pays anything, and never writes to a paid or
- * view-locked asset. It only creates asset rows (computeShootPay's caps decide
- * what counts) and stamps delivery evidence. Paying stays a human click.
+ * Classification inside finals: video/* = a reel (30s+ qualifies, from Drive
+ * metadata); image/* files sharing one immediate parent = one carousel.
+ * Folders named like raw/b-roll are skipped everywhere.
  *
- * Auth: the same service-account token as drive-archive.ts, but read-only
- * scope. The service account must be able to see the talent folder (it lives
- * in the Rising Tide Shared Drive).
+ * Money safety: this file never pays anything, and never deletes or edits a
+ * paid, posted, viewed, or view-locked asset. The only assets it removes are
+ * ones it created itself that no human has touched, when the package gate
+ * says they shouldn't exist yet. Paying stays a human click.
+ *
+ * Auth: the same service-account token as drive-archive.ts (full drive scope —
+ * it creates the finals folders). The account needs Contributor on the talent
+ * folder.
  */
 import 'server-only';
 import { fieldDb } from './field-db';
 import { getGoogleAccessToken } from './marketing/auth';
-import { loadRateCards } from './creative-rates';
+import { loadRateCards, type RateCard } from './creative-rates';
 import { cardFromSnapshot } from './creative-pay';
 import type { ShootRow } from './creative-shoots';
 
-const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const SCOPE = 'https://www.googleapis.com/auth/drive';
 const API = 'https://www.googleapis.com/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -47,6 +52,7 @@ export type DriveFileRow = {
   duration_seconds: number | null;
   parent_folder_id: string | null;
   parent_folder_name: string | null;
+  in_finals: boolean;
   web_view_link: string | null;
   drive_created_at: string | null;
   first_seen_at: string;
@@ -58,13 +64,16 @@ export type ShootSyncReport = {
   shootId: string;
   title: string;
   folderId: string | null;
+  finalsFolderId: string | null;
+  packageComplete: boolean | null; // null = legacy mode (paid assets exist)
   newFiles: number;
   linkedToExisting: number;
   createdReels: number;
   createdCarousels: number;
+  removedAssets: number;
   otherFiles: number;
   removedFiles: number;
-  note: string | null; // unmatched folder, ambiguity, per-shoot error
+  note: string | null;
 };
 
 export type DriveSyncReport = {
@@ -114,6 +123,17 @@ async function driveList(token: string, q: string): Promise<DriveFile[]> {
 const listChildren = (token: string, parentId: string) =>
   driveList(token, `'${esc(parentId)}' in parents and trashed = false`);
 
+/** Create a folder under parentId. Returns its id. */
+async function createFolder(token: string, name: string, parentId: string): Promise<string> {
+  const res = await fetch(`${API}/files?supportsAllDrives=true&fields=id`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }),
+  });
+  if (!res.ok) throw new Error(`Drive folder create failed: ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { id: string }).id;
+}
+
 /** Lowercase, alphanumerics + single spaces — the matching alphabet. */
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -131,32 +151,6 @@ async function findTalentFolder(token: string, fullName: string): Promise<string
     if (hits.length > 0) return hits[0].id;
   }
   return null;
-}
-
-type FoundFile = DriveFile & { parentFolderId: string; parentFolderName: string };
-
-/** Every non-folder file under rootId, up to 3 folder levels deep. Folders
- *  named like raw footage dumps are skipped so they can't spawn phantom reels. */
-async function collectFiles(token: string, rootId: string, rootName: string): Promise<FoundFile[]> {
-  const out: FoundFile[] = [];
-  let frontier = [{ id: rootId, name: rootName, depth: 0 }];
-  while (frontier.length > 0) {
-    const next: typeof frontier = [];
-    for (const folder of frontier) {
-      const children = await listChildren(token, folder.id);
-      for (const c of children) {
-        if (c.mimeType === FOLDER_MIME) {
-          const n = norm(c.name);
-          const isDump = n.includes('raw') || n.includes('b roll') || n.includes('broll');
-          if (folder.depth < 3 && !isDump) next.push({ id: c.id, name: c.name, depth: folder.depth + 1 });
-        } else {
-          out.push({ ...c, parentFolderId: folder.id, parentFolderName: folder.name });
-        }
-      }
-    }
-    frontier = next;
-  }
-  return out;
 }
 
 /** Match a shoot to one of the talent-root's child folders by name: the folder
@@ -179,10 +173,20 @@ function matchShootFolder(
   });
   if (hits.length === 1) return { id: hits[0].id, note: null };
   if (hits.length > 1) return { id: null, note: `${hits.length} Drive folders match — paste the right one on the shoot page` };
-  return { id: null, note: 'no Drive folder matched — name one like the property, or paste its link on the shoot page' };
+  return { id: null, note: null };
 }
 
-// ── Loaders for the board + shoot page ──────────────────────────────────
+/** "Finals - Jul 27" from the shoot date — the deliver-to folder's name. */
+function finalsFolderName(shootDate: string): string {
+  try {
+    const label = new Date(`${shootDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `Finals - ${label}`;
+  } catch {
+    return `Finals - ${shootDate}`;
+  }
+}
+
+// ── Loaders + shared math for the board and shoot page ──────────────────
 
 export async function loadShootDriveFiles(shootId: string): Promise<DriveFileRow[]> {
   const { data } = await fieldDb()
@@ -193,19 +197,55 @@ export async function loadShootDriveFiles(shootId: string): Promise<DriveFileRow
   return (data ?? []) as DriveFileRow[];
 }
 
-/** Non-trashed Drive file count per shoot, for the board's meta line. */
-export async function loadDriveFileCounts(shootIds: string[]): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
+/** All shoots' Drive file rows in one query, for the board's meta chips. */
+export async function loadDriveFilesByShoots(shootIds: string[]): Promise<Map<string, DriveFileRow[]>> {
+  const map = new Map<string, DriveFileRow[]>();
   if (shootIds.length === 0) return map;
-  const { data } = await fieldDb()
-    .from('creative_drive_files')
-    .select('shoot_id')
-    .in('shoot_id', shootIds)
-    .is('trashed_at', null);
-  for (const row of (data ?? []) as { shoot_id: string }[]) {
-    map.set(row.shoot_id, (map.get(row.shoot_id) ?? 0) + 1);
+  const { data } = await fieldDb().from('creative_drive_files').select('*').in('shoot_id', shootIds);
+  for (const row of (data ?? []) as DriveFileRow[]) {
+    const arr = map.get(row.shoot_id) ?? [];
+    arr.push(row);
+    map.set(row.shoot_id, arr);
   }
   return map;
+}
+
+const isQualifyingDuration = (card: RateCard, d: number | null) => d == null || d >= card.minSeconds;
+
+/** Package progress from the finals folder's files: how many card-qualifying
+ *  reels and carousel photo sets are in, and whether the set is complete —
+ *  the single formula the sync gate, the board chip, and the shoot page share. */
+export function finalsProgress(card: RateCard, files: DriveFileRow[]): {
+  reelsIn: number;
+  reelsNeed: number;
+  carouselsIn: number;
+  carouselsNeed: number;
+  complete: boolean;
+} {
+  const finals = files.filter((f) => f.in_finals && !f.trashed_at);
+  const reelsIn = finals.filter(
+    (f) => f.mime_type?.startsWith('video/') && isQualifyingDuration(card, f.duration_seconds),
+  ).length;
+  const groups = new Set(
+    finals.filter((f) => f.mime_type?.startsWith('image/')).map((f) => f.parent_folder_id ?? 'loose'),
+  ).size;
+  const reelsNeed = card.maxPerShoot;
+  const carouselsNeed = card.maxCarouselsPerShoot;
+  return {
+    reelsIn,
+    reelsNeed,
+    carouselsIn: groups,
+    carouselsNeed,
+    complete: reelsIn >= reelsNeed && groups >= carouselsNeed,
+  };
+}
+
+/** "2 of 2 reels + carousel in" / "1 of 2 reels in · waiting on carousel". */
+export function finalsProgressLabel(p: ReturnType<typeof finalsProgress>): string {
+  const reels = `${Math.min(p.reelsIn, p.reelsNeed)} of ${p.reelsNeed} reel${p.reelsNeed === 1 ? '' : 's'}`;
+  if (p.carouselsNeed === 0) return `${reels} in`;
+  const car = p.carouselsIn >= p.carouselsNeed ? 'carousel in' : 'waiting on carousel photos';
+  return `${reels} in · ${car}`;
 }
 
 // ── The sync ────────────────────────────────────────────────────────────
@@ -217,10 +257,16 @@ type AssetLite = {
   title: string | null;
   duration_seconds: number | null;
   base_paid_at: string | null;
+  topup_paid_at?: string | null;
   views_locked_at: string | null;
+  posted_at?: string | null;
+  views?: number | null;
   submitted_by_contractor_at: string | null;
   created_at: string;
 };
+
+const ASSET_SELECT =
+  'id, shoot_id, kind, title, duration_seconds, base_paid_at, topup_paid_at, views_locked_at, posted_at, views, submitted_by_contractor_at, created_at';
 
 function titleFromFilename(name: string): string {
   return name.replace(/\.[A-Za-z0-9]{2,5}$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || name.slice(0, 200);
@@ -231,11 +277,46 @@ function fileDuration(f: DriveFile): number | null {
   return Number.isFinite(ms) && ms > 0 ? Math.max(1, Math.round(ms / 1000)) : null;
 }
 
+type FoundFile = DriveFile & { parentFolderId: string; parentFolderName: string; inFinals: boolean };
+
+/** Every non-folder file under rootId, up to 3 folder levels deep, tagged with
+ *  whether it sits inside the finals subtree. Folders named like raw footage
+ *  dumps are skipped so they can't spawn phantom reels. */
+async function collectFiles(
+  token: string,
+  rootId: string,
+  rootName: string,
+  finalsId: string | null,
+): Promise<FoundFile[]> {
+  const out: FoundFile[] = [];
+  let frontier = [{ id: rootId, name: rootName, depth: 0, inFinals: rootId === finalsId }];
+  while (frontier.length > 0) {
+    const next: typeof frontier = [];
+    for (const folder of frontier) {
+      const children = await listChildren(token, folder.id);
+      for (const c of children) {
+        if (c.mimeType === FOLDER_MIME) {
+          const n = norm(c.name);
+          const isDump = n.includes('raw') || n.includes('b roll') || n.includes('broll');
+          if (folder.depth < 3 && !isDump) {
+            next.push({ id: c.id, name: c.name, depth: folder.depth + 1, inFinals: folder.inFinals || c.id === finalsId });
+          }
+        } else {
+          out.push({ ...c, parentFolderId: folder.id, parentFolderName: folder.name, inFinals: folder.inFinals });
+        }
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
 /**
- * Scan every open shoot's Drive folder and reconcile what's there into the
- * ledger. Idempotent and crash-safe: a file row is claimed (unique
- * drive_file_id) before any asset is created for it, so re-runs and
- * double-clicks can never double-log.
+ * Scan every open shoot's Drive folder, keep creative_drive_files mirrored,
+ * and apply the package gate: materialize assets (and put the delivery base
+ * due) only once the finals folder holds the full rate-card set. Idempotent
+ * and crash-safe: a file row is claimed (unique drive_file_id) before any
+ * asset is created for it, so re-runs and double-clicks can never double-log.
  */
 export async function syncCreativeDrive(): Promise<DriveSyncReport> {
   const ranAt = new Date().toISOString();
@@ -259,11 +340,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
   const propertyIds = [...new Set(shoots.map((s) => s.property_id).filter((v): v is string => !!v))];
 
   const [{ data: aData }, { data: fData }, { data: cData }, { data: pData }, { data: takenData }, cards] = await Promise.all([
-    db
-      .from('creative_assets')
-      .select('id, shoot_id, kind, title, duration_seconds, base_paid_at, views_locked_at, submitted_by_contractor_at, created_at')
-      .in('shoot_id', shootIds)
-      .order('created_at', { ascending: true }),
+    db.from('creative_assets').select(ASSET_SELECT).in('shoot_id', shootIds).order('created_at', { ascending: true }),
     db.from('creative_drive_files').select('*').in('shoot_id', shootIds),
     db.from('contractors').select('id, full_name, drive_folder_id').in('id', contractorIds),
     propertyIds.length
@@ -314,23 +391,31 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       shootId: shoot.id,
       title: shoot.title,
       folderId: shoot.drive_folder_id,
+      finalsFolderId: shoot.drive_finals_folder_id,
+      packageComplete: null,
       newFiles: 0,
       linkedToExisting: 0,
       createdReels: 0,
       createdCarousels: 0,
+      removedAssets: 0,
       otherFiles: 0,
       removedFiles: 0,
       note: null,
     };
     report.shoots.push(sr);
+    const addNote = (msg: string) => { sr.note = sr.note ?? msg; };
 
     try {
       const contractor = contractors.get(shoot.contractor_id);
+      const assets = assetsByShoot.get(shoot.id) ?? [];
+      const anyPaid = assets.some((a) => a.base_paid_at || a.topup_paid_at);
+      const live = cards.byContractor.get(shoot.contractor_id) ?? cards.def;
+      const card = shoot.card_snapshot ? cardFromSnapshot(shoot.card_snapshot, live) : live;
 
-      // 1. Resolve the shoot's folder (pinned > auto-match by name).
+      // 1. Resolve the shoot's folder (pinned > auto-match > create by name).
       if (!sr.folderId) {
         if (!contractor) {
-          sr.note = 'contributor not found';
+          addNote('contributor not found');
           continue;
         }
         let rootId = contractor.drive_folder_id;
@@ -342,243 +427,310 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
           }
         }
         if (!rootId) {
-          sr.note = `no "Creative Assets - ${contractor.full_name.split(' ')[0]}" folder visible — share it with ${saEmail}`;
+          addNote(`no "Creative Assets - ${contractor.full_name.split(' ')[0]}" folder visible — share it with ${saEmail}`);
           continue;
         }
         if (!rootFolders.has(rootId)) {
           rootFolders.set(rootId, (await listChildren(token, rootId)).filter((f) => f.mimeType === FOLDER_MIME));
         }
-        const match = matchShootFolder(shoot, shoot.property_id ? propNames.get(shoot.property_id) ?? null : null, rootFolders.get(rootId)!, taken);
-        if (!match.id) {
-          sr.note = match.note;
+        const propertyName = shoot.property_id ? propNames.get(shoot.property_id) ?? null : null;
+        const match = matchShootFolder(shoot, propertyName, rootFolders.get(rootId)!, taken);
+        if (match.id) {
+          sr.folderId = match.id;
+        } else if (match.note) {
+          addNote(match.note); // ambiguous — don't guess, don't create a twin
           continue;
+        } else {
+          // No folder yet — create one named like the property (the same name
+          // the matcher looks for), so the structure exists before the shoot.
+          sr.folderId = await createFolder(token, (propertyName ?? shoot.title).slice(0, 100), rootId);
         }
-        sr.folderId = match.id;
-        taken.add(match.id);
-        await db.from('creative_shoots').update({ drive_folder_id: match.id, updated_at: new Date().toISOString() }).eq('id', shoot.id);
+        taken.add(sr.folderId);
+        await db.from('creative_shoots').update({ drive_folder_id: sr.folderId, updated_at: new Date().toISOString() }).eq('id', shoot.id);
       }
 
-      // 2. What's in the folder right now?
-      const found = await collectFiles(token, sr.folderId, shoot.title);
+      // 2. Ensure the dated finals folder — the deliver-to box — exists inside.
+      if (!sr.finalsFolderId) {
+        const kids = (await listChildren(token, sr.folderId)).filter((f) => f.mimeType === FOLDER_MIME);
+        const existing = kids.find((f) => norm(f.name).startsWith('finals'));
+        sr.finalsFolderId = existing?.id ?? (await createFolder(token, finalsFolderName(shoot.shoot_date), sr.folderId));
+        await db
+          .from('creative_shoots')
+          .update({ drive_finals_folder_id: sr.finalsFolderId, updated_at: new Date().toISOString() })
+          .eq('id', shoot.id);
+      }
+
+      // 3. What's in the folder right now?
+      const found = await collectFiles(token, sr.folderId, shoot.title, sr.finalsFolderId);
       report.shootsScanned++;
 
       const known = new Map((filesByShoot.get(shoot.id) ?? []).map((f) => [f.drive_file_id, f]));
-      const assets = assetsByShoot.get(shoot.id) ?? [];
-      const linkedAssetIds = new Set(
-        [...(filesByShoot.get(shoot.id) ?? [])].map((f) => f.asset_id).filter((v): v is string => !!v),
-      );
-      // Existing carousel grouping: parent folder -> the carousel it delivered.
-      const carouselByFolder = new Map<string, string>();
-      for (const f of filesByShoot.get(shoot.id) ?? []) {
-        if (f.asset_id && f.parent_folder_id && f.mime_type?.startsWith('image/')) {
-          carouselByFolder.set(f.parent_folder_id, f.asset_id);
-        }
-      }
-
-      const live = cards.byContractor.get(shoot.contractor_id) ?? cards.def;
-      const card = shoot.card_snapshot ? cardFromSnapshot(shoot.card_snapshot, live) : live;
-
-      // Refresh files we already knew about.
-      const seenIds = new Set<string>();
       const now = new Date().toISOString();
-      for (const f of found) {
-        const k = known.get(f.id);
-        if (!k) continue;
-        seenIds.add(f.id);
-        const patch: Record<string, unknown> = { last_seen_at: now };
-        if (k.name !== f.name) patch.name = f.name;
-        if (k.trashed_at) patch.trashed_at = null; // it's back
-        await db.from('creative_drive_files').update(patch).eq('id', k.id);
-      }
+      const seenIds = new Set<string>();
 
-      // One reconcile queue: fresh files PLUS known files that never became
-      // assets (they arrived past a full quota, or a previous run died
-      // mid-link) and are still present in the folder — so a cleanup or a
-      // freed slot picks them up on the next pass instead of never.
-      type Cand = {
-        rowId: string | null; // existing creative_drive_files.id, null = fresh
+      // Refresh known rows (files move INTO finals — track parent + flag) and
+      // claim fresh ones (unique drive_file_id: if another run beat us to one,
+      // it's skipped so nothing double-logs).
+      type FileState = {
+        rowId: string;
         driveId: string;
         name: string;
-        mime: string;
+        mime: string | null;
         createdTime: string | null;
         duration: number | null;
         parentFolderId: string | null;
         parentFolderName: string | null;
-        webViewLink: string | null;
-        size: number | null;
+        inFinals: boolean;
+        assetId: string | null;
       };
-      const cands: Cand[] = [
-        ...found
-          .filter((f) => !known.has(f.id))
-          .map((f) => ({
-            rowId: null,
+      const states: FileState[] = [];
+
+      for (const f of found) {
+        const k = known.get(f.id);
+        const dur = fileDuration(f);
+        if (k) {
+          seenIds.add(f.id);
+          const patch: Record<string, unknown> = { last_seen_at: now };
+          if (k.name !== f.name) patch.name = f.name;
+          if (k.trashed_at) patch.trashed_at = null; // it's back
+          if (k.parent_folder_id !== f.parentFolderId) {
+            patch.parent_folder_id = f.parentFolderId;
+            patch.parent_folder_name = f.parentFolderName;
+          }
+          if (k.in_finals !== f.inFinals) patch.in_finals = f.inFinals;
+          if (k.duration_seconds == null && dur != null) patch.duration_seconds = dur;
+          await db.from('creative_drive_files').update(patch).eq('id', k.id);
+          states.push({
+            rowId: k.id,
             driveId: f.id,
             name: f.name,
             mime: f.mimeType,
-            createdTime: f.createdTime ?? null,
-            duration: fileDuration(f),
+            createdTime: k.drive_created_at,
+            duration: k.duration_seconds ?? dur,
             parentFolderId: f.parentFolderId,
             parentFolderName: f.parentFolderName,
-            webViewLink: f.webViewLink ?? `https://drive.google.com/file/d/${f.id}/view`,
-            size: Number(f.size) || null,
-          })),
-        ...(filesByShoot.get(shoot.id) ?? [])
-          .filter((r) => !r.asset_id && !r.trashed_at && seenIds.has(r.drive_file_id) && !!r.mime_type)
-          .map((r) => ({
-            rowId: r.id,
-            driveId: r.drive_file_id,
-            name: r.name,
-            mime: r.mime_type!,
-            createdTime: r.drive_created_at,
-            duration: r.duration_seconds,
-            parentFolderId: r.parent_folder_id,
-            parentFolderName: r.parent_folder_name ?? shoot.title,
-            webViewLink: r.web_view_link,
-            size: r.size_bytes,
-          })),
-      ].sort((a, b) => {
-        // Finished deliverables are named like finals ("StayCapeAnn_Reel_2");
-        // log those before raw takes, then oldest upload first.
-        const ar = norm(a.name).includes('reel') ? 0 : 1;
-        const br = norm(b.name).includes('reel') ? 0 : 1;
-        if (ar !== br) return ar - br;
-        return (a.createdTime ?? '') < (b.createdTime ?? '') ? -1 : 1;
-      });
-
-      const freeReels = assets.filter((a) => a.kind === 'reel' && !linkedAssetIds.has(a.id));
-      const freeCarousels = assets.filter((a) => a.kind === 'carousel' && !linkedAssetIds.has(a.id));
-      const reelCount = () => assets.filter((a) => a.kind === 'reel').length;
-      const carouselCount = () => assets.filter((a) => a.kind === 'carousel').length;
-      // Quotas count QUALIFYING reels (long enough, or length unknown) so a
-      // pile of short takes can't use up the slots a finished reel needs.
-      const qualifiesDur = (d: number | null) => d == null || d >= card.minSeconds;
-      const qualifyingReels = () => assets.filter((a) => a.kind === 'reel' && qualifiesDur(a.duration_seconds)).length;
-      const addNote = (msg: string) => { sr.note = sr.note ?? msg; };
-      let assetTouches = 0;
-
-      for (const f of cands) {
-        const kind = f.mime.startsWith('video/') ? 'reel' : f.mime.startsWith('image/') ? 'image' : 'other';
-
-        let rowId = f.rowId;
-        if (!rowId) {
-          // Claim the fresh file first (unique drive_file_id) — if another run
-          // beat us to it, skip entirely so nothing is ever double-logged.
+            inFinals: f.inFinals,
+            assetId: k.asset_id,
+          });
+        } else {
           const { data: claimed } = await db
             .from('creative_drive_files')
             .upsert(
               {
                 shoot_id: shoot.id,
-                drive_file_id: f.driveId,
+                drive_file_id: f.id,
                 name: f.name,
-                mime_type: f.mime,
-                size_bytes: f.size,
-                duration_seconds: f.duration,
+                mime_type: f.mimeType,
+                size_bytes: Number(f.size) || null,
+                duration_seconds: dur,
                 parent_folder_id: f.parentFolderId,
                 parent_folder_name: f.parentFolderName,
-                web_view_link: f.webViewLink,
-                drive_created_at: f.createdTime,
+                in_finals: f.inFinals,
+                web_view_link: f.webViewLink ?? `https://drive.google.com/file/d/${f.id}/view`,
+                drive_created_at: f.createdTime ?? null,
               },
               { onConflict: 'drive_file_id', ignoreDuplicates: true },
             )
             .select('id')
             .maybeSingle();
           if (!claimed) continue;
-          rowId = claimed.id;
           sr.newFiles++;
           report.newFiles++;
+          if (!f.mimeType.startsWith('video/') && !f.mimeType.startsWith('image/')) sr.otherFiles++;
+          states.push({
+            rowId: claimed.id,
+            driveId: f.id,
+            name: f.name,
+            mime: f.mimeType,
+            createdTime: f.createdTime ?? null,
+            duration: dur,
+            parentFolderId: f.parentFolderId,
+            parentFolderName: f.parentFolderName,
+            inFinals: f.inFinals,
+            assetId: null,
+          });
+        }
+      }
+
+      // 4. The package gate.
+      const rowsForProgress: DriveFileRow[] = states.map((s) => ({
+        id: s.rowId,
+        shoot_id: shoot.id,
+        asset_id: s.assetId,
+        drive_file_id: s.driveId,
+        name: s.name,
+        mime_type: s.mime,
+        size_bytes: null,
+        duration_seconds: s.duration,
+        parent_folder_id: s.parentFolderId,
+        parent_folder_name: s.parentFolderName,
+        in_finals: s.inFinals,
+        web_view_link: null,
+        drive_created_at: s.createdTime,
+        first_seen_at: now,
+        last_seen_at: now,
+        trashed_at: null,
+      }));
+      const progress = finalsProgress(card, rowsForProgress);
+      let assetTouches = 0;
+
+      if (anyPaid) {
+        // Legacy mode (money already moved): files are evidence only. Link
+        // unlinked ones onto existing free assets of the same kind; never
+        // create or remove anything.
+        const linked = new Set(states.map((s) => s.assetId).filter((v): v is string => !!v));
+        const freeOf = (kind: 'reel' | 'carousel') => assets.filter((a) => a.kind === kind && !linked.has(a.id));
+        for (const s of states) {
+          if (s.assetId || !s.mime) continue;
+          const kind = s.mime.startsWith('video/') ? 'reel' : s.mime.startsWith('image/') ? 'carousel' : null;
+          if (!kind) continue;
+          const free = freeOf(kind)[0];
+          if (!free) continue;
+          linked.add(free.id);
+          s.assetId = free.id;
+          sr.linkedToExisting++;
+          await db.from('creative_drive_files').update({ asset_id: free.id }).eq('id', s.rowId);
+        }
+      } else if (!progress.complete) {
+        sr.packageComplete = false;
+        // $0 until the whole set is in. Undo anything the watcher previously
+        // materialized that no human has touched (unpaid, unposted, unread,
+        // unlocked, contributor-submitted, drive-linked) so nothing reads as
+        // owed. Office-logged assets are never touched.
+        const driveLinkedIds = new Set(
+          (filesByShoot.get(shoot.id) ?? []).map((f) => f.asset_id).filter((v): v is string => !!v),
+        );
+        const removable = assets.filter(
+          (a) =>
+            driveLinkedIds.has(a.id) &&
+            a.submitted_by_contractor_at &&
+            !a.base_paid_at &&
+            !a.topup_paid_at &&
+            !a.views_locked_at &&
+            !a.posted_at &&
+            a.views == null,
+        );
+        if (removable.length > 0) {
+          const ids = removable.map((a) => a.id);
+          await db.from('creative_assets').delete().in('id', ids); // FK sets files' asset_id null
+          sr.removedAssets = removable.length;
+          assetsByShoot.set(shoot.id, assets.filter((a) => !ids.includes(a.id)));
+        }
+        addNote(`${finalsProgressLabel(progress)} — pay triggers when the full set is in the Finals folder`);
+      } else {
+        sr.packageComplete = true;
+        // Full set present: materialize the package from the FINALS files in
+        // one pass — this is the moment the delivery base goes due.
+        const finalsFiles = states
+          .filter((s) => s.inFinals && !!s.mime)
+          .sort((a, b) => {
+            const ar = norm(a.name).includes('reel') ? 0 : 1;
+            const br = norm(b.name).includes('reel') ? 0 : 1;
+            if (ar !== br) return ar - br;
+            return (a.createdTime ?? '') < (b.createdTime ?? '') ? -1 : 1;
+          });
+        const linked = new Set(states.map((s) => s.assetId).filter((v): v is string => !!v));
+        const freeReels = assets.filter((a) => a.kind === 'reel' && !linked.has(a.id));
+        const freeCarousels = assets.filter((a) => a.kind === 'carousel' && !linked.has(a.id));
+        const qualifyingReelAssets = () =>
+          assets.filter((a) => a.kind === 'reel' && isQualifyingDuration(card, a.duration_seconds)).length;
+        const carouselCount = () => assets.filter((a) => a.kind === 'carousel').length;
+        const carouselByFolder = new Map<string, string>();
+        for (const s of states) {
+          if (s.assetId && s.parentFolderId && s.mime?.startsWith('image/')) carouselByFolder.set(s.parentFolderId, s.assetId);
         }
 
-        let assetId: string | null = null;
-        if (kind === 'reel') {
-          const existing = freeReels.shift();
-          if (existing) {
-            assetId = existing.id;
-            sr.linkedToExisting++;
-            // Fill delivery evidence on the existing row — never on a paid or
-            // locked asset, so committed money can't be re-qualified.
-            if (!existing.base_paid_at && !existing.views_locked_at) {
-              const patch: Record<string, unknown> = { updated_at: now };
-              if (!existing.submitted_by_contractor_at) patch.submitted_by_contractor_at = f.createdTime ?? now;
-              if (existing.duration_seconds == null && f.duration != null) patch.duration_seconds = f.duration;
-              await db.from('creative_assets').update(patch).eq('id', existing.id).is('views_locked_at', null);
+        for (const s of finalsFiles) {
+          if (s.assetId) continue;
+          const kind = s.mime!.startsWith('video/') ? 'reel' : s.mime!.startsWith('image/') ? 'image' : 'other';
+          let assetId: string | null = null;
+
+          if (kind === 'reel') {
+            if (!isQualifyingDuration(card, s.duration)) {
+              addNote(`a finals video is under ${card.minSeconds}s — recorded, not logged`);
+              continue;
             }
-          } else if (
-            // A qualifying video gets a slot while qualifying reels are under
-            // the cap (+1 spare for judgment calls); a short take only gets one
-            // when it's the sole video (so a real short delivery still surfaces
-            // for the office's "count it anyway" override).
-            qualifiesDur(f.duration) ? qualifyingReels() < card.maxPerShoot + 1 : reelCount() === 0
-          ) {
-            const { data: created } = await db
-              .from('creative_assets')
-              .insert({
-                shoot_id: shoot.id,
-                kind: 'reel',
-                title: titleFromFilename(f.name),
-                platform: 'instagram',
-                duration_seconds: f.duration,
-                submitted_by_contractor_at: f.createdTime ?? now,
-              })
-              .select('id, shoot_id, kind, title, duration_seconds, base_paid_at, views_locked_at, submitted_by_contractor_at, created_at')
-              .single();
-            if (created) {
-              assets.push(created as AssetLite);
-              assetId = (created as AssetLite).id;
-              sr.createdReels++;
-              report.assetsCreated++;
-            }
-          } else {
-            addNote(
-              qualifiesDur(f.duration)
-                ? `more qualifying videos than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`
-                : `short clips under ${card.minSeconds}s recorded, not logged`,
-            );
-          }
-        } else if (kind === 'image') {
-          const grouped = f.parentFolderId ? carouselByFolder.get(f.parentFolderId) : undefined;
-          if (grouped) {
-            assetId = grouped;
-          } else {
-            const existing = freeCarousels.shift();
+            const existing = freeReels.shift();
             if (existing) {
               assetId = existing.id;
               sr.linkedToExisting++;
-              if (!existing.base_paid_at && !existing.views_locked_at && !existing.submitted_by_contractor_at) {
-                await db
-                  .from('creative_assets')
-                  .update({ submitted_by_contractor_at: f.createdTime ?? now, updated_at: now })
-                  .eq('id', existing.id)
-                  .is('views_locked_at', null);
+              if (!existing.base_paid_at && !existing.views_locked_at) {
+                const patch: Record<string, unknown> = { updated_at: now };
+                if (!existing.submitted_by_contractor_at) patch.submitted_by_contractor_at = s.createdTime ?? now;
+                if (existing.duration_seconds == null && s.duration != null) patch.duration_seconds = s.duration;
+                await db.from('creative_assets').update(patch).eq('id', existing.id).is('views_locked_at', null);
               }
-            } else if (carouselCount() < card.maxCarouselsPerShoot + 1) {
+            } else if (qualifyingReelAssets() < card.maxPerShoot + 1) {
               const { data: created } = await db
                 .from('creative_assets')
                 .insert({
                   shoot_id: shoot.id,
-                  kind: 'carousel',
-                  title: f.parentFolderName && norm(f.parentFolderName) !== norm(shoot.title) ? f.parentFolderName.slice(0, 200) : 'Carousel',
+                  kind: 'reel',
+                  title: titleFromFilename(s.name),
                   platform: 'instagram',
-                  submitted_by_contractor_at: f.createdTime ?? now,
+                  duration_seconds: s.duration,
+                  submitted_by_contractor_at: s.createdTime ?? now,
                 })
-                .select('id, shoot_id, kind, title, duration_seconds, base_paid_at, views_locked_at, submitted_by_contractor_at, created_at')
+                .select(ASSET_SELECT)
                 .single();
               if (created) {
                 assets.push(created as AssetLite);
                 assetId = (created as AssetLite).id;
-                sr.createdCarousels++;
+                sr.createdReels++;
                 report.assetsCreated++;
               }
+            } else {
+              addNote(`more finals videos than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`);
             }
-            if (assetId && f.parentFolderId) carouselByFolder.set(f.parentFolderId, assetId);
+          } else if (kind === 'image') {
+            const groupKey = s.parentFolderId ?? 'loose';
+            const grouped = carouselByFolder.get(groupKey);
+            if (grouped) {
+              assetId = grouped;
+            } else {
+              const existing = freeCarousels.shift();
+              if (existing) {
+                assetId = existing.id;
+                sr.linkedToExisting++;
+                if (!existing.base_paid_at && !existing.views_locked_at && !existing.submitted_by_contractor_at) {
+                  await db
+                    .from('creative_assets')
+                    .update({ submitted_by_contractor_at: s.createdTime ?? now, updated_at: now })
+                    .eq('id', existing.id)
+                    .is('views_locked_at', null);
+                }
+              } else if (carouselCount() < card.maxCarouselsPerShoot + 1) {
+                const { data: created } = await db
+                  .from('creative_assets')
+                  .insert({
+                    shoot_id: shoot.id,
+                    kind: 'carousel',
+                    title:
+                      s.parentFolderName && norm(s.parentFolderName) !== norm(shoot.title) && !norm(s.parentFolderName).startsWith('finals')
+                        ? s.parentFolderName.slice(0, 200)
+                        : 'Carousel',
+                    platform: 'instagram',
+                    submitted_by_contractor_at: s.createdTime ?? now,
+                  })
+                  .select(ASSET_SELECT)
+                  .single();
+                if (created) {
+                  assets.push(created as AssetLite);
+                  assetId = (created as AssetLite).id;
+                  sr.createdCarousels++;
+                  report.assetsCreated++;
+                }
+              }
+              if (assetId) carouselByFolder.set(groupKey, assetId);
+            }
           }
-        } else if (!f.rowId) {
-          sr.otherFiles++;
-        }
 
-        if (assetId) {
-          linkedAssetIds.add(assetId);
-          assetTouches++;
-          await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', rowId);
+          if (assetId) {
+            linked.add(assetId);
+            s.assetId = assetId;
+            assetTouches++;
+            await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', s.rowId);
+          }
         }
       }
 
@@ -590,19 +742,23 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         }
       }
 
-      // 3. Stamp the scan; new files or newly logged/linked assets = a
-      // delivery moment (recovery can log an asset with zero fresh files).
-      const delivered = sr.newFiles > 0 || assetTouches > 0;
+      // 5. Stamp the scan. Delivery = the completed package materializing.
       const shootPatch: Record<string, unknown> = { drive_synced_at: now, updated_at: now };
-      if (delivered) shootPatch.drive_delivered_at = now;
-      if (delivered && assets.length > 0 && (shoot.status === 'scheduled' || shoot.status === 'shot')) {
-        shootPatch.status = 'delivered';
+      if (sr.packageComplete && assetTouches > 0) {
+        shootPatch.drive_delivered_at = now;
+        if (shoot.status === 'scheduled' || shoot.status === 'shot') shootPatch.status = 'delivered';
+      }
+      if (sr.packageComplete === false) {
+        // Incomplete again (e.g. the watcher's earlier partial logging was
+        // undone): make sure the shoot doesn't still read as delivered.
+        if (shoot.status === 'delivered' && !anyPaid) shootPatch.status = 'shot';
+        if (shoot.drive_delivered_at && sr.removedAssets > 0) shootPatch.drive_delivered_at = null;
       }
       await db.from('creative_shoots').update(shootPatch).eq('id', shoot.id).neq('status', 'cancelled');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       sr.note = msg.includes('404') || msg.includes('403')
-        ? `Drive folder not reachable — share it (or the Shared Drive) with ${saEmail}`
+        ? `Drive folder not reachable or not writable — give ${saEmail} Contributor access`
         : msg.slice(0, 200);
       report.errors.push(`${shoot.title}: ${sr.note}`);
     }

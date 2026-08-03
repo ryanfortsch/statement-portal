@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
-import { loadShootDriveFiles, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
+import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
 import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
@@ -105,14 +105,24 @@ export default async function ShootDetail({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
                 Drive delivery
+                {shoot.drive_finals_folder_id && (
+                  <a
+                    href={`https://drive.google.com/drive/folders/${shoot.drive_finals_folder_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--tide-deep)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 600 }}
+                  >
+                    Finals folder ↗
+                  </a>
+                )}
                 {shoot.drive_folder_id && (
                   <a
                     href={`https://drive.google.com/drive/folders/${shoot.drive_folder_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: 'var(--tide-deep)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 600 }}
+                    style={{ color: 'var(--ink-4)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}
                   >
-                    open folder ↗
+                    whole folder ↗
                   </a>
                 )}
               </div>
@@ -133,6 +143,25 @@ export default async function ShootDetail({
               </div>
             )}
 
+            {/* The package gate, in plain words: nothing is owed until the full
+                rate-card set sits in the Finals folder. */}
+            {shoot.drive_finals_folder_id && !detail.assets.some((a) => a.base_paid_at || a.topup_paid_at) && (() => {
+              const p = finalsProgress(card, driveFiles);
+              return (
+                <div style={{ marginTop: 10, borderLeft: `3px solid ${p.complete ? 'var(--positive)' : 'var(--tide)'}`, background: p.complete ? 'rgba(46,125,80,0.06)' : 'rgba(78,124,158,0.06)', padding: '8px 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, maxWidth: 560 }}>
+                  {p.complete ? (
+                    <>Full set delivered — the package is logged below and the delivery base is due.</>
+                  ) : (
+                    <>
+                      <strong>{finalsProgressLabel(p)}.</strong> Pay stays $0 until all{' '}
+                      {p.reelsNeed + p.carouselsNeed} finals ({p.reelsNeed} reels {card.minSeconds}s+ and the carousel photos) are in the Finals
+                      folder — the moment the set completes, the {dollars(card.baseCents * p.reelsNeed + card.carouselCents * p.carouselsNeed)} base goes due here on its own.
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
             {!shoot.drive_folder_id ? (
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
@@ -147,7 +176,7 @@ export default async function ShootDetail({
               </div>
             ) : driveFiles.length === 0 ? (
               <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-4)' }}>
-                Folder linked — nothing uploaded yet. The moment files land, they&apos;re logged here and the delivery base goes due.
+                Folder linked — nothing uploaded yet. Files show here as they land; pay triggers when the full set is in the Finals folder.
               </div>
             ) : (
               <div style={{ marginTop: 10 }}>
@@ -378,9 +407,10 @@ function DriveFileLine({ f, assetLabel }: { f: DriveFileRow; assetLabel: string 
       <span style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>
         {f.trashed_at ? 'removed from Drive' : f.drive_created_at ? `up ${fmtShort(f.drive_created_at)}` : ''}
         {f.duration_seconds ? ` · ${f.duration_seconds}s` : ''}
+        {f.in_finals && !f.trashed_at ? ' · finals' : ''}
       </span>
       <span style={{ marginLeft: 'auto', color: assetLabel ? 'var(--ink-3)' : 'var(--ink-4)', whiteSpace: 'nowrap' }}>
-        {assetLabel ? `→ ${assetLabel}` : 'not an asset'}
+        {assetLabel ? `→ ${assetLabel}` : f.in_finals ? 'not counted' : 'outside finals'}
       </span>
     </div>
   );
