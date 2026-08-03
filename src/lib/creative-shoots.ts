@@ -43,9 +43,11 @@ export type ShootRow = {
   paid_at: string | null;
   paid_method: string | null;
   paid_reference: string | null;
-  // Drive delivery watcher (20260803): the shoot's Drive subfolder, when new
-  // files last landed there, and when the folder was last scanned.
+  // Drive delivery watcher (20260803): the shoot's Drive subfolder, the dated
+  // "Finals" deliver-to folder Helm creates inside it (the package gate), when
+  // the completed package last landed, and when the folder was last scanned.
   drive_folder_id: string | null;
+  drive_finals_folder_id: string | null;
   drive_delivered_at: string | null;
   drive_synced_at: string | null;
   created_at: string;

@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, loadCreativeContractors, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
-import { loadDriveFileCounts, isCreativeDriveConfigured } from '@/lib/creative-drive';
+import { loadDriveFilesByShoots, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured } from '@/lib/creative-drive';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
 import { createShoot, syncDriveNow } from './actions';
@@ -65,7 +65,25 @@ export default async function CreativeBoard({
     loadCreativeContractors(),
     loadFieldProperties(),
   ]);
-  const driveCounts = await loadDriveFileCounts(board.map((s) => s.shoot.id));
+  const driveFiles = await loadDriveFilesByShoots(board.map((s) => s.shoot.id));
+  // Per-shoot Drive chip: package progress while the finals gate is open
+  // (nothing paid yet), plain file count once money has moved.
+  const driveChips = new Map<string, string | null>();
+  for (const s of board) {
+    const files = driveFiles.get(s.shoot.id) ?? [];
+    const liveFiles = files.filter((f) => !f.trashed_at).length;
+    const anyPaid = s.assets.some((a) => a.base_paid_at || a.topup_paid_at);
+    if (!anyPaid && s.shoot.drive_finals_folder_id) {
+      const p = finalsProgress(s.card, files);
+      driveChips.set(s.shoot.id, p.complete ? `full set in Drive · ${liveFiles} files` : `finals: ${finalsProgressLabel(p)}`);
+    } else if (liveFiles > 0) {
+      driveChips.set(s.shoot.id, `${liveFiles} file${liveFiles === 1 ? '' : 's'} in Drive`);
+    } else if (s.shoot.drive_folder_id) {
+      driveChips.set(s.shoot.id, 'Drive linked · nothing yet');
+    } else {
+      driveChips.set(s.shoot.id, null);
+    }
+  }
   // "Drive checked 2:40 PM" trust stamp: the freshest scan across the board.
   const lastSynced = board
     .map((s) => s.shoot.drive_synced_at)
@@ -192,10 +210,10 @@ export default async function CreativeBoard({
           </div>
         ) : (
           <>
-            <ShootGroup title="Needs attention" hint="Views overdue to read, or nothing posted yet" shoots={attention} driveCounts={driveCounts} accent />
-            <ShootGroup title="Ready to pay" hint="Payout locked, awaiting send" shoots={owed} driveCounts={driveCounts} />
-            <ShootGroup title="In flight" hint="Shot, posted, or counting views" shoots={live} driveCounts={driveCounts} />
-            <ShootGroup title="Paid" hint="Settled" shoots={done} driveCounts={driveCounts} muted />
+            <ShootGroup title="Needs attention" hint="Views overdue to read, or nothing posted yet" shoots={attention} driveChips={driveChips} accent />
+            <ShootGroup title="Ready to pay" hint="Payout locked, awaiting send" shoots={owed} driveChips={driveChips} />
+            <ShootGroup title="In flight" hint="Shot, posted, or counting views" shoots={live} driveChips={driveChips} />
+            <ShootGroup title="Paid" hint="Settled" shoots={done} driveChips={driveChips} muted />
           </>
         )}
       </section>
@@ -204,7 +222,7 @@ export default async function CreativeBoard({
   );
 }
 
-function ShootGroup({ title, hint, shoots, driveCounts, accent, muted }: { title: string; hint: string; shoots: ShootSummary[]; driveCounts: Map<string, number>; accent?: boolean; muted?: boolean }) {
+function ShootGroup({ title, hint, shoots, driveChips, accent, muted }: { title: string; hint: string; shoots: ShootSummary[]; driveChips: Map<string, string | null>; accent?: boolean; muted?: boolean }) {
   if (shoots.length === 0) return null;
   return (
     <div style={{ marginTop: 28 }}>
@@ -218,12 +236,7 @@ function ShootGroup({ title, hint, shoots, driveCounts, accent, muted }: { title
           const assetLine = s.assets.length
             ? `${s.assets.filter((a) => a.kind === 'reel').length} reel${s.assets.filter((a) => a.kind === 'reel').length === 1 ? '' : 's'}${s.assets.some((a) => a.kind === 'carousel') ? ` · ${s.assets.filter((a) => a.kind === 'carousel').length} carousel` : ''}`
             : 'no posts yet';
-          const nFiles = driveCounts.get(s.shoot.id) ?? 0;
-          const driveChip = nFiles > 0
-            ? `${nFiles} file${nFiles === 1 ? '' : 's'} in Drive`
-            : s.shoot.drive_folder_id
-              ? 'Drive linked · nothing yet'
-              : null;
+          const driveChip = driveChips.get(s.shoot.id) ?? null;
           return (
             <Link
               key={s.shoot.id}
