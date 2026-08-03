@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor } from '../actions';
 import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
@@ -171,6 +171,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = isWorkingStatus(packet.status) && packet.stops.length > 0;
+  // Every stop is done but the inspector never tapped Submit: offer the office
+  // close-out so the packet doesn't sit in_progress (clock running, codes live).
+  const readyToClose = tracking && doneCount === packet.stops.length;
+  const inspectorFirst = packet.contractor?.full_name?.split(' ')[0] || 'the inspector';
 
   // Finalize-payout inputs (submitted / approved-unpaid): the same pricing
   // formula re-run on ACTUAL minutes on site, as a decision aid. Estimate =
@@ -386,7 +390,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         {/* Lifecycle controls: ONE loud action per state; everything else is a
             quiet utility link so the page doesn't shout five buttons at once. */}
         <div style={{ marginTop: 18 }}>
-          {(editable || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
+          {(editable || readyToClose || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {editable && (
                 <>
@@ -401,6 +405,16 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" style={btnDark} />
                   </form>
                 </>
+              )}
+              {readyToClose && (
+                <form action={submitPacketForContractor} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <PendingButton label={`Submit for ${inspectorFirst}`} busyLabel="Closing out the trip…" style={btnDark} />
+                  <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 520 }}>
+                    Every stop is done but {inspectorFirst} never tapped Submit. This closes the trip out exactly like their own tap
+                    (stops the clock, pulls the door codes) and moves it to your review.
+                  </span>
+                </form>
               )}
               {packet.status === 'submitted' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
