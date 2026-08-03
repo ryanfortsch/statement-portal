@@ -141,7 +141,13 @@ export async function updatePropertyWithState(
   const result = await performPropertyUpdate(id, formData);
   if (result.error) return { error: result.error };
 
-  redirect(`/properties/${id}?tab=operations`);
+  // Land back on the tab the operator came from (the onboarding hub's
+  // "Edit field" deep links carry ?return=onboarding via a hidden input).
+  // Allowlisted so a tampered value can't smuggle in a junk redirect.
+  const RETURN_TABS = new Set(['today', 'operations', 'records', 'onboarding']);
+  const ret = String(formData.get('return_tab') ?? '');
+  const tab = RETURN_TABS.has(ret) ? ret : 'operations';
+  redirect(`/properties/${id}?tab=${tab}`);
 }
 
 /** Shared core: build payload, write via service role, revalidate.

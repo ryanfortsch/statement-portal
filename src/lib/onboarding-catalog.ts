@@ -130,6 +130,11 @@ export type OnboardingDeriveContext = {
    */
   contractTermStart: string | null;
   contractTermEnd: string | null;
+  /**
+   * A Stripe restricted key for this property resolves from env
+   * (STRIPE_KEY_<ID> or the legacy JSON blobs) via getStripeKeysMap().
+   */
+  stripeKeyConfigured: boolean;
 };
 
 export type OnboardingItem = {
@@ -259,9 +264,10 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'financial',
     title: 'Open the dedicated Chase account',
     description: 'One business checking account for this property alone, never shared.',
-    why: 'Monthly Bank CSV ingest and Cape Ann Elite ACH cleaning charges attribute to the property by this account.',
+    why: 'Monthly Bank CSV ingest and Cape Ann Elite ACH cleaning charges attribute to the property by this account. Auto-resolves once the account\'s last 4 are on the property record.',
     href: '/properties/{id}/edit#bank',
     hrefLabel: 'Edit field',
+    derive: ({ p }) => has(p.bank_last4),
   },
   {
     key: 'financial.chase_signers_named',
@@ -291,7 +297,8 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why:
       'Powers three things: statement extras sync (guest add-on charges appear in the statement review queue), ' +
       'installment fee cross-checks, and auto-minted add-on payment links in guest messaging. ' +
-      'Never use the sk_ secret key - Helm refuses those by policy.',
+      'Never use the sk_ secret key - Helm refuses those by policy. Auto-resolves when a key for this property resolves from env.',
+    derive: (ctx) => ctx.stripeKeyConfigured,
   },
   {
     key: 'financial.stripe_linked_in_guesty',

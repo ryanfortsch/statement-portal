@@ -40,10 +40,21 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  */
 type Params = { id: string };
 
-export default async function PropertyEditPage({ params }: { params: Promise<Params> }) {
+export default async function PropertyEditPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams?: Promise<{ return?: string }>;
+}) {
   const { id } = await params;
   const p = await getProperty(id);
   if (!p) notFound();
+
+  // Deep links from the onboarding hub carry ?return=onboarding so the save
+  // redirect lands back on that tab. Threaded through the form as a hidden
+  // input; the action allowlists the value.
+  const returnTab = (await searchParams)?.return ?? '';
 
   // Bind the property id to the action so the form only needs to submit
   // its FormData payload.
@@ -81,6 +92,7 @@ export default async function PropertyEditPage({ params }: { params: Promise<Par
       </section>
 
       <EditFormShell action={action} propertyId={p.id}>
+        {returnTab ? <input type="hidden" name="return_tab" value={returnTab} /> : null}
         {/* ── Owner contact ── */}
         <Group eyebrow="01" title="Owner contact">
           <Row>

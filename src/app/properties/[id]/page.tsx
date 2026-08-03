@@ -8,6 +8,7 @@ import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomi
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
+import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { formatUsPhone, telHref } from '@/lib/phone';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { getPropertyAccess } from '@/lib/property-access';
@@ -97,6 +98,18 @@ async function getScaLaunchStatus(
   } catch {
     return null;
   }
+}
+
+/**
+ * Onboarding "Edit field" deep links carry ?return=onboarding so the edit
+ * page's save redirect lands back on this tab instead of the default
+ * ?tab=operations (query goes BEFORE any #anchor).
+ */
+function editHrefWithReturn(href: string): string {
+  if (!href.includes('/edit')) return href;
+  const [path, hash] = href.split('#');
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}return=onboarding${hash ? `#${hash}` : ''}`;
 }
 
 /**
@@ -497,6 +510,7 @@ export default async function PropertyDetailPage({
     contractExecuted: contractFacts.executed,
     contractTermStart: contractFacts.termStart,
     contractTermEnd: contractFacts.termEnd,
+    stripeKeyConfigured: !!getStripeKeysMap()[p.id],
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
   for (const item of ONBOARDING_ITEMS) {
@@ -959,7 +973,7 @@ export default async function PropertyDetailPage({
                             {item.title}
                             {item.href && (
                               <Link
-                                href={item.href.replace('{id}', p.id)}
+                                href={editHrefWithReturn(item.href.replace('{id}', p.id))}
                                 style={{ marginLeft: 10, fontSize: 11, letterSpacing: '.08em', color: 'var(--tide-deep)', textDecoration: 'none' }}
                               >
                                 {item.hrefLabel ?? 'Open'} →
