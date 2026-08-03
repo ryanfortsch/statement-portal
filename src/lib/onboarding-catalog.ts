@@ -115,6 +115,13 @@ export type OnboardingDeriveContext = {
   /** cleaner_phones row exists for this property. */
   cleanerMapped: boolean;
   scaLive: boolean;
+  /**
+   * The linked projection's management contract is executed: owner signed
+   * AND Rising Tide countersigned, or the operator marked the contract
+   * stage done (paper deals). False when the property predates the
+   * Projections pipeline (no projection_id).
+   */
+  contractExecuted: boolean;
 };
 
 export type OnboardingItem = {
@@ -144,9 +151,10 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'owner_deal',
     title: 'Management agreement signed',
     description: 'Signed agreement in hand, both parties dated.',
-    why: 'Contract data lives on the projection and does not carry over at promote, so the signed copy is the record.',
+    why: 'Auto-resolves from the projection\'s e-sign trail (owner signed plus Rising Tide countersigned, or contract marked done). Tick manually only for deals that never ran through Projections.',
     href: '/properties/{id}?tab=records',
     hrefLabel: 'Open records',
+    derive: (ctx) => ctx.contractExecuted,
   },
   {
     key: 'owner_deal.contract_dates_logged',

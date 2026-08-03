@@ -100,6 +100,33 @@ async function getScaLaunchStatus(
 }
 
 /**
+ * Whether the linked projection's management contract is executed, for the
+ * onboarding catalog's management-agreement derive. Executed means the owner
+ * signed AND Rising Tide countersigned, or the operator marked the contract
+ * stage done (paper deals). False when the property predates the Projections
+ * pipeline (no projection_id) or the read fails.
+ */
+async function getContractExecuted(projectionId: string | null): Promise<boolean> {
+  if (!projectionId || !isHelmConfigured) return false;
+  try {
+    const { data, error } = await supabase
+      .from('projections')
+      .select('contract_signed_at, contract_countersigned_at, contract_marked_done_at')
+      .eq('id', projectionId)
+      .maybeSingle();
+    if (error || !data) return false;
+    const c = data as {
+      contract_signed_at: string | null;
+      contract_countersigned_at: string | null;
+      contract_marked_done_at: string | null;
+    };
+    return !!(c.contract_marked_done_at || (c.contract_signed_at && c.contract_countersigned_at));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Raw launch-checklist rows for this property. The Today tab's launch
  * chip progress count is derived from these PLUS property data via
  * computeLaunchProgress (same calc the launch page uses), so the two
@@ -376,7 +403,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractExecuted] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -408,6 +435,7 @@ export default async function PropertyDetailPage({
     getGuestCodeView(p.id),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
+    getContractExecuted(p.projection_id ?? null),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -446,6 +474,7 @@ export default async function PropertyDetailPage({
     climateConfigured: !!climateProfile?.enabled,
     cleanerMapped: launchCleanerMapped,
     scaLive: scaLaunch?.status === 'live',
+    contractExecuted,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
   for (const item of ONBOARDING_ITEMS) {
