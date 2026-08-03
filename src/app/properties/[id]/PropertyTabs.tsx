@@ -37,6 +37,18 @@ export function PropertyTabs({
 }) {
   const valid = tabs.some((t) => t.id === initialTab) ? initialTab : tabs[0]?.id ?? '';
   const [active, setActive] = useState(valid);
+  // In-page links can navigate to the same route with a different ?tab=
+  // (an onboarding item's "Open records", a slip card's "Open activity").
+  // The server recomputes initialTab but this shell is NOT remounted, so
+  // useState kept the old panel and the click looked dead: URL changed,
+  // panel didn't. Adopt the prop whenever it changes (render-phase state
+  // adjustment, no effect flash); local select() still wins between
+  // navigations because its router.replace round-trips the same value.
+  const [adoptedInitial, setAdoptedInitial] = useState(valid);
+  if (valid !== adoptedInitial) {
+    setAdoptedInitial(valid);
+    setActive(valid);
+  }
   const router = useRouter();
   const pathname = usePathname();
   const [, startTransition] = useTransition();

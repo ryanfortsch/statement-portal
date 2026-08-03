@@ -122,6 +122,14 @@ export type OnboardingDeriveContext = {
    * Projections pipeline (no projection_id).
    */
   contractExecuted: boolean;
+  /**
+   * projections.term_start / term_end (ISO YYYY-MM-DD) from the linked
+   * projection. These feed the contract's Term clause, so when both are
+   * set the agreement dates ARE logged, structured, and findable. Null
+   * when unset or no projection.
+   */
+  contractTermStart: string | null;
+  contractTermEnd: string | null;
 };
 
 export type OnboardingItem = {
@@ -161,9 +169,10 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'owner_deal',
     title: 'Log contract start, term, and renewal',
     description: 'Start date, term length, and renewal terms noted where the team can find them.',
-    why: 'No properties column holds agreement metadata. An unlogged renewal date is an invisible one.',
+    why: 'Auto-resolves when the projection has both term dates (they fill the contract\'s Term clause; renewal is the standard 120-day auto-renew unless redlined). The Records tab shows them. An unlogged renewal date is an invisible one.',
     href: '/properties/{id}?tab=records',
     hrefLabel: 'Open records',
+    derive: (ctx) => has(ctx.contractTermStart) && has(ctx.contractTermEnd),
   },
   {
     key: 'owner_deal.documents_filed',

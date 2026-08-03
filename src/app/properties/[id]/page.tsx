@@ -100,30 +100,50 @@ async function getScaLaunchStatus(
 }
 
 /**
- * Whether the linked projection's management contract is executed, for the
- * onboarding catalog's management-agreement derive. Executed means the owner
- * signed AND Rising Tide countersigned, or the operator marked the contract
- * stage done (paper deals). False when the property predates the Projections
- * pipeline (no projection_id) or the read fails.
+ * Management-contract facts from the linked projection, for the onboarding
+ * catalog's derives and the Records tab's Agreement block. Executed means
+ * the owner signed AND Rising Tide countersigned, or the operator marked
+ * the contract stage done (paper deals). termStart/termEnd are the ISO
+ * dates that fill the contract's Term clause. All-empty when the property
+ * predates the Projections pipeline (no projection_id) or the read fails.
  */
-async function getContractExecuted(projectionId: string | null): Promise<boolean> {
-  if (!projectionId || !isHelmConfigured) return false;
+type ContractFacts = { executed: boolean; termStart: string | null; termEnd: string | null };
+
+async function getContractFacts(projectionId: string | null): Promise<ContractFacts> {
+  const none: ContractFacts = { executed: false, termStart: null, termEnd: null };
+  if (!projectionId || !isHelmConfigured) return none;
   try {
     const { data, error } = await supabase
       .from('projections')
-      .select('contract_signed_at, contract_countersigned_at, contract_marked_done_at')
+      .select('contract_signed_at, contract_countersigned_at, contract_marked_done_at, term_start, term_end')
       .eq('id', projectionId)
       .maybeSingle();
-    if (error || !data) return false;
+    if (error || !data) return none;
     const c = data as {
       contract_signed_at: string | null;
       contract_countersigned_at: string | null;
       contract_marked_done_at: string | null;
+      term_start: string | null;
+      term_end: string | null;
     };
-    return !!(c.contract_marked_done_at || (c.contract_signed_at && c.contract_countersigned_at));
+    return {
+      executed: !!(c.contract_marked_done_at || (c.contract_signed_at && c.contract_countersigned_at)),
+      termStart: c.term_start,
+      termEnd: c.term_end,
+    };
   } catch {
-    return false;
+    return none;
   }
+}
+
+/** "2026-07-01" -> "Jul 1, 2026" (noon UTC guard against TZ day-shift). */
+function fmtTermDate(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 /**
@@ -403,7 +423,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractExecuted] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -435,7 +455,7 @@ export default async function PropertyDetailPage({
     getGuestCodeView(p.id),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
-    getContractExecuted(p.projection_id ?? null),
+    getContractFacts(p.projection_id ?? null),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -474,7 +494,9 @@ export default async function PropertyDetailPage({
     climateConfigured: !!climateProfile?.enabled,
     cleanerMapped: launchCleanerMapped,
     scaLive: scaLaunch?.status === 'live',
-    contractExecuted,
+    contractExecuted: contractFacts.executed,
+    contractTermStart: contractFacts.termStart,
+    contractTermEnd: contractFacts.termEnd,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
   for (const item of ONBOARDING_ITEMS) {
@@ -1588,6 +1610,66 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </CollapsibleSection>
+      {/* MANAGEMENT AGREEMENT — the deal facts the onboarding checklist's
+          "Open records" links land on. Term dates come from the linked
+          projection (they fill the contract's Term clause); renewal is the
+          contract's standard clause. Absent for the pre-Projections fleet,
+          whose signed copies live in Documents below. */}
+      {p.projection_id && (
+        <CollapsibleSection
+          title="Management Agreement"
+          summary={
+            contractFacts.termStart && contractFacts.termEnd
+              ? `${fmtTermDate(contractFacts.termStart)} to ${fmtTermDate(contractFacts.termEnd)}`
+              : 'term dates incomplete'
+          }
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
+            <div className="eyebrow">Status</div>
+            <div style={{ color: 'var(--ink)' }}>
+              {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
+            </div>
+            <div className="eyebrow">Term</div>
+            <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
+              {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
+              {' to '}
+              {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
+            </div>
+            <div className="eyebrow">Renewal</div>
+            <div style={{ color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              Auto-renews for successive one-year terms unless either party gives written
+              non-renewal notice at least 120 days before term end (standard clause; redlines, if any, control).
+            </div>
+          </div>
+          {(!contractFacts.termStart || !contractFacts.termEnd) && (
+            <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
+              A missing term date here is a missing renewal deadline. Set it on the projection
+              and this line (plus the onboarding checklist item) resolves itself.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+            <Link href={`/projections/${p.projection_id}/contract`} target="_blank" style={primaryActionStyle}>
+              View contract ↗
+            </Link>
+            {(!contractFacts.termStart || !contractFacts.termEnd) && (
+              <Link
+                href={`/projections/${p.projection_id}`}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: '.18em',
+                  textTransform: 'uppercase',
+                  color: 'var(--ink-3)',
+                  textDecoration: 'none',
+                  padding: '9px 12px',
+                }}
+              >
+                Fix on projection
+              </Link>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
       {/* DOCUMENTS — folded into the same collapsible grammar as its
           neighbors; the upload form used to render permanently expanded
           even when nothing was filed. */}
