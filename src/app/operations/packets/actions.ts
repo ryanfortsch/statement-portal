@@ -10,7 +10,8 @@ import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromP
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
+import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { fmtVisitTime, canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus, isAttachableStatus, isWorkingStatus } from '@/lib/field-packet-status';
@@ -965,6 +966,81 @@ async function completedAttachmentsForPacket(packetId: string): Promise<{ id: st
     .in('stop_id', stopIds)
     .not('completed_at', 'is', null);
   return ((atts ?? []) as { id: string; work_slip_id: string }[]);
+}
+
+/** Office closes out a finished trip the inspector forgot to submit. Same
+ *  effects as their own Submit tap (status to submitted, stop clock closed,
+ *  door codes pulled, streak milestone still checked) so the normal approve
+ *  flow takes over. Gated exactly like the field submit: every stop complete
+ *  or skipped. Logs as submitted_by_office so the activity trail never claims
+ *  the inspector tapped it; no self-submit receipt email is sent (the approval
+ *  email that follows is the receipt that matters). */
+export async function submitPacketForContractor(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  if (!packetId) return;
+
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, title, awarded_contractor_id')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; title: string; awarded_contractor_id: string | null } | null;
+  if (!packet || !packet.awarded_contractor_id || !isWorkingStatus(packet.status)) return;
+
+  // Same floor as the inspector's own submit: no open stops.
+  const { data: stops } = await fieldDb().from('packet_stops').select('status').eq('packet_id', packetId);
+  const allComplete =
+    (stops ?? []).length > 0 &&
+    (stops as { status: string }[]).every((s) => s.status === 'complete' || s.status === 'skipped');
+  if (!allComplete) return;
+
+  const nowIso = new Date().toISOString();
+  // Atomic status guard - races a concurrent real submit / cancel safely.
+  const { data: moved } = await fieldDb()
+    .from('inspection_packets')
+    .update({ status: 'submitted', submitted_at: nowIso, updated_at: nowIso })
+    .eq('id', packetId)
+    .in('status', ['claimed', 'in_progress'])
+    .select('id')
+    .maybeSingle();
+  if (!moved) return;
+
+  // Close the last stop's still-running clock, as their own submit would.
+  await fieldDb()
+    .from('packet_stops')
+    .update({ departed_at: nowIso })
+    .eq('packet_id', packetId)
+    .is('departed_at', null)
+    .not('arrived_verified_at', 'is', null);
+
+  await fieldDb().from('packet_events').insert({
+    packet_id: packetId,
+    contractor_id: packet.awarded_contractor_id,
+    actor_email: email,
+    event_type: 'submitted_by_office',
+  });
+
+  // The forgotten tap must not cost them a streak milestone (day 5/10 pays).
+  try {
+    const award = await maybeAwardStreakBonus(packetId);
+    if (award) {
+      const { data: c } = await fieldDb()
+        .from('contractors')
+        .select('*')
+        .eq('id', packet.awarded_contractor_id)
+        .maybeSingle();
+      if (c) await sendStreakBonusOfficeEmail(c as ContractorRow, { id: packetId, title: packet.title }, award).catch(() => {});
+    }
+  } catch {
+    // best-effort only
+  }
+  // Work is in for review - pull the inspector's door codes back off the locks.
+  await revokePacketCodes(packetId).catch(() => {});
+
+  revalidatePath(`/operations/packets/${packetId}`);
+  revalidatePath('/operations/packets');
+  revalidatePath(`/field/packet/${packetId}`);
 }
 
 export async function approvePacket(formData: FormData): Promise<void> {
