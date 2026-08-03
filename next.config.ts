@@ -1,6 +1,34 @@
 import type { NextConfig } from "next";
 
+// One stable identifier per production deployment, for version-skew
+// detection: a tab whose JS came from build A while the server is already
+// serving build B (Hobby plan, so Vercel Skew Protection is unavailable
+// and old builds vanish the moment a deploy lands). NEXT_DEPLOYMENT_ID is
+// checked first because when a platform sets it, Next itself adopts it and
+// errors if the config disagrees. Locally all three are absent and every
+// skew feature stays inert.
+const deploymentId =
+  process.env.NEXT_DEPLOYMENT_ID ||
+  process.env.VERCEL_DEPLOYMENT_ID ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  '';
+
 const nextConfig: NextConfig = {
+  // Native skew handling: Next stamps RSC and server-action requests with
+  // x-deployment-id and compares the id echoed on navigation responses, so
+  // a stale client hard-navigates instead of applying a payload its bundle
+  // can't render (the 2026-08-02 spin-then-error-boundary failure).
+  deploymentId: deploymentId || undefined,
+
+  // The same id, inlined into BOTH the client and server bundles at build
+  // time (next.config `env` goes through the compiler's define step). The
+  // 20s AutoRefresh poller compares its inlined copy against /api/version,
+  // which returns the server bundle's inlined copy, and hard-reloads once
+  // on mismatch. See src/components/AutoRefresh.tsx.
+  env: {
+    NEXT_PUBLIC_DEPLOYMENT_ID: deploymentId,
+  },
+
   // Keep @sparticuz/chromium + puppeteer-core out of the bundler's graph --
   // they're consumed on the server at runtime and trying to trace them
   // pulls in native binaries that shouldn't be webpacked.
