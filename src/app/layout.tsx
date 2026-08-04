@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { CommandPalette } from "@/components/CommandPalette";
+import { VersionGuard } from "@/components/VersionGuard";
 import { Providers } from "@/components/Providers";
 
 const fraunces = Fraunces({
@@ -71,6 +72,7 @@ export default function RootLayout({
         <Providers>
           {children}
           <CommandPalette />
+          <VersionGuard />
         </Providers>
       </body>
     </html>
