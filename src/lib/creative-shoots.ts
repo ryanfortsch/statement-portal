@@ -342,11 +342,10 @@ export function creativeProfileStats(shoots: ShootSummary[], today: string = tod
   };
 }
 
-/** 12,340 → "12.3k" — the compact views form used across the portal. */
+/** View counts render in full comma form everywhere ("28,100"), per Dotti —
+ *  never the compact "28.1k", which hides the precision the pay rungs use. */
 export function formatViews(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return String(n);
+  return n.toLocaleString('en-US');
 }
 
 /** Active creative-trade contributors, for the "log a shoot" picker. */

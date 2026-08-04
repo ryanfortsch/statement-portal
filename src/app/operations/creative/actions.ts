@@ -93,7 +93,8 @@ export async function readAssetViews(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const assetId = String(formData.get('asset_id') || '');
   const shootId = String(formData.get('shoot_id') || '');
-  const views = Number(String(formData.get('views') || '').trim());
+  // The field accepts the comma form the rest of the page shows ("28,100").
+  const views = Number(String(formData.get('views') || '').replace(/[,\s]/g, ''));
   if (!assetId || !Number.isFinite(views) || views < 0) return;
   const v = Math.round(views);
   const lock = formData.get('lock') === 'on';
@@ -175,12 +176,22 @@ export async function payAssetBase(formData: FormData): Promise<void> {
   const ap = detail.pay.assets.find((p) => p.assetId === assetId);
   // Base is owed on DELIVERY (the asset is logged), not on posting — posting can
   // come weeks later, or never. Only a counting, unpaid post can take a base.
-  if (!asset || !ap || !ap.counts || asset.base_paid_at) return;
+  if (!asset || !ap || !ap.counts || asset.base_paid_at) {
+    revalidatePath(`/operations/creative/${shootId}`); // refresh, never a dead click
+    return;
+  }
   // Belt-and-suspenders on the cap: never pay a reel base once maxPerShoot reels
-  // already have their base paid (the ranking pins them, but guard the write too).
+  // already have their base paid AND still count (the ranking pins them, but
+  // guard the write too). A paid reel that was later un-counted ("Don't count
+  // this" on a wrong-version upload) holds no slot — counting it here while the
+  // pay math excluded it made this button a silent dead click.
   if (asset.kind === 'reel') {
-    const paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at).length;
-    if (paidReels >= detail.card.maxPerShoot) return;
+    const countsById = new Map(detail.pay.assets.map((p) => [p.assetId, p.counts]));
+    const paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at && countsById.get(x.id)).length;
+    if (paidReels >= detail.card.maxPerShoot) {
+      revalidatePath(`/operations/creative/${shootId}`);
+      return;
+    }
   }
 
   await freezeCardIfNeeded(detail.shoot, detail.card);
@@ -233,7 +244,10 @@ export async function payAllDeliveredBases(formData: FormData): Promise<void> {
   const contractor = c as ContractorRow | null;
   const now = new Date().toISOString();
   let paid = 0;
-  let paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at).length;
+  // Same cap semantics as payAssetBase: only paid reels that still COUNT hold
+  // a slot (a paid-then-un-counted wrong version doesn't block the real one).
+  const countsById = new Map(detail.pay.assets.map((p) => [p.assetId, p.counts]));
+  let paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at && countsById.get(x.id)).length;
   for (const a of detail.assets) {
     const ap = detail.pay.assets.find((p) => p.assetId === a.id);
     if (!ap || !ap.counts || a.base_paid_at) continue; // ap.counts already applies the reel cap
