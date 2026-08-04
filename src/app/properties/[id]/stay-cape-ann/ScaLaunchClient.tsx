@@ -356,7 +356,7 @@ export function ScaLaunchClient(props: Props) {
             </span>
           ) : (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-              Enter the Guesty listing ID, then draft the whole listing — pitch, tagline, About, highlights, and a nearby dining pick — into the blanks below in the Stay Cape Ann voice. Start here, then review and add the iCal URL.
+              Enter the Guesty listing ID, then pull the listing copy exactly as it reads on Airbnb, minus the Stay Cape Ann breadcrumb lines. Fills title, tagline, About, highlights, and a nearby dining pick. Type the short map pitch, then add the iCal URL.
             </span>
           )}
         </div>
