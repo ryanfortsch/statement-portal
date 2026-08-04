@@ -294,7 +294,7 @@ export default async function ShootDetail({
                         <input type="hidden" name="shoot_id" value={shoot.id} />
                         <label style={miniLabel}>
                           Views
-                          <input type="number" name="views" min={0} step={1} defaultValue={a.views ?? undefined} placeholder="e.g. 2400" style={{ ...input, width: 120 }} />
+                          <input name="views" inputMode="numeric" defaultValue={a.views != null ? a.views.toLocaleString('en-US') : undefined} placeholder="e.g. 2,400" style={{ ...input, width: 120 }} />
                         </label>
                         <label style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 5, paddingBottom: 7 }}>
                           <input type="checkbox" name="lock" /> lock final
