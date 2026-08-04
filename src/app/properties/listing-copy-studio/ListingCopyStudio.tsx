@@ -111,9 +111,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
       highlights: res.draft.highlights.length ? res.draft.highlights : [''],
       status: 'idle',
       open: true,
-      detail: res.aiGenerated
-        ? 'Redrafted from Guesty in the Stay Cape Ann voice. Review, then stage.'
-        : 'Pulled and cleaned the Guesty copy. Review, then stage.',
+      detail: 'Pulled the Guesty copy verbatim, minus the Stay Cape Ann breadcrumb lines. Review, then stage.',
     });
   }
 

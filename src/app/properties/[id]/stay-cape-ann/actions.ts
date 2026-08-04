@@ -24,8 +24,7 @@ import {
   SCA_DEMO_MODE_SENTINEL,
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
-import { getGuestyListing, type GuestyListingDetail } from '@/lib/guesty';
-import { generateListingCopy } from '@/lib/ai/listing-copy';
+import { getGuestyListing } from '@/lib/guesty';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
@@ -141,25 +140,30 @@ function parseGuestySummary(raw: string): { tagline: string; highlights: string[
   return { tagline, highlights: highlights.slice(0, 6) };
 }
 
-/** Assemble the Guesty source material into a brief the AI rewrites into SCA voice. */
-function buildGuestyBrief(l: GuestyListingDetail): string {
-  const summary = (l.publicDescription?.summary || '').trim();
-  const space = (l.publicDescription?.space || '').trim();
-  const neighborhood = (l.publicDescription?.neighborhood || '').trim();
-  const parts: string[] = [
-    "This home already exists in Guesty. Below is its existing marketing copy. Rewrite it into the staycapeann.com editorial voice. Keep every concrete, verifiable detail (rooms, beds, location, amenities); drop the OTA brochure-speak, exclamation marks, and checkmark bullets.",
-  ];
-  if (summary) parts.push('', 'Guesty summary (OTA checkmark copy):', summary);
-  if (space) parts.push('', 'Guesty "The space" description:', space);
-  if (neighborhood) parts.push('', 'Guesty "The neighborhood" copy:', neighborhood);
-  const ams = (l.amenities || []).map((a) => String(a)).filter(Boolean).slice(0, 40);
-  if (ams.length) parts.push('', `Amenities: ${ams.join(', ')}`);
-  const spec: string[] = [];
-  if (l.bedrooms != null) spec.push(`${l.bedrooms} bedrooms`);
-  if (l.bathrooms != null) spec.push(`${l.bathrooms} bathrooms`);
-  if (l.accommodates != null) spec.push(`sleeps ${l.accommodates}`);
-  if (spec.length) parts.push('', `Specs: ${spec.join(', ')}`);
-  return parts.join('\n');
+/**
+ * Strip the Stay Cape Ann breadcrumb plugs from OTA copy. Our Airbnb /
+ * Guesty listings deliberately carry "book direct on StayCapeAnn.com" lines
+ * to funnel guests to the direct site; on staycapeann.com itself they are
+ * redundant, so the pull removes them and keeps everything else verbatim.
+ * A bullet or short line carrying a plug is dropped whole; inside longer
+ * prose only the offending sentences are removed.
+ */
+const SCA_PLUG = /stay\s*cape\s*ann|staycapeann|\bbook(?:ing)?\s+direct(?:ly)?\b/i;
+
+function scrubScaPlugs(text: string): string {
+  if (!text.trim()) return text.trim();
+  const kept = text
+    .split('\n')
+    .map((line) => {
+      if (!SCA_PLUG.test(line)) return line;
+      const stripped = line.trim();
+      const isBulletish = /^[✔✓✅☑•\-–]/.test(stripped) || stripped.length < 90;
+      if (isBulletish) return null;
+      const sentences = stripped.split(/(?<=[.!?])\s+/).filter((s) => !SCA_PLUG.test(s));
+      return sentences.length ? sentences.join(' ') : null;
+    })
+    .filter((l): l is string => l !== null);
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function haversineMiles(a: ScaFavorite | { lat: number; lng: number }, lat: number, lng: number): number {
@@ -224,15 +228,14 @@ async function pickVerifiedStayFavorite(property: HelmPropertyRow): Promise<ScaF
 }
 
 /**
- * Draft a launch-ready Stay Cape Ann listing from what Guesty already has, so
- * the operator reviews and tweaks instead of authoring a whole second listing.
- *
- * Loads the Guesty listing + the Helm property row, feeds Guesty's existing copy
- * (summary, "The space", amenities, specs) to the AI generator in the `sca`
- * format, and returns pitch / tagline / About / highlights in our editorial
- * voice, plus a verified nearby dining pick. If the AI is unavailable it falls
- * back to a deterministic clean of the Guesty summary (tagline + bullets), which
- * is still far better than dumping the raw checkmark wall.
+ * Prefill the Stay Cape Ann listing form with the Guesty / Airbnb copy,
+ * VERBATIM. The listing text guests see on Airbnb IS the listing text the
+ * SCA page should show; the one transformation is scrubScaPlugs, which
+ * strips the "book direct on StayCapeAnn.com" breadcrumb lines that only
+ * exist on the OTAs to funnel guests to the direct site. Tagline and
+ * highlights come from the summary's checkmark bullets (parseGuestySummary),
+ * the About body is Guesty's "The space" untouched, and the dining pick is
+ * the nearest verified favorite. Fast and deterministic: no AI call.
  */
 export async function pullFromGuesty(
   propertyId: string,
@@ -244,7 +247,6 @@ export async function pullFromGuesty(
   if (!id) return { ok: false, error: 'Enter the Guesty listing ID first' };
   try {
     const l = await getGuestyListing(id);
-    const space = (l.publicDescription?.space || '').trim();
     const counts = {
       bedrooms: l.bedrooms ?? null,
       bathrooms: l.bathrooms ?? null,
@@ -253,46 +255,33 @@ export async function pullFromGuesty(
       amenities: (l.amenities || []).length,
     };
 
-    // Property row drives brand-voice examples, taken-title guard, and the
-    // street-name scrub. Without it we can still do the deterministic fallback.
+    // Property row is only needed to pick the verified dining favorite.
     const { data } = await supabase.from('properties').select('*').eq('id', propertyId).maybeSingle();
     const property = (data as HelmPropertyRow | null) ?? null;
-
     const stayFavorite = property ? await pickVerifiedStayFavorite(property) : null;
 
-    // Match Airbnb: prefer the operator's own Guesty copy verbatim when it is
-    // already in the structured house format, so the SCA page is identical to
-    // the Airbnb listing. Only AI-generate the parts Guesty lacks (the map
-    // pitch) or where Guesty is thin (no structured space / no ✓ bullets).
-    const summary = (l.publicDescription?.summary || '').trim();
-    const spaceStructured = /★★★|\bFLOOR\b/i.test(space);
-    const { tagline: cleanTag, highlights: bulletHighlights } = parseGuestySummary(summary);
-
-    let ai: Awaited<ReturnType<typeof generateListingCopy>> | null = null;
-    if (property) {
-      try {
-        ai = await generateListingCopy({ property, operatorBrief: buildGuestyBrief(l), format: 'sca' });
-      } catch (e) {
-        console.error('[pullFromGuesty] AI draft failed, using Guesty copy + deterministic fallback', e);
-      }
-    }
-
-    const description = spaceStructured ? space : (ai?.description || space);
-    const highlights = (bulletHighlights.length ? bulletHighlights : (ai?.highlights ?? [])).slice(0, 5);
+    // VERBATIM, NOT A REWRITE (Dotti 2026-08-03): the SCA page should read
+    // exactly like the Airbnb / Guesty listing. The only edit is stripping
+    // the Stay Cape Ann breadcrumb plugs, which exist on the OTAs solely to
+    // funnel guests to the direct site and are redundant on the site itself.
+    // The map pitch is SCA-only (no OTA equivalent), so it stays for the
+    // operator to type. No AI pass here; authoring-from-scratch has its own
+    // tool (/properties/[id]/listing-copy).
+    const space = scrubScaPlugs((l.publicDescription?.space || '').trim());
+    const summary = scrubScaPlugs((l.publicDescription?.summary || '').trim());
+    const { tagline, highlights } = parseGuestySummary(summary);
 
     return {
       ok: true,
       prefill: {
-        publicName: (l.title || l.nickname || ai?.title || '').trim(),
-        pitch: (ai?.pitch || '').trim(),
-        tagline: cleanTag || ai?.tagline || '',
-        description,
-        highlights,
+        publicName: (l.title || l.nickname || '').trim(),
+        pitch: '',
+        tagline,
+        description: space,
+        highlights: highlights.slice(0, 5),
         stayFavorite,
         ...counts,
-        // For the notice: true only when the AI had to draft the body because
-        // Guesty's own copy wasn't already structured.
-        aiGenerated: !spaceStructured && !!ai,
+        aiGenerated: false,
       },
     };
   } catch (e) {
@@ -572,8 +561,6 @@ export type ListingCopyRow = {
   flags: string[];
 };
 
-const isStructured = (s: string | null | undefined): boolean => /★★★|\bFLOOR\b/i.test(s || '');
-
 /** One branch batches every studio edit so the site rebuilds once on publish. */
 const COPY_BRANCH = 'sca-listing-copy';
 
@@ -638,10 +625,10 @@ export async function listScaListingCopy(): Promise<
 }
 
 /**
- * Redraft one listing's editorial copy from Guesty in the Stay Cape Ann voice,
- * WITHOUT writing anything — returns the draft for the operator to review and
- * edit in the studio before staging. Prefers the operator's own structured
- * Guesty "The space" verbatim; AI-rewrites it into our voice when Guesty is thin.
+ * Refresh one listing's copy from Guesty, WITHOUT writing anything — returns
+ * the draft for the operator to review and edit in the studio before staging.
+ * Same contract as pullFromGuesty: the Guesty / Airbnb copy verbatim, with
+ * only the Stay Cape Ann breadcrumb plugs scrubbed. No AI pass.
  */
 export async function draftListingCopyFromGuesty(
   guestyListingId: string,
@@ -655,27 +642,14 @@ export async function draftListingCopyFromGuesty(
   if (!id) return { ok: false, error: 'Missing listing id' };
   try {
     const l = await getGuestyListing(id);
-    const space = (l.publicDescription?.space || '').trim();
-    const summary = (l.publicDescription?.summary || '').trim();
-    const spaceStructured = isStructured(space);
-    const { tagline: cleanTag, highlights: bulletHighlights } = parseGuestySummary(summary);
-
-    const { data } = await supabase.from('properties').select('*').eq('guesty_listing_id', id).maybeSingle();
-    const property = (data as HelmPropertyRow | null) ?? null;
-
-    let ai: Awaited<ReturnType<typeof generateListingCopy>> | null = null;
-    if (property) {
-      try {
-        ai = await generateListingCopy({ property, operatorBrief: buildGuestyBrief(l), format: 'sca' });
-      } catch (e) {
-        console.error('[draftListingCopyFromGuesty] AI draft failed, using Guesty copy', e);
-      }
-    }
-
-    const description = spaceStructured ? space : (ai?.description || space);
-    const highlights = (bulletHighlights.length ? bulletHighlights : (ai?.highlights ?? [])).slice(0, 5);
-    const tagline = cleanTag || ai?.tagline || '';
-    return { ok: true, draft: { tagline, description, highlights }, aiGenerated: !spaceStructured && !!ai };
+    const space = scrubScaPlugs((l.publicDescription?.space || '').trim());
+    const summary = scrubScaPlugs((l.publicDescription?.summary || '').trim());
+    const { tagline, highlights } = parseGuestySummary(summary);
+    return {
+      ok: true,
+      draft: { tagline, description: space, highlights: highlights.slice(0, 5) },
+      aiGenerated: false,
+    };
   } catch (e) {
     return { ok: false, error: `Could not draft from Guesty: ${(e as Error).message}` };
   }

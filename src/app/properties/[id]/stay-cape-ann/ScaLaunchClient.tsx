@@ -167,7 +167,7 @@ export function ScaLaunchClient(props: Props) {
       const overwrite =
         hasExistingCopy &&
         window.confirm(
-          'Replace the current listing copy with a fresh draft from Guesty? This overwrites pitch, tagline, About, and highlights (and the dining pick) with the new draft.',
+          'Replace the current listing copy with the Guesty copy? This overwrites tagline, About, and highlights (and the dining pick) with what the OTA listing shows now.',
         );
       setForm((f) => {
         // overwrite: take the new value but keep the old if Guesty returned
@@ -198,12 +198,8 @@ export function ScaLaunchClient(props: Props) {
       setNotice({
         kind: 'ok',
         text: overwrite
-          ? p.aiGenerated
-            ? 'Redrafted the listing from Guesty in the Stay Cape Ann voice, replacing the previous copy. Review, then open an update PR.'
-            : 'Re-pulled and cleaned the Guesty copy (AI draft unavailable, lighter pass), replacing the previous copy. Review, then open an update PR.'
-          : p.aiGenerated
-            ? 'Drafted the full listing from Guesty in the Stay Cape Ann voice: pitch, tagline, About, highlights, and a nearby dining pick, filled where blank. Review and tweak, then add the iCal URL.'
-            : 'Pulled and cleaned the Guesty copy (AI draft was unavailable, so this is a lighter pass). Review pitch + the restaurant, then add the iCal URL.',
+          ? 'Re-pulled the Guesty copy verbatim (Stay Cape Ann breadcrumb lines stripped), replacing the previous copy. Review, then open an update PR.'
+          : 'Pulled the Guesty copy verbatim, minus the Stay Cape Ann breadcrumb lines. Type the short map pitch, check the restaurant, then add the iCal URL.',
       });
     });
 
@@ -346,7 +342,7 @@ export function ScaLaunchClient(props: Props) {
 
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <button type="button" style={btnBase} disabled={busy !== null} onClick={onPullGuesty}>
-            {busy === 'pull-guesty' ? 'Drafting from Guesty…' : 'Pull from Guesty'}
+            {busy === 'pull-guesty' ? 'Pulling from Guesty…' : 'Pull from Guesty'}
           </button>
           {guestyInfo ? (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
