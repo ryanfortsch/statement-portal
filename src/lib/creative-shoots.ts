@@ -195,13 +195,16 @@ export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySumm
   let paidCents = 0, owedCents = 0, owedBaseCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
   for (const a of assets) {
     const ap = byId.get(a.id);
+    // Money that actually moved stays on the books even if the post was later
+    // un-counted (wrong-version upload, over-cap): earned-to-date must always
+    // match the receipts. Only OWED/PENDING math is limited to counting posts.
+    if (a.base_paid_at) paidCents += a.base_cents ?? ap?.baseCents ?? 0;
+    if (a.kind === 'reel' && a.topup_paid_at) paidCents += a.topup_cents ?? 0;
     if (!ap || !ap.counts) continue; // excluded / disqualified / over-cap owe nothing
     counting++;
     let assetSettled = true;
     // Base — owed the moment it's delivered (logged), whether or not it's posted.
-    if (a.base_paid_at) {
-      paidCents += a.base_cents ?? ap.baseCents;
-    } else {
+    if (!a.base_paid_at) {
       owedCents += ap.baseCents;
       owedBaseCents += ap.baseCents;
       baseDue++;
@@ -211,9 +214,7 @@ export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySumm
     // running) AND its delivery base is paid. An un-posted reel earns no bonus
     // yet; a posted reel whose base isn't paid waits on the base first.
     if (a.kind === 'reel') {
-      if (a.topup_paid_at) {
-        paidCents += a.topup_cents ?? 0;
-      } else if (a.posted_at && a.base_paid_at) {
+      if (!a.topup_paid_at && a.posted_at && a.base_paid_at) {
         if (a.views_locked_at) {
           if (ap.topupCents > 0) { owedCents += ap.topupCents; topupDue++; assetSettled = false; }
           // locked under the first rung → no bonus, nothing left to pay
