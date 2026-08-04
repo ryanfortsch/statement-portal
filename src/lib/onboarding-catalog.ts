@@ -135,6 +135,14 @@ export type OnboardingDeriveContext = {
    * (STRIPE_KEY_<ID> or the legacy JSON blobs) via getStripeKeysMap().
    */
   stripeKeyConfigured: boolean;
+  /**
+   * Distinct non-null nightly prices over the next 60 days of the Guesty
+   * calendar mirror (property_calendar_days). 0 = no priced days synced
+   * yet; 1 = flat base rate on every night, the listing-live-on-defaults
+   * state that underpriced 3 Windward's launch (PriceLabs not pushing);
+   * 2+ = real rate variation is flowing.
+   */
+  forwardDistinctPrices: number;
 };
 
 export type OnboardingItem = {
@@ -891,7 +899,8 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'listing',
     title: 'Set pricing, min-stay, and cleaning fee',
     description: 'Nightly rates, minimum-stay rules, and the guest cleaning fee configured in Guesty.',
-    why: 'Nothing in Helm tracks rate-plan setup, and a listing can go live on defaults.',
+    why: 'Auto-resolves when the forward calendar shows real rate variation (2+ distinct nightly prices in the next 60 days). A flat single price on every night is the Guesty base-rate default, i.e. PriceLabs is not pushing to this listing and every channel is underpriced.',
+    derive: (ctx) => ctx.forwardDistinctPrices >= 2,
   },
   {
     key: 'listing.house_rules',

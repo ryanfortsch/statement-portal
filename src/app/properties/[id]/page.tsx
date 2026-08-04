@@ -149,6 +149,31 @@ async function getContractFacts(projectionId: string | null): Promise<ContractFa
   }
 }
 
+/**
+ * Distinct non-null nightly prices over the next 60 days of the Guesty
+ * calendar mirror, for the onboarding catalog's pricing derive. 1 means a
+ * flat base rate on every night (the listing-live-on-defaults state that
+ * underpriced 3 Windward's launch); 2+ means dynamic pricing is flowing.
+ */
+async function getForwardDistinctPrices(propertyId: string): Promise<number> {
+  if (!isHelmConfigured) return 0;
+  try {
+    const start = new Date().toISOString().slice(0, 10);
+    const end = new Date(Date.now() + 60 * 86400_000).toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from('property_calendar_days')
+      .select('price')
+      .eq('property_id', propertyId)
+      .gte('date', start)
+      .lt('date', end)
+      .not('price', 'is', null);
+    if (error || !data) return 0;
+    return new Set((data as Array<{ price: number | string }>).map((r) => String(r.price))).size;
+  } catch {
+    return 0;
+  }
+}
+
 /** "2026-07-01" -> "Jul 1, 2026" (noon UTC guard against TZ day-shift). */
 function fmtTermDate(iso: string): string {
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
@@ -436,7 +461,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -469,6 +494,7 @@ export default async function PropertyDetailPage({
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
+    getForwardDistinctPrices(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -511,6 +537,7 @@ export default async function PropertyDetailPage({
     contractTermStart: contractFacts.termStart,
     contractTermEnd: contractFacts.termEnd,
     stripeKeyConfigured: !!getStripeKeysMap()[p.id],
+    forwardDistinctPrices,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
   for (const item of ONBOARDING_ITEMS) {
