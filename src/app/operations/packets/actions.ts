@@ -31,19 +31,23 @@ async function staffEmail(): Promise<string> {
 // attachment just shows up on their packet on next load. Unpriced, so no payout
 // or stop-count effect.
 
+// No revalidatePath here: attach/detach are burst operations (the operator
+// stacks several slips onto a stop in a row), server actions from one tab run
+// serially, and a revalidate makes every click's response carry a full render
+// of this heavy page — a burst queued 5-10s of "Saving…" behind renders. The
+// client (StopAttachments) shows the move optimistically and reconciles with
+// ONE soft refresh per burst instead.
 export async function attachSlipToStop(packetId: string, stopId: string, workSlipId: string): Promise<{ ok: boolean }> {
   const email = await staffEmail();
   const { error } = await fieldDb()
     .from('packet_stop_work_slips')
     .upsert({ stop_id: stopId, work_slip_id: workSlipId, created_by_email: email }, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
-  revalidatePath(`/operations/packets/${packetId}`);
   return { ok: !error };
 }
 
 export async function detachSlipFromStop(packetId: string, attachmentId: string): Promise<{ ok: boolean }> {
   await staffEmail();
   const { error } = await fieldDb().from('packet_stop_work_slips').delete().eq('id', attachmentId);
-  revalidatePath(`/operations/packets/${packetId}`);
   return { ok: !error };
 }
 

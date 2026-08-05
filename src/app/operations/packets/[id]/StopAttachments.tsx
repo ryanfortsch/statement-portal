@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { AttachedSlip, WorkSlipLite } from '@/lib/field-types';
 import { updateStopSlipContent, attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
 
@@ -71,10 +72,12 @@ function AttachedRow({
   packetId,
   a,
   onSave,
+  onDetach,
 }: {
   packetId: string;
   a: AttachedSlip;
   onSave: (fn: () => Promise<unknown>) => void;
+  onDetach: () => void;
 }) {
   const [showNote, setShowNote] = useState(!!a.officeNote);
   return (
@@ -89,11 +92,7 @@ function AttachedRow({
             add note
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => onSave(() => detachSlipFromStop(packetId, a.attachmentId))}
-          style={quietBtn}
-        >
+        <button type="button" onClick={onDetach} style={quietBtn}>
           remove
         </button>
       </div>
@@ -152,10 +151,57 @@ export function StopAttachments({
   const [pending, start] = useTransition();
   const [instr, setInstr] = useState(instructions ?? '');
   const [showInstr, setShowInstr] = useState(!!instructions);
+  const softRefresh = useSoftRefresh();
+
+  // Attach/detach render optimistically and the server actions skip
+  // revalidation, so stacking five slips onto a stop is five instant row
+  // moves + five cheap writes — not five queued full-page renders keeping
+  // "Saving…" up for ten seconds. One soft refresh per burst (debounced
+  // below) brings back canonical rows; these purge as the props catch up.
+  const [optAttached, setOptAttached] = useState<WorkSlipLite[]>([]);
+  // Stale detach markers are inert (an attachment id is never reused), but a
+  // confirmed attach MUST leave optAttached or the slip stays hidden from the
+  // picker after a later detach. Purge via the adjust-state-during-render
+  // pattern the moment the canonical rows include it.
+  const [optDetached, setOptDetached] = useState<Set<string>>(new Set());
+  const [prevAttached, setPrevAttached] = useState(attached);
+  if (prevAttached !== attached) {
+    setPrevAttached(attached);
+    const ids = new Set(attached.map((a) => a.id));
+    if (optAttached.some((w) => ids.has(w.id))) setOptAttached(optAttached.filter((w) => !ids.has(w.id)));
+  }
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
+  const queueRefresh = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => softRefresh(), 700);
+  };
 
   const attachedSlipIds = new Set(attached.map((a) => a.id));
-  const pickable = attachable.filter((w) => !attachedSlipIds.has(w.id) && w.id !== stopWorkSlipId);
+  const optRows: AttachedSlip[] = optAttached
+    .filter((w) => !attachedSlipIds.has(w.id))
+    .map((w) => ({ ...w, attachmentId: `opt-${w.id}`, officeNote: null, completedAt: null }));
+  const shownAttached = [...attached.filter((a) => !optDetached.has(a.attachmentId)), ...optRows];
+  const pickable = attachable.filter(
+    (w) => !attachedSlipIds.has(w.id) && w.id !== stopWorkSlipId && !optAttached.some((o) => o.id === w.id),
+  );
   const onSave = (fn: () => Promise<unknown>) => start(async () => { await fn(); });
+  const onAttach = (w: WorkSlipLite) => {
+    setOptAttached((p) => [...p, w]);
+    start(async () => {
+      const r = await attachSlipToStop(packetId, stopId, w.id).catch(() => ({ ok: false }));
+      if (!r.ok) setOptAttached((p) => p.filter((o) => o.id !== w.id));
+      queueRefresh();
+    });
+  };
+  const onDetach = (a: AttachedSlip) => {
+    setOptDetached((p) => new Set([...p, a.attachmentId]));
+    start(async () => {
+      const r = await detachSlipFromStop(packetId, a.attachmentId).catch(() => ({ ok: false }));
+      if (!r.ok) setOptDetached((p) => new Set([...p].filter((id) => id !== a.attachmentId)));
+      queueRefresh();
+    });
+  };
 
   if (!editable) {
     if (attached.length === 0 && !instructions) return null;
@@ -181,8 +227,8 @@ export function StopAttachments({
         style={{ background: open ? 'rgba(58,107,138,0.08)' : 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '4px 12px', fontSize: 12, fontWeight: 600, color: 'var(--tide-deep)' }}
       >
         {open ? '− ' : '+ '}Work slips &amp; instructions
-        {attached.length > 0
-          ? ` · ${attached.length} attached`
+        {shownAttached.length > 0
+          ? ` · ${shownAttached.length} attached`
           : pickable.length > 0
             ? ` · ${pickable.length} open ${pickable.length === 1 ? 'slip' : 'slips'}`
             : ''}
@@ -217,12 +263,18 @@ export function StopAttachments({
             </div>
           )}
 
-          {/* Attached slips */}
-          {attached.length > 0 && (
+          {/* Attached slips. Optimistic rows (attach just clicked, server not
+              confirmed) render title-only; note/remove appear once the
+              reconcile brings the real attachment row back. */}
+          {shownAttached.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {attached.map((a) => (
-                <AttachedRow key={a.attachmentId} packetId={packetId} a={a} onSave={onSave} />
-              ))}
+              {shownAttached.map((a) =>
+                a.attachmentId.startsWith('opt-') ? (
+                  <div key={a.attachmentId} style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{a.title}</div>
+                ) : (
+                  <AttachedRow key={a.attachmentId} packetId={packetId} a={a} onSave={onSave} onDetach={() => onDetach(a)} />
+                ),
+              )}
             </div>
           )}
 
@@ -276,7 +328,7 @@ export function StopAttachments({
                     </div>
                     <button
                       type="button"
-                      onClick={() => onSave(() => attachSlipToStop(packetId, stopId, w.id))}
+                      onClick={() => onAttach(w)}
                       style={{ background: 'var(--paper-2, #fff)', border: '1px solid var(--tide-deep)', borderRadius: 999, cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 11.5, fontWeight: 600, padding: '6px 14px', flexShrink: 0, marginTop: 1 }}
                     >
                       attach
@@ -285,7 +337,7 @@ export function StopAttachments({
                 ))}
               </div>
             </details>
-          ) : attached.length === 0 ? (
+          ) : shownAttached.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
               No open work slips on this property. Create one in Work and it will show up here.
             </div>
