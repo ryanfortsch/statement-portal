@@ -14,6 +14,7 @@ import {
   type WorkSlipPriority,
 } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
+import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { suppliesLabel } from '@/lib/inspection-supplies';
 
@@ -282,8 +283,12 @@ export async function completeInspection(
 
   // Staff: fan the finalized report to Allie + Ryan now. Contractor: HOLD it
   // until the office approves the packet, so an unreviewed external inspection
-  // isn't broadcast before the QA gate (fired in approvePacket).
+  // isn't broadcast before the QA gate (fired in approvePacket). Issue slips
+  // follow the same gate: staff issues open work orders here, contractor
+  // issues open them at approvePacket. Slips before email so the report's
+  // headline counts them.
   if (actor.kind !== 'contractor') {
+    await openWorkSlipsForInspectionIssues(inspectionId, { createdByEmail: sessionEmail });
     await sendInspectionReportEmail(inspectionId).catch((err) =>
       console.warn('[completeInspection] report email failed', err),
     );

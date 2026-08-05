@@ -369,6 +369,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 </div>
               </div>
             ))}
+            {packet.status === 'submitted' && review.some((r) => r.issue > 0) && (
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--rule)' }}>
+                Flagged issues open as work orders on the Work board when you approve.
+              </div>
+            )}
           </div>
         )}
 
