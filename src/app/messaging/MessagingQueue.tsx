@@ -91,13 +91,26 @@ export function MessagingQueue({ initialPending }: Props) {
     return () => clearInterval(t);
   }, [softRefresh]);
 
-  // Queued cards float to the top, ordered by when they actually fire (the
-  // countdown they show); pending drafts stay in newest-first order below.
+  // Queued cards firing within the next 24h float to the top, ordered by
+  // when they actually fire, so the last chance to cancel stays in view.
+  // Sends parked further out sink BELOW the pending drafts instead -- a
+  // note scheduled two weeks ahead shouldn't occupy the top slot of the
+  // dashboard for two weeks. Pending drafts stay newest-first in between.
   const queued = initialPending
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = initialPending.filter((a) => a.status !== 'scheduled');
-  const ordered = [...queued, ...pending];
+  const soonCutoff = Date.now() + 24 * 60 * 60 * 1000;
+  const firesSoon = (a: Approval) => {
+    if (!a.send_at) return true; // no timestamp: keep it visible up top
+    const t = new Date(a.send_at).getTime();
+    return Number.isNaN(t) || t <= soonCutoff;
+  };
+  const ordered = [
+    ...queued.filter(firesSoon),
+    ...pending,
+    ...queued.filter((a) => !firesSoon(a)),
+  ];
   const queuedCount = queued.length;
   const pendingCount = pending.length;
   const title =
