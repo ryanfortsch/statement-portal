@@ -9,11 +9,13 @@ import { guestyGet } from '@/lib/guesty';
  * status-refresh is a no-op; see the cancelled-reservation-leak). So the
  * only trustworthy signal is the live API.
  *
- * BOUNDED BY DESIGN: pass only the handful of already-suspicious codes
- * (Airbnb/Booking.com reservations with no bank deposit -- those channels
- * always pay, so no deposit is a strong cancel tell). Never call this over
- * a whole month of reservations -- that's the rate-limit blast radius that
- * blocked the earlier per-reservation cancel-guard.
+ * BOUNDED BY DESIGN: pass only a small pre-filtered set of suspicious
+ * codes. Current callers: the ingest cancel-guard (Airbnb/Booking.com
+ * reservations with no bank deposit -- those channels always pay, so no
+ * deposit is a strong cancel tell) and sync-guesty's stale-row reconciler
+ * (rows the list feed stopped returning, hard-capped per run). Never call
+ * this over a whole month of reservations -- that's the rate-limit blast
+ * radius that blocked the earlier per-reservation cancel-guard.
  *
  * Detection is a PER-CODE confirmationCode `$eq` filter, verified live on
  * this account to return canceled rows. A status-VALUE filter, by contrast,

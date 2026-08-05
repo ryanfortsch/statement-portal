@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
+import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -455,12 +456,15 @@ async function fetchAllReservations(token: string, sinceIso?: string): Promise<G
   // to populate host_payout. Without this every row's host_payout comes back
   // null and the Revenue dashboard reads zero across the board.
   const fields = '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
-  // ignoreStatusFilter=true keeps canceled/inquiry/declined/expired rows in
-  // the response. Without this, Guesty defaults to filtering them out, so a
-  // reservation that flips to canceled AFTER its first sync never gets
-  // re-upserted -- guesty_reservations.status stays "confirmed" forever and
-  // owner statements leak the cancelled stay. See memory
-  // project_guesty_cancelled_reservation_leak.
+  // ignoreStatusFilter=true is passed below but is PROVEN a no-op on this
+  // list endpoint: the response is identical either way, and the feed also
+  // drops reservations once they leave `confirmed` (cancels AND
+  // checked-in/checked-out transitions vanish alike -- re-confirmed live
+  // 2026-08-05 when a cancelled stay froze here for six weeks). Rows the
+  // feed stops returning are healed by reconcileStaleReservations() after
+  // each pull, via the per-code confirmationCode filter -- the only
+  // detection verified to surface canceled rows. See memories
+  // guesty-sync-pagination-debt + project_guesty_cancelled_reservation_leak.
   while (true) {
     const page = await guestyGet('/v1/reservations', token, { limit, skip, fields, ignoreStatusFilter: 'true' });
     const batch: GuestyReservation[] = page.data || page.results || [];
@@ -535,6 +539,13 @@ async function syncReservations(token: string, listingMap: Record<string, string
   }
   return { fetched: reservations.length, upserted: rows.length, skipped: skippedNoProp };
 }
+
+// ---- Stale-reservation cancel reconcile ----
+// Phase 2 of the cancelled-reservation-leak fix lives in
+// lib/reservation-reconcile.ts (shared-lib pattern, same as calendar-days):
+// rows the list feed stops returning get verified per-code against the live
+// API and flipped when Guesty reports them cancelled. Wired into POST below,
+// after a successful reservations pull.
 
 // ---- Calendar days ----
 // The per-day availability/pricing sync (hold notes, prices, min-stay, and
@@ -622,6 +633,20 @@ export async function POST(request: NextRequest) {
       await recordSyncFailure('guesty-reservations', err);
     }
 
+    // Stale-row cancel reconcile (Phase 2 of the cancel-leak fix). Only
+    // after a successful pull: if the pull itself failed, every row looks
+    // stale and the per-code probes would burn rate limit for nothing.
+    let reconcileResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
+    if (!('error' in reservationsResult)) {
+      try {
+        reconcileResult = await reconcileStaleReservations();
+        await recordSyncSuccess('guesty-cancel-reconcile', reconcileResult);
+      } catch (err) {
+        reconcileResult = { error: err instanceof Error ? err.message : String(err) };
+        await recordSyncFailure('guesty-cancel-reconcile', err);
+      }
+    }
+
     // Calendar blocks (seasonal closures, manual date blocks). Pull a
     // window of 3 months back through 12 months forward — enough for any
     // current/future Revenue range we care about.
@@ -649,6 +674,7 @@ export async function POST(request: NextRequest) {
       reviews: reviewsResult,
       reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,
+      reservations_reconcile: reconcileResult,
       calendar: calendarResult,
     });
   } catch (err) {
