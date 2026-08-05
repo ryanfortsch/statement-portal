@@ -12,6 +12,7 @@ import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
 import { maybeAwardStreakBonus } from '@/lib/field-streaks';
+import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { fmtVisitTime, canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus, isAttachableStatus, isWorkingStatus } from '@/lib/field-packet-status';
@@ -1086,11 +1087,26 @@ export async function approvePacket(formData: FormData): Promise<void> {
     .maybeSingle();
   if (approved) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'approved' });
+    const ap = approved as { title: string; awarded_contractor_id: string | null; posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; bonus_reason: string | null };
+    const { data: cData } = ap.awarded_contractor_id
+      ? await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', ap.awarded_contractor_id).maybeSingle()
+      : { data: null };
+    const contractor = cData as ContractorRow | null;
     // The contractor's inspection reports were held at completion — fan them
-    // out to the office now that the work has passed review.
+    // out to the office now that the work has passed review. Issues the
+    // inspector flagged become open work orders on the board first (approval
+    // IS the review — the office just saw them, photos and all, in the
+    // Inspection summary above), attributed to the inspector so the board
+    // reads "flagged by <name>". Then the report email counts them.
     const { data: stops } = await fieldDb().from('packet_stops').select('inspection_id').eq('packet_id', packetId);
     for (const s of (stops ?? []) as { inspection_id: string | null }[]) {
-      if (s.inspection_id) await sendInspectionReportEmail(s.inspection_id).catch(() => {});
+      if (!s.inspection_id) continue;
+      await openWorkSlipsForInspectionIssues(s.inspection_id, {
+        createdByEmail: contractor?.email ?? email,
+        reportedByContractorId: ap.awarded_contractor_id,
+        reportedFromPacketId: packetId,
+      });
+      await sendInspectionReportEmail(s.inspection_id).catch(() => {});
     }
     // Close the maintenance work slips this packet covered — terminal "done"
     // is office-approved, not self-reported.
@@ -1114,17 +1130,13 @@ export async function approvePacket(formData: FormData): Promise<void> {
         .in('id', attWorkSlipIds);
     }
     // Receipt the contractor: approved, payment queued (bonus celebrated).
-    const ap = approved as { title: string; awarded_contractor_id: string | null; posted_price_cents: number; final_payout_cents: number | null; bonus_cents: number; bonus_reason: string | null };
-    if (ap.awarded_contractor_id) {
-      const { data: c } = await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', ap.awarded_contractor_id).maybeSingle();
-      if (c) {
-        await sendApprovedEmail(c as ContractorRow, {
-          title: ap.title,
-          totalCents: effectiveBaseCents(ap) + (ap.bonus_cents || 0),
-          bonusCents: ap.bonus_cents || 0,
-          bonusReason: ap.bonus_reason,
-        }).catch(() => {});
-      }
+    if (contractor) {
+      await sendApprovedEmail(contractor, {
+        title: ap.title,
+        totalCents: effectiveBaseCents(ap) + (ap.bonus_cents || 0),
+        bonusCents: ap.bonus_cents || 0,
+        bonusReason: ap.bonus_reason,
+      }).catch(() => {});
     }
   }
   revalidatePath(`/operations/packets/${packetId}`);
