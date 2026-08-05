@@ -94,12 +94,19 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   // Keep state in sync if the URL changes (e.g. browser back/forward, or
   // landing on the page from a deep link with a different filter/tab).
+  // Read the LIVE URL, not the useSearchParams snapshot: during the
+  // revalidation a ✓ Done action arms, the hook transiently reports an
+  // empty query while the address bar still shows ?open=..., and syncing
+  // from that phantom snapshot collapsed every open group mid-triage
+  // (verified on prod 2026-08-05). The hook stays in the dep array as the
+  // change signal; window.location is the ground truth we adopt.
   useEffect(() => {
-    const nextFilter = parseFilter(searchParams.get('filter'));
+    const live = new URLSearchParams(window.location.search);
+    const nextFilter = parseFilter(live.get('filter'));
     setFilterState((curr) => (curr === nextFilter ? curr : nextFilter));
-    const nextTab = parseTab(searchParams.get('tab'));
+    const nextTab = parseTab(live.get('tab'));
     setTabState((curr) => (curr === nextTab ? curr : nextTab));
-    const nextOpen = parseOpen(searchParams.get('open'));
+    const nextOpen = parseOpen(live.get('open'));
     setOpenProps((curr) => (sameSet(curr, nextOpen) ? curr : nextOpen));
   }, [searchParams]);
 
@@ -978,14 +985,25 @@ function WorkSlipRowItem({
 }) {
   const [isPending, startTransition] = useTransition();
   const softRefresh = useSoftRefresh();
+  // Optimistic removal: the row disappears the moment ✓ Done is clicked,
+  // so a triage run never waits on the post-action refresh (which can take
+  // seconds while the board re-renders). If the action truly fails the row
+  // comes back; either way a refresh reconciles against the server. A 503
+  // here usually means Vercel shed the response AFTER the update committed,
+  // so the refresh clears the row even on the "failure" path.
+  const [hidden, setHidden] = useState(false);
   const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
 
   function markDone() {
+    setHidden(true);
     startTransition(async () => {
-      await updateWorkSlipStatus({ id: slip.id, status: 'done' });
+      const res = await updateWorkSlipStatus({ id: slip.id, status: 'done' }).catch(() => null);
+      if (!res || !res.ok) setHidden(false);
       softRefresh();
     });
   }
+
+  if (hidden) return null;
 
   return (
     <div
@@ -1007,6 +1025,7 @@ function WorkSlipRowItem({
       </span>
       <Link
         href={`/work/${slip.id}`}
+        prefetch={false}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1120,13 +1139,20 @@ function TaskRowItem({
   const [isPending, startTransition] = useTransition();
   const softRefresh = useSoftRefresh();
   const isOverdue = !!task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
+  // Same optimistic removal as WorkSlipRowItem: hide now, reconcile on
+  // the refresh, restore only if the action reports a real failure.
+  const [hidden, setHidden] = useState(false);
 
   function markDone() {
+    setHidden(true);
     startTransition(async () => {
-      await updateTaskStatus({ id: task.id, status: 'done' });
+      const res = await updateTaskStatus({ id: task.id, status: 'done' }).catch(() => null);
+      if (!res || !res.ok) setHidden(false);
       softRefresh();
     });
   }
+
+  if (hidden) return null;
 
   return (
     <div
@@ -1146,6 +1172,7 @@ function TaskRowItem({
       />
       <Link
         href={`/work/tasks/${task.id}`}
+        prefetch={false}
         style={{
           display: 'flex',
           alignItems: 'center',
