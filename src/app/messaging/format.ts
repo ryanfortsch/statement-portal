@@ -235,23 +235,41 @@ export function relativeTimeShort(iso: string | null | undefined): string {
 
 /**
  * Label for a queued (scheduled) send. Near term reads as a countdown
- * ("Sends in 12m") so the operator feels the clock; further out it names the
+ * ("Sends in 12m") so the operator feels the clock; later today it names the
  * clock time in Eastern ("Sends at 3:30 PM") since a 4-hour countdown is less
- * useful than the actual time. Distinct from relativeTimeShort (past-only).
+ * useful than the actual time; beyond today it names the day too ("Sends
+ * tomorrow at 11:00 AM", "Sends Wed, Aug 19 at 11:00 AM") so a send parked
+ * days out never reads as one of today's. Distinct from relativeTimeShort
+ * (past-only).
  */
 export function sendsInLabel(iso: string | null | undefined): string {
   if (!iso) return '';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMin = Math.round((then - Date.now()) / 60_000);
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '';
+  const diffMin = Math.round((then.getTime() - Date.now()) / 60_000);
   if (diffMin <= 0) return 'Sending now';
   if (diffMin < 90) return `Sends in ${diffMin}m`;
   const t = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'America/New_York',
+    timeZone: ET,
   }).format(then);
-  return `Sends at ${t}`;
+  const now = new Date();
+  const key = etDayKey(then);
+  if (key === etDayKey(now)) return `Sends at ${t}`;
+  if (key === etDayKey(new Date(now.getTime() + 86_400_000))) {
+    return `Sends tomorrow at ${t}`;
+  }
+  const yearOf = (x: Date) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: ET, year: 'numeric' }).format(x);
+  const day = new Intl.DateTimeFormat('en-US', {
+    timeZone: ET,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(yearOf(then) === yearOf(now) ? {} : { year: 'numeric' }),
+  }).format(then);
+  return `Sends ${day} at ${t}`;
 }
 
 /**
