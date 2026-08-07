@@ -6,7 +6,7 @@ import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -221,7 +221,9 @@ export default async function ShootDetail({
             const ap = payByAsset.get(a.id);
             const paidBase = !!a.base_paid_at;
             const paidTopup = !!a.topup_paid_at;
-            const locked = !!a.views_locked_at;
+            // Computed lock: views locked OR the office pinned the bonus by
+            // hand. Either way the number is decided — payable, not climbing.
+            const locked = ap?.locked ?? !!a.views_locked_at;
             return (
               <div key={a.id} style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '13px 16px', marginBottom: 10, background: 'var(--paper-2, #fff)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -255,9 +257,11 @@ export default async function ShootDetail({
                                 ? 'bonus after posting'
                                 : !paidBase
                                   ? 'bonus after base'
-                                  : locked
-                                    ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} due` : `no bonus · under ${firstRung(card).toLocaleString()}`
-                                    : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
+                                  : ap.overridden
+                                    ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} · set by office` : 'bonus zeroed by office'
+                                    : locked
+                                      ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} due` : `no bonus · under ${firstRung(card).toLocaleString()}`
+                                      : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
                           </div>
                         )}
                       </>
@@ -310,6 +314,37 @@ export default async function ShootDetail({
                         <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 130 }} />
                         <PendingButton label={`Pay view bonus · ${dollars(ap.topupCents)}`} busyLabel="Recording + receipt…" style={btnDark} />
                       </form>
+                    )}
+                    {/* Edit bonus — the office's hand on the number. Pins the
+                        view bonus at a decided amount (Cooper's portal shows
+                        the same figure), or sends it back to live counting.
+                        Gone once the bonus is paid: receipts are immutable. */}
+                    {a.kind === 'reel' && a.posted_at && ap && ap.counts && !paidTopup && (
+                      <details style={{ position: 'relative' }}>
+                        <summary style={quietSummary}>{ap.overridden ? `Bonus set by office · edit ▾` : 'Edit bonus ▾'}</summary>
+                        <div style={menuCard}>
+                          <form action={setAssetTopupOverride} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 240 }}>
+                            <input type="hidden" name="shoot_id" value={shoot.id} />
+                            <input type="hidden" name="asset_id" value={a.id} />
+                            <label style={miniLabel}>
+                              View bonus ($)
+                              <input type="number" name="dollars" min={0} step={1} defaultValue={ap.topupCents / 100} style={{ ...input, width: 110 }} />
+                            </label>
+                            <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 240 }}>
+                              Sets this reel&apos;s bonus and stops the view count — it becomes payable at this number, and Cooper sees the same figure.
+                            </div>
+                            <PendingButton label="Set bonus" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                          </form>
+                          {ap.overridden && (
+                            <form action={setAssetTopupOverride} style={{ marginTop: 8 }}>
+                              <input type="hidden" name="shoot_id" value={shoot.id} />
+                              <input type="hidden" name="asset_id" value={a.id} />
+                              <input type="hidden" name="clear" value="1" />
+                              <PendingButton label="Back to live counting" busyLabel="Saving…" style={{ ...btnGhost, fontSize: 11.5 }} spinnerTone="ink" />
+                            </form>
+                          )}
+                        </div>
+                      </details>
                     )}
 
                     {/* Quiet utilities. Editing is locked once views lock; a paid

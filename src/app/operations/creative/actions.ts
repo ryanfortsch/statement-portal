@@ -312,7 +312,9 @@ export async function payAssetTopup(formData: FormData): Promise<void> {
   if (!detail) return;
   const asset = detail.assets.find((a) => a.id === assetId);
   const ap = detail.pay.assets.find((p) => p.assetId === assetId);
-  if (!asset || !ap || asset.kind !== 'reel' || !asset.base_paid_at || !asset.views_locked_at || asset.topup_paid_at) return;
+  // ap.locked covers both rails: views read + locked, OR an office-decided
+  // bonus override (which pins the number without a views read).
+  if (!asset || !ap || asset.kind !== 'reel' || !asset.base_paid_at || !ap.locked || asset.topup_paid_at) return;
   const topup = ap.topupCents;
   if (topup <= 0) return; // views never beat the base rung — no bonus owed
 
@@ -331,7 +333,7 @@ export async function payAssetTopup(formData: FormData): Promise<void> {
     })
     .eq('id', assetId)
     .not('base_paid_at', 'is', null)
-    .not('views_locked_at', 'is', null)
+    .or('views_locked_at.not.is.null,topup_override_cents.not.is.null')
     .is('topup_paid_at', null) // idempotent
     .select('id')
     .maybeSingle();
@@ -344,6 +346,52 @@ export async function payAssetTopup(formData: FormData): Promise<void> {
       note: 'This is the view bonus for your reel, on top of the base you were already paid.',
     }).catch(() => {});
   }
+  await refreshShootSettlement(shootId);
+  revalidatePath(`/operations/creative/${shootId}`);
+  revalidatePath('/operations/creative');
+  revalidatePath('/operations/contractors');
+}
+
+/**
+ * Office edit on a reel's view bonus: pin it at a decided dollar amount
+ * (stops the climb, moves it to payable) or clear it back to live counting.
+ * Refused once the bonus is paid — receipts are immutable. Flows to every
+ * surface (board, shoot header, roster, Cooper's portal) through
+ * computeShootPay, so nothing can drift.
+ */
+export async function setAssetTopupOverride(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  const assetId = String(formData.get('asset_id') || '');
+  if (!shootId || !assetId) return;
+  const clearing = String(formData.get('clear') || '') === '1';
+  const raw = String(formData.get('dollars') ?? '').trim();
+
+  let cents: number | null = null;
+  if (!clearing) {
+    const d = Number(raw);
+    if (!Number.isFinite(d) || d < 0) return;
+    // Fat-finger guard, same philosophy as the packet clamps: a reel bonus
+    // lives in card-tier territory, never five figures.
+    cents = Math.min(Math.round(d * 100), 500_000);
+  }
+
+  const detail = await loadShootDetail(shootId);
+  if (!detail) return;
+  const asset = detail.assets.find((a) => a.id === assetId);
+  if (!asset || asset.kind !== 'reel' || asset.topup_paid_at) return;
+
+  await fieldDb()
+    .from('creative_assets')
+    .update({
+      topup_override_cents: cents,
+      topup_override_by_email: cents == null ? null : email,
+      topup_override_at: cents == null ? null : new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', assetId)
+    .is('topup_paid_at', null); // a paid bonus is a receipt — never rewrite it
+
   await refreshShootSettlement(shootId);
   revalidatePath(`/operations/creative/${shootId}`);
   revalidatePath('/operations/creative');
