@@ -32,6 +32,10 @@ export type ShootAsset = {
   // Whether this post's base has been paid — a paid reel is pinned into the cap
   // so committed money can never be displaced by a later, higher-earning reel.
   base_paid_at?: string | null;
+  // Office-decided view bonus (cents). Non-null pins the reel at
+  // base + override: the number stops climbing, reads as locked, and becomes
+  // payable. Null = live view counting. Ignored for carousels.
+  topup_override_cents?: number | null;
 };
 
 export type AssetPay = {
@@ -49,6 +53,8 @@ export type AssetPay = {
   /** The most this asset can still reach (top rung) while unlocked. */
   ceilingCents: number;
   locked: boolean;
+  /** The office pinned this reel's bonus by hand (locked at base + override). */
+  overridden: boolean;
   /** The rung its views reached, null = base. */
   rungViews: number | null;
   /** Date its count closes (posted_at + countDays). Null if not posted yet. */
@@ -129,7 +135,11 @@ function rungFor(card: RateCard, views: number): number | null {
  */
 export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: string = todayET()): ShootPay {
   const priced = assets.map((a) => {
-    const locked = !!a.views_locked_at;
+    // An office override pins a reel's bonus by hand: the pay is decided, so
+    // it reads as locked (stops climbing, silences the read-views nag) no
+    // matter what the raw views columns say. Clearing it resumes counting.
+    const overridden = a.kind === 'reel' && a.topup_override_cents != null;
+    const locked = !!a.views_locked_at || overridden;
     const short = a.kind === 'reel' && a.duration_seconds != null && a.duration_seconds < card.minSeconds;
     const disqualified = !a.qualifies || short;
     const locksOn = a.posted_at ? addDays(a.posted_at, card.countDays) : null;
@@ -140,6 +150,10 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
     if (a.kind === 'carousel') {
       currentCents = card.carouselCents;
       ceilingCents = card.carouselCents;
+    } else if (overridden) {
+      // Decided number; rung display stays quiet (the pay no longer maps to one).
+      currentCents = card.baseCents + Math.max(0, a.topup_override_cents ?? 0);
+      ceilingCents = currentCents;
     } else if (a.views != null) {
       currentCents = payForViews(card, a.views);
       rungViews = rungFor(card, a.views);
@@ -163,6 +177,7 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
       baseCents: baseFor(card, a.kind),
       ceilingCents,
       locked,
+      overridden,
       rungViews,
       locksOn,
       overdue: !!(locksOn && !locked && locksOn < asOf),

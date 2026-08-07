@@ -67,6 +67,10 @@ export type AssetRow = ShootAsset & {
   topup_paid_at: string | null;
   topup_method: string | null;
   topup_reference: string | null;
+  // Office override on the view bonus (see creative-pay ShootAsset). The by/at
+  // pair is the audit trail shown next to the decided number.
+  topup_override_by_email: string | null;
+  topup_override_at: string | null;
 };
 
 export type ShootSummary = {
@@ -79,7 +83,7 @@ export type ShootSummary = {
 };
 
 const ASSET_COLS =
-  'id, shoot_id, kind, title, platform, post_url, posted_at, duration_seconds, views, views_read_at, views_locked_at, qualifies, disqualified_reason, submitted_by_contractor_at, base_cents, base_paid_at, base_method, base_reference, topup_cents, topup_paid_at, topup_method, topup_reference';
+  'id, shoot_id, kind, title, platform, post_url, posted_at, duration_seconds, views, views_read_at, views_locked_at, qualifies, disqualified_reason, submitted_by_contractor_at, base_cents, base_paid_at, base_method, base_reference, topup_cents, topup_paid_at, topup_method, topup_reference, topup_override_cents, topup_override_by_email, topup_override_at';
 
 /** The card in force for a shoot (snapshot > per-talent > default). */
 function cardForShoot(shoot: ShootRow, cards: { def: RateCard; byContractor: Map<string, RateCard> }): RateCard {
@@ -213,9 +217,11 @@ export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySumm
     // View bonus — reels only, and only once the reel has been POSTED (its clock
     // running) AND its delivery base is paid. An un-posted reel earns no bonus
     // yet; a posted reel whose base isn't paid waits on the base first.
+    // ap.locked (not the raw views column) so an office-decided bonus reads as
+    // settled money, not a climbing one.
     if (a.kind === 'reel') {
       if (!a.topup_paid_at && a.posted_at && a.base_paid_at) {
-        if (a.views_locked_at) {
+        if (ap.locked) {
           if (ap.topupCents > 0) { owedCents += ap.topupCents; topupDue++; assetSettled = false; }
           // locked under the first rung → no bonus, nothing left to pay
         } else {
