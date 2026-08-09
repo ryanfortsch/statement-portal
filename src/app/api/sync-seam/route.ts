@@ -9,6 +9,7 @@ import {
 } from '@/lib/seam';
 import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
 import { resolveInspectorCodeId } from '@/lib/inspection-sessions';
+import { ensureMaintenanceCode } from '@/lib/maintenance-code';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
@@ -57,6 +58,9 @@ export async function POST() {
       low_count: 0,
       slips_created: 0,
       codes_registered: 0,
+      maintenance_code_present: 0,
+      maintenance_code_created: 0,
+      maintenance_code_failed: 0,
       devices: [] as DeviceSummary[],
       errors: [] as string[],
     };
@@ -85,6 +89,16 @@ export async function POST() {
         // Also register the full code inventory (id -> name/role) so the
         // Operations calendar can tell a GUEST keypad entry from an owner /
         // staff / cleaner unlock and light a "guest in residence" indicator.
+        // Converge the fleet-wide maintenance PIN on every lock Seam can
+        // reach, mapped or not - "all the locks we have access to". Runs
+        // before the inventory resolve so a just-created code is registered
+        // in the same pass. Thermostats and other non-lock devices skip.
+        if ((device.device_type ?? '').includes('lock')) {
+          const outcome = await ensureMaintenanceCode(supabase, res.deviceId);
+          if (outcome === 'present') summary.maintenance_code_present += 1;
+          if (outcome === 'created') summary.maintenance_code_created += 1;
+          if (outcome === 'failed') summary.maintenance_code_failed += 1;
+        }
         if (res.propertyId) {
           await resolveCleanerCodeId(supabase, res.deviceId);
           await resolveInspectorCodeId(supabase, res.deviceId);

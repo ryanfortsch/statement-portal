@@ -25,6 +25,9 @@ import {
   ingestDeviceBattery,
   type SeamAccessCodeFull,
 } from '@/lib/seam';
+import { CLEANER_CODE } from '@/lib/cleaning-sessions';
+import { INSPECTION_CODE } from '@/lib/inspection-sessions';
+import { MAINTENANCE_CODE } from '@/lib/maintenance-code';
 
 export type PropertyLock = { device_id: string; display_name: string | null };
 
@@ -64,9 +67,14 @@ export type GuestCodeView = {
 export type IssueResult = { ok: true; code: string } | { ok: false; error: string };
 
 // Schlage Encode wants all codes the same length; field-locks uses 4 digits,
-// so we match (no leading zero).
+// so we match (no leading zero). Never a fleet-wide code (cleaner / master
+// inspection / maintenance): the lock refuses duplicate PINs, and a collision
+// would misattribute keypad unlocks between the guest and the other role.
 function randomPin(): string {
-  return String(1000 + Math.floor(Math.random() * 9000));
+  for (;;) {
+    const pin = String(1000 + Math.floor(Math.random() * 9000));
+    if (pin !== CLEANER_CODE && pin !== INSPECTION_CODE && pin !== MAINTENANCE_CODE) return pin;
+  }
 }
 
 // Eastern offset; pilot properties are Cape Ann. The hour-level approximation
