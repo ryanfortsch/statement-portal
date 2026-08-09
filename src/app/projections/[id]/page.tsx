@@ -1171,7 +1171,7 @@ function LinkRow({ link }: { link: string }) {
   // email yields a clickable link. resolve at server-render time via
   // the public site domain — falls back to the relative path if the
   // env var isn't set (dev / local).
-  const base = process.env.NEXT_PUBLIC_HELM_ORIGIN || 'https://statements.risingtidestr.com';
+  const base = process.env.NEXT_PUBLIC_HELM_ORIGIN || 'https://helm.risingtidestr.com';
   const fullUrl = link.startsWith('http') ? link : `${base}${link}`;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
