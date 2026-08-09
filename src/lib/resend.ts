@@ -174,7 +174,9 @@ export async function sendTransactionalViaResend(args: {
   text?: string;
   cc?: string | string[];
   replyTo?: string | string[];
-  attachments?: Array<{ filename: string; content: string }>;
+  // `content` is a base64 payload; `path` is a URL Resend fetches server-side
+  // (used for large files that exceed our own request-body limits).
+  attachments?: Array<{ filename: string; content?: string; path?: string }>;
   /** Override the 10s default for attachment-heavy sends — a work order
    *  carrying ~20MB of base64 photos needs upload time, not just API
    *  latency. */

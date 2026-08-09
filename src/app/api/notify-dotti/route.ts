@@ -28,11 +28,13 @@ function secretMatches(given: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// Resend caps the full message around 40MB; leave headroom for headers/html.
-const MAX_ATTACHMENT_B64_TOTAL = 35_000_000;
+// Vercel's ingress cap (~4.5MB) makes big inline payloads impossible, so
+// large files arrive as URLs (Vercel Blob) that Resend fetches server-side.
+// Small inline base64 stays supported for anything comfortably under ingress.
+const MAX_INLINE_B64_TOTAL = 2_500_000;
 const MAX_ATTACHMENTS = 6;
 
-type IncomingAttachment = { filename?: unknown; content?: unknown };
+type IncomingAttachment = { filename?: unknown; content?: unknown; url?: unknown };
 
 export async function POST(request: NextRequest) {
   let payload: {
@@ -57,25 +59,28 @@ export async function POST(request: NextRequest) {
     // `target`/`attachments` double as deploy markers so callers can probe
     // (with an empty payload, which never sends mail) that this revision is live.
     return NextResponse.json(
-      { ok: false, error: 'subject and body required', target: 'ryan', attachments: true },
+      { ok: false, error: 'subject and body required', target: 'ryan', attachments: 'url-ok' },
       { status: 400 }
     );
   }
 
-  const attachments = (Array.isArray(payload.attachments) ? payload.attachments : [])
-    .slice(0, MAX_ATTACHMENTS)
-    .filter(
-      (a): a is { filename: string; content: string } =>
-        typeof a?.filename === 'string' &&
-        a.filename.trim().length > 0 &&
-        a.filename.length <= 120 &&
-        typeof a?.content === 'string' &&
-        a.content.length > 0
-    );
-  const totalB64 = attachments.reduce((n, a) => n + a.content.length, 0);
-  if (totalB64 > MAX_ATTACHMENT_B64_TOTAL) {
+  const rawAttachments = (Array.isArray(payload.attachments) ? payload.attachments : []).slice(
+    0,
+    MAX_ATTACHMENTS
+  );
+  const attachments: Array<{ filename: string; content?: string; path?: string }> = [];
+  for (const a of rawAttachments) {
+    if (typeof a?.filename !== 'string' || !a.filename.trim() || a.filename.length > 120) continue;
+    if (typeof a.url === 'string' && a.url.startsWith('https://')) {
+      attachments.push({ filename: a.filename, path: a.url });
+    } else if (typeof a.content === 'string' && a.content.length > 0) {
+      attachments.push({ filename: a.filename, content: a.content });
+    }
+  }
+  const totalInlineB64 = attachments.reduce((n, a) => n + (a.content?.length ?? 0), 0);
+  if (totalInlineB64 > MAX_INLINE_B64_TOTAL) {
     return NextResponse.json(
-      { ok: false, error: `attachments too large (${totalB64} b64 bytes)` },
+      { ok: false, error: `inline attachments too large (${totalInlineB64} b64 bytes); use url` },
       { status: 413 }
     );
   }
