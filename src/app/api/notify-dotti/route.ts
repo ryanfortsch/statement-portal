@@ -28,8 +28,19 @@ function secretMatches(given: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// Resend caps the full message around 40MB; leave headroom for headers/html.
+const MAX_ATTACHMENT_B64_TOTAL = 35_000_000;
+const MAX_ATTACHMENTS = 6;
+
+type IncomingAttachment = { filename?: unknown; content?: unknown };
+
 export async function POST(request: NextRequest) {
-  let payload: { secret?: string; subject?: string; body?: string };
+  let payload: {
+    secret?: string;
+    subject?: string;
+    body?: string;
+    attachments?: IncomingAttachment[];
+  };
   try {
     payload = await request.json();
   } catch {
@@ -43,11 +54,29 @@ export async function POST(request: NextRequest) {
   const subject = (payload.subject ?? '').trim();
   const body = (payload.body ?? '').trim();
   if (!subject || !body) {
-    // `target` doubles as a deploy marker so callers can probe (with an empty
-    // payload, which never sends mail) that this revision is live.
+    // `target`/`attachments` double as deploy markers so callers can probe
+    // (with an empty payload, which never sends mail) that this revision is live.
     return NextResponse.json(
-      { ok: false, error: 'subject and body required', target: 'ryan' },
+      { ok: false, error: 'subject and body required', target: 'ryan', attachments: true },
       { status: 400 }
+    );
+  }
+
+  const attachments = (Array.isArray(payload.attachments) ? payload.attachments : [])
+    .slice(0, MAX_ATTACHMENTS)
+    .filter(
+      (a): a is { filename: string; content: string } =>
+        typeof a?.filename === 'string' &&
+        a.filename.trim().length > 0 &&
+        a.filename.length <= 120 &&
+        typeof a?.content === 'string' &&
+        a.content.length > 0
+    );
+  const totalB64 = attachments.reduce((n, a) => n + a.content.length, 0);
+  if (totalB64 > MAX_ATTACHMENT_B64_TOTAL) {
+    return NextResponse.json(
+      { ok: false, error: `attachments too large (${totalB64} b64 bytes)` },
+      { status: 413 }
     );
   }
 
@@ -63,12 +92,16 @@ export async function POST(request: NextRequest) {
     fromEmail: FROM_EMAIL,
     text: body,
     html: `<pre style="font-family: ui-monospace, Menlo, monospace; font-size: 14px; white-space: pre-wrap;">${escaped}</pre>`,
+    attachments: attachments.length > 0 ? attachments : undefined,
+    // Video attachments need upload time, same as work-order photo emails.
+    timeoutMs: attachments.length > 0 ? 60_000 : undefined,
   });
 
   if (!sent) {
     return NextResponse.json({ ok: false, error: 'resend send failed' }, { status: 502 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, attached: attachments.length });
 }
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
