@@ -17,10 +17,11 @@ import Link from 'next/link';
 export function WorkTabs({
   current,
 }: {
-  current: 'work' | 'turnovers' | 'field' | 'properties' | 'today';
+  current: 'work' | 'maintenance' | 'turnovers' | 'field' | 'properties' | 'today';
 }) {
   const tabs = [
     { id: 'work', label: 'Work', href: '/work' },
+    { id: 'maintenance', label: 'Maintenance', href: '/work/maintenance' },
     { id: 'turnovers', label: 'Turnovers', href: '/operations' },
     { id: 'field', label: 'Field', href: '/operations/packets' },
     { id: 'properties', label: 'Properties', href: '/properties' },
