@@ -116,3 +116,41 @@ export async function emailWorkOrder(args: {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** After the work order goes out and the vendor confirms the day, stamp
+ *  every included slip in one click: status Scheduled, due on the visit
+ *  day, labeled with the vendor. The board then shows who has each job
+ *  and when, Due Today picks them up on the day, and a missed day flips
+ *  them to OVERDUE — the built-in chase signal. Never resurrects done or
+ *  dismissed slips. */
+export async function markRunScheduled(args: {
+  slipIds: string[];
+  scheduledDate: string | null;
+  vendorName: string;
+  vendorOrganization?: string | null;
+}): Promise<{ ok: true; updated: number; label: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (args.slipIds.length === 0) return { ok: false, error: 'No slips to schedule' };
+  const name = args.vendorName.trim();
+  if (!name) return { ok: false, error: 'No vendor name' };
+  const date = (args.scheduledDate || '').trim();
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'Bad date' };
+  const org = args.vendorOrganization?.trim();
+  const label = `Vendor: ${name}${org ? ` (${org})` : ''}`;
+
+  const { data, error } = await fieldDb()
+    .from('work_slips')
+    .update({
+      status: 'scheduled',
+      scheduled_date: date || null,
+      assigned_to_label: label,
+    })
+    .in('id', args.slipIds)
+    .in('status', ['open', 'in_progress', 'scheduled'])
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  revalidatePath('/work');
+  revalidatePath('/work/maintenance');
+  return { ok: true, updated: (data ?? []).length, label };
+}
