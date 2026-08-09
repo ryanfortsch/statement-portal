@@ -1,4 +1,4 @@
-export type WorkSlipCategory = 'maintenance' | 'inventory' | 'owner' | 'vendor' | 'other' | 'rising_tide';
+export type WorkSlipCategory = 'maintenance' | 'inventory' | 'owner' | 'vendor' | 'other' | 'rising_tide' | 'ad_hoc';
 export type WorkSlipPriority = 'low' | 'normal' | 'high';
 export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked' | 'dismissed';
 export type WorkSlipAssignedToType = 'unassigned' | 'team' | 'owner';
@@ -111,4 +111,7 @@ export const WORK_SLIP_CATEGORY_LABELS: Record<WorkSlipCategory, string> = {
   vendor: 'Vendor',
   other: 'Other',
   rising_tide: 'Rising Tide',
+  /** Standalone one-off job from the Field packet flow (createAdHocPacket);
+   *  like rising_tide, stays out of the open-maintenance bundling pool. */
+  ad_hoc: 'One-off',
 };
