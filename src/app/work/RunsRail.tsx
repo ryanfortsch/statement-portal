@@ -20,7 +20,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip } from '@/lib/work-types';
-import { planRunsNow, publishRun, emailWorkOrder } from './runs-actions';
+import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 const LABEL: React.CSSProperties = {
@@ -87,10 +87,37 @@ function WorkOrderComposer({
   const [sending, startSending] = useTransition();
   const [done, setDone] = useState<{ message: string; draftUrl: string } | null>(null);
   const [error, setError] = useState('');
+  // Close-out step: once the vendor confirms the day, one click stamps
+  // every slip Scheduled + due + vendor-labeled.
+  const softRefresh = useSoftRefresh();
+  const [schedDate, setSchedDate] = useState(visitDate ?? '');
+  const [marking, startMarking] = useTransition();
+  const [marked, setMarked] = useState('');
+  const [markError, setMarkError] = useState('');
 
   const person = roster.find((r) => r.email === selected) ?? null;
   const toName = person ? person.name : customName;
   const toEmail = person ? person.email : customEmail;
+
+  function onMarkScheduled() {
+    startMarking(async () => {
+      setMarkError('');
+      const res = await markRunScheduled({
+        slipIds,
+        scheduledDate: schedDate || null,
+        vendorName: toName,
+        vendorOrganization: person?.organization ?? null,
+      });
+      if (!res.ok) {
+        setMarkError(res.error);
+        return;
+      }
+      setMarked(
+        `${res.updated} ${res.updated === 1 ? 'slip' : 'slips'} scheduled${schedDate ? ` for ${fmtDate(schedDate)}` : ''} · ${res.label}`,
+      );
+      softRefresh();
+    });
+  }
 
   function onSend() {
     startSending(async () => {
@@ -112,16 +139,51 @@ function WorkOrderComposer({
 
   if (done) {
     return (
-      <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done.message}</span>
-        <a
-          href={done.draftUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-        >
-          Review in Gmail →
-        </a>
+      <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done.message}</span>
+          <a
+            href={done.draftUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+          >
+            Review in Gmail →
+          </a>
+        </div>
+        {marked ? (
+          <span style={{ fontSize: 12, color: 'var(--positive)' }}>{marked}</span>
+        ) : (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ ...LABEL, color: 'var(--ink-3)' }}>Vendor confirmed?</span>
+            <input
+              type="date"
+              value={schedDate}
+              onChange={(e) => setSchedDate(e.target.value)}
+              style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 12, padding: '4px 6px' }}
+            />
+            <button
+              type="button"
+              onClick={onMarkScheduled}
+              disabled={marking}
+              style={{
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                border: '1px solid var(--ink)',
+                padding: '4px 10px',
+                ...LABEL,
+                cursor: marking ? 'default' : 'pointer',
+                opacity: marking ? 0.6 : 1,
+              }}
+            >
+              {marking ? 'Saving…' : 'Mark scheduled'}
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              stamps each slip: Scheduled · due that day · {toName ? `Vendor: ${toName}` : 'vendor-labeled'}
+            </span>
+            {markError && <span style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
+          </div>
+        )}
       </div>
     );
   }
