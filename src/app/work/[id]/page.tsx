@@ -11,6 +11,7 @@ import { StatusChanger } from './StatusChanger';
 import { BackToBoardLink } from './BackToBoardLink';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
+import { SlipScopeEditor } from './SlipScopeEditor';
 import { SlipComments } from './SlipComments';
 import { SnoozeButton } from './SnoozeButton';
 import { SlipTitleEditor } from './SlipTitleEditor';
@@ -201,6 +202,17 @@ export default async function WorkSlipDetailPage({
           myEmail={myEmail}
         />
       </Section>
+
+      {/* WHO DOES THIS — maintenance-run triage */}
+      {slip.category === 'maintenance' && (
+        <Section title="Who does this" eyebrow="Run triage">
+          <SlipScopeEditor
+            slipId={slip.id}
+            initialScope={slip.run_scope ?? null}
+            initialNote={slip.run_scope_note ?? null}
+          />
+        </Section>
+      )}
 
       {/* PHOTOS */}
       <Section

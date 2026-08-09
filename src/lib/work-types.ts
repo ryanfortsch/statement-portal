@@ -1,5 +1,9 @@
 export type WorkSlipCategory = 'maintenance' | 'inventory' | 'owner' | 'vendor' | 'other' | 'rising_tide';
 export type WorkSlipPriority = 'low' | 'normal' | 'high';
+/** Who should do a maintenance slip: a field inspector during a routine
+ *  stop, a handyman on a dedicated maintenance run, or a licensed/specialty
+ *  vendor the office books. AI-triaged in lib/maintenance-runs.ts. */
+export type RunScope = 'inspector' | 'handyman' | 'pro';
 export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked' | 'dismissed';
 export type WorkSlipAssignedToType = 'unassigned' | 'team' | 'owner';
 export type WorkSlipOwnerActionType = 'approve' | 'purchase' | 'schedule' | 'decide' | 'reimburse';
@@ -61,6 +65,17 @@ export type WorkSlipRow = {
    *  their 72h window) rather than the office or a formal inspection filing it. */
   reported_by_contractor_id: string | null;
   reported_from_packet_id: string | null;
+  /** Idempotency key when mined by AI from a guest message thread
+   *  ("guestmsg:<conversation_id>:<guest_message_id>"). One slip per
+   *  reported issue, ever -- dismissed stays dismissed. */
+  from_guest_message_key: string | null;
+  /** AI triage: who should do the work (see RunScope). NULL = not yet
+   *  classified; the maintenance-run planner fills it in. */
+  run_scope: RunScope | null;
+  run_scope_note: string | null;
+  /** AI on-site estimate in minutes, feeding the run planner's
+   *  "substantive enough" gate. */
+  effort_minutes: number | null;
   created_by_email: string;
   closed_by_email: string | null;
   created_at: string;
@@ -98,6 +113,50 @@ export type WorkSlipCommentRow = {
   author_email: string;
   body: string;
   created_at: string;
+};
+
+// ─── Maintenance Runs rail (/work) ─────────────────────────────────────
+// Serializable board payload shared by lib/maintenance-runs.ts (server
+// loader) and the client rail component. Lives here, NOT in the server-only
+// lib, so the client component's imports stay clean.
+
+export type MaintenanceRunCard = {
+  packetId: string;
+  title: string;
+  status: string;
+  visitDate: string | null;
+  /** True for auto-planned drafts (suggestion_key 'maintrun:...'). */
+  suggested: boolean;
+  postedPriceCents: number | null;
+  slips: { id: string; title: string; priority: WorkSlipPriority; propertyName: string }[];
+};
+
+export type VendorNeededSlip = {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  title: string;
+  priority: WorkSlipPriority;
+  note: string | null;
+};
+
+/** One emailable person for the work-order composer. Sourced from CRM
+ *  contacts + active field contractors (lib/work-order-email.ts). */
+export type RosterPerson = {
+  name: string;
+  email: string;
+  kind: 'vendor' | 'contractor' | 'owner' | 'other';
+  organization: string | null;
+};
+
+export type RunsBoardData = {
+  runs: MaintenanceRunCard[];
+  vendorNeeded: VendorNeededSlip[];
+  /** Handyman-scope open slips not yet on a run, per property. */
+  backlog: { propertyId: string; propertyName: string; count: number; highCount: number }[];
+  unclassifiedCount: number;
+  /** Recipient roster for work-order emails. */
+  roster: RosterPerson[];
 };
 
 /** "open" / "in_progress" / "scheduled" — anything that's still active. */

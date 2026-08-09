@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
+import { planMaintenanceRuns } from '@/lib/maintenance-runs';
 
 export const maxDuration = 300;
 
@@ -30,7 +31,13 @@ export async function GET(request: NextRequest) {
     // current nearest upcoming check-in, so a turnover that gained a nearer
     // guest after the packet was built still shows as covered on the board.
     const resynced = await resyncLivePacketBookings().catch(() => ({ checked: 0, updated: 0 }));
-    return NextResponse.json({ ok: true, revalidated, resynced });
+    // Daily maintenance-run pass: classify new maintenance slips and
+    // reconcile suggested run drafts against the current pool + calendar.
+    // Best-effort — a planner error never blocks the packet hygiene above.
+    const maintenanceRuns = await planMaintenanceRuns().catch((err) => ({
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    return NextResponse.json({ ok: true, revalidated, resynced, maintenanceRuns });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until

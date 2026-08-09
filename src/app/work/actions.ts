@@ -8,6 +8,7 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
   WorkSlipStatus,
+  RunScope,
   TaskScope,
   TaskPriority,
   TaskStatus,
@@ -258,6 +259,34 @@ export async function updateWorkSlipAssignment(args: {
  * Pass null to un-snooze immediately (the row reappears in the
  * active queue right away).
  */
+/** Operator override for the AI's run_scope triage. The classifier only
+ *  ever fills NULL scopes (guarded by .is('run_scope', null)), so a value
+ *  set here sticks — a misclassification is one click from corrected and
+ *  stays corrected. */
+export async function updateWorkSlipScope(args: {
+  id: string;
+  run_scope: RunScope | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (args.run_scope !== null && !['inspector', 'handyman', 'pro'].includes(args.run_scope)) {
+    return { ok: false, error: 'Bad scope' };
+  }
+  const { error } = await supabase
+    .from('work_slips')
+    .update({
+      run_scope: args.run_scope,
+      // A cleared scope goes back through AI triage; a set one is the
+      // operator's word, so drop the AI's stale note either way.
+      run_scope_note: args.run_scope ? `Set by ${session.user.email.split('@')[0]}` : null,
+    })
+    .eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
 export async function snoozeWorkSlip(args: {
   id: string;
   until: string | null;     // YYYY-MM-DD or null
