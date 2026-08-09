@@ -348,12 +348,19 @@ function composeBody(args: {
       lines.push(`${propName}${where ? ` (${where})` : ''}:`);
       lines.push('');
     }
-    // Time estimates and triage notes are internal planning data; the
-    // vendor gets the job, where it is, and the photos. One tight detail
-    // paragraph per job keeps the order scannable.
+    // Each job: what to DO (the triage instruction), then the reporter's
+    // raw context as Notes. Time estimates stay internal. Slip titles are
+    // often just the broken thing ("Basement window pains"), so without
+    // the Job line the vendor loses the actual ask.
     lines.push(`${jobNo}. ${jobTitle(s)}${s.priority === 'high' ? ' (high priority)' : ''}`);
+    const job = jobInstruction(s);
+    if (job) lines.push(`   Job: ${job}`);
     const detail = firstParagraph(s.description || s.action_summary || '');
-    if (detail) for (const dl of detail.split('\n')) lines.push(`   ${dl}`.trimEnd());
+    if (detail && normalizedText(detail) !== normalizedText(job)) {
+      detail.split('\n').forEach((dl, di) => {
+        lines.push(`   ${di === 0 ? 'Notes: ' : '   '}${dl.trim()}`.trimEnd());
+      });
+    }
     if (s.location) lines.push(`   Where: ${s.location}`);
     const photos = args.attachedByJob.get(jobNo) ?? [];
     if (photos.length > 0) lines.push(`   Photos: ${photos.join(', ')}`);
@@ -382,6 +389,24 @@ function composeBody(args: {
 function firstParagraph(text: string): string {
   const first = text.trim().split(/\n\s*\n/)[0] ?? '';
   return first.length > 400 ? `${first.slice(0, 400).trimEnd()}...` : first;
+}
+
+/** The actionable one-liner for the vendor: the AI triage note ("Repair or
+ *  re-glaze basement window panes") unless it's the operator-override
+ *  marker ("Set by dotti"), else action_summary when it adds something the
+ *  title doesn't. */
+function jobInstruction(s: SlipForOrder): string {
+  const note = (s.run_scope_note || '').trim();
+  if (note && !/^set by /i.test(note)) return note;
+  const summary = (s.action_summary || '').trim();
+  if (summary && normalizedText(summary) !== normalizedText(jobTitle(s))) return summary;
+  return '';
+}
+
+/** Case/whitespace-insensitive comparison key for dedupe between the Job
+ *  and Notes lines. */
+function normalizedText(t: string): string {
+  return (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────
