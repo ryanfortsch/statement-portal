@@ -248,6 +248,22 @@ export async function createAccessCode(args: {
   return res.access_code ?? null;
 }
 
+/** Program a PERMANENT named PIN (no schedule, never expires). Reserved for
+ *  deliberate fleet-wide codes like the maintenance code; anything visit-scoped
+ *  must keep using createAccessCode so it self-expires. */
+export async function createPermanentAccessCode(args: {
+  deviceId: string;
+  name: string;
+  code: string;
+}): Promise<SeamAccessCode | null> {
+  const res = await seamPost<{ access_code: SeamAccessCode }>('/access_codes/create', {
+    device_id: args.deviceId,
+    name: args.name,
+    code: args.code,
+  });
+  return res.access_code ?? null;
+}
+
 /** A Seam action attempt: lock operations (code create / delete) run async, so
  *  the POST returns an attempt that resolves to success or error in the
  *  background once the physical lock confirms. Poll it for the real outcome. */

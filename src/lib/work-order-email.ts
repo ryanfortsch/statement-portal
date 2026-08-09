@@ -23,6 +23,7 @@
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
 import { createGmailDraft, type GmailAttachment } from '@/lib/gmail-draft';
+import { MAINTENANCE_CODE, maintenanceCodeEnabled } from '@/lib/maintenance-code';
 import { ALWAYS_CC } from '@/lib/properties';
 import type { RosterPerson } from '@/lib/work-types';
 
@@ -149,6 +150,21 @@ export async function draftWorkOrderEmail(args: {
     ),
   );
 
+  // Homes in this order with a Helm-managed smart lock: those keypads carry
+  // the fleet-wide maintenance code, and the email says so. Homes without a
+  // mapped lock stay silent (never promise a code that won't work).
+  let lockedPropIds = new Set<string>();
+  if (maintenanceCodeEnabled()) {
+    const { data: lockRows } = await fieldDb()
+      .from('lock_devices')
+      .select('property_id')
+      .in('property_id', propertyIds)
+      .eq('active', true);
+    lockedPropIds = new Set(
+      ((lockRows ?? []) as { property_id: string | null }[]).map((l) => l.property_id).filter((p): p is string => !!p),
+    );
+  }
+
   // Stable job order: property name, then high first, then title.
   const prioRank: Record<string, number> = { high: 0, normal: 1, low: 2 };
   const ordered = slips.slice().sort((a, b) => {
@@ -233,6 +249,7 @@ export async function draftWorkOrderEmail(args: {
     unattached,
     note: args.note,
     visitDate: args.visitDate ?? null,
+    lockedPropIds,
   });
 
   let draft: Awaited<ReturnType<typeof createGmailDraft>>;
@@ -306,6 +323,8 @@ function composeBody(args: {
   unattached: { filename: string; url: string }[];
   note?: string;
   visitDate: string | null;
+  /** Properties in this order whose door keypad carries the maintenance code. */
+  lockedPropIds: Set<string>;
 }): { subject: string; text: string } {
   const propertyIds = [...new Set(args.slips.map((s) => s.property_id))];
   const firstProp = args.props.get(propertyIds[0]);
@@ -333,6 +352,19 @@ function composeBody(args: {
         ? `Door code: ${doorCode}`
         : `Door code at every stop: ${doorCode}`,
     );
+  }
+  const withLock = propertyIds.filter((id) => args.lockedPropIds.has(id));
+  if (withLock.length > 0) {
+    if (withLock.length === propertyIds.length) {
+      lines.push(
+        propertyIds.length === 1
+          ? `Door code: ${MAINTENANCE_CODE} on the front-door keypad.`
+          : `Door code: ${MAINTENANCE_CODE} on the front-door keypad at every home below.`,
+      );
+    } else {
+      const names = withLock.map((id) => args.props.get(id)?.name ?? id).join(', ');
+      lines.push(`Door code: ${MAINTENANCE_CODE} on the front-door keypad at ${names}. We'll get you in at the rest.`);
+    }
   }
   lines.push('');
 

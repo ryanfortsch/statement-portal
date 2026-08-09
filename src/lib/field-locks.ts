@@ -10,14 +10,16 @@ import { fieldDb } from '@/lib/field-db';
 import { seamConfigured, createAccessCode, deleteAccessCode } from '@/lib/seam';
 import { CLEANER_CODE } from '@/lib/cleaning-sessions';
 import { INSPECTION_CODE } from '@/lib/inspection-sessions';
+import { MAINTENANCE_CODE } from '@/lib/maintenance-code';
 
 function randomPin(): string {
-  // 4-digit, no leading zero. Never the cleaner code or the master inspection
-  // code: a collision would make the lock's unlock events ambiguous between
-  // the field contractor and the cleaner / master, corrupting both signals.
+  // 4-digit, no leading zero. Never the cleaner, master inspection, or
+  // maintenance code: a collision would make the lock's unlock events
+  // ambiguous between the field contractor and the other role, corrupting
+  // both signals (and the lock refuses duplicate PINs anyway).
   for (;;) {
     const pin = String(1000 + Math.floor(Math.random() * 9000));
-    if (pin !== CLEANER_CODE && pin !== INSPECTION_CODE) return pin;
+    if (pin !== CLEANER_CODE && pin !== INSPECTION_CODE && pin !== MAINTENANCE_CODE) return pin;
   }
 }
 
