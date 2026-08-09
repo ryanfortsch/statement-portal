@@ -248,6 +248,22 @@ export async function createAccessCode(args: {
   return res.access_code ?? null;
 }
 
+/** Rename and/or re-PIN an existing MANAGED access code in place. Unmanaged
+ *  codes (hand-programmed on the keypad / Schlage app) cannot be updated:
+ *  delete the unmanaged code and create a managed replacement instead. */
+export async function updateAccessCode(args: {
+  accessCodeId: string;
+  name?: string;
+  code?: string;
+}): Promise<SeamActionAttempt | null> {
+  const res = await seamPost<{ action_attempt?: SeamActionAttempt }>('/access_codes/update', {
+    access_code_id: args.accessCodeId,
+    ...(args.name ? { name: args.name } : {}),
+    ...(args.code ? { code: args.code } : {}),
+  });
+  return res.action_attempt ?? null;
+}
+
 /** Program a PERMANENT named PIN (no schedule, never expires). Reserved for
  *  deliberate fleet-wide codes like the maintenance code; anything visit-scoped
  *  must keep using createAccessCode so it self-expires. */
@@ -380,6 +396,9 @@ export function classifyCodeRole(name: string | null | undefined): AccessCodeRol
   if (/owner/.test(n)) return 'owner';
   if (/inspect/.test(n)) return 'inspector';
   if (/repair|mainten/.test(n)) return 'repair';
+  // Creative/content contractors (photo + video shoots): staff, not guest,
+  // so a shoot-day keypad entry never reads as a guest in residence.
+  if (/creativ/.test(n)) return 'staff';
   // Rising Tide staff / master codes, including the operator + ops names that
   // recur as personal-named codes across locks (so they don't read as guests).
   if (/rising\s*tide|master|\bstaff\b|\boffice\b|\badmin\b|\brt\b|fortsch|o['’]?brien|\ballie\b/.test(n))
