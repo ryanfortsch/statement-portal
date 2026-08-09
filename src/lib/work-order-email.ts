@@ -33,6 +33,15 @@ import type { RosterPerson } from '@/lib/work-types';
 const FROM_NAME = 'Dotti Maguire';
 const FROM_EMAIL = 'dotti@risingtidestr.com';
 
+/** Standing Schlage entry code for maintenance visits, fleet-wide.
+ *  Rendered in every work-order email so the vendor can get in. Lives in
+ *  Vercel env (MAINTENANCE_DOOR_CODE), not the repo, so rotating the code
+ *  is an env change with no deploy diff; when unset the email simply
+ *  omits the line and the composer warns. */
+function maintenanceDoorCode(): string {
+  return (process.env.MAINTENANCE_DOOR_CODE || '').trim();
+}
+
 /** Raw photo budget per email. Gmail's raw-message ceiling is 35MB and
  *  base64 inflates ~33%; 15MB of raw bytes leaves comfortable headroom. */
 const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
@@ -213,6 +222,9 @@ export async function draftWorkOrderEmail(args: {
     }
   }
 
+  if (!maintenanceDoorCode()) {
+    warnings.push('MAINTENANCE_DOOR_CODE env is not set, so the email has no door code line');
+  }
   const { subject, text } = composeBody({
     toName: args.toName,
     slips: ordered,
@@ -313,6 +325,14 @@ function composeBody(args: {
   }
   if (args.visitDate) {
     lines.push(`Target day: ${fmtDay(args.visitDate)}. The house is empty that day.`);
+  }
+  const doorCode = maintenanceDoorCode();
+  if (doorCode) {
+    lines.push(
+      propertyIds.length === 1
+        ? `Door code: ${doorCode}`
+        : `Door code at every stop: ${doorCode}`,
+    );
   }
   lines.push('');
 
