@@ -469,53 +469,28 @@ export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Pr
   // loadFieldProperties, so a slip on an excluded property would "fail"
   // packet creation on every pass forever.
   const fieldProps = new Set((await loadFieldProperties()).map((p) => p.id));
-  // Same-building sub-units (properties.building_id, e.g. 53 Rocky Neck
-  // main + Downstairs) pool as ONE unit: one visit covers jobs in every
-  // unit, provided every unit with slips is empty that day. The building
-  // id doubles as the suggestion-key primary so reconcile stays stable.
-  // (Fetched directly: the shared PROPERTY_COLS list doesn't carry it.)
-  const buildingOf = new Map<string, string>();
-  {
-    const { data: grouped, error: bgErr } = await fieldDb()
-      .from('properties')
-      .select('id, building_id')
-      .not('building_id', 'is', null);
-    // A transient read error must ABORT the pass, not silently regroup
-    // per-property: that would delete the building draft, recreate it
-    // under per-unit keys, and churn back next pass, losing operator
-    // edits both ways. Pre-migration (column missing, 42703) keeps the
-    // old ungrouped behavior.
-    if (bgErr && bgErr.code !== '42703') {
-      throw new Error(`building group read failed: ${bgErr.message}`);
-    }
-    for (const p of (grouped ?? []) as Array<{ id: string; building_id: string | null }>) {
-      const bid = p.building_id?.trim();
-      // Colons would corrupt propertyOfKey's parse of the suggestion key.
-      if (bid && !bid.includes(':')) buildingOf.set(p.id, bid);
-    }
-  }
-  const byUnit = new Map<string, PoolSlip[]>();
+  // Strictly per property. Sub-units of one building (53 Rocky Neck main
+  // vs Downstairs) are SEPARATE units by operator directive (Dotti,
+  // 2026-08-09): separate runs, separate work orders, separate books --
+  // never pool them, even though one trip could physically cover both.
+  const byProperty = new Map<string, PoolSlip[]>();
   for (const s of pool) {
     if (!fieldProps.has(s.property_id)) continue;
-    const unit = buildingOf.get(s.property_id) ?? s.property_id;
-    if (!byUnit.has(unit)) byUnit.set(unit, []);
-    byUnit.get(unit)!.push(s);
+    if (!byProperty.has(s.property_id)) byProperty.set(s.property_id, []);
+    byProperty.get(s.property_id)!.push(s);
   }
 
-  // Substantive gate, applied to the building-level pool.
+  // Substantive gate.
   const qualifying = new Map<string, PoolSlip[]>();
-  for (const [unit, slips] of byUnit) {
+  for (const [pid, slips] of byProperty) {
     const highCount = slips.filter((s) => s.priority === 'high').length;
     const effort = slips.reduce((a, s) => a + (s.effort_minutes ?? 30), 0);
     if (highCount > 0 || slips.length >= RUN_MIN_SLIPS || effort >= RUN_MIN_EFFORT_MINUTES) {
-      qualifying.set(unit, slips);
+      qualifying.set(pid, slips);
     }
   }
 
-  // Eligible days per PROPERTY (units of a building have separate
-  // calendars); the shared slot intersects them.
-  const memberProps = [...new Set([...qualifying.values()].flat().map((s) => s.property_id))];
-  const eligibleDays = await findEligibleDays(memberProps);
+  const eligibleDays = await findEligibleDays([...qualifying.keys()]);
 
   const runs: PlannedRun[] = [];
   const noVacancy: string[] = [];
@@ -523,8 +498,7 @@ export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Pr
   const plannedProperties = new Set<string>();
 
   for (const [pid, slips] of qualifying) {
-    const unitProps = [...new Set(slips.map((s) => s.property_id))];
-    const slot = pickVisitSlot(unitProps.map((p) => eligibleDays.get(p) ?? []));
+    const slot = pickVisitSlot([eligibleDays.get(pid) ?? []]);
     if (!slot) {
       noVacancy.push(pid);
       continue;
