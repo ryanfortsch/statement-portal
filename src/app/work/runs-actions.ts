@@ -5,7 +5,7 @@ import { after } from 'next/server';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
-import { sendWorkOrderEmail } from '@/lib/work-order-email';
+import { draftWorkOrderEmail } from '@/lib/work-order-email';
 import { publishPacket } from '@/app/operations/packets/actions';
 
 /** Plan runs on demand from the Work board.
@@ -84,9 +84,10 @@ export async function publishRun(packetId: string): Promise<{ ok: true } | { ok:
   return { ok: true };
 }
 
-/** Send an organized work-order email (jobs + labeled photos) for a set of
- *  slips to a roster recipient. FROM Dotti, CC Allie + Ryan — the same
- *  envelope as the statement workflow. */
+/** Create a Gmail DRAFT of an organized work-order email (jobs + labeled
+ *  photos) for a set of slips, addressed to a roster recipient. FROM
+ *  Dotti, CC Allie + Ryan — the operator reviews and sends in Gmail, the
+ *  same rhythm as the statement workflow. */
 export async function emailWorkOrder(args: {
   slipIds: string[];
   toName: string;
@@ -94,13 +95,14 @@ export async function emailWorkOrder(args: {
   note?: string;
   visitDate?: string | null;
 }): Promise<
-  { ok: true; jobCount: number; photoCount: number; warnings: string[] } | { ok: false; error: string }
+  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: false; error: string }
 > {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   if (!args.toName.trim()) return { ok: false, error: 'Who is this going to?' };
   try {
-    const res = await sendWorkOrderEmail({
+    const res = await draftWorkOrderEmail({
       slipIds: args.slipIds,
       toName: args.toName.trim(),
       toEmail: args.toEmail,

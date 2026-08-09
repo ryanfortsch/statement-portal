@@ -1,14 +1,12 @@
 /**
- * Work-order emails: send a run's (or any slip set's) organized job list
+ * Work-order emails: draft a run's (or any slip set's) organized job list
  * to a roster recipient — "email Anthony the punch list for 84 Thatcher."
  *
- * Mirrors the statement workflow's envelope: FROM Dotti, CC Allie + Ryan
- * (ALWAYS_CC), one clearly labeled document per email. Transport is
- * Resend, not a Gmail draft: prod has no Gmail token for Dotti's mailbox,
- * so a draft would land in ALLIE's Drafts where Dotti can't review it —
- * instead the rail shows a compose/confirm step in Helm and this module
- * does a true send from dotti@risingtidestr.com (the domain is already
- * verified in Resend for the contract/agreement senders).
+ * Mirrors the statement workflow end to end: this creates a Gmail DRAFT
+ * (never sends) with FROM Dotti and CC Allie + Ryan (ALWAYS_CC), and the
+ * operator reviews and hits Send in Gmail itself. The draft lands in
+ * Dotti's mailbox when GMAIL_REFRESH_TOKEN_DOTTI is configured, otherwise
+ * in the shared statements mailbox where statement drafts already live.
  *
  * The body groups jobs by property, numbers them, and the slip photos are
  * attached with filenames that match the job numbers ("02-side-door-lock-1
@@ -24,17 +22,19 @@
 
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
-import { sendTransactionalViaResend } from '@/lib/resend';
+import { createGmailDraft, type GmailAttachment } from '@/lib/gmail-draft';
 import { ALWAYS_CC } from '@/lib/properties';
 import type { RosterPerson } from '@/lib/work-types';
 
 /** The work-order envelope. From Dotti (the operator sending vendor work),
- *  CC the same pair the statement workflow always copies. */
+ *  CC the same pair the statement workflow always copies. The From header
+ *  sticks once the drafting mailbox has dotti@ as a send-as alias — the
+ *  same aspirational-From caveat as SEND_FROM on statements. */
 const FROM_NAME = 'Dotti Maguire';
 const FROM_EMAIL = 'dotti@risingtidestr.com';
 
-/** Raw photo budget per email. Resend caps the encoded message around
- *  40MB; 15MB of raw bytes leaves comfortable base64 + body headroom. */
+/** Raw photo budget per email. Gmail's raw-message ceiling is 35MB and
+ *  base64 inflates ~33%; 15MB of raw bytes leaves comfortable headroom. */
 const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const MAX_PHOTOS_PER_SLIP = 4;
 const FETCH_CONCURRENCY = 4;
@@ -101,10 +101,10 @@ type SlipForOrder = {
 };
 
 export type WorkOrderResult =
-  | { ok: true; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; jobCount: number; photoCount: number; warnings: string[] }
   | { ok: false; error: string };
 
-export async function sendWorkOrderEmail(args: {
+export async function draftWorkOrderEmail(args: {
   slipIds: string[];
   toName: string;
   toEmail: string;
@@ -114,9 +114,6 @@ export async function sendWorkOrderEmail(args: {
   visitDate?: string | null;
   sentByEmail: string;
 }): Promise<WorkOrderResult> {
-  // Transactional sends need only the API key (the lib's exported
-  // isResendConfigured also demands the campaign audience id).
-  if (!process.env.RESEND_API_KEY) return { ok: false, error: 'Resend is not configured' };
   const toEmail = args.toEmail.trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(toEmail)) {
     return { ok: false, error: 'That email address does not look valid' };
@@ -174,14 +171,17 @@ export async function sendWorkOrderEmail(args: {
       const res = await fetch(p.url, { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) return null;
       const buf = Buffer.from(await res.arrayBuffer());
-      return { ...p, buf };
+      // Keep the REAL content type on the MIME part; only fall back to the
+      // filename's extension when the store doesn't say.
+      const ct = res.headers.get('content-type') || '';
+      return { ...p, buf, contentType: ct.startsWith('image/') ? ct : mimeOf(p.filename) };
     } catch {
       return null;
     }
   });
 
   let budget = MAX_ATTACHMENT_BYTES;
-  const attachments: { filename: string; content: string }[] = [];
+  const attachments: GmailAttachment[] = [];
   const unattached: { filename: string; url: string }[] = [];
   for (let i = 0; i < plan.length; i += 1) {
     const f = fetched[i];
@@ -195,7 +195,7 @@ export async function sendWorkOrderEmail(args: {
       continue;
     }
     budget -= f.buf.length;
-    attachments.push({ filename: f.filename, content: f.buf.toString('base64') });
+    attachments.push({ filename: f.filename, contentType: f.contentType, content: f.buf });
   }
   if (unattached.length > 0 && !warnings.some((w) => w.includes('linked in the body'))) {
     warnings.push(`${unattached.length} photo(s) over the attachment budget; linked in the body instead`);
@@ -223,35 +223,23 @@ export async function sendWorkOrderEmail(args: {
     visitDate: args.visitDate ?? null,
   });
 
-  let sent = false;
+  let draft: Awaited<ReturnType<typeof createGmailDraft>>;
   try {
-    sent = await sendTransactionalViaResend({
-      to: toEmail,
-      subject,
-      fromName: FROM_NAME,
-      fromEmail: FROM_EMAIL,
-      html: textToHtml(text),
-      text,
+    draft = await createGmailDraft({
+      from: `${FROM_NAME} <${FROM_EMAIL}>`,
+      to: [toEmail],
       cc: ALWAYS_CC,
+      subject,
+      body: text,
       attachments,
-      // Sized for the payload: ~20MB of base64 photos has to finish
-      // uploading, not just get an API ack.
-      timeoutMs: 60_000,
     });
   } catch (err) {
-    // A timeout mid-upload is genuinely ambiguous -- say so instead of
-    // letting the throw reach the composer as a generic error page.
-    const msg = err instanceof Error && err.name === 'TimeoutError'
-      ? 'The send timed out mid-upload — check with the recipient (or Resend logs) before retrying'
-      : err instanceof Error
-        ? err.message
-        : String(err);
-    return { ok: false, error: msg };
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  if (!sent) return { ok: false, error: 'Resend rejected the send — check RESEND_API_KEY / logs' };
+  if (!draft.ok) return { ok: false, error: draft.error };
 
   // Audit: a comment on every slip, and a CRM touch when the recipient is
-  // a contact. Both best-effort — the email already went out.
+  // a contact (the CRM draft flow stamps at draft time too). Best-effort.
   try {
     await fieldDb()
       .from('work_slip_comments')
@@ -259,7 +247,7 @@ export async function sendWorkOrderEmail(args: {
         ordered.map((s) => ({
           work_slip_id: s.id,
           author_email: args.sentByEmail,
-          body: `Work order emailed to ${args.toName} (${toEmail}), cc ${ALWAYS_CC.join(', ')}.`,
+          body: `Work order drafted in Gmail for ${args.toName} (${toEmail}), cc ${ALWAYS_CC.join(', ')}.`,
         })),
       );
   } catch {
@@ -278,7 +266,7 @@ export async function sendWorkOrderEmail(args: {
         touched_at: new Date().toISOString(),
         channel: 'email',
         direction: 'outbound',
-        summary: subject,
+        summary: `Drafted: ${subject}`,
         by_email: args.sentByEmail,
       });
     }
@@ -286,7 +274,14 @@ export async function sendWorkOrderEmail(args: {
     /* non-fatal */
   }
 
-  return { ok: true, jobCount: ordered.length, photoCount: attachments.length, warnings };
+  return {
+    ok: true,
+    draftUrl: draft.draftUrl,
+    mailbox: draft.mailbox,
+    jobCount: ordered.length,
+    photoCount: attachments.length,
+    warnings,
+  };
 }
 
 // ─── composition ──────────────────────────────────────────────────────
@@ -391,6 +386,21 @@ function extOf(url: string): string {
   return m ? `.${m[1].toLowerCase()}` : '.jpg';
 }
 
+/** Extension → MIME type fallback when the blob store omits content-type. */
+function mimeOf(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    gif: 'image/gif',
+  };
+  return map[ext] ?? 'image/jpeg';
+}
+
 function fmtDay(iso: string): string {
   try {
     return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
@@ -401,12 +411,6 @@ function fmtDay(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-/** Plain text → minimal HTML that mail clients won't reflow. */
-function textToHtml(text: string): string {
-  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<div style="font-family: -apple-system, Segoe UI, sans-serif; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">${esc}</div>`;
 }
 
 /** Bounded-concurrency, order-preserving map (photo fetches). */
