@@ -63,6 +63,8 @@ const PUBLIC_PATH_PREFIXES = [
  *   /api/markets/airdna/...  town-level AirDNA snapshots for the
  *                            risingtidestr.com /markets pages (public
  *                            aggregate data, read-only)
+ *   /api/story-factory-notify  daily story-card mailer; STORY_FACTORY_SECRET
+ *                            shared-secret auth inside the route, fail-closed
  *   /api/version             deployment id probe for AutoRefresh's skew
  *                            check; must answer even when the session has
  *                            expired so a stale tab still reloads onto the
@@ -85,6 +87,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/agreement-pdf",
   "/api/archive-onboarding",
   "/api/owner-outbound-quo",
+  "/api/story-factory-notify",
   "/api/owners-sync",
   "/api/kb-facts",
   "/api/backfill-owner-phones",
