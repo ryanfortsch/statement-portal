@@ -151,6 +151,20 @@ export const PROPERTIES: Record<string, Property> = {
     fee_pct: 25, bank_last4: '0628', listing_match: '19 rackliffe',
     tax_cert_id: 'C0557821070',
   },
+  // Seeded 2026-08-09 from the Helm properties row. External title is
+  // "Stay at Good Harbor Beach" -- the SAME title as 4 Brier Neck (and
+  // near 17 Beach's), so nothing may ever match this property by title
+  // substring. listing_match stays an internal-name needle and Guesty
+  // flows key on guesty_listing_id 6a426ea57c49910013b37ea0. No Chase
+  // account or tax cert yet; backfill bank_last4 / tax_cert_id here and
+  // in the DB row when banking is set up.
+  '84_thatcher': {
+    id: '84_thatcher', name: '84 Thatcher', address: '84 Thatcher Road', city: 'Gloucester, MA',
+    owner_last: 'Lopes', owner_full: 'Julie Lopes', owner_greeting: 'Julie',
+    owner_emails: ['julie@shirtsillustratedsalem.com'],
+    fee_pct: 25, bank_last4: null, listing_match: '84 thatcher',
+    tax_cert_id: null,
+  },
 };
 
 // 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
