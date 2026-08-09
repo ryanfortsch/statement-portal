@@ -25,6 +25,11 @@ const STUCK_PENDING_MS = 10000;
  * but the busy label + spinner only show on the button whose formAction
  * actually fired (useFormStatus exposes the in-flight action reference).
  *
+ * name/value: for a multi-submit form sharing ONE action where the buttons
+ * differ only by submitter value (e.g. mode=publish vs mode=draft), pass
+ * them here — the submitter's entry lands in useFormStatus's in-flight
+ * FormData, so only the clicked button shows the busy label.
+ *
  * spinnerTone: 'paper' for dark/ink-ground buttons (default, matches the
  * original), 'ink' for light/ghost buttons where a paper spinner would be
  * invisible.
@@ -37,6 +42,8 @@ export function SubmitButton({
   disabled,
   spinnerTone = 'paper',
   formAction,
+  name,
+  value,
 }: {
   label: React.ReactNode;
   busyLabel: string;
@@ -45,11 +52,16 @@ export function SubmitButton({
   disabled?: boolean;
   spinnerTone?: 'paper' | 'ink';
   formAction?: React.ComponentProps<'button'>['formAction'];
+  name?: string;
+  value?: string;
 }) {
   const status = useFormStatus();
   // In a multi-button form, only the button whose formAction is in flight
-  // shows the busy label/spinner; the others just disable.
-  const mine = !formAction || status.action === formAction;
+  // shows the busy label/spinner; the others just disable. Same for shared-
+  // action forms whose buttons differ by submitter name/value.
+  const mine =
+    (!formAction || status.action === formAction) &&
+    (!name || value === undefined || !status.data || status.data.get(name) === value);
   const busy = status.pending && mine && !disabled;
   const lockout = status.pending && !disabled;
 
@@ -72,6 +84,8 @@ export function SubmitButton({
     <button
       type="submit"
       formAction={formAction}
+      name={name}
+      value={value}
       disabled={disabled || lockout}
       aria-busy={busy || undefined}
       className={className}

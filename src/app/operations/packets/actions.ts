@@ -259,10 +259,18 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   redirect(`/operations/packets/${packetId}`);
 }
 
+export type AdhocState = { error: string };
+
 /** Create a STANDALONE ad hoc one-off job. Priced up front (the estimate the
  *  finalize flow later locks); publishing sends it to the specialists to claim
- *  like any packet. */
-export async function createAdHocPacketAction(formData: FormData): Promise<void> {
+ *  like any packet.
+ *
+ *  useActionState-shaped (same pattern as field/apply): any failure RETURNS a
+ *  specific inline error so the form stays mounted with everything typed.
+ *  The old void action swallowed a null from createAdHocPacket and silently
+ *  re-landed on the form, which is how the ad_hoc enum bug (#1205) went
+ *  unnoticed for a month. */
+export async function createAdHocPacketAction(_prev: AdhocState, formData: FormData): Promise<AdhocState> {
   const email = await staffEmail();
   const propertyId = String(formData.get('property_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
@@ -273,7 +281,10 @@ export async function createAdHocPacketAction(formData: FormData): Promise<void>
   const priceDollars = Number(formData.get('price_dollars') || 0);
   const publish = String(formData.get('mode') || 'publish') !== 'draft';
   const supplyRun = formData.get('supply_run') === 'on';
-  if (!propertyId || !visitDate || !title.trim() || !Number.isFinite(priceDollars) || priceDollars <= 0) return;
+  if (!title.trim()) return { error: 'Give the job a short title.' };
+  if (!propertyId) return { error: 'Choose the home.' };
+  if (!visitDate) return { error: 'Pick the day.' };
+  if (!Number.isFinite(priceDollars) || priceDollars <= 0) return { error: 'Set the pay - a dollar amount above zero.' };
 
   const packetId = await createAdHocPacket({
     propertyId,
@@ -287,7 +298,7 @@ export async function createAdHocPacketAction(formData: FormData): Promise<void>
     createdByEmail: email,
     publish,
   });
-  if (!packetId) return;
+  if (!packetId) return { error: 'Saving failed and nothing was created. Try again, and flag it if it keeps happening.' };
   if (publish) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
     notifyContractorsOfPacket(packetId).catch(() => {});
