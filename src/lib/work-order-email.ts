@@ -299,8 +299,8 @@ function composeBody(args: {
   const firstProp = args.props.get(propertyIds[0]);
   const subject =
     propertyIds.length === 1
-      ? `Work order — ${firstProp?.name ?? propertyIds[0]} (${args.slips.length} ${args.slips.length === 1 ? 'job' : 'jobs'})`
-      : `Work order — ${args.slips.length} jobs across ${propertyIds.length} properties`;
+      ? `Work order: ${firstProp?.name ?? propertyIds[0]} (${args.slips.length} ${args.slips.length === 1 ? 'job' : 'jobs'})`
+      : `Work order: ${args.slips.length} jobs across ${propertyIds.length} properties`;
 
   const lines: string[] = [];
   lines.push(`Hi ${args.toName.split(' ')[0] || 'there'},`);
@@ -312,7 +312,7 @@ function composeBody(args: {
     lines.push(`Work order across ${propertyIds.length} properties, grouped below.`);
   }
   if (args.visitDate) {
-    lines.push(`Target day: ${fmtDay(args.visitDate)} — the house is empty that day.`);
+    lines.push(`Target day: ${fmtDay(args.visitDate)}. The house is empty that day.`);
   }
   lines.push('');
 
@@ -325,19 +325,18 @@ function composeBody(args: {
     if (propertyIds.length > 1 && propName !== currentProp) {
       currentProp = propName;
       const where = [p?.address, p?.city].filter(Boolean).join(', ');
-      lines.push(`— ${propName}${where ? ` (${where})` : ''} —`);
+      lines.push(`${propName}${where ? ` (${where})` : ''}:`);
       lines.push('');
     }
-    const flags = [s.priority === 'high' ? 'HIGH PRIORITY' : null, s.effort_minutes ? `~${s.effort_minutes} min` : null]
-      .filter(Boolean)
-      .join(' · ');
-    lines.push(`${pad(jobNo)}. ${jobTitle(s)}${flags ? ` (${flags})` : ''}`);
-    const detail = (s.description || s.action_summary || '').trim();
-    if (detail) for (const dl of detail.split('\n')) lines.push(`    ${dl}`.trimEnd());
-    if (s.location) lines.push(`    Where: ${s.location}`);
-    if (s.run_scope_note) lines.push(`    Note: ${s.run_scope_note}`);
+    // Time estimates and triage notes are internal planning data; the
+    // vendor gets the job, where it is, and the photos. One tight detail
+    // paragraph per job keeps the order scannable.
+    lines.push(`${jobNo}. ${jobTitle(s)}${s.priority === 'high' ? ' (high priority)' : ''}`);
+    const detail = firstParagraph(s.description || s.action_summary || '');
+    if (detail) for (const dl of detail.split('\n')) lines.push(`   ${dl}`.trimEnd());
+    if (s.location) lines.push(`   Where: ${s.location}`);
     const photos = args.attachedByJob.get(jobNo) ?? [];
-    if (photos.length > 0) lines.push(`    Photos attached: ${photos.join(', ')}`);
+    if (photos.length > 0) lines.push(`   Photos: ${photos.join(', ')}`);
     lines.push('');
   }
 
@@ -353,9 +352,16 @@ function composeBody(args: {
   lines.push('Attached photos are numbered to match the jobs. Reply here with any questions or to confirm scheduling.');
   lines.push('');
   lines.push('Thanks,');
-  lines.push('Dotti');
-  lines.push('Rising Tide STR');
+  lines.push('Rising Tide Team');
   return { subject, text: lines.join('\n') };
+}
+
+/** First paragraph only, capped: slip descriptions can carry internal
+ *  provenance blocks (guest-message quotes, conversation ids) below the
+ *  summary paragraph, and none of that belongs in a vendor's inbox. */
+function firstParagraph(text: string): string {
+  const first = text.trim().split(/\n\s*\n/)[0] ?? '';
+  return first.length > 400 ? `${first.slice(0, 400).trimEnd()}...` : first;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────
