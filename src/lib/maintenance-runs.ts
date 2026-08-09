@@ -277,17 +277,18 @@ async function slipIdsOnLivePackets(includeSuggestedDrafts: boolean): Promise<Se
 
 type BookingLite = { property_id: string; check_in: string; check_out: string; status: string };
 
+type EligibleDay = { day: string; kind: 'full' | 'after_checkout' };
+
 /**
  * Per property, the eligible maintenance days in [tomorrow, today+horizon]:
  * no occupied night (guest or hold), no same-day check-in, not calendar
  * blocked. 'full' = nobody slept there the night before either; a
  * checkout-morning day still works for interior jobs, it just starts after
- * the guest leaves.
+ * the guest leaves. Returns the full eligible list so same-building units
+ * can intersect their calendars for one shared visit.
  */
-async function findVisitDays(
-  propertyIds: string[],
-): Promise<Map<string, { day: string; kind: 'full' | 'after_checkout' }>> {
-  const out = new Map<string, { day: string; kind: 'full' | 'after_checkout' }>();
+async function findEligibleDays(propertyIds: string[]): Promise<Map<string, EligibleDay[]>> {
+  const out = new Map<string, EligibleDay[]>();
   if (propertyIds.length === 0) return out;
 
   const today = todayET();
@@ -321,24 +322,48 @@ async function findVisitDays(
     const checkInOn = (d: string) =>
       propBookings.some((b) => b.status !== 'block' && b.check_in === d);
 
-    const eligible: { day: string; kind: 'full' | 'after_checkout' }[] = [];
+    // Full horizon, no early cap: these lists get INTERSECTED across a
+    // building's units, and a capped list would truncate one unit's late
+    // vacancies before the overlap is computed (false noVacancy, and the
+    // stale-cleanup would then delete a still-valid draft). Max 21 entries.
+    const eligible: EligibleDay[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if (blocked.has(`${pid}:${d}`)) continue;
       if (occupiedOn(d) || checkInOn(d)) continue;
       eligible.push({ day: d, kind: occupiedOn(addDays(d, -1)) ? 'after_checkout' : 'full' });
-      if (eligible.length >= 4) break;
     }
-    if (eligible.length === 0) continue;
-    // Earliest day wins, but a fully empty day within 2 days of a
-    // checkout-morning start is the better slot for a multi-job visit.
-    let pick = eligible[0];
-    if (pick.kind === 'after_checkout') {
-      const fullSoon = eligible.find((e) => e.kind === 'full' && e.day <= addDays(pick.day, 2));
-      if (fullSoon) pick = fullSoon;
-    }
-    out.set(pid, pick);
+    out.set(pid, eligible);
   }
   return out;
+}
+
+/**
+ * The visit slot for one run: the earliest day eligible at EVERY unit
+ * contributing slips (single-unit runs pass one list). Kind is the worst
+ * case across units for that day. Earliest wins, but a fully empty day
+ * within 2 days of a checkout-morning start is the better slot for a
+ * multi-job visit. Null when the calendars never line up in the horizon.
+ */
+function pickVisitSlot(dayLists: EligibleDay[][]): EligibleDay | null {
+  if (dayLists.length === 0 || dayLists.some((l) => l.length === 0)) return null;
+  const [first, ...rest] = dayLists;
+  const shared: EligibleDay[] = [];
+  for (const e of first) {
+    const matches = rest.map((l) => l.find((x) => x.day === e.day));
+    if (matches.some((m) => !m)) continue;
+    const kinds = [e, ...(matches as EligibleDay[])];
+    shared.push({
+      day: e.day,
+      kind: kinds.some((k) => k.kind === 'after_checkout') ? 'after_checkout' : 'full',
+    });
+  }
+  if (shared.length === 0) return null;
+  let pick = shared[0];
+  if (pick.kind === 'after_checkout') {
+    const fullSoon = shared.find((e) => e.kind === 'full' && e.day <= addDays(pick.day, 2));
+    if (fullSoon) pick = fullSoon;
+  }
+  return pick;
 }
 
 type ExistingSuggestion = {
@@ -444,24 +469,53 @@ export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Pr
   // loadFieldProperties, so a slip on an excluded property would "fail"
   // packet creation on every pass forever.
   const fieldProps = new Set((await loadFieldProperties()).map((p) => p.id));
-  const byProperty = new Map<string, PoolSlip[]>();
+  // Same-building sub-units (properties.building_id, e.g. 53 Rocky Neck
+  // main + Downstairs) pool as ONE unit: one visit covers jobs in every
+  // unit, provided every unit with slips is empty that day. The building
+  // id doubles as the suggestion-key primary so reconcile stays stable.
+  // (Fetched directly: the shared PROPERTY_COLS list doesn't carry it.)
+  const buildingOf = new Map<string, string>();
+  {
+    const { data: grouped, error: bgErr } = await fieldDb()
+      .from('properties')
+      .select('id, building_id')
+      .not('building_id', 'is', null);
+    // A transient read error must ABORT the pass, not silently regroup
+    // per-property: that would delete the building draft, recreate it
+    // under per-unit keys, and churn back next pass, losing operator
+    // edits both ways. Pre-migration (column missing, 42703) keeps the
+    // old ungrouped behavior.
+    if (bgErr && bgErr.code !== '42703') {
+      throw new Error(`building group read failed: ${bgErr.message}`);
+    }
+    for (const p of (grouped ?? []) as Array<{ id: string; building_id: string | null }>) {
+      const bid = p.building_id?.trim();
+      // Colons would corrupt propertyOfKey's parse of the suggestion key.
+      if (bid && !bid.includes(':')) buildingOf.set(p.id, bid);
+    }
+  }
+  const byUnit = new Map<string, PoolSlip[]>();
   for (const s of pool) {
     if (!fieldProps.has(s.property_id)) continue;
-    if (!byProperty.has(s.property_id)) byProperty.set(s.property_id, []);
-    byProperty.get(s.property_id)!.push(s);
+    const unit = buildingOf.get(s.property_id) ?? s.property_id;
+    if (!byUnit.has(unit)) byUnit.set(unit, []);
+    byUnit.get(unit)!.push(s);
   }
 
-  // Substantive gate.
+  // Substantive gate, applied to the building-level pool.
   const qualifying = new Map<string, PoolSlip[]>();
-  for (const [pid, slips] of byProperty) {
+  for (const [unit, slips] of byUnit) {
     const highCount = slips.filter((s) => s.priority === 'high').length;
     const effort = slips.reduce((a, s) => a + (s.effort_minutes ?? 30), 0);
     if (highCount > 0 || slips.length >= RUN_MIN_SLIPS || effort >= RUN_MIN_EFFORT_MINUTES) {
-      qualifying.set(pid, slips);
+      qualifying.set(unit, slips);
     }
   }
 
-  const visitDays = await findVisitDays([...qualifying.keys()]);
+  // Eligible days per PROPERTY (units of a building have separate
+  // calendars); the shared slot intersects them.
+  const memberProps = [...new Set([...qualifying.values()].flat().map((s) => s.property_id))];
+  const eligibleDays = await findEligibleDays(memberProps);
 
   const runs: PlannedRun[] = [];
   const noVacancy: string[] = [];
@@ -469,14 +523,27 @@ export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Pr
   const plannedProperties = new Set<string>();
 
   for (const [pid, slips] of qualifying) {
-    const slot = visitDays.get(pid);
+    const unitProps = [...new Set(slips.map((s) => s.property_id))];
+    const slot = pickVisitSlot(unitProps.map((p) => eligibleDays.get(p) ?? []));
     if (!slot) {
       noVacancy.push(pid);
       continue;
     }
     plannedProperties.add(pid);
     const slipIds = slips.map((s) => s.id).sort();
-    const prior = existingByProperty.get(pid) ?? [];
+    // Prior drafts to reconcile: this unit's own, PLUS any other suggested
+    // draft holding one of the planned slips (a slip belongs to exactly
+    // one plan, so such a draft is stale by definition). Covers the
+    // building-grouping transition, where an old per-unit-keyed draft
+    // would otherwise stay live through packet creation and silently keep
+    // its slips out of the new building run for a pass.
+    const slipIdSet = new Set(slipIds);
+    const prior = [
+      ...(existingByProperty.get(pid) ?? []),
+      ...existing.filter(
+        (e) => propertyOfKey(e.suggestion_key) !== pid && [...e.slipIds].some((id) => slipIdSet.has(id)),
+      ),
+    ];
 
     // Unchanged plan: keep the existing draft (preserves any operator
     // edits like price or instructions).
