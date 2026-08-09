@@ -19,6 +19,7 @@
     { "path": "/api/cron/sync-quo-contacts", "schedule": "0 7 * * *" },
     { "path": "/api/cron/confirm-cleanings", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/sync-stripe", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/sync-creative-drive", "schedule": "0 */2 * * *" }
+    { "path": "/api/cron/sync-creative-drive", "schedule": "0 */2 * * *" },
+    { "path": "/api/cron/messages-to-slips", "schedule": "40 */6 * * *" }
   ]
 }

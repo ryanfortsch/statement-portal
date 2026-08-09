@@ -39,22 +39,42 @@ export type PropertyWorkBoard = {
 const ACTIVE = ['open', 'in_progress'];
 const LIVE_PACKET = ['draft', 'published', 'claimed', 'in_progress', 'submitted'];
 
-/** Slip ids currently carried by a live packet (stop or attachment). */
+/** Slip ids currently carried by a live packet (stop or attachment).
+ *
+ *  Auto-planned maintenance-run DRAFTS (suggestion_key 'maintrun:...',
+ *  auto_generated) don't count: they're proposals nobody has committed to,
+ *  and holding their slips off this board would let a robot suggestion
+ *  silently block a work-board contractor from just fixing the thing. Once
+ *  the office publishes the run, its slips are held back like any other
+ *  live packet's. */
 export async function slipIdsOnLivePackets(): Promise<Set<string>> {
   const [{ data: stops }, { data: attach }] = await Promise.all([
     fieldDb()
       .from('packet_stops')
-      .select('work_slip_id, inspection_packets!inner(status)')
+      .select('work_slip_id, inspection_packets!inner(status, auto_generated, suggestion_key)')
       .not('work_slip_id', 'is', null)
       .in('inspection_packets.status', LIVE_PACKET),
     fieldDb()
       .from('packet_stop_work_slips')
-      .select('work_slip_id, packet_stops!inner(inspection_packets!inner(status))')
+      .select('work_slip_id, packet_stops!inner(inspection_packets!inner(status, auto_generated, suggestion_key))')
       .in('packet_stops.inspection_packets.status', LIVE_PACKET),
   ]);
+  type PacketMeta = { status: string; auto_generated: boolean; suggestion_key: string | null };
+  const isSuggestedDraft = (p: PacketMeta | PacketMeta[] | null | undefined): boolean => {
+    const meta = Array.isArray(p) ? p[0] : p;
+    return !!meta && meta.status === 'draft' && meta.auto_generated && !!meta.suggestion_key?.startsWith('maintrun:');
+  };
   const taken = new Set<string>();
-  for (const r of (stops ?? []) as unknown as Array<{ work_slip_id: string }>) taken.add(r.work_slip_id);
-  for (const r of (attach ?? []) as unknown as Array<{ work_slip_id: string }>) taken.add(r.work_slip_id);
+  for (const r of (stops ?? []) as unknown as Array<{ work_slip_id: string; inspection_packets: PacketMeta | PacketMeta[] }>) {
+    if (!isSuggestedDraft(r.inspection_packets)) taken.add(r.work_slip_id);
+  }
+  for (const r of (attach ?? []) as unknown as Array<{
+    work_slip_id: string;
+    packet_stops: { inspection_packets: PacketMeta | PacketMeta[] } | Array<{ inspection_packets: PacketMeta | PacketMeta[] }>;
+  }>) {
+    const stop = Array.isArray(r.packet_stops) ? r.packet_stops[0] : r.packet_stops;
+    if (!isSuggestedDraft(stop?.inspection_packets)) taken.add(r.work_slip_id);
+  }
   return taken;
 }
 

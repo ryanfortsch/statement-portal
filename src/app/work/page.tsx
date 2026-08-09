@@ -5,9 +5,11 @@ import { WorkTabs } from '@/components/WorkTabs';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
-import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
+import type { WorkSlipRow, TaskRow, RunsBoardData } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
+import { loadMaintenanceRunsBoard } from '@/lib/maintenance-runs';
 import { QueueClient } from './QueueClient';
+import { RunsRail } from './RunsRail';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +29,14 @@ async function getData(): Promise<{
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
+  runsBoard: RunsBoardData;
 }> {
   const todayIso = new Date().toISOString().slice(0, 10);
+  // The runs rail degrades to empty rather than sinking the board when the
+  // Field tables are mid-migration.
+  const runsBoardPromise = loadMaintenanceRunsBoard().catch(
+    (): RunsBoardData => ({ runs: [], vendorNeeded: [], backlog: [], unclassifiedCount: 0, roster: [] }),
+  );
   const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
     supabase
       .from('work_slips')
@@ -98,12 +106,13 @@ async function getData(): Promise<{
     slipCommentCounts,
     taskCommentCounts,
     reporterNames,
+    runsBoard: await runsBoardPromise,
   };
 }
 
 export default async function WorkQueuePage() {
   const session = await auth();
-  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames } = await getData();
+  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames, runsBoard } = await getData();
   const myEmail = session?.user?.email ?? '';
 
   return (
@@ -118,6 +127,8 @@ export default async function WorkQueuePage() {
           Guest gear grid →
         </Link>
       </div>
+
+      <RunsRail data={runsBoard} />
 
       <QueueClient
         workSlips={workSlips}

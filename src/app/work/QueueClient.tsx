@@ -1097,6 +1097,18 @@ function WorkSlipRowItem({
             {slip.priority}
           </span>
         )}
+        {/* Who the AI-triaged fix belongs to: a handyman run or a licensed
+            vendor. Inspector-scope stays quiet — that's the default fate of
+            most slips (picked up on a routine stop as a ride-along). */}
+        {slip.category === 'maintenance' && (slip.run_scope === 'handyman' || slip.run_scope === 'pro') && (
+          <span
+            className="rt-no-print"
+            title={slip.run_scope_note || undefined}
+            style={pillTinyStyle(slip.run_scope === 'pro' ? 'var(--signal)' : 'var(--tide-deep)')}
+          >
+            {slip.run_scope === 'pro' ? 'vendor' : 'handyman'}
+          </span>
+        )}
         <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
           {slip.status.replace('_', ' ')}
         </span>

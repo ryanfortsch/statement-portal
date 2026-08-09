@@ -175,6 +175,10 @@ export async function sendTransactionalViaResend(args: {
   cc?: string | string[];
   replyTo?: string | string[];
   attachments?: Array<{ filename: string; content: string }>;
+  /** Override the 10s default for attachment-heavy sends — a work order
+   *  carrying ~20MB of base64 photos needs upload time, not just API
+   *  latency. */
+  timeoutMs?: number;
 }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
 
@@ -194,7 +198,7 @@ export async function sendTransactionalViaResend(args: {
   if (args.attachments && args.attachments.length > 0) body.attachments = args.attachments;
 
   const res = await fetch(`${RESEND_API}/emails`, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(args.timeoutMs ?? 10_000),
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(body),
