@@ -1,26 +1,57 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
-import { planMaintenanceRuns } from '@/lib/maintenance-runs';
+import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
 import { sendWorkOrderEmail } from '@/lib/work-order-email';
 import { publishPacket } from '@/app/operations/packets/actions';
 
-/** Run the classify + plan pass on demand from the Work board. */
+/** Plan runs on demand from the Work board.
+ *
+ *  Snappy by design: the synchronous part is pure queries (pool + calendar
+ *  + draft reconcile) over already-triaged slips. The AI triage of any
+ *  untriaged backlog runs AFTER the response via after() — with a big
+ *  backlog (176 imported slips on first ship) the drain takes minutes and
+ *  the button was sitting on all of it. The board is force-dynamic, so
+ *  the next refresh simply shows whatever the background pass produced. */
 export async function planRunsNow(): Promise<
-  { ok: true; created: number; kept: number; noVacancy: number } | { ok: false; error: string }
+  | { ok: true; created: number; kept: number; noVacancy: number; classifying: number }
+  | { ok: false; error: string }
 > {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   try {
-    const res = await planMaintenanceRuns();
+    const res = await planMaintenanceRuns({ skipClassify: true });
+
+    const { count } = await fieldDb()
+      .from('work_slips')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open')
+      .eq('category', 'maintenance')
+      .is('run_scope', null);
+    const classifying = count ?? 0;
+    if (classifying > 0) {
+      // Background: drain triage, then re-plan so freshly classified slips
+      // land on runs without another click.
+      after(async () => {
+        try {
+          await drainClassificationBacklog(4);
+          await planMaintenanceRuns({ skipClassify: true });
+        } catch (err) {
+          console.error('[planRunsNow] background classify/plan failed', err);
+        }
+      });
+    }
+
     revalidatePath('/work');
     return {
       ok: true,
       created: res.runs.filter((r) => r.action === 'created').length,
       kept: res.runs.filter((r) => r.action === 'kept').length,
       noVacancy: res.noVacancy.length,
+      classifying,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

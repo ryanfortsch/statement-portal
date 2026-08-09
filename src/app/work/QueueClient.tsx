@@ -875,6 +875,28 @@ function PropertyGroup({
           </button>
         )}
         {propertyId && (
+          <Link
+            href={`/properties/${propertyId}`}
+            prefetch={false}
+            className="rt-no-print"
+            title={`Open ${propName}'s property page`}
+            aria-label={`Open ${propName}'s property page`}
+            style={{
+              background: 'none',
+              border: '1px solid var(--rule)',
+              padding: '4px 10px',
+              fontSize: 10,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              textDecoration: 'none',
+              lineHeight: 1.4,
+            }}
+          >
+            Property ↗
+          </Link>
+        )}
+        {propertyId && (
           <button
             type="button"
             onClick={printPropertyWork}
