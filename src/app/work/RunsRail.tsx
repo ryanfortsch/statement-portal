@@ -1,21 +1,20 @@
 'use client';
 
 /**
- * Maintenance Runs rail on the Work board.
+ * The Maintenance runs board, hosted on its own Work tab (/work/maintenance
+ * — as a rail on /work it crowded the triage queue off the screen).
  *
  * The planner (lib/maintenance-runs.ts) scans open handyman-scope slips +
  * property calendars and lays draft maintenance packets on empty days.
- * This rail is where those plans surface for the operator: suggested runs
+ * This board is where those plans surface for the operator: suggested runs
  * to publish, live runs in flight, the 'pro' slips that need a vendor
  * booked, and the backlog that hasn't earned a run yet.
  *
  * Any run or vendor group can be emailed as an organized work order —
  * jobs numbered, photos attached with matching filenames — to a roster
- * recipient (CRM contacts + field contractors). FROM Dotti, CC Allie +
- * Ryan, same envelope as the statement workflow. The composer is a
- * review step: nothing sends until the operator hits Send.
- *
- * Collapsed when there is nothing to show — the board stays the board.
+ * recipient (CRM contacts + field contractors). The composer creates a
+ * Gmail DRAFT (from dotti@, cc allie@ + ryan@, statement-workflow rhythm);
+ * the operator reviews and hits Send in Gmail, never here.
  */
 
 import { useMemo, useState, useTransition } from 'react';
@@ -86,7 +85,7 @@ function WorkOrderComposer({
   const [customEmail, setCustomEmail] = useState('');
   const [note, setNote] = useState('');
   const [sending, startSending] = useTransition();
-  const [done, setDone] = useState('');
+  const [done, setDone] = useState<{ message: string; draftUrl: string } | null>(null);
   const [error, setError] = useState('');
 
   const person = roster.find((r) => r.email === selected) ?? null;
@@ -102,14 +101,27 @@ function WorkOrderComposer({
         return;
       }
       const w = res.warnings.length > 0 ? ` (${res.warnings.join('; ')})` : '';
-      setDone(`Sent to ${toEmail} — ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`);
+      setDone({
+        message: `Draft ready for ${toEmail} — ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`,
+        draftUrl: res.draftUrl,
+      });
+      // The whole point is reviewing in Gmail — take her straight there.
+      window.open(res.draftUrl, '_blank', 'noopener');
     });
   }
 
   if (done) {
     return (
-      <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4 }}>
-        <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done}</span>
+      <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done.message}</span>
+        <a
+          href={done.draftUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+        >
+          Review in Gmail →
+        </a>
       </div>
     );
   }
@@ -175,10 +187,10 @@ function WorkOrderComposer({
             opacity: sending || !toEmail.trim() || !toName.trim() ? 0.5 : 1,
           }}
         >
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? 'Drafting…' : 'Create Gmail draft'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-          from dotti@ · cc allie@ + ryan@ · photos attached
+          drafts in Gmail, you hit send · from dotti@ · cc allie@ + ryan@ · photos attached
         </span>
         <button
           type="button"
@@ -357,7 +369,7 @@ function VendorGroup({ propertyName, slips, roster }: { propertyName: string; sl
   );
 }
 
-export function RunsRail({ data }: { data: RunsBoardData }) {
+export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone?: boolean }) {
   const softRefresh = useSoftRefresh();
   const [planning, startPlanning] = useTransition();
   const [note, setNote] = useState('');
@@ -391,21 +403,21 @@ export function RunsRail({ data }: { data: RunsBoardData }) {
         if (res.created) parts.push(`${res.created} planned`);
         if (res.kept) parts.push(`${res.kept} unchanged`);
         if (res.noVacancy) parts.push(`${res.noVacancy} waiting on an empty day`);
-        if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background — check back in a few minutes`);
         setNote(parts.length ? parts.join(' · ') : 'Nothing to plan right now');
         softRefresh();
       }
     });
   }
 
-  // Nothing maintenance-shaped anywhere: keep the board clean.
-  if (!hasAnything) return null;
+  // Embedded with nothing to show: disappear. On the dedicated tab the
+  // header + Plan now button stay so an empty board explains itself.
+  if (!hasAnything && !standalone) return null;
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 18 }}>
-      <div style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 18 }}>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: standalone ? 28 : 18 }}>
+      <div style={{ borderBottom: standalone ? 'none' : '1px solid var(--rule)', paddingBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <h2 className="font-serif" style={{ fontSize: 20, fontWeight: 500, flex: 1, minWidth: 160 }}>
+          <h2 className="font-serif" style={{ fontSize: standalone ? 26 : 20, fontWeight: 500, flex: 1, minWidth: 160 }}>
             Maintenance runs
           </h2>
           {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
@@ -447,6 +459,13 @@ export function RunsRail({ data }: { data: RunsBoardData }) {
               ))}
             </div>
           </div>
+        )}
+
+        {standalone && !hasAnything && (
+          <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 18 }}>
+            Nothing to plan right now — no open handyman-scope work anywhere. New slips are triaged
+            automatically; hit Plan now to force a pass.
+          </p>
         )}
 
         {(data.backlog.length > 0 || data.unclassifiedCount > 0) && (

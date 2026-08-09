@@ -1,57 +1,26 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { after } from 'next/server';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
-import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
-import { sendWorkOrderEmail } from '@/lib/work-order-email';
+import { planMaintenanceRuns } from '@/lib/maintenance-runs';
+import { draftWorkOrderEmail } from '@/lib/work-order-email';
 import { publishPacket } from '@/app/operations/packets/actions';
 
-/** Plan runs on demand from the Work board.
- *
- *  Snappy by design: the synchronous part is pure queries (pool + calendar
- *  + draft reconcile) over already-triaged slips. The AI triage of any
- *  untriaged backlog runs AFTER the response via after() — with a big
- *  backlog (176 imported slips on first ship) the drain takes minutes and
- *  the button was sitting on all of it. The board is force-dynamic, so
- *  the next refresh simply shows whatever the background pass produced. */
+/** Run the classify + plan pass on demand from the Work board. */
 export async function planRunsNow(): Promise<
-  | { ok: true; created: number; kept: number; noVacancy: number; classifying: number }
-  | { ok: false; error: string }
+  { ok: true; created: number; kept: number; noVacancy: number } | { ok: false; error: string }
 > {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   try {
-    const res = await planMaintenanceRuns({ skipClassify: true });
-
-    const { count } = await fieldDb()
-      .from('work_slips')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open')
-      .eq('category', 'maintenance')
-      .is('run_scope', null);
-    const classifying = count ?? 0;
-    if (classifying > 0) {
-      // Background: drain triage, then re-plan so freshly classified slips
-      // land on runs without another click.
-      after(async () => {
-        try {
-          await drainClassificationBacklog(4);
-          await planMaintenanceRuns({ skipClassify: true });
-        } catch (err) {
-          console.error('[planRunsNow] background classify/plan failed', err);
-        }
-      });
-    }
-
+    const res = await planMaintenanceRuns();
     revalidatePath('/work');
     return {
       ok: true,
       created: res.runs.filter((r) => r.action === 'created').length,
       kept: res.runs.filter((r) => r.action === 'kept').length,
       noVacancy: res.noVacancy.length,
-      classifying,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -84,9 +53,10 @@ export async function publishRun(packetId: string): Promise<{ ok: true } | { ok:
   return { ok: true };
 }
 
-/** Send an organized work-order email (jobs + labeled photos) for a set of
- *  slips to a roster recipient. FROM Dotti, CC Allie + Ryan — the same
- *  envelope as the statement workflow. */
+/** Create a Gmail DRAFT of an organized work-order email (jobs + labeled
+ *  photos) for a set of slips, addressed to a roster recipient. FROM
+ *  Dotti, CC Allie + Ryan — the operator reviews and sends in Gmail, the
+ *  same rhythm as the statement workflow. */
 export async function emailWorkOrder(args: {
   slipIds: string[];
   toName: string;
@@ -94,13 +64,14 @@ export async function emailWorkOrder(args: {
   note?: string;
   visitDate?: string | null;
 }): Promise<
-  { ok: true; jobCount: number; photoCount: number; warnings: string[] } | { ok: false; error: string }
+  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: false; error: string }
 > {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   if (!args.toName.trim()) return { ok: false, error: 'Who is this going to?' };
   try {
-    const res = await sendWorkOrderEmail({
+    const res = await draftWorkOrderEmail({
       slipIds: args.slipIds,
       toName: args.toName.trim(),
       toEmail: args.toEmail,
