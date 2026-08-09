@@ -1096,21 +1096,21 @@ export async function approvePacket(formData: FormData): Promise<void> {
       ? await fieldDb().from('contractors').select('email, full_name, portal_token').eq('id', ap.awarded_contractor_id).maybeSingle()
       : { data: null };
     const contractor = cData as ContractorRow | null;
-    // The contractor's inspection reports were held at completion — fan them
-    // out to the office now that the work has passed review. Issues the
-    // inspector flagged become open work orders on the board first (approval
-    // IS the review — the office just saw them, photos and all, in the
-    // Inspection summary above), attributed to the inspector so the board
-    // reads "flagged by <name>". Then the report email counts them.
+    // Issues the inspector flagged become open work orders on the board
+    // (approval IS the review — the office just saw them, photos and all, in
+    // the Inspection summary above), attributed to the inspector so the board
+    // reads "flagged by <name>". Fast DB-only writes, so they stay in the
+    // response path: the board is right the instant the page comes back.
     const { data: stops } = await fieldDb().from('packet_stops').select('inspection_id').eq('packet_id', packetId);
-    for (const s of (stops ?? []) as { inspection_id: string | null }[]) {
-      if (!s.inspection_id) continue;
-      await openWorkSlipsForInspectionIssues(s.inspection_id, {
+    const inspectionIds = ((stops ?? []) as { inspection_id: string | null }[])
+      .map((s) => s.inspection_id)
+      .filter((v): v is string => !!v);
+    for (const iid of inspectionIds) {
+      await openWorkSlipsForInspectionIssues(iid, {
         createdByEmail: contractor?.email ?? email,
         reportedByContractorId: ap.awarded_contractor_id,
         reportedFromPacketId: packetId,
       });
-      await sendInspectionReportEmail(s.inspection_id).catch(() => {});
     }
     // Close the maintenance work slips this packet covered — terminal "done"
     // is office-approved, not self-reported.
@@ -1133,15 +1133,26 @@ export async function approvePacket(formData: FormData): Promise<void> {
         .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .in('id', attWorkSlipIds);
     }
-    // Receipt the contractor: approved, payment queued (bonus celebrated).
-    if (contractor) {
-      await sendApprovedEmail(contractor, {
-        title: ap.title,
-        totalCents: effectiveBaseCents(ap) + (ap.bonus_cents || 0),
-        bonusCents: ap.bonus_cents || 0,
-        bonusReason: ap.bonus_reason,
-      }).catch(() => {});
-    }
+    // Emails leave the response path entirely. The held inspection reports
+    // (one per stop) plus the contractor's approved receipt are three serial
+    // sends with their own data loads — inside the action they held the
+    // Approve button hostage ("APPROVING…" spun 80+ seconds on Aug 9 while
+    // every DB write had long landed). after() runs them once the response
+    // has gone out; each send is already bounded by the 10s Resend timeout
+    // and logged-and-swallowed on failure.
+    after(async () => {
+      for (const iid of inspectionIds) {
+        await sendInspectionReportEmail(iid).catch(() => {});
+      }
+      if (contractor) {
+        await sendApprovedEmail(contractor, {
+          title: ap.title,
+          totalCents: effectiveBaseCents(ap) + (ap.bonus_cents || 0),
+          bonusCents: ap.bonus_cents || 0,
+          bonusReason: ap.bonus_reason,
+        }).catch(() => {});
+      }
+    });
   }
   revalidatePath(`/operations/packets/${packetId}`);
   revalidatePath('/operations/packets');
