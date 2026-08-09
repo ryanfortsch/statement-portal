@@ -391,6 +391,7 @@ export function RunsRail({ data }: { data: RunsBoardData }) {
         if (res.created) parts.push(`${res.created} planned`);
         if (res.kept) parts.push(`${res.kept} unchanged`);
         if (res.noVacancy) parts.push(`${res.noVacancy} waiting on an empty day`);
+        if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background — check back in a few minutes`);
         setNote(parts.length ? parts.join(' · ') : 'Nothing to plan right now');
         softRefresh();
       }

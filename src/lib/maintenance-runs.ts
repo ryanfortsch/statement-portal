@@ -402,16 +402,34 @@ async function freeSuggestionKey(pid: string, day: string): Promise<string> {
  * suggested drafts. Deterministic and idempotent -- an unchanged pool and
  * calendar keeps the same drafts.
  */
-export async function planMaintenanceRuns(): Promise<PlanResult> {
-  // Drain the classification backlog first so brand-new slips can make
-  // this pass's pools (two batches covers any realistic backlog; the rest
-  // catches up next pass).
-  const classify = await classifyOpenMaintenanceSlips();
-  if (classify.scanned === CLASSIFY_BATCH && !classify.error) {
-    const second = await classifyOpenMaintenanceSlips();
-    classify.scanned += second.scanned;
-    classify.classified += second.classified;
+/** Run classification batches until the backlog drains, errors, or the
+ *  batch cap is hit. Each batch is one Sonnet call over up to
+ *  CLASSIFY_BATCH slips (~30-60s), so callers pick a cap that fits their
+ *  time budget: crons use 4, the board's Plan button uses 0 synchronously
+ *  and backgrounds the drain via after(). */
+export async function drainClassificationBacklog(maxBatches: number): Promise<ClassifyResult> {
+  const total: ClassifyResult = { scanned: 0, classified: 0 };
+  for (let i = 0; i < maxBatches; i += 1) {
+    const batch = await classifyOpenMaintenanceSlips();
+    total.scanned += batch.scanned;
+    total.classified += batch.classified;
+    if (batch.error) {
+      total.error = batch.error;
+      break;
+    }
+    if (batch.scanned < CLASSIFY_BATCH) break;
   }
+  return total;
+}
+
+export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Promise<PlanResult> {
+  // Drain (some of) the classification backlog first so brand-new slips
+  // can make this pass's pools. Skipped by interactive callers: with a big
+  // backlog (e.g. a fresh install classifying hundreds of imported slips)
+  // the drain takes minutes, and a button can't sit on that.
+  const classify = opts?.skipClassify
+    ? { scanned: 0, classified: 0 }
+    : await drainClassificationBacklog(4);
 
   const existing = await loadExistingSuggestions();
   const existingByProperty = new Map<string, ExistingSuggestion[]>();
