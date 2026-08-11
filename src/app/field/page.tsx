@@ -380,7 +380,7 @@ function fmtShootDate(d: string | null): string {
 function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
   // Per-post rollup: base is paid the day each post goes live, a reel's view
   // bonus once its count locks. Contributor voice — never the office's "owed".
-  const sum = shootPaySummary(s.assets, s.pay);
+  const sum = shootPaySummary(s.assets, s.pay, s.shoot);
   if (sum.fullySettled) return { text: `${dollars(sum.paidCents)} paid`, sub: 'sent', tone: 'var(--positive)' };
   if (sum.paidCents > 0) {
     const sub = sum.owedCents > 0 ? 'more on the way' : sum.pendingCents > 0 ? 'bonus climbing with views' : 'in progress';
