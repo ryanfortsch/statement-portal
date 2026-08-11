@@ -40,6 +40,8 @@ export type ScaLaunchRow = {
   published_at: string | null;
   live_url: string | null;
   snapshot_refreshed_at: string | null;
+  snapshot_refresh_error: string | null;
+  snapshot_refresh_error_at: string | null;
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;

@@ -60,6 +60,49 @@ function revalidate(propertyId: string): void {
   revalidatePath(`/properties/${propertyId}`);
 }
 
+/**
+ * Dispatch the SCA snapshot-refresh workflow and record the outcome on the
+ * property's launch row, loudly. Success stamps snapshot_refreshed_at and
+ * clears any prior failure; failure stamps snapshot_refresh_error(_at) so the
+ * launch page shows "the refresh did not fire" instead of silently leaning on
+ * the nightly cron, and logs the GitHub response status to the runtime logs.
+ * (2026-08-10: go-live + two Refresh clicks for 53 Rocky Neck 2 produced no
+ * workflow run and no trace anywhere; the deployed token had gone bad.)
+ */
+async function triggerSnapshotRefresh(
+  propertyId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
+    await supabase
+      .from('sca_launches')
+      .update({
+        snapshot_refreshed_at: new Date().toISOString(),
+        snapshot_refresh_error: null,
+        snapshot_refresh_error_at: null,
+      })
+      .eq('property_id', propertyId);
+    return { ok: true };
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    const hint =
+      status === 401
+        ? 'GITHUB_TOKEN is invalid or expired; mint a new fine-grained PAT and update it in Vercel.'
+        : status === 403 || status === 404
+          ? 'The token likely lacks Actions: read and write on the stay-cape-ann repo.'
+          : status === 422
+            ? `${SCA_SNAPSHOT_WORKFLOW} on ${SCA_PROD_BRANCH} may be missing its workflow_dispatch trigger.`
+            : '';
+    const message = [(e as Error).message, hint].filter(Boolean).join(' ');
+    console.error(`[sca] snapshot dispatch failed for ${propertyId}: ${message}`);
+    await supabase
+      .from('sca_launches')
+      .update({ snapshot_refresh_error: message, snapshot_refresh_error_at: new Date().toISOString() })
+      .eq('property_id', propertyId);
+    return { ok: false, error: message };
+  }
+}
+
 export type ScaFavorite = { name: string; town: string; blurb: string; lat: number; lng: number };
 
 export type GuestyPrefill = {
@@ -524,17 +567,9 @@ export async function publishScaUpdate(propertyId: string): Promise<ActionResult
       .eq('property_id', propertyId);
 
     // Editorial copy updates on the next Vercel deploy regardless; this refresh
-    // also pulls any Guesty-sourced data (photos/specs). Best-effort: needs
-    // Actions: write on the token, else the nightly cron backstops.
-    try {
-      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
-      await supabase
-        .from('sca_launches')
-        .update({ snapshot_refreshed_at: new Date().toISOString() })
-        .eq('property_id', propertyId);
-    } catch {
-      /* snapshot refresh not triggered (token lacks Actions scope?); cron backstops */
-    }
+    // also pulls any Guesty-sourced data (photos/specs). Non-fatal for the
+    // publish, but the outcome is recorded on the row and surfaced on the page.
+    await triggerSnapshotRefresh(propertyId);
 
     revalidate(propertyId);
     revalidatePath('/properties');
@@ -744,8 +779,9 @@ export async function publishListingCopyBatch(): Promise<
     await gh.deleteBranch(COPY_BRANCH).catch(() => {});
     try {
       await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
-    } catch {
-      /* snapshot refresh needs Actions: write; nightly cron backstops */
+    } catch (e) {
+      // Non-fatal (nightly cron backstops), but leave a trace in runtime logs.
+      console.error(`[sca] snapshot dispatch failed after copy-batch publish: ${(e as Error).message}`);
     }
     return { ok: true, prUrl: pr.html_url };
   } catch (e) {
@@ -893,17 +929,9 @@ export async function goLiveSca(
     // The /stays/[id] page is pre-rendered from the committed Guesty snapshot,
     // which won't have this listing until refreshed. Trigger that refresh now so
     // the page goes live in a couple minutes instead of waiting for the nightly
-    // cron. Best-effort: needs Actions: write on the token; a failure is logged
-    // but never fails the launch (the operator can refresh manually / cron runs).
-    try {
-      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
-      await supabase
-        .from('sca_launches')
-        .update({ snapshot_refreshed_at: new Date().toISOString() })
-        .eq('property_id', propertyId);
-    } catch {
-      /* snapshot refresh not triggered (token lacks Actions scope?); cron backstops */
-    }
+    // cron. A failure never fails the launch (the operator can refresh manually
+    // / cron runs), but it is recorded on the row and surfaced on the page.
+    await triggerSnapshotRefresh(propertyId);
 
     revalidate(propertyId);
     revalidatePath('/properties');
@@ -925,17 +953,10 @@ export async function refreshScaSiteData(
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
   if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
-  try {
-    await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
-    await supabase
-      .from('sca_launches')
-      .update({ snapshot_refreshed_at: new Date().toISOString() })
-      .eq('property_id', propertyId);
-    revalidate(propertyId);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: `Could not trigger the snapshot refresh: ${(e as Error).message}` };
-  }
+  const res = await triggerSnapshotRefresh(propertyId);
+  revalidate(propertyId);
+  if (!res.ok) return { ok: false, error: `Could not trigger the snapshot refresh: ${res.error}` };
+  return { ok: true };
 }
 
 /** Open a PR that removes the listing from the registry (the unlist path). */
