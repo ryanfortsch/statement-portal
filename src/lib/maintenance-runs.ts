@@ -295,7 +295,7 @@ async function findEligibleDays(propertyIds: string[]): Promise<Map<string, Elig
   const start = addDays(today, 1);
   const end = addDays(today, HORIZON_DAYS);
 
-  const [{ data: bData }, { data: blkData }] = await Promise.all([
+  const [{ data: bData }, { data: blkData }, { data: mirrorData }] = await Promise.all([
     fieldDb()
       .from('bookings')
       .select('property_id, check_in, check_out, status')
@@ -310,10 +310,26 @@ async function findEligibleDays(propertyIds: string[]): Promise<Map<string, Elig
       .in('property_id', propertyIds)
       .gte('date', start)
       .lte('date', end),
+    // The Guesty day mirror is the second witness: a stay that the
+    // bookings feed hasn't landed yet (sync lag, status quirks) still
+    // shows there as booked/unavailable within 30 minutes. A day only
+    // qualifies when BOTH sources call it open; a missing mirror row is
+    // not a veto (pre-sync properties still plan off bookings alone).
+    fieldDb()
+      .from('property_calendar_days')
+      .select('property_id, date, status')
+      .in('property_id', propertyIds)
+      .gte('date', start)
+      .lte('date', end),
   ]);
   const bookings = ((bData ?? []) as BookingLite[]).filter((b) => b.check_in && b.check_out);
   const blocked = new Set(
     ((blkData ?? []) as Array<{ property_id: string; date: string }>).map((b) => `${b.property_id}:${b.date}`),
+  );
+  const mirrorClosed = new Set(
+    ((mirrorData ?? []) as Array<{ property_id: string; date: string; status: string }>)
+      .filter((m) => m.status !== 'available')
+      .map((m) => `${m.property_id}:${m.date}`),
   );
 
   for (const pid of propertyIds) {
@@ -329,10 +345,83 @@ async function findEligibleDays(propertyIds: string[]): Promise<Map<string, Elig
     const eligible: EligibleDay[] = [];
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if (blocked.has(`${pid}:${d}`)) continue;
+      if (mirrorClosed.has(`${pid}:${d}`)) continue;
       if (occupiedOn(d) || checkInOn(d)) continue;
       eligible.push({ day: d, kind: occupiedOn(addDays(d, -1)) ? 'after_checkout' : 'full' });
     }
     out.set(pid, eligible);
+  }
+  return out;
+}
+
+// ─── compose-time day verification ────────────────────────────────────
+
+/** What a target day actually looks like for one property, checked fresh
+ *  against bookings AND the Guesty day mirror. Feeds the work-order email
+ *  so a plan-time "empty day" claim can't rot between planning and Send. */
+export type DayClearInfo = {
+  clear: boolean;
+  /** Why not clear, in operator words. Null when clear. */
+  reason: string | null;
+  /** Latest checkout on/before the day (guests leave ~11 AM). */
+  priorCheckout: string | null;
+  /** Earliest guest check-in on/after the day (guests arrive ~3 PM). */
+  nextCheckin: string | null;
+};
+
+export async function dayClearReport(
+  propertyIds: string[],
+  day: string,
+): Promise<Map<string, DayClearInfo>> {
+  const out = new Map<string, DayClearInfo>();
+  if (propertyIds.length === 0 || !day) return out;
+
+  const [{ data: bData }, { data: mirrorData }] = await Promise.all([
+    fieldDb()
+      .from('bookings')
+      .select('property_id, check_in, check_out, status')
+      .in('status', OCCUPANCY_STATUSES)
+      .is('duplicate_of', null)
+      .in('property_id', propertyIds)
+      .lte('check_in', addDays(day, 14))
+      .gte('check_out', addDays(day, -14)),
+    fieldDb()
+      .from('property_calendar_days')
+      .select('property_id, status')
+      .in('property_id', propertyIds)
+      .eq('date', day),
+  ]);
+  const bookings = ((bData ?? []) as BookingLite[]).filter((b) => b.check_in && b.check_out);
+  const mirror = new Map(
+    ((mirrorData ?? []) as Array<{ property_id: string; status: string }>).map((m) => [m.property_id, m.status]),
+  );
+
+  for (const pid of propertyIds) {
+    const propBookings = bookings.filter((b) => b.property_id === pid);
+    const guestStays = propBookings.filter((b) => b.status !== 'block');
+    const occupiedNight = propBookings.some((b) => b.check_in <= day && day < b.check_out);
+    const checkInToday = guestStays.some((b) => b.check_in === day);
+    const mirrorStatus = mirror.get(pid);
+    const mirrorClosed = mirrorStatus !== undefined && mirrorStatus !== 'available';
+
+    const priorCheckout =
+      propBookings
+        .filter((b) => b.check_out <= day)
+        .map((b) => b.check_out)
+        .sort()
+        .at(-1) ?? null;
+    const nextCheckin =
+      guestStays
+        .filter((b) => b.check_in >= day)
+        .map((b) => b.check_in)
+        .sort()[0] ?? null;
+
+    let reason: string | null = null;
+    if (occupiedNight) reason = 'a guest is in the house that night';
+    else if (checkInToday) reason = 'a guest checks in that day (~3 PM)';
+    else if (mirrorClosed) reason = `the Guesty calendar shows the day as ${mirrorStatus}`;
+
+    out.set(pid, { clear: !reason, reason, priorCheckout, nextCheckin });
   }
   return out;
 }

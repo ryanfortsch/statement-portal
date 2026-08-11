@@ -25,6 +25,7 @@ import { fieldDb } from '@/lib/field-db';
 import { createGmailDraft, type GmailAttachment } from '@/lib/gmail-draft';
 import { MAINTENANCE_CODE, maintenanceCodeEnabled } from '@/lib/maintenance-code';
 import { ALWAYS_CC } from '@/lib/properties';
+import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
 import type { RosterPerson } from '@/lib/work-types';
 
 /** The work-order envelope. From Dotti (the operator sending vendor work),
@@ -229,6 +230,25 @@ export async function draftWorkOrderEmail(args: {
     }
   }
 
+  // Re-verify the target day at COMPOSE time against bookings + the
+  // Guesty day mirror. The run was planned when the day was empty; a
+  // guest alteration since then must not travel into the vendor's inbox
+  // as "the house is empty that day."
+  let dayReport: Map<string, DayClearInfo> | null = null;
+  if (args.visitDate) {
+    dayReport = await dayClearReport(propertyIds, args.visitDate).catch(() => null);
+    if (dayReport) {
+      for (const pid of propertyIds) {
+        const info = dayReport.get(pid);
+        if (info && !info.clear) {
+          warnings.push(
+            `${props.get(pid)?.name ?? pid} no longer looks clear on ${fmtDay(args.visitDate)} — ${info.reason}. Re-plan the run or pick a new day before sending.`,
+          );
+        }
+      }
+    }
+  }
+
   const { subject, text } = composeBody({
     toName: args.toName,
     slips: ordered,
@@ -237,6 +257,7 @@ export async function draftWorkOrderEmail(args: {
     unattached,
     note: args.note,
     visitDate: args.visitDate ?? null,
+    dayReport,
     lockedPropIds,
   });
 
@@ -311,6 +332,9 @@ function composeBody(args: {
   unattached: { filename: string; url: string }[];
   note?: string;
   visitDate: string | null;
+  /** Fresh per-property verification of the target day (null when the
+   *  check itself failed — degrade to a dateline with no emptiness claim). */
+  dayReport: Map<string, DayClearInfo> | null;
   /** Properties in this order whose door keypad carries the maintenance code. */
   lockedPropIds: Set<string>;
 }): { subject: string; text: string } {
@@ -331,7 +355,7 @@ function composeBody(args: {
     lines.push(`Work order across ${propertyIds.length} properties, grouped below.`);
   }
   if (args.visitDate) {
-    lines.push(`Target day: ${fmtDay(args.visitDate)}. The house is empty that day.`);
+    lines.push(targetDayLine(args.visitDate, propertyIds, args.props, args.dayReport));
   }
   const withLock = propertyIds.filter((id) => args.lockedPropIds.has(id));
   if (withLock.length > 0) {
@@ -462,6 +486,62 @@ function mimeOf(filename: string): string {
     gif: 'image/gif',
   };
   return map[ext] ?? 'image/jpeg';
+}
+
+/** The email's date line, written from the FRESH day check rather than the
+ *  plan-time claim. Never asserts an empty house it can't currently see. */
+function targetDayLine(
+  day: string,
+  propertyIds: string[],
+  props: Map<string, { id: string; name: string }>,
+  report: Map<string, DayClearInfo> | null,
+): string {
+  const when = fmtDay(day);
+  if (!report || report.size === 0) return `Target day: ${when}.`;
+
+  const notClear = propertyIds.filter((pid) => report.get(pid) && !report.get(pid)!.clear);
+  if (notClear.length > 0) {
+    const names = notClear.map((pid) => props.get(pid)?.name ?? pid).join(', ');
+    const reason = report.get(notClear[0])?.reason ?? 'guests may be there';
+    return propertyIds.length === 1
+      ? `Target day: ${when} — please confirm timing with us first (${reason}).`
+      : `Target day: ${when} — please confirm timing with us first (${names}: ${reason}).`;
+  }
+
+  if (propertyIds.length > 1) {
+    return `Target day: ${when} — every home below is clear that day.`;
+  }
+
+  const info = report.get(propertyIds[0])!;
+  const parts: string[] = [];
+  if (info.priorCheckout === day) parts.push('free after the ~11 AM checkout');
+  else parts.push('the house is empty all day');
+  if (info.nextCheckin) {
+    parts.push(
+      info.nextCheckin === addDaysIso(day, 1)
+        ? 'next guest arrives the following day ~3 PM'
+        : `next guest arrives ${fmtDayShort(info.nextCheckin)}`,
+    );
+  }
+  return `Target day: ${when} — ${parts.join('; ')}.`;
+}
+
+function fmtDayShort(iso: string): string {
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 function fmtDay(iso: string): string {
