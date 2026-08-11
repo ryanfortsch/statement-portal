@@ -301,7 +301,8 @@ export function ScaLaunchClient(props: Props) {
       {!props.githubConfigured && (
         <Banner kind="err">
           <strong>GITHUB_TOKEN is not set.</strong> Add a fine-grained token scoped to ryanfortsch/stay-cape-ann
-          (Contents + Pull requests, read/write) to Helm&rsquo;s environment before opening a PR. Saving a draft still works.
+          (Contents, Pull requests, and Actions read/write; Checks and Deployments read for preview status) to
+          Helm&rsquo;s environment before opening a PR. Saving a draft still works.
         </Banner>
       )}
       {notice && (
@@ -607,6 +608,16 @@ export function ScaLaunchClient(props: Props) {
               Live on staycapeann.com.{' '}
               {row?.live_url && <a href={row.live_url} target="_blank" rel="noreferrer" style={linkStyle}>{row.live_url} ↗</a>}
             </Banner>
+            {row?.snapshot_refresh_error && (
+              <Banner kind="err">
+                <strong>Snapshot refresh did not fire</strong>
+                {row.snapshot_refresh_error_at
+                  ? ` (last tried ${new Date(row.snapshot_refresh_error_at).toLocaleString()})`
+                  : ''}
+                : {row.snapshot_refresh_error} The listing page may be stale until the nightly refresh. Once fixed,
+                click <strong>Refresh site data</strong> to clear this.
+              </Banner>
+            )}
             <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onVerify}>{busy === 'verify' ? 'Checking…' : 'Verify payments (production)'}</button>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onRefreshSiteData}>{busy === 'refresh-data' ? 'Triggering…' : 'Refresh site data'}</button>
