@@ -40,6 +40,12 @@ export type ShootRow = {
   advance_paid_at: string | null;
   advance_method: string | null;
   advance_reference: string | null;
+  // Office correction to paid-to-date (cents, delta vs the receipts total) with
+  // its audit trail. 0 = the receipts stand as-is.
+  paid_adjustment_cents: number;
+  paid_adjustment_note: string | null;
+  paid_adjustment_by_email: string | null;
+  paid_adjustment_at: string | null;
   paid_at: string | null;
   paid_method: string | null;
   paid_reference: string | null;
@@ -178,7 +184,8 @@ export async function loadContractorShoots(contractorId: string): Promise<ShootS
 export type ShootPayStats = { approvedCount: number; paidCount: number; owedCents: number; paidCents: number; pendingCents: number };
 
 export type ShootPaySummary = {
-  paidCents: number; // bases + view bonuses already paid out
+  paidCents: number; // money on the books: receipted bases + bonuses, plus any office adjustment
+  receiptsPaidCents: number; // just the per-post receipts (what actually recorded as sent)
   owedCents: number; // delivered-unpaid bases + reel bonuses ready to pay (posted, views locked, >0)
   owedBaseCents: number; // just the delivered-unpaid base portion of owedCents
   pendingCents: number; // reel bonuses still counting (base paid, posted, views not locked)
@@ -194,7 +201,13 @@ export type ShootPaySummary = {
  * post is logged); a reel's view bonus only starts once we POST it — which can
  * be weeks later, or never.
  */
-export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySummary {
+export function shootPaySummary(
+  assets: AssetRow[],
+  pay: ShootPay,
+  // Required (not optional) so a new surface can't silently drop the office's
+  // paid-to-date correction and drift from the books.
+  shoot: Pick<ShootRow, 'paid_adjustment_cents'>,
+): ShootPaySummary {
   const byId = new Map(pay.assets.map((p) => [p.assetId, p]));
   let paidCents = 0, owedCents = 0, owedBaseCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
   for (const a of assets) {
@@ -232,7 +245,11 @@ export function shootPaySummary(assets: AssetRow[], pay: ShootPay): ShootPaySumm
     }
     if (assetSettled) settled++;
   }
-  return { paidCents, owedCents, owedBaseCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
+  // The office's hand on paid-to-date: a delta against the receipts, so a later
+  // real payment still adds on top. Settlement state stays receipt-driven.
+  const receiptsPaidCents = paidCents;
+  paidCents += shoot.paid_adjustment_cents ?? 0;
+  return { paidCents, receiptsPaidCents, owedCents, owedBaseCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
 }
 
 /**
@@ -264,7 +281,7 @@ export async function getContractorShootStats(): Promise<Map<string, ShootPaySta
   for (const s of shoots) {
     const assets = byShoot.get(s.id) ?? [];
     if (assets.length === 0) continue;
-    const sum = shootPaySummary(assets, computeShootPay(cardForShoot(s, cards), assets));
+    const sum = shootPaySummary(assets, computeShootPay(cardForShoot(s, cards), assets), s);
     const cur = map.get(s.contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
     cur.paidCents += sum.paidCents;
     cur.owedCents += sum.owedCents;
@@ -311,7 +328,7 @@ export function creativeProfileStats(shoots: ShootSummary[], today: string = tod
   const upNext: ShootSummary[] = [];
 
   for (const sm of shoots) {
-    const sum = shootPaySummary(sm.assets, sm.pay);
+    const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot);
     paidCents += sum.paidCents;
     owedCents += sum.owedCents;
     pendingCents += sum.pendingCents;

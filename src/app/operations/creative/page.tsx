@@ -29,7 +29,7 @@ function fmtSettles(iso: string | null): string {
 
 /** One money line per shoot, from the per-post rollup: paid → to-pay → counting. */
 function payLine(s: ShootSummary): { text: string; tone: string; sub: string | null } {
-  const sum = shootPaySummary(s.assets, s.pay);
+  const sum = shootPaySummary(s.assets, s.pay, s.shoot);
   if (sum.fullySettled) return { text: `Paid ${dollars(sum.paidCents)}`, tone: 'var(--positive)', sub: null };
   if (sum.owedCents > 0) {
     const bits = [sum.baseDue ? `${sum.baseDue} base` : null, sum.topupDue ? `${sum.topupDue} bonus` : null].filter(Boolean).join(' + ');
@@ -92,7 +92,7 @@ export default async function CreativeBoard({
     .at(-1);
   const driveNote = sp.drive ?? null;
 
-  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay)]));
+  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot)]));
   const attention = board.filter((s) => s.pay.needsAttention);
   const owed = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.owedCents > 0);
   const done = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.fullySettled);

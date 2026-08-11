@@ -6,7 +6,7 @@ import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -47,8 +47,9 @@ export default async function ShootDetail({
   const driveNote = sp.drive ?? null;
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
-  const sum = shootPaySummary(detail.assets, pay);
+  const sum = shootPaySummary(detail.assets, pay, shoot);
   const active = shoot.status !== 'cancelled';
+  const paidAdjusted = (shoot.paid_adjustment_cents ?? 0) !== 0;
 
   const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 ? 'In flight' : 'Awaiting delivery';
 
@@ -73,8 +74,42 @@ export default async function ShootDetail({
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: sum.fullySettled ? 'var(--positive)' : 'var(--signal)' }}>{statusTag}</div>
-            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(sum.paidCents)}</div>
+            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }} title={paidAdjusted ? `Set by office${shoot.paid_adjustment_note ? ` — ${shoot.paid_adjustment_note}` : ''} · receipts ${dollars(sum.receiptsPaidCents)}` : undefined}>
+              {dollars(sum.paidCents)}
+            </div>
             <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>paid to date</div>
+            {/* The office's hand on the paid figure — for when the receipts
+                don't match what actually went out. Same override pattern as
+                the reel bonus edit: audited, and felt on every surface. */}
+            {active && (
+              <details style={{ position: 'relative', marginTop: 3 }}>
+                <summary style={{ ...quietSummary, justifyContent: 'flex-end', fontSize: 11.5 }}>{paidAdjusted ? 'set by office · edit ▾' : 'edit ▾'}</summary>
+                <div style={{ ...menuCard, left: 'auto', right: 0, textAlign: 'left' }}>
+                  <form action={setShootPaidAdjustment} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
+                    <input type="hidden" name="shoot_id" value={shoot.id} />
+                    <label style={miniLabel}>
+                      Paid to date ($)
+                      <input type="number" name="dollars" min={0} step={0.01} defaultValue={sum.paidCents / 100} style={{ ...input, width: 120 }} />
+                    </label>
+                    <label style={miniLabel}>
+                      Why <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional)</span>
+                      <input name="note" defaultValue={shoot.paid_adjustment_note ?? ''} placeholder="e.g. Venmo'd on shoot day" maxLength={300} style={input} />
+                    </label>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 250 }}>
+                      Corrects what this shoot has actually paid. Receipts total {dollars(sum.receiptsPaidCents)}; any later payment still adds on top. {detail.contractorName.split(' ')[0]} sees the same figure.
+                    </div>
+                    <PendingButton label="Save" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                  </form>
+                  {paidAdjusted && (
+                    <form action={setShootPaidAdjustment} style={{ marginTop: 8 }}>
+                      <input type="hidden" name="shoot_id" value={shoot.id} />
+                      <input type="hidden" name="clear" value="1" />
+                      <PendingButton label={`Back to receipts · ${dollars(sum.receiptsPaidCents)}`} busyLabel="Saving…" style={{ ...btnGhost, fontSize: 11.5 }} spinnerTone="ink" />
+                    </form>
+                  )}
+                </div>
+              </details>
+            )}
             {sum.owedCents > 0 && <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 4 }}>{dollars(sum.owedCents)} to pay now</div>}
             {sum.pendingCents > 0 && <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(sum.pendingCents)} bonus counting</div>}
           </div>
@@ -410,8 +445,9 @@ export default async function ShootDetail({
           )}
         </div>
 
-        {/* Cancel — only while nothing on the shoot has been paid. */}
-        {active && sum.paidCents === 0 && (
+        {/* Cancel — only while nothing on the shoot has been paid, by receipt
+            OR by an office paid-to-date edit (which is itself a money record). */}
+        {active && sum.paidCents === 0 && sum.receiptsPaidCents === 0 && (
           <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
             <form action={cancelShoot} style={{ margin: 0 }}>
               <input type="hidden" name="shoot_id" value={shoot.id} />

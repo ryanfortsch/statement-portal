@@ -148,7 +148,7 @@ async function freezeCardIfNeeded(shoot: { id: string; card_snapshot: unknown },
 async function refreshShootSettlement(shootId: string): Promise<void> {
   const detail = await loadShootDetail(shootId);
   if (!detail || detail.shoot.status === 'cancelled') return;
-  const sum = shootPaySummary(detail.assets, detail.pay);
+  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot);
   const status = sum.fullySettled ? 'settled' : 'shot';
   if (detail.shoot.status !== status || !!detail.shoot.paid_at !== sum.fullySettled) {
     await fieldDb()
@@ -393,6 +393,52 @@ export async function setAssetTopupOverride(formData: FormData): Promise<void> {
     .is('topup_paid_at', null); // a paid bonus is a receipt — never rewrite it
 
   await refreshShootSettlement(shootId);
+  revalidatePath(`/operations/creative/${shootId}`);
+  revalidatePath('/operations/creative');
+  revalidatePath('/operations/contractors');
+}
+
+/**
+ * Office edit on the shoot's PAID TO DATE. The operator types the correct
+ * total; we store the DELTA against the per-post receipts, so later real
+ * payments still add on top. by/at/note are the audit trail. Saving the
+ * receipts total itself (or "back to receipts") clears the adjustment.
+ * No receipt email — this is bookkeeping, not a payment event.
+ */
+export async function setShootPaidAdjustment(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const clearing = String(formData.get('clear') || '') === '1';
+  const detail = await loadShootDetail(shootId);
+  if (!detail || detail.shoot.status === 'cancelled') return;
+  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot);
+
+  let adjustment = 0;
+  let note: string | null = null;
+  if (!clearing) {
+    // Accept the dollar forms the page shows ("$400", "412.50", "1,200").
+    const d = Number(String(formData.get('dollars') ?? '').trim().replace(/[$,\s]/g, ''));
+    if (!Number.isFinite(d) || d < 0) return;
+    // Fat-finger guard, same philosophy as the bonus override: a shoot's paid
+    // total lives in rate-card territory, never five figures.
+    const target = Math.min(Math.round(d * 100), 2_000_000);
+    adjustment = target - sum.receiptsPaidCents;
+    note = String(formData.get('note') || '').trim().slice(0, 300) || null;
+  }
+
+  await fieldDb()
+    .from('creative_shoots')
+    .update({
+      paid_adjustment_cents: adjustment,
+      paid_adjustment_note: adjustment === 0 ? null : note,
+      paid_adjustment_by_email: adjustment === 0 ? null : email,
+      paid_adjustment_at: adjustment === 0 ? null : new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', shootId)
+    .neq('status', 'cancelled');
+
   revalidatePath(`/operations/creative/${shootId}`);
   revalidatePath('/operations/creative');
   revalidatePath('/operations/contractors');
