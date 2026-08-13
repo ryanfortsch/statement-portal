@@ -91,11 +91,17 @@ function fmtStampDate(iso: string): string {
     return iso;
   }
 }
-/** When a packet was completed: office approval, else the paid/submitted stamp,
- *  else the visit day. ISO timestamps sort chronologically as plain text, so this
- *  doubles as the sort key for the Completed section. */
+/** Office stamp (approval, else paid/submitted): the TIEBREAK for the
+ *  Completed section's sort. The section leads with visit_date — the day the
+ *  work was actually done — because approval can lag the visit by days and
+ *  the office reads this list as a work history, not an approval log. */
 function completedAt(p: PacketRow): string {
   return p.approved_at ?? p.paid_at ?? p.submitted_at ?? `${p.visit_date}T00:00:00`;
+}
+/** Visit-day version of fmtStampDate: date-only input pinned to noon UTC so
+ *  the ET render can't slip a calendar day. */
+function fmtVisitDay(d: string): string {
+  return fmtStampDate(`${d}T12:00:00Z`);
 }
 function todayStr(): string {
   return new Date().toISOString().split('T')[0];
@@ -150,7 +156,11 @@ export default async function PacketsBoard({
   // (the noise) collapse away. Both most-recent first.
   const completed = packets
     .filter((p) => p.status === 'approved')
-    .sort((a, b) => completedAt(b).localeCompare(completedAt(a)));
+    .sort((a, b) =>
+      b.visit_date !== a.visit_date
+        ? b.visit_date.localeCompare(a.visit_date)
+        : completedAt(b).localeCompare(completedAt(a)),
+    );
   const cancelled = packets
     .filter((p) => p.status === 'cancelled')
     .sort((a, b) => (b.updated_at ?? b.visit_date).localeCompare(a.updated_at ?? a.visit_date));
@@ -397,10 +407,11 @@ function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: bool
           </span>
         )}
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
-          {/* Completed rows lead with the completion date (what the section is
-              sorted by); everything else leads with the visit date. */}
-          {p.status === 'approved' && (p.approved_at ?? p.paid_at ?? p.submitted_at)
-            ? `Completed ${fmtStampDate((p.approved_at ?? p.paid_at ?? p.submitted_at)!)}`
+          {/* Every row leads with the day the work was actually done. The
+              approval stamp lives on the detail page's event log — showing it
+              here read as the work date and confused the history. */}
+          {p.status === 'approved'
+            ? `Visited ${fmtVisitDay(p.visit_date)}`
             : fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
           {p.complete_by ? ` · due ${fmtVisitTime(p.complete_by)}` : ''}
           {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
