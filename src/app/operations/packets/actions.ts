@@ -24,6 +24,17 @@ async function staffEmail(): Promise<string> {
   return session.user.email;
 }
 
+// Fat-finger ceilings for operator-entered pay. A purely relative cap breaks
+// on small-estimate packets: a $33.34 estimate capped the final at $100.02
+// while the system's own time-based suggestion was $174 and the operator
+// typed $225 - silently clamped (2026-08-13). The floor keeps every sane
+// hand-set number available; the multiple still catches an added digit on
+// larger packets.
+const FINAL_CLAMP_FLOOR_CENTS = 100_000; // $1,000
+const BONUS_CLAMP_FLOOR_CENTS = 50_000; // $500
+const finalCeiling = (postedCents: number) => Math.max(FINAL_CLAMP_FLOOR_CENTS, postedCents * 3);
+const bonusCeiling = (postedCents: number) => Math.max(BONUS_CLAMP_FLOOR_CENTS, postedCents * 2);
+
 // ── Attach work slips + instructions to a packet stop ──────────────────
 // Hand the assigned inspector extra tasks per property: open work slips (with a
 // per-slip note) plus free-form per-stop / per-packet instructions. Allowed
@@ -714,7 +725,7 @@ export async function setPacketBonus(formData: FormData): Promise<void> {
   const packet = pk as { posted_price_cents: number; status: string; paid_at: string | null } | null;
   if (!packet || packet.paid_at || !isPayoutAdjustableStatus(packet.status)) return;
 
-  const bonusCents = Math.min(Math.round(bonusDollars * 100), packet.posted_price_cents * 2);
+  const bonusCents = Math.min(Math.round(bonusDollars * 100), bonusCeiling(packet.posted_price_cents));
   // Re-guard status AND paid_at on the write itself (the pre-read can race a
   // concurrent requestChanges / mark-paid), and only audit when a row actually
   // changed so packet_events never claims a bonus that didn't land.
@@ -745,9 +756,10 @@ export async function setPacketBonus(formData: FormData): Promise<void> {
 
 /** Lock in the FINAL base payout, set from actual time on site. Editable while
  *  the packet is submitted or approved-and-unpaid (same window as the bonus).
- *  An empty value clears it back to the estimate. Guarded to 0..3x the estimate
- *  against a fat-finger. Methodology stays office-side; the contractor just
- *  sees the number settle from "estimated" to final. */
+ *  An empty value clears it back to the estimate. Ceiling = max($1,000, 3x the
+ *  estimate) against a fat-finger - the floor matters when the estimate ran
+ *  small. Methodology stays office-side; the contractor just sees the number
+ *  settle from "estimated" to final. */
 export async function finalizePacketPayout(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
@@ -766,7 +778,7 @@ export async function finalizePacketPayout(formData: FormData): Promise<void> {
   if (raw !== '') {
     const d = Number(raw);
     if (!Number.isFinite(d) || d < 0) return;
-    finalCents = Math.min(Math.round(d * 100), packet.posted_price_cents * 3);
+    finalCents = Math.min(Math.round(d * 100), finalCeiling(packet.posted_price_cents));
   }
 
   // Re-guard status + paid_at on the write (the pre-read can race a concurrent
@@ -1079,10 +1091,10 @@ export async function approvePacket(formData: FormData): Promise<void> {
   if (bonusCents > 0 || finalRaw !== '') {
     const { data: pk } = await fieldDb().from('inspection_packets').select('posted_price_cents').eq('id', packetId).maybeSingle();
     const posted = (pk as { posted_price_cents: number } | null)?.posted_price_cents ?? 0;
-    if (bonusCents > 0) bonusCents = Math.min(bonusCents, posted * 2);
+    if (bonusCents > 0) bonusCents = Math.min(bonusCents, bonusCeiling(posted));
     if (finalRaw !== '') {
       const d = Number(finalRaw);
-      if (Number.isFinite(d) && d >= 0) finalCents = Math.min(Math.round(d * 100), posted * 3);
+      if (Number.isFinite(d) && d >= 0) finalCents = Math.min(Math.round(d * 100), finalCeiling(posted));
     }
   }
 
