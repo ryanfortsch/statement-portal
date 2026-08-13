@@ -1986,11 +1986,13 @@ function QuickPhotoButton({
 
   return (
     <>
+      {/* No capture="environment": the OS chooser offers camera AND photo
+          library, so shots taken while walking the house can be attached
+          when the slips get filed at the end (Delaney's request, Aug 6). */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         style={{ display: 'none' }}
         disabled={disabled || uploading}
         onChange={(e) => {
