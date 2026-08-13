@@ -10,6 +10,15 @@ import { reloadedForNewDeployment } from '@/lib/version-skew';
 // for minutes", 2026-08-04). Long enough that a legitimately slow action
 // (approve sending reports, publish texting inspectors) won't trip it.
 const STUCK_PENDING_MS = 10000;
+// If it's STILL pending here, the response is lost, not slow - Vercel Hobby
+// sheds an action response mid-burst after committing the write ("SAVING…"
+// spun 2+ minutes on 2026-08-13 while the value had landed in 11 seconds),
+// and the version probe stands down when no deploy landed. Reload once: the
+// page renders whatever the action committed, and a genuinely lost write just
+// brings the form back to try again. Kept well above any legitimate action
+// runtime (post-#1206 actions answer in seconds; publish's SMS loop is the
+// slowest at a handful of seconds).
+const FORCE_RELOAD_MS = 30000;
 
 /**
  * House submit button for server-action forms: visibly disables and shows a
@@ -65,15 +74,22 @@ export function SubmitButton({
   const busy = status.pending && mine && !disabled;
   const lockout = status.pending && !disabled;
 
-  // Stuck-pending watchdog: a spinner that outlives any reasonable action
-  // runs the version-skew check. On a stale bundle this hard-reloads the
-  // tab (at most once per deploy), landing on the state the action already
-  // committed; when versions match it does nothing, so a genuinely slow
-  // action or flaky network keeps its normal behavior.
+  // Stuck-pending watchdog, two rungs. At 10s: the version-skew check — on a
+  // stale bundle this hard-reloads the tab (at most once per deploy), landing
+  // on the state the action already committed. At 30s: the response is lost
+  // (Hobby shed), not slow — re-probe for a deploy, then reload regardless.
+  // Both timers clear the moment the action actually resolves.
   useEffect(() => {
     if (!status.pending) return;
     const t = setTimeout(() => void reloadedForNewDeployment(), STUCK_PENDING_MS);
-    return () => clearTimeout(t);
+    const t2 = setTimeout(async () => {
+      if (await reloadedForNewDeployment()) return;
+      window.location.reload();
+    }, FORCE_RELOAD_MS);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(t2);
+    };
   }, [status.pending]);
   const s = style ?? {};
   const spinner =
