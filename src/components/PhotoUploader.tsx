@@ -20,8 +20,14 @@ type Props = {
 
 /**
  * Mobile-first photo uploader. Renders existing thumbnails (with a small
- * remove button) plus a "+ Photo" tile that opens the camera on phones
- * (capture="environment") and the file picker on desktop.
+ * remove button) plus a "+ Photo" tile that opens the OS chooser on phones
+ * (camera or photo library) and the file picker on desktop.
+ *
+ * Deliberately NO capture="environment": forcing the camera blocked the
+ * photo library, and Delaney's real workflow is shooting as she walks, then
+ * filing work slips with those shots when the inspection is done (her own
+ * work-slip request, 2026-08-06). The OS sheet keeps "Take Photo" one tap
+ * away for the live case.
  *
  * Uploads happen one at a time to /api/upload. On success the URL is
  * appended to `value` via onChange. The component does not write to
@@ -74,7 +80,6 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         style={{ display: 'none' }}
         disabled={disabled || uploading}
         onChange={(e) => {
