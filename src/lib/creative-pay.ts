@@ -142,7 +142,10 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
     const locked = !!a.views_locked_at || overridden;
     const short = a.kind === 'reel' && a.duration_seconds != null && a.duration_seconds < card.minSeconds;
     const disqualified = !a.qualifies || short;
-    const locksOn = a.posted_at ? addDays(a.posted_at, card.countDays) : null;
+    // Only a REEL runs a count clock. A carousel is flat-rate: posting it
+    // starts nothing, so it can never read overdue or hold up settlesOn
+    // (a posted carousel was tripping the read-views nag on settled shoots).
+    const locksOn = a.kind === 'reel' && a.posted_at ? addDays(a.posted_at, card.countDays) : null;
 
     let currentCents: number;
     let ceilingCents: number;
