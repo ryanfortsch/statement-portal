@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { fetchPendingCounts, jitteredInterval } from '@/lib/pending-count-client';
 
 /**
  * Small pill rendered next to the Messaging tab in the masthead nav when
@@ -30,17 +31,16 @@ export function MessagingPendingBadge() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      try {
-        const res = await fetch('/api/messaging/pending-count', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = (await res.json()) as { guests?: number };
-        if (!cancelled) setCount(typeof data.guests === 'number' ? data.guests : 0);
-      } catch {
-        // Silent: a network hiccup shouldn't surface as a nav badge error.
-      }
+      // Deduped + TTL'd with the sub-tab pills via pending-count-client.
+      const data = await fetchPendingCounts();
+      if (!data) return;
+      if (!cancelled) setCount(typeof data.guests === 'number' ? data.guests : 0);
     };
     load();
-    const t = setInterval(load, 30_000);
+    // Hidden tabs skip ticks; jitter desynchronizes multiple open tabs.
+    const t = setInterval(() => {
+      if (!document.hidden) load();
+    }, jitteredInterval(30_000));
     const onVisible = () => {
       if (document.visibilityState === 'visible') load();
     };
