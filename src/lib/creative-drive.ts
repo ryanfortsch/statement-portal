@@ -340,9 +340,13 @@ async function collectFiles(
       for (const c of children) {
         if (c.mimeType === FOLDER_MIME) {
           const n = norm(c.name);
-          const isDump = n.includes('raw') || n.includes('b roll') || n.includes('broll');
+          // Outside finals, "drone" folders are dumps too (Dotti parks the DJI
+          // masters there) — but inside finals a folder may NAME a deliverable
+          // ("Drone reel"), so the drone skip never applies there.
+          const insideFinals = folder.inFinals || c.id === finalsId;
+          const isDump = n.includes('raw') || n.includes('b roll') || n.includes('broll') || (!insideFinals && n.includes('drone'));
           if (folder.depth < 3 && !isDump) {
-            next.push({ id: c.id, name: c.name, depth: folder.depth + 1, inFinals: folder.inFinals || c.id === finalsId });
+            next.push({ id: c.id, name: c.name, depth: folder.depth + 1, inFinals: insideFinals });
           }
         } else {
           out.push({ ...c, parentFolderId: folder.id, parentFolderName: folder.name, inFinals: folder.inFinals });
