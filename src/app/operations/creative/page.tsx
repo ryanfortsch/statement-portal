@@ -74,7 +74,7 @@ export default async function CreativeBoard({
     const liveFiles = files.filter((f) => !f.trashed_at).length;
     const anyPaid = s.assets.some((a) => a.base_paid_at || a.topup_paid_at);
     if (!anyPaid && s.shoot.drive_finals_folder_id) {
-      const p = finalsProgress(s.card, files);
+      const p = finalsProgress(s.card, files, s.shoot.drive_finals_folder_id);
       driveChips.set(s.shoot.id, p.complete ? `full set in Drive · ${liveFiles} files` : `finals: ${finalsProgressLabel(p)}`);
     } else if (liveFiles > 0) {
       driveChips.set(s.shoot.id, `${liveFiles} file${liveFiles === 1 ? '' : 's'} in Drive`);
