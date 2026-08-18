@@ -222,7 +222,10 @@ const bareName = (name: string) => norm(name.replace(/\.[A-Za-z0-9]{2,5}$/, ''))
  *  "84 Thatcher Reel 1 No Music.mp4" and "84 Thatcher Reel 1.mp4" both come
  *  out "84 thatcher reel 1", so they read as ONE reel. */
 export function versionlessName(name: string): string {
-  return bareName(name)
+  // "Reel.mp4" re-uploaded becomes "Reel (1).mp4" — Drive's duplicate marker,
+  // stripped before norm() dissolves the parens. Human numbering ("Reel 1")
+  // has no parens and is untouched.
+  return bareName(name.replace(/\s*\(\d+\)(?=\.[A-Za-z0-9]{2,5}$|$)/, ''))
     .replace(/\b(?:no|without|with|w|wo)\s+(?:music|audio|sound|vocals?|voiceover)\b/g, ' ')
     .replace(/\b(?:music|audio|sound)\s+(?:version|cut|mix|only)\b/g, ' ')
     .replace(/\s+/g, ' ')
