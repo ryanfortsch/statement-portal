@@ -181,7 +181,7 @@ export default async function ShootDetail({
             {/* The package gate, in plain words: nothing is owed until the full
                 rate-card set sits in the Finals folder. */}
             {shoot.drive_finals_folder_id && !detail.assets.some((a) => a.base_paid_at || a.topup_paid_at) && (() => {
-              const p = finalsProgress(card, driveFiles);
+              const p = finalsProgress(card, driveFiles, shoot.drive_finals_folder_id);
               return (
                 <div style={{ marginTop: 10, borderLeft: `3px solid ${p.complete ? 'var(--positive)' : 'var(--tide)'}`, background: p.complete ? 'rgba(46,125,80,0.06)' : 'rgba(78,124,158,0.06)', padding: '8px 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, maxWidth: 560 }}>
                   {p.complete ? (
@@ -213,13 +213,38 @@ export default async function ShootDetail({
               <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-4)' }}>
                 Folder linked — nothing uploaded yet. Files show here as they land; pay triggers when the full set is in the Finals folder.
               </div>
-            ) : (
-              <div style={{ marginTop: 10 }}>
-                {driveFiles.map((f) => (
-                  <DriveFileLine key={f.id} f={f} assetLabel={assetLabelFor(f, detail.assets)} />
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              // The list stays about DELIVERY: finals files + anything linked
+              // to an asset. Raw takes dumped in the shoot folder (drone
+              // masters, sidecars) are evidence, not deliverables — folded
+              // away so they can't bury the package.
+              const deliverables = driveFiles.filter((f) => f.in_finals || f.asset_id);
+              const raws = driveFiles.filter((f) => !f.in_finals && !f.asset_id);
+              return (
+                <div style={{ marginTop: 10 }}>
+                  {deliverables.map((f) => (
+                    <DriveFileLine key={f.id} f={f} assetLabel={assetLabelFor(f, detail.assets)} />
+                  ))}
+                  {deliverables.length === 0 && (
+                    <div style={{ fontSize: 13, color: 'var(--ink-4)', padding: '2px 0 6px' }}>
+                      Nothing in the Finals folder yet — pay triggers when the full set lands there.
+                    </div>
+                  )}
+                  {raws.length > 0 && (
+                    <details style={{ marginTop: 6 }}>
+                      <summary style={{ ...quietSummary, fontSize: 11.5 }}>
+                        {raws.length} raw file{raws.length === 1 ? '' : 's'} outside finals ▾
+                      </summary>
+                      <div style={{ marginTop: 4 }}>
+                        {raws.map((f) => (
+                          <DriveFileLine key={f.id} f={f} assetLabel={assetLabelFor(f, detail.assets)} />
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
 
             {shoot.drive_folder_id && (
               <details style={{ marginTop: 10 }}>

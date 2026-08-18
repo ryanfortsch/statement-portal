@@ -16,7 +16,10 @@
  *
  * Classification inside finals: video/* = a reel (30s+ qualifies, from Drive
  * metadata); image/* files sharing one immediate parent = one carousel.
- * Folders named like raw/b-roll are skipped everywhere.
+ * Reels group like carousels do: videos inside one subfolder of finals — or
+ * loose ones whose names differ only by version wording ("no music") — are
+ * VERSIONS of one reel, one asset, one base. Folders named like raw/b-roll
+ * are skipped everywhere.
  *
  * Money safety: this file never pays anything, and never deletes or edits a
  * paid, posted, viewed, or view-locked asset. The only assets it removes are
@@ -212,10 +215,39 @@ export async function loadDriveFilesByShoots(shootIds: string[]): Promise<Map<st
 
 const isQualifyingDuration = (card: RateCard, d: number | null) => d == null || d >= card.minSeconds;
 
+/** Filename without its extension, in the matching alphabet. */
+const bareName = (name: string) => norm(name.replace(/\.[A-Za-z0-9]{2,5}$/, ''));
+
+/** A filename's deliverable name: extension off, version wording removed —
+ *  "84 Thatcher Reel 1 No Music.mp4" and "84 Thatcher Reel 1.mp4" both come
+ *  out "84 thatcher reel 1", so they read as ONE reel. */
+export function versionlessName(name: string): string {
+  return bareName(name)
+    .replace(/\b(?:no|without|with|w|wo)\s+(?:music|audio|sound|vocals?|voiceover)\b/g, ' ')
+    .replace(/\b(?:music|audio|sound)\s+(?:version|cut|mix|only)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A finals video's deliverable identity. The contributor delivers a reel's
+ *  versions together — either in one subfolder of finals ("Reel 1", the same
+ *  convention the carousel photo grouping already uses) or loose with version
+ *  suffixes. Same key = same reel = one asset, one base, one slot in the
+ *  package gate. */
+export function reelGroupKey(
+  f: { parent_folder_id: string | null; name: string },
+  finalsFolderId: string | null,
+): string {
+  if (f.parent_folder_id && f.parent_folder_id !== finalsFolderId) return `folder:${f.parent_folder_id}`;
+  return `name:${versionlessName(f.name)}`;
+}
+
 /** Package progress from the finals folder's files: how many card-qualifying
  *  reels and carousel photo sets are in, and whether the set is complete —
- *  the single formula the sync gate, the board chip, and the shoot page share. */
-export function finalsProgress(card: RateCard, files: DriveFileRow[]): {
+ *  the single formula the sync gate, the board chip, and the shoot page share.
+ *  finalsFolderId is required so version GROUPS resolve the same way here as
+ *  in the sync: a music + no-music pair is one reel, never two. */
+export function finalsProgress(card: RateCard, files: DriveFileRow[], finalsFolderId: string | null): {
   reelsIn: number;
   reelsNeed: number;
   carouselsIn: number;
@@ -223,8 +255,16 @@ export function finalsProgress(card: RateCard, files: DriveFileRow[]): {
   complete: boolean;
 } {
   const finals = files.filter((f) => f.in_finals && !f.trashed_at);
-  const reelsIn = finals.filter(
-    (f) => f.mime_type?.startsWith('video/') && isQualifyingDuration(card, f.duration_seconds),
+  // One reel = one deliverable GROUP of videos; it qualifies if any version
+  // runs long enough (the cuts can differ by a few seconds).
+  const reelGroups = new Map<string, DriveFileRow[]>();
+  for (const f of finals) {
+    if (!f.mime_type?.startsWith('video/')) continue;
+    const k = reelGroupKey(f, finalsFolderId);
+    reelGroups.set(k, [...(reelGroups.get(k) ?? []), f]);
+  }
+  const reelsIn = [...reelGroups.values()].filter((g) =>
+    g.some((f) => isQualifyingDuration(card, f.duration_seconds)),
   ).length;
   const groups = new Set(
     finals.filter((f) => f.mime_type?.startsWith('image/')).map((f) => f.parent_folder_id ?? 'loose'),
@@ -571,7 +611,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         last_seen_at: now,
         trashed_at: null,
       }));
-      const progress = finalsProgress(card, rowsForProgress);
+      const progress = finalsProgress(card, rowsForProgress, sr.finalsFolderId);
       let assetTouches = 0;
 
       if (anyPaid) {
@@ -580,16 +620,28 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         // create or remove anything.
         const linked = new Set(states.map((s) => s.assetId).filter((v): v is string => !!v));
         const freeOf = (kind: 'reel' | 'carousel') => assets.filter((a) => a.kind === kind && !linked.has(a.id));
+        // A reel's versions (music / no-music) share one asset: remember which
+        // asset each video group claimed so the pair can't soak up two.
+        const reelAssetByGroup = new Map<string, string>();
+        for (const s of states) {
+          if (s.assetId && s.mime?.startsWith('video/')) {
+            reelAssetByGroup.set(reelGroupKey({ parent_folder_id: s.parentFolderId, name: s.name }, sr.finalsFolderId), s.assetId);
+          }
+        }
         for (const s of states) {
           if (s.assetId || !s.mime) continue;
           const kind = s.mime.startsWith('video/') ? 'reel' : s.mime.startsWith('image/') ? 'carousel' : null;
           if (!kind) continue;
-          const free = freeOf(kind)[0];
-          if (!free) continue;
-          linked.add(free.id);
-          s.assetId = free.id;
-          sr.linkedToExisting++;
-          await db.from('creative_drive_files').update({ asset_id: free.id }).eq('id', s.rowId);
+          const groupKey = kind === 'reel' ? reelGroupKey({ parent_folder_id: s.parentFolderId, name: s.name }, sr.finalsFolderId) : null;
+          const grouped = groupKey ? reelAssetByGroup.get(groupKey) : undefined;
+          const free = grouped ? null : freeOf(kind)[0];
+          const assetId = grouped ?? free?.id;
+          if (!assetId) continue;
+          linked.add(assetId);
+          s.assetId = assetId;
+          if (groupKey) reelAssetByGroup.set(groupKey, assetId);
+          if (!grouped) sr.linkedToExisting++;
+          await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', s.rowId);
         }
       } else if (!progress.complete) {
         sr.packageComplete = false;
@@ -640,24 +692,36 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
           if (s.assetId && s.parentFolderId && s.mime?.startsWith('image/')) carouselByFolder.set(s.parentFolderId, s.assetId);
         }
 
+        // Videos first, as deliverable GROUPS: a reel's versions (the music +
+        // no-music cuts, in one subfolder or name-suffixed) share ONE asset —
+        // one base, one cap slot. The group qualifies if any version runs long
+        // enough; the version without version wording (else the longest) names it.
+        const videoGroups = new Map<string, FileState[]>();
         for (const s of finalsFiles) {
-          if (s.assetId) continue;
-          const kind = s.mime!.startsWith('video/') ? 'reel' : s.mime!.startsWith('image/') ? 'image' : 'other';
-          let assetId: string | null = null;
-
-          if (kind === 'reel') {
-            if (!isQualifyingDuration(card, s.duration)) {
+          if (!s.mime!.startsWith('video/')) continue;
+          const k = reelGroupKey({ parent_folder_id: s.parentFolderId, name: s.name }, sr.finalsFolderId);
+          videoGroups.set(k, [...(videoGroups.get(k) ?? []), s]);
+        }
+        for (const group of videoGroups.values()) {
+          const dur = group.reduce<number | null>((m, s) => (s.duration != null && (m == null || s.duration > m) ? s.duration : m), null);
+          let assetId: string | null = group.find((s) => s.assetId)?.assetId ?? null;
+          if (!assetId) {
+            if (!isQualifyingDuration(card, dur)) {
               addNote(`a finals video is under ${card.minSeconds}s — recorded, not logged`);
               continue;
             }
+            const primary =
+              group.find((s) => bareName(s.name) === versionlessName(s.name)) ??
+              [...group].sort((a, b) => (b.duration ?? 0) - (a.duration ?? 0))[0];
+            const submittedAt = group.map((s) => s.createdTime).filter((v): v is string => !!v).sort()[0] ?? now;
             const existing = freeReels.shift();
             if (existing) {
               assetId = existing.id;
               sr.linkedToExisting++;
               if (!existing.base_paid_at && !existing.views_locked_at) {
                 const patch: Record<string, unknown> = { updated_at: now };
-                if (!existing.submitted_by_contractor_at) patch.submitted_by_contractor_at = s.createdTime ?? now;
-                if (existing.duration_seconds == null && s.duration != null) patch.duration_seconds = s.duration;
+                if (!existing.submitted_by_contractor_at) patch.submitted_by_contractor_at = submittedAt;
+                if (existing.duration_seconds == null && dur != null) patch.duration_seconds = dur;
                 await db.from('creative_assets').update(patch).eq('id', existing.id).is('views_locked_at', null);
               }
             } else if (qualifyingReelAssets() < card.maxPerShoot + 1) {
@@ -666,10 +730,10 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 .insert({
                   shoot_id: shoot.id,
                   kind: 'reel',
-                  title: titleFromFilename(s.name),
+                  title: titleFromFilename(primary.name),
                   platform: 'instagram',
-                  duration_seconds: s.duration,
-                  submitted_by_contractor_at: s.createdTime ?? now,
+                  duration_seconds: dur,
+                  submitted_by_contractor_at: submittedAt,
                 })
                 .select(ASSET_SELECT)
                 .single();
@@ -680,9 +744,27 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 report.assetsCreated++;
               }
             } else {
-              addNote(`more finals videos than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`);
+              addNote(`more finals reels than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`);
             }
-          } else if (kind === 'image') {
+          }
+          if (assetId) {
+            linked.add(assetId);
+            for (const s of group) {
+              if (s.assetId) continue;
+              s.assetId = assetId;
+              assetTouches++;
+              await db.from('creative_drive_files').update({ asset_id: assetId }).eq('id', s.rowId);
+            }
+          }
+        }
+
+        for (const s of finalsFiles) {
+          if (s.assetId) continue;
+          if (s.mime!.startsWith('video/')) continue; // reels handled above, as groups
+          const kind = s.mime!.startsWith('image/') ? 'image' : 'other';
+          let assetId: string | null = null;
+
+          if (kind === 'image') {
             const groupKey = s.parentFolderId ?? 'loose';
             const grouped = carouselByFolder.get(groupKey);
             if (grouped) {
