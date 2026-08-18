@@ -65,6 +65,36 @@ export default function GlobalError({ error, reset }: Props) {
     }
   }, [error, staleDeploy]);
 
+  // Transient failures (a request shed during a polling burst, a brief
+  // upstream blip) heal on re-render, but this screen used to sit until
+  // someone pressed Try again - on the auto-refreshing messaging tabs that
+  // read as "the page errors constantly". Retry automatically with backoff,
+  // a few times per 5-minute window; a genuinely broken page re-trips the
+  // boundary, spends the retries, and stays here with the manual buttons.
+  useEffect(() => {
+    if (staleDeploy) return;
+    const KEY = 'helm-error-auto-retry';
+    let attempt = 0;
+    try {
+      const raw = window.sessionStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { n?: number; at?: number };
+        if (Date.now() - (parsed.at || 0) < 5 * 60_000) attempt = parsed.n || 0;
+      }
+    } catch {
+      // sessionStorage unavailable: still retry, just without the cap.
+    }
+    if (attempt >= 4) return;
+    const delay = Math.min(8_000 * 2 ** attempt, 60_000) * (0.8 + Math.random() * 0.4);
+    const t = setTimeout(() => {
+      try {
+        window.sessionStorage.setItem(KEY, JSON.stringify({ n: attempt + 1, at: Date.now() }));
+      } catch {}
+      reset();
+    }, delay);
+    return () => clearTimeout(t);
+  }, [staleDeploy, reset]);
+
   // While the reload is in flight, don't flash the scary error screen.
   if (staleDeploy) {
     return (
@@ -100,8 +130,9 @@ export default function GlobalError({ error, reset }: Props) {
           The page hit an error.
         </h1>
         <p style={{ fontSize: 15, color: 'var(--ink-3)', marginTop: 18, lineHeight: 1.6 }}>
-          The failure was logged. You can try the same page again, or go back to the home
-          screen and pick a different route.
+          The failure was logged, and Helm will retry on its own in a few seconds.
+          You can also try the same page again now, or go back to the home screen
+          and pick a different route.
         </p>
 
         {error?.digest && (

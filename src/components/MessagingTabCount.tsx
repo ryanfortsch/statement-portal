@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { fetchPendingCounts, jitteredInterval } from '@/lib/pending-count-client';
 
 /**
  * Small count pill on a Messaging sub-tab (Guests / Owners) so the operator
@@ -22,22 +23,24 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      try {
-        const res = await fetch('/api/messaging/pending-count', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = (await res.json()) as { guests?: number; owners?: number; cleaners?: number; contractors?: number };
-        const n =
-          category === 'guests' ? data.guests :
-          category === 'owners' ? data.owners :
-          category === 'cleaners' ? data.cleaners :
-          data.contractors;
-        if (!cancelled) setCount(typeof n === 'number' ? n : 0);
-      } catch {
-        // Silent: a network hiccup shouldn't surface as a tab error.
-      }
+      // Deduped across the badge + all four tab pills (and TTL'd), so a tab
+      // makes one request per window instead of five.
+      const data = await fetchPendingCounts();
+      if (!data) return;
+      const n =
+        category === 'guests' ? data.guests :
+        category === 'owners' ? data.owners :
+        category === 'cleaners' ? data.cleaners :
+        data.contractors;
+      if (!cancelled) setCount(typeof n === 'number' ? n : 0);
     };
     load();
-    const t = setInterval(load, 30_000);
+    // Hidden tabs skip their ticks (the visibilitychange listener below
+    // catches them up the moment they're fronted); the jittered period keeps
+    // several open tabs from polling in lockstep.
+    const t = setInterval(() => {
+      if (!document.hidden) load();
+    }, jitteredInterval(30_000));
     const onVisible = () => {
       if (document.visibilityState === 'visible') load();
     };
