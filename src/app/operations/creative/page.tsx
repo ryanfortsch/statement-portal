@@ -38,6 +38,17 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
   if (sum.pendingCents > 0) {
     return { text: `${dollars(sum.pendingCents)} counting`, tone: 'var(--ink-3)', sub: s.pay.settlesOn ? `settles ${fmtSettles(s.pay.settlesOn)}` : 'bonus counting' };
   }
+  // A posted reel mid-count whose views haven't beaten the base yet: the
+  // climbing bonus is $0-so-far, so the pending branch stays quiet — but the
+  // clock IS the story. Say so instead of a bare "in flight".
+  const onClock = s.pay.assets.some((p) => p.counts && p.locksOn && !p.locked);
+  if (onClock) {
+    return {
+      text: sum.paidCents > 0 ? `${dollars(sum.paidCents)} paid` : 'Posted',
+      tone: 'var(--ink)',
+      sub: s.pay.settlesOn ? `bonus counting · settles ${fmtSettles(s.pay.settlesOn)}` : 'bonus counting',
+    };
+  }
   if (sum.paidCents > 0) return { text: `${dollars(sum.paidCents)} paid`, tone: 'var(--ink)', sub: 'in flight' };
   return { text: s.pay.state === 'empty' ? 'No posts yet' : 'Awaiting posts', tone: 'var(--ink-4)', sub: null };
 }
