@@ -51,7 +51,11 @@ export default async function ShootDetail({
   const active = shoot.status !== 'cancelled';
   const paidAdjusted = (shoot.paid_adjustment_cents ?? 0) !== 0;
 
-  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 ? 'In flight' : 'Awaiting delivery';
+  // A posted reel mid-count keeps the shoot "In flight" even while its
+  // climbing bonus is still $0 — the delivery already happened, so this
+  // state must never read "Awaiting delivery".
+  const onClock = pay.assets.some((p) => p.counts && p.locksOn && !p.locked);
+  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 || onClock ? 'In flight' : 'Awaiting delivery';
 
   const reels = detail.assets.filter((a) => a.kind === 'reel');
   const carousels = detail.assets.filter((a) => a.kind === 'carousel');
