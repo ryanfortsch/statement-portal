@@ -96,6 +96,10 @@ const PUBLIC_API_PREFIXES = [
   // own Stripe account for an approved guest add-on charge (Tesla charger,
   // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.
   "/api/payment-links",
+  // Stay-concierge bridge: Rental Estimator prospect intake (Formspree
+  // watcher) writes CRM lead contacts + touches. Self-guards via
+  // STAY_CONCIERGE_KEY.
+  "/api/prospects",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",
