@@ -34,7 +34,7 @@ export default async function ChannelsListingsPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="channels" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow="Helm · Channels · Listings"

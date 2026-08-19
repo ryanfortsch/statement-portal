@@ -27,7 +27,7 @@ export default async function PlaybookPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="playbook" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow="Helm · Playbook"

@@ -3,8 +3,11 @@
  *
  * The home page is Ask Helm + signal tiles + the For Me feed; it does not
  * render this list as cards. Discovery runs through the masthead (the
- * `primary: true` small-caps tabs), the "More" overflow menu, and Cmd+K
- * search, all of which read from here.
+ * seven `primary: true` small-caps tabs: Work, Turnovers, Field, Messaging,
+ * Properties, Money, Growth), the "More" menu (now the Library, a small
+ * shelf of reference modules), and Cmd+K search, all of which read from
+ * here. The masthead's active tab derives from the pathname via
+ * activeModuleIdForPathname, not from a per-page prop.
  *
  * `status: 'active'`   - module is built; clicks to `href`
  * `status: 'parked'`   - built but de-prioritized; clicks to `href`,
@@ -53,6 +56,22 @@ export type HelmModule = {
    * between consecutive items. Hidden modules can omit it.
    */
   group?: HelmGroup;
+  /**
+   * Masthead / mobile display name when it differs from `title`. Titles stay
+   * the search vocabulary ('Financials', 'Marketing'); navLabel is what the
+   * tab actually says ('Money', 'Growth').
+   */
+  navLabel?: string;
+  /**
+   * Id of the primary module whose masthead tab lights up when the user is
+   * inside this module. Defaults to the module's own id.
+   */
+  section?: string;
+  /**
+   * Extra pathname prefixes for modules whose href is not a usable prefix,
+   * e.g. an href carrying a query string.
+   */
+  routePrefixes?: string[];
 };
 
 export const HELM_MODULES: HelmModule[] = [
@@ -66,15 +85,16 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/revenue',
     number: '01',
     title: 'Financials',
-    description: 'Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
+    navLabel: 'Money',
+    description: 'Money: Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
     status: 'active',
-    primary: false,
+    primary: true,
     group: 'money',
   },
   // Statements / Revenue / Forecast are tabs inside Financials (see
   // FinancialsTabs). Kept in the registry so their routes + search resolve,
   // but hidden from the nav lists so they don't duplicate the Financials
-  // entry. current="financials" highlights the parent on all four pages.
+  // entry. section: 'financials' lights the Money tab on all four pages.
   {
     id: 'statements',
     href: '/statements',
@@ -85,11 +105,8 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'money',
+    section: 'financials',
   },
-  // Turnovers is now a TAB inside Work (see WorkTabs), same pattern as
-  // Statements/Revenue/Forecast under Financials. Hidden from the nav lists
-  // so it doesn't duplicate the Work entry; current="work" highlights the
-  // parent on this and every nested page. Route + search still resolve.
   {
     id: 'operations',
     href: '/operations',
@@ -97,8 +114,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Turnovers',
     description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
     status: 'active',
-    primary: false,
-    hidden: true,
+    primary: true,
     group: 'operations',
   },
   // Inspections has no menu entry: a run is started from a button on the
@@ -114,10 +130,9 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
+    section: 'operations',
   },
-  // Field is a TAB inside Work (see WorkTabs). Hidden from the nav lists for
-  // the same reason as Turnovers above; FieldTabs still handles its own
-  // job-type/lens sub-navigation underneath.
+  // FieldTabs still handles the job-type/lens sub-navigation underneath.
   {
     id: 'field',
     href: '/operations/packets',
@@ -125,8 +140,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Field',
     description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
     status: 'active',
-    primary: false,
-    hidden: true,
+    primary: true,
     group: 'operations',
   },
   // Roster is the Field section's Roster lens (see FieldTabs). Registered
@@ -141,6 +155,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
+    section: 'field',
   },
   {
     id: 'hiring',
@@ -155,6 +170,7 @@ export const HELM_MODULES: HelmModule[] = [
     // still resolve, it just doesn't duplicate the Field entry.
     hidden: true,
     group: 'operations',
+    section: 'field',
   },
   // Creative is reached from the Operations surface, not the menus.
   // Registered here for search, surfaced in-context (hidden from menus).
@@ -168,6 +184,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
+    section: 'field',
   },
   {
     id: 'work',
@@ -192,10 +209,9 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
+    section: 'work',
   },
-  // Properties is a TAB inside Work (see WorkTabs), same reasoning as
-  // Turnovers/Field above. PropertiesTabBar still handles the Prospects
-  // sub-tab underneath.
+  // PropertiesTabBar still handles the Prospects sub-tab underneath.
   {
     id: 'properties',
     href: '/properties',
@@ -203,8 +219,7 @@ export const HELM_MODULES: HelmModule[] = [
     title: 'Properties',
     description: 'Helm-native property registry. Owner, billing, mgmt fee, address, and a deep-link into recent statements.',
     status: 'active',
-    primary: false,
-    hidden: true,
+    primary: true,
     group: 'relationships',
   },
   // Listing Copy Studio is reached from the Properties surface.
@@ -219,6 +234,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'growth',
+    section: 'properties',
   },
   // Bedroom Photos is reached from the Properties surface.
   // Registered here for search, surfaced in-context (hidden from menus).
@@ -232,6 +248,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'growth',
+    section: 'properties',
   },
   // Prospects is now a TAB inside Properties (the Prospects tab at
   // /properties?view=prospects), same pattern as Statements / Revenue under
@@ -249,6 +266,10 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'growth',
+    section: 'properties',
+    // The href carries a query string, so the detail/create routes at
+    // /projections/... need their own prefix to light the Properties tab.
+    routePrefixes: ['/projections'],
   },
   {
     id: 'messaging',
@@ -275,6 +296,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'relationships',
+    section: 'messaging',
   },
   // Cleaner Messaging is a TAB inside Messaging (see MessagingTabs), same as
   // Owner Messaging above. Hidden from the nav lists so it doesn't duplicate
@@ -289,6 +311,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'relationships',
+    section: 'messaging',
   },
   // Contractor Messaging is a TAB inside Messaging (see MessagingTabs), same
   // as Owner and Cleaner Messaging above. Registered here for search,
@@ -303,6 +326,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'relationships',
+    section: 'messaging',
   },
   {
     id: 'revenue',
@@ -314,15 +338,17 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'money',
+    section: 'financials',
   },
   {
     id: 'marketing',
     href: '/marketing',
     number: '11',
     title: 'Marketing',
-    description: 'Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
+    navLabel: 'Growth',
+    description: 'Growth: site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
     status: 'active',
-    primary: false,
+    primary: true,
     group: 'growth',
   },
   // AirDNA is reached from the Marketing surface. Registered here for
@@ -337,6 +363,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'growth',
+    section: 'marketing',
   },
   {
     id: 'forecast',
@@ -348,6 +375,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'money',
+    section: 'financials',
   },
   // LLC Accounting ("Books") is a tab inside Financials (see FinancialsTabs),
   // like Statements/Revenue/Forecast/Cost Analysis. Hidden from the nav
@@ -363,6 +391,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'money',
+    section: 'financials',
   },
   // Cost Analysis is the housekeeping-cost trend view -- a tab inside
   // Financials (see FinancialsTabs), not a top-level destination. Registered
@@ -378,6 +407,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'money',
+    section: 'financials',
   },
   // Guests is now a TAB inside Marketing (see MarketingTabs). Hidden from the
   // nav lists so it doesn't duplicate the Marketing entry; GuestsTabBar still
@@ -392,9 +422,12 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'growth',
+    section: 'marketing',
   },
   // Reviews is not a module of its own - it's the "Reviews" tab inside
   // the Guests section (/guests?tab=reviews). /reviews redirects there.
+  // Competitors is surfaced as a tab of the Growth strip, so it's hidden
+  // from the nav lists; route + search still resolve.
   {
     id: 'competitors',
     href: '/competitors',
@@ -403,7 +436,9 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Other vacation rental managers in the Cape Ann market. Inventory size, town mix, unit count. Phase 1 starts with Atlantic Vacation Homes.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'growth',
+    section: 'marketing',
   },
   {
     id: 'playbook',
@@ -411,6 +446,18 @@ export const HELM_MODULES: HelmModule[] = [
     number: '17',
     title: 'Playbook',
     description: 'How we run the business. Standard operating procedures, the eccentricities, and the institutional knowledge of Rising Tide, written down once and searchable everywhere. Ask Helm reads from here.',
+    status: 'active',
+    primary: false,
+    group: 'reference',
+  },
+  // Search finally gets a standing nav entry: the full-results page for
+  // Cmd+K queries, shelved in the Library.
+  {
+    id: 'search',
+    href: '/search',
+    number: '18',
+    title: 'Search',
+    description: 'Full-results search across every Helm module. The long-form view behind the Cmd+K palette.',
     status: 'active',
     primary: false,
     group: 'reference',
@@ -434,14 +481,17 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
+    section: 'work',
   },
   {
+    // Un-parked: CRM is in daily circulation via property pages and the
+    // home feed, so it reads at full strength in the Library.
     id: 'crm',
     href: '/crm',
     number: '07',
     title: 'CRM',
     description: 'Owners, vendors, leads. Every touch logged in one place.',
-    status: 'parked',
+    status: 'active',
     primary: false,
     group: 'relationships',
   },
@@ -462,13 +512,11 @@ export const HELM_MODULES: HelmModule[] = [
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
  * array order so the master list can stay in module-number order while the
- * nav shows the daily-flow tabs in the order Dotti reads them left-to-right:
- * Work (the persistent backlog board - now also home to the Turnovers/Field/
- * Properties/Today tabs, see WorkTabs) and Messaging (the guest-reply queue,
- * which carries a pending-count badge so she can see at a glance whether
- * anything's waiting).
+ * nav shows the seven sections in the order Dotti reads them left-to-right:
+ * Work, Turnovers, Field, Messaging (which carries the pending-count badge),
+ * Properties, Money (Financials), Growth (Marketing).
  */
-const PRIMARY_ORDER: string[] = ['work', 'messaging'];
+const PRIMARY_ORDER: string[] = ['work', 'operations', 'field', 'messaging', 'properties', 'financials', 'marketing'];
 
 export const PRIMARY_MODULES = HELM_MODULES
   .filter((m) => m.primary)
@@ -517,12 +565,9 @@ export function getGroupedOverflowModules(): { group: HelmGroup; label: string; 
   })).filter((s) => s.modules.length > 0);
 }
 
-// Pinned to the top of the "More" menu in this exact order, regardless of
-// group. Per Dotti: Financials leads; everything else follows in its
-// grouped order. (Properties and Field used to lead too, but both are now
-// tabs inside Work - see WorkTabs - so they've dropped out of the overflow
-// list entirely.)
-const OVERFLOW_PRIORITY = ['financials'];
+// The "More" menu is now the Library: a small shelf of reference modules.
+// Pinned in this exact reading order, regardless of group.
+const OVERFLOW_PRIORITY = ['playbook', 'crm', 'channels', 'search'];
 
 /**
  * The flat "More" menu list both the desktop dropdown and the mobile sheet
@@ -537,4 +582,29 @@ export function getOverflowModulesFlat(): HelmModule[] {
     .filter((m): m is HelmModule => !!m);
   const pinnedIds = new Set(pinned.map((m) => m.id));
   return [...pinned, ...flat.filter((m) => !pinnedIds.has(m.id))];
+}
+
+/**
+ * Resolve which masthead tab lights up for a pathname. Every module
+ * contributes candidate prefixes (its href with any query/hash stripped,
+ * plus routePrefixes); the longest matching prefix wins and its module's
+ * `section ?? id` is returned. This drives the masthead active state; a
+ * page cannot lie about where it is. Client-safe: pure data + string ops.
+ */
+export function activeModuleIdForPathname(pathname: string): string | undefined {
+  let bestModule: HelmModule | undefined;
+  let bestPrefix = '';
+  for (const m of HELM_MODULES) {
+    const stripped = m.href.split(/[?#]/)[0];
+    const candidates = m.routePrefixes ? [stripped, ...m.routePrefixes] : [stripped];
+    for (const prefix of candidates) {
+      if (!prefix || prefix === '#') continue;
+      const matches = pathname === prefix || pathname.startsWith(prefix + '/');
+      if (matches && prefix.length > bestPrefix.length) {
+        bestModule = m;
+        bestPrefix = prefix;
+      }
+    }
+  }
+  return bestModule ? (bestModule.section ?? bestModule.id) : undefined;
 }

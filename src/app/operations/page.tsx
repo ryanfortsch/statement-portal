@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { WorkTabs } from '@/components/WorkTabs';
+import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
@@ -125,8 +125,8 @@ export default async function OperationsPage({ searchParams }: PageProps) {
   if (!isHelmConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="work" />
-        <WorkTabs current="turnovers" />
+        <HelmMasthead />
+        <TurnoverTabs current="pipeline" />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Turnovers</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
@@ -211,8 +211,8 @@ export default async function OperationsPage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
-      <WorkTabs current="turnovers" />
+      <HelmMasthead />
+      <TurnoverTabs current="pipeline" />
 
       {/* Compact ops header — replaces the editorial hero + separate
           range-tabs + summary stack. Single bordered row carries the

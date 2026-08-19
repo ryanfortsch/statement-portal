@@ -1,13 +1,14 @@
 'use client';
 
 /**
- * Dropdown that surfaces every Helm module not in the primary masthead
- * nav. Lives at the end of HelmModuleNav so anything not on the main
- * tab strip (Properties, Marketing, Forecast, Guest Intel, Admin, etc.)
- * is one click away instead of only reachable via Cmd+K or direct URL.
+ * The Library: the small dropdown shelf of reference modules that are not
+ * primary masthead tabs (Playbook, CRM, Channels, Search). Lives at the
+ * end of HelmModuleNav so they stay one click away instead of only
+ * reachable via Cmd+K or direct URL.
  *
  * Closes on Esc or click-outside. Active modules link out; soon modules
- * render dimmed and non-clickable.
+ * render dimmed and non-clickable. The active module id is derived from
+ * the pathname by the parent HelmModuleNav and passed down.
  */
 
 import Link from 'next/link';
@@ -15,10 +16,10 @@ import { useEffect, useRef, useState } from 'react';
 import { getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
 
 type Props = {
-  current?: string;
+  active?: string;
 };
 
-export function HelmModuleNavMore({ current }: Props) {
+export function HelmModuleNavMore({ active }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -50,7 +51,7 @@ export function HelmModuleNavMore({ current }: Props) {
   if (items.length === 0) return null;
 
   // Mark "More" as active if the current page is anywhere in the overflow.
-  const activeInMore = !!(current && items.some((m) => m.id === current));
+  const activeInMore = !!(active && items.some((m) => m.id === active));
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
@@ -95,7 +96,7 @@ export function HelmModuleNavMore({ current }: Props) {
           }}
         >
           {items.map((m) => (
-            <ModuleItem key={m.id} module={m} active={m.id === current} onPick={() => setOpen(false)} />
+            <ModuleItem key={m.id} module={m} active={m.id === active} onPick={() => setOpen(false)} />
           ))}
         </div>
       )}
@@ -112,7 +113,7 @@ function ModuleItem({
   active: boolean;
   onPick: () => void;
 }) {
-  // 'parked' is a real route just like 'active' — it just renders
+  // 'parked' is a real route just like 'active' -- it just renders
   // dimmer and sorts to the bottom of the dropdown. Only true 'soon'
   // (no page built yet) is unreachable.
   const dim = m.status === 'soon' || m.status === 'parked';
@@ -134,7 +135,7 @@ function ModuleItem({
         className="font-serif"
         style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}
       >
-        {m.title}
+        {m.navLabel ?? m.title}
         {m.status === 'soon' && (
           <span
             style={{

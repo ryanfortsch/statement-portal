@@ -302,7 +302,7 @@ export default async function ForecastPage() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="financials" />
+      <HelmMasthead />
       <FinancialsTabs current="forecast" />
 
       <CoverSheet />

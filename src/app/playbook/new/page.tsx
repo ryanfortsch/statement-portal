@@ -15,7 +15,7 @@ export default async function NewPlaybookEntryPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="playbook" />
+      <HelmMasthead />
       <PlaybookEditor mode="new" properties={properties} />
       <div className="flex-1" />
       <HelmFooter module="Playbook" />

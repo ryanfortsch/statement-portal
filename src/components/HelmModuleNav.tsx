@@ -1,16 +1,22 @@
+'use client';
+
 import Link from 'next/link';
-import { HELM_MODULES, PRIMARY_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { usePathname } from 'next/navigation';
+import { PRIMARY_MODULES, activeModuleIdForPathname, type HelmModule } from '@/lib/helm-modules';
 import { HelmModuleNavMore } from './HelmModuleNavMore';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
+import { NavTabCount } from './NavTabCount';
 
-type Props = {
-  current?: string;
-};
+export function HelmModuleNav() {
+  // The active tab derives from the pathname, not a per-page prop: the
+  // registry maps every route prefix to its section, so a page cannot lie
+  // about where it is.
+  const pathname = usePathname();
+  const active = activeModuleIdForPathname(pathname ?? '');
 
-export function HelmModuleNav({ current }: Props) {
   // Always show the primary set. If the current module isn't in the primary
   // set, the More dropdown handles it (no need to append a "you are here"
-  // tab here too, since the More button activates when current is in overflow).
+  // tab here too, since the More button activates when the page is in overflow).
   const visible: HelmModule[] = [...PRIMARY_MODULES];
 
   return (
@@ -22,17 +28,26 @@ export function HelmModuleNav({ current }: Props) {
       fontWeight: 500,
     }}>
       {visible.map((m) => (
-        <ModuleLink key={m.id} module={m} active={m.id === current} />
+        <ModuleLink key={m.id} module={m} active={m.id === active} />
       ))}
-      <HelmModuleNavMore current={current} />
+      <HelmModuleNavMore active={active} />
     </nav>
   );
 }
 
 function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean }) {
   // The Messaging tab carries a pending-count badge so Dotti can see from
-  // any module when a draft is waiting. The badge is silent at 0.
-  const badge = m.id === 'messaging' ? <MessagingPendingBadge /> : null;
+  // any module when a draft is waiting; the Field tab carries the packets
+  // pill that lived on WorkTabs before Field became its own section. Both
+  // are silent at 0.
+  const badge =
+    m.id === 'messaging' ? (
+      <MessagingPendingBadge />
+    ) : m.id === 'field' ? (
+      <NavTabCount kind="fieldPackets" />
+    ) : null;
+
+  const label = m.navLabel ?? m.title;
 
   // Active still links to the module's own href (its "home" page), not just a
   // static label -- this module now covers several nested routes (e.g. Work
@@ -46,7 +61,7 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         href={m.href}
         style={{ color: 'var(--ink)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
-        {m.title}
+        {label}
         {badge}
       </Link>
     );
@@ -61,7 +76,7 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         title="Opens in a new tab"
         style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
-        {m.title} <span style={{ fontSize: 8, opacity: 0.7 }}>↗</span>
+        {label} <span style={{ fontSize: 8, opacity: 0.7 }}>↗</span>
         {badge}
       </a>
     );
@@ -69,7 +84,7 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
 
   if (m.status === 'soon') {
     return (
-      <span style={{ color: 'var(--ink-4)' }} title="Coming soon">{m.title}</span>
+      <span style={{ color: 'var(--ink-4)' }} title="Coming soon">{label}</span>
     );
   }
 
@@ -81,7 +96,7 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         href={m.href}
         style={{ color: 'var(--ink-4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
-        {m.title}
+        {label}
         {badge}
       </Link>
     );
@@ -89,7 +104,7 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
 
   return (
     <Link href={m.href} style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-      {m.title}
+      {label}
       {badge}
     </Link>
   );

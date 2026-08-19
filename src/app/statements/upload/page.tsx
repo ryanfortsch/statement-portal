@@ -660,7 +660,7 @@ function UploadPageInner() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="financials" />
+      <HelmMasthead />
       <FinancialsTabs current="statements" />
       <HelmHero
         eyebrow="Step"

@@ -1,5 +1,5 @@
 import { HelmLoading } from '@/components/HelmLoading';
 
 export default function ForecastLoading() {
-  return <HelmLoading current="financials" eyebrow="Helm · Forecast" contentRows={7} />;
+  return <HelmLoading eyebrow="Helm · Forecast" contentRows={7} />;
 }

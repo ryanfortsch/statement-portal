@@ -99,11 +99,9 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   if (!isHelmConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        {/* Match the happy-path masthead (current="financials") so the
-            Financials nav highlight stays put when load fails. The hidden
-            'revenue' module id used to be passed here, which the masthead
-            does not recognise -- the "you are here" cue vanished on error. */}
-        <HelmMasthead current="financials" />
+        {/* Same masthead as the happy path; the Money nav highlight is
+            pathname-derived, so it stays put when load fails. */}
+        <HelmMasthead />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Revenue</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Configure Supabase env vars to load revenue data.</p>
@@ -154,7 +152,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="financials" />
+      <HelmMasthead />
       <FinancialsTabs current="revenue" />
 
       <HelmHero

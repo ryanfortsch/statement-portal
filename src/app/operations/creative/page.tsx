@@ -62,7 +62,7 @@ export default async function CreativeBoard({
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="work" />
+        <HelmMasthead />
         <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 40 }}>
           <p style={{ color: 'var(--ink-3)' }}>Field isn&apos;t configured in this environment.</p>
         </section>
@@ -118,7 +118,7 @@ export default async function CreativeBoard({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
       <FieldTabs current="shoots" trade="creative" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, borderBottom: '1px solid var(--ink)', paddingBottom: 16, flexWrap: 'wrap' }}>

@@ -15,7 +15,8 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * Shoots & Pay instead.
  *
  * Plain server-rendered links, no client state (mirrors FinancialsTabs). The
- * masthead separately highlights "Work" (each page passes current="work").
+ * masthead highlights "Field" for this section on its own, derived from the
+ * pathname.
  */
 
 type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring';

@@ -21,7 +21,7 @@ export default async function MaintenancePage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
       <WorkTabs current="maintenance" />
 
       <div style={{ flex: 1 }}>

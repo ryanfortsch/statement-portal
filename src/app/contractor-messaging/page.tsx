@@ -35,7 +35,7 @@ function Shell({ children }: { children: ReactNode }) {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="messaging" />
+      <HelmMasthead />
       <MessagingTabs current="contractors" />
 
       {children}

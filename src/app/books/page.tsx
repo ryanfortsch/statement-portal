@@ -94,7 +94,7 @@ export default async function BooksPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="financials" />
+      <HelmMasthead />
       <FinancialsTabs current="books" />
 
       <HelmHero

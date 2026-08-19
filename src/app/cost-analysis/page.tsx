@@ -47,7 +47,7 @@ export default async function CostAnalysisPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="financials" />
+      <HelmMasthead />
       <FinancialsTabs current="cost-analysis" />
 
       <HelmHero

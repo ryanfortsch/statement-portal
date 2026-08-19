@@ -1,33 +1,25 @@
 import Link from 'next/link';
-import { NavTabCount } from '@/components/NavTabCount';
 
 /**
- * Sub-navigation tab strip for the Work section. Work, Maintenance, Gear,
- * Turnovers, Field, Properties, and Today used to sit as separate top-level
- * modules; they're lenses on the same day-to-day operating rhythm, so this
- * strip renders at the top of each and lets the masthead collapse to a single
- * "Work" tab. Same pattern FinancialsTabs uses for Statements / Revenue /
- * Forecast / Cost Analysis / Books, and MessagingTabs uses for Guests /
- * Owners / Cleaners / Contractors.
+ * Sub-navigation tab strip for the Work section, which is now just the
+ * queue: the board plus its Maintenance and Gear lenses. Turnovers, Field,
+ * Properties, and Today were promoted out of this strip in the Phase 1
+ * masthead expansion; each is its own masthead section (Today has no tab
+ * at all, home and the morning SMS link it). Same pattern FinancialsTabs
+ * uses for Statements / Revenue / Forecast / Cost Analysis / Books.
  *
- * Plain link nav, server-rendered, no client state. The top module nav
- * separately highlights "Work" on every page in this group (each passes
- * current="work" to HelmMasthead). Each destination keeps whatever internal
- * tab bar it already had (FieldTabs, PropertiesTabBar) underneath this strip.
+ * Plain link nav, server-rendered, no client state. The masthead
+ * highlights "Work" for this group on its own, derived from the pathname.
  */
 export function WorkTabs({
   current,
 }: {
-  current: 'work' | 'maintenance' | 'gear' | 'turnovers' | 'field' | 'properties' | 'today';
+  current: 'work' | 'maintenance' | 'gear';
 }) {
   const tabs = [
-    { id: 'work', label: 'Work', href: '/work' },
+    { id: 'work', label: 'Board', href: '/work' },
     { id: 'maintenance', label: 'Maintenance', href: '/work/maintenance' },
     { id: 'gear', label: 'Gear', href: '/work/gear' },
-    { id: 'turnovers', label: 'Turnovers', href: '/operations' },
-    { id: 'field', label: 'Field', href: '/operations/packets' },
-    { id: 'properties', label: 'Properties', href: '/properties' },
-    { id: 'today', label: 'Today', href: '/today' },
   ] as const;
 
   return (
@@ -53,7 +45,6 @@ export function WorkTabs({
               }}
             >
               {t.label}
-              {t.id === 'field' && <NavTabCount kind="fieldPackets" />}
             </Link>
           );
         })}

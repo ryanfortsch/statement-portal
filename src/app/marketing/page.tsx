@@ -52,7 +52,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="marketing" />
+      <HelmMasthead />
       <MarketingTabs current="marketing" />
 
       <HelmHero
@@ -408,7 +408,7 @@ function Vital({
 function ConfigError() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="marketing" />
+      <HelmMasthead />
       <MarketingTabs current="marketing" />
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 80, width: '100%' }}>
         <div className="eyebrow">Helm &middot; Marketing</div>

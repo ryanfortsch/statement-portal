@@ -43,7 +43,7 @@ export default async function ChannelsPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="channels" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow="Helm · Channels"
@@ -140,7 +140,7 @@ async function safeInquiries() {
 function NotConfigured() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="channels" />
+      <HelmMasthead />
       <HelmHero eyebrow="Helm · Channels" title="Supabase env vars" emphasis="are not set." />
       <HelmFooter module="Channels" right="Source: Helm" />
     </div>

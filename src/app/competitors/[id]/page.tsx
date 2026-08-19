@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, summarizeCompetitor, computeAddressCoverage, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
@@ -29,7 +30,8 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="competitors" />
+      <HelmMasthead />
+      <MarketingTabs current="competitors" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 24 }}>
         <Link

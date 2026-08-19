@@ -645,7 +645,7 @@ export default async function PropertyDetailPage({
         a.rt-action-link:hover { color: var(--ink); }
         a.rt-action-link[style*="background"]:hover { opacity: 0.88; }
       `}</style>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
 
       {/* BACK — the per-tab action rows below carry the contextual
           actions (Edit, Channels, Draft listing, etc.) that used to
