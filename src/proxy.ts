@@ -120,6 +120,11 @@ const PUBLIC_API_PREFIXES = [
  * for download. They live under `/projections/<uuid>/...`, so a prefix match
  * isn't precise enough (it would expose the auth-gated edit page). Use a regex
  * that matches *only* the deliverable sub-routes.
+ *
+ * onboarding-render is in the list so the Drive archiver's Chromium can reach
+ * it, but the page SELF-GUARDS (Helm session OR `?token=<onboarding_token>`,
+ * same contract as /api/projection-pdf) — it renders WiFi passwords and lock
+ * codes, so passing the proxy must not be enough on its own.
  */
 const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract|onboarding-render)(\/.*)?$/;
 

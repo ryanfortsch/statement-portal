@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const sb = getSupabase();
     const { data: proj } = await sb
       .from('projections')
-      .select('id, property_id, property_address, onboarding_submitted_at, onboarding_drive_url')
+      .select('id, property_id, property_address, onboarding_token, onboarding_submitted_at, onboarding_drive_url')
       .eq('id', projectionId)
       .maybeSingle();
     if (!proj) {
@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
     const projection = proj as {
       property_id: string | null;
       property_address: string | null;
+      onboarding_token: string | null;
       onboarding_submitted_at: string | null;
       onboarding_drive_url: string | null;
     };
@@ -72,8 +73,24 @@ export async function POST(request: NextRequest) {
       'Prospect';
     const year = projection.onboarding_submitted_at.slice(0, 4);
 
+    // The render page self-guards (it shows WiFi passwords and lock codes);
+    // headless Chromium has no Helm session, so it authenticates with the
+    // projection's onboarding token. A submitted intake always has one —
+    // submission happens through /onboarding/<token> — so a missing token
+    // is a data problem worth failing loudly on.
+    if (!projection.onboarding_token) {
+      return NextResponse.json(
+        { ok: false, error: 'projection has no onboarding token' },
+        { status: 500 },
+      );
+    }
+
     const origin = request.nextUrl.origin;
-    const pdf = await renderOnboardingPdf({ projectionId, origin });
+    const pdf = await renderOnboardingPdf({
+      projectionId,
+      origin,
+      token: projection.onboarding_token,
+    });
     const filename = onboardingPdfFilename(propertyShort, projection.onboarding_submitted_at);
 
     const archive = await archiveToDrive({
