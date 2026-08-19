@@ -3,6 +3,9 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
+import { fieldDb, isFieldConfigured } from '@/lib/field-db';
+import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
+import { dollars } from '@/lib/field-types';
 import { FeedClearButton } from '@/components/FeedClearButton';
 
 type MyWork = {
@@ -21,6 +24,15 @@ type MyWork = {
   dueDate?: string | null;
   propertyNames?: string[];
   scope?: string | null;
+};
+
+// One line per operator queue with work stacked up (creative pay, field
+// packets, unsent statements). No clear button: a queue card clears itself
+// the moment its count reads zero, so dismissing it would just mask pressure.
+type QueueCard = {
+  id: string;
+  href: string;
+  text: string;
 };
 
 type PlannedWalk = {
@@ -72,10 +84,11 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
+    loadQueueCards(),
   ]);
 
   // Drop cleared items, then pick the window (tasks first, slips spread
@@ -93,7 +106,8 @@ export async function ForMeFeed() {
 
   const hasReplyItems = replyTotal > 0;
   const hasWalks = plannedWalks.length > 0;
-  const nothing = !hasReplyItems && workFiltered.length === 0 && glance.length === 0 && !hasWalks;
+  const nothing =
+    !hasReplyItems && workFiltered.length === 0 && glance.length === 0 && !hasWalks && queueCards.length === 0;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -118,6 +132,26 @@ export async function ForMeFeed() {
         </div>
       ) : (
         <>
+          {/* QUEUE PRESSURE - one row per operator queue with work stacked up
+              (creative approvals and pay owed, field packets submitted for
+              review, statements still unsent for the last closed month). Each
+              row links to its board; a row only renders while its count is
+              nonzero, so the block disappears on its own when the queues are
+              clear. */}
+          {queueCards.length > 0 && (
+            <div style={{ marginBottom: 36 }}>
+              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+                <h2 style={sectionHeadingStyle}>In the queues</h2>
+                <span className="eyebrow">{queueCards.length} waiting</span>
+              </div>
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {queueCards.map((c) => (
+                  <QueueRow key={c.id} card={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* PLANNED WALKS — inspection plans assigned to you for today or
               the next few days. Sits above "On your plate" because a walk
               has a fixed clock (you have to be on the property at a specific
@@ -659,6 +693,121 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
           {walk.notes ? ` · ${walk.notes}` : ''}
         </div>
       </div>
+    </Link>
+  );
+}
+
+/**
+ * Queue-pressure cards. Each loader degrades to null on any failure (missing
+ * table, unconfigured Field env, network) so the rest of the feed is never
+ * touched, matching how the other loaders here fail.
+ */
+async function loadQueueCards(): Promise<QueueCard[]> {
+  const cards = await Promise.all([loadCreativeQueue(), loadPacketQueue(), loadStatementQueue()]);
+  return cards.filter((c): c is QueueCard => !!c);
+}
+
+/**
+ * Creative pay pressure: shoots the office has to act on (views overdue to
+ * read, or a locked payout awaiting send) plus the total owed now. Reads the
+ * same board + rollup the /operations/creative page renders, so the numbers
+ * can never drift from what the board shows.
+ */
+async function loadCreativeQueue(): Promise<QueueCard | null> {
+  if (!isFieldConfigured) return null;
+  try {
+    const board = await loadShootBoard();
+    let toApprove = 0;
+    let owedCents = 0;
+    for (const s of board) {
+      const sum = shootPaySummary(s.assets, s.pay, s.shoot);
+      owedCents += sum.owedCents;
+      if (s.pay.needsAttention || sum.owedCents > 0) toApprove++;
+    }
+    if (toApprove === 0 && owedCents === 0) return null;
+    const bits = [
+      toApprove > 0 ? `${toApprove} shoot${toApprove === 1 ? '' : 's'} to act on` : null,
+      owedCents > 0 ? `${dollars(owedCents)} owed` : null,
+    ].filter(Boolean);
+    return { id: 'queue-creative', href: '/operations/creative', text: `Creative: ${bits.join(' · ')}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Field packets sitting in 'submitted' - the one packet status that waits on
+ * the operator (approve, or request changes). Same vocabulary as the
+ * "Awaiting approval" strip on /operations/packets.
+ */
+async function loadPacketQueue(): Promise<QueueCard | null> {
+  if (!isFieldConfigured) return null;
+  try {
+    const { count } = await fieldDb()
+      .from('inspection_packets')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'submitted');
+    if (!count) return null;
+    return {
+      id: 'queue-packets',
+      href: '/operations/packets',
+      text: `Field: ${count} packet${count === 1 ? '' : 's'} awaiting approval`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Close-week statement pressure: statements not yet sent for the most recent
+ * CLOSED period (latest statement_periods month before the current one).
+ * Sent-ness is the close_tasks.email_sent_at stamp - the same field the
+ * statements dashboard's "N sent" counter reads. Rule: the card shows
+ * whenever unsent > 0 for that period, no date window - the stamp persists,
+ * so the card clears itself the moment the last statement is marked sent.
+ */
+async function loadStatementQueue(): Promise<QueueCard | null> {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const { data: period } = await supabase
+      .from('statement_periods')
+      .select('id, month')
+      .lt('month', currentMonth)
+      .order('month', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!period) return null;
+    const [{ count: total }, { count: sent }] = await Promise.all([
+      supabase
+        .from('property_statements')
+        .select('id', { count: 'exact', head: true })
+        .eq('period_id', period.id),
+      supabase
+        .from('close_tasks')
+        .select('property_id', { count: 'exact', head: true })
+        .eq('period_id', period.id)
+        .not('email_sent_at', 'is', null),
+    ]);
+    const unsent = (total ?? 0) - (sent ?? 0);
+    if (unsent <= 0) return null;
+    const monthName = new Date(`${period.month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long' });
+    return { id: 'queue-statements', href: '/statements', text: `Statements: ${unsent} unsent for ${monthName}` };
+  } catch {
+    return null;
+  }
+}
+
+function QueueRow({ card }: { card: QueueCard }) {
+  return (
+    <Link
+      href={card.href}
+      style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span aria-hidden style={{ ...dotStyle, marginTop: 0, background: 'var(--signal)' }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
+        {card.text}
+      </span>
+      <span className="eyebrow">→</span>
     </Link>
   );
 }

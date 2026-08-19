@@ -15,15 +15,27 @@ export default async function GuestCampaignsPage() {
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/guests" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
         </div>
-        <h1 className="font-serif" style={{
-          fontSize: 36,
-          lineHeight: 1.05,
-          fontWeight: 300,
-          letterSpacing: '-0.02em',
-          color: 'var(--ink)',
-        }}>
-          Campaigns
-        </h1>
+        <div className="flex items-baseline justify-between" style={{ gap: 24 }}>
+          <h1 className="font-serif" style={{
+            fontSize: 36,
+            lineHeight: 1.05,
+            fontWeight: 300,
+            letterSpacing: '-0.02em',
+            color: 'var(--ink)',
+          }}>
+            Campaigns
+          </h1>
+          <Link href="/guests/campaigns/new" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: 'var(--ink)', color: 'var(--paper)',
+            fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+            padding: '10px 18px',
+            textDecoration: 'none',
+            whiteSpace: 'nowrap',
+          }}>
+            New Campaign
+          </Link>
+        </div>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 580 }}>
           Newsletters and broadcasts. Composer + send-via-Resend lands next; for now this view shows what's been saved or sent.
         </p>

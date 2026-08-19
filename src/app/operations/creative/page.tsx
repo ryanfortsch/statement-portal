@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, loadCreativeContractors, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
@@ -118,6 +119,7 @@ export default async function CreativeBoard({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
+      <FieldTabs current="shoots" trade="creative" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, borderBottom: '1px solid var(--ink)', paddingBottom: 16, flexWrap: 'wrap' }}>
           <div>
@@ -145,7 +147,6 @@ export default async function CreativeBoard({
                 </div>
               </div>
             )}
-            <Link href="/operations/contractors" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>Roster →</Link>
           </div>
         </div>
 

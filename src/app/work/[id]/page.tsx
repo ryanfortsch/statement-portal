@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { WorkTabs } from '@/components/WorkTabs';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
@@ -111,6 +112,7 @@ export default async function WorkSlipDetailPage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
+      <WorkTabs current="work" />
 
       {/* BACK — returns to the board as you left it (filter/tab/expanded
           groups restored from the board's own URL mirror), with this slip's

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { WorkTabs } from '@/components/WorkTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -47,6 +48,7 @@ export default async function WorkTaskDetailPage({ params }: { params: Promise<P
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
+      <WorkTabs current="work" />
       <TaskDetail
         task={data.task}
         comments={data.comments}

@@ -14,9 +14,9 @@ type Props = {
  * pass `current` to highlight their module, and `rightContent` to put a
  * period selector / action button on the right.
  *
- * The /statements dashboard and /statements/upload page have bespoke
- * mastheads (with module-specific controls) and do not use this. New modules
- * should default to this shell.
+ * Every module renders this shell, /statements included (its Period
+ * dropdown rides in the rightContent slot). New modules should default
+ * to it too.
  */
 export function HelmMasthead({ current, rightContent }: Props) {
   return (

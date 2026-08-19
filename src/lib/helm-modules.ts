@@ -1,14 +1,15 @@
 /**
  * Single source of truth for Helm's module list.
  *
- * The home page renders all of these as cards. The masthead nav inside each
- * module renders the ones with `primary: true` as small-caps tabs so the most-
- * used modules are reachable without going home.
+ * The home page is Ask Helm + signal tiles + the For Me feed; it does not
+ * render this list as cards. Discovery runs through the masthead (the
+ * `primary: true` small-caps tabs), the "More" overflow menu, and Cmd+K
+ * search, all of which read from here.
  *
  * `status: 'active'`   - module is built; clicks to `href`
  * `status: 'parked'`   - built but de-prioritized; clicks to `href`,
  *                        renders greyed and sorted to the bottom of
- *                        the menu (no "Soon" badge — it's not coming
+ *                        the menu (no "Soon" badge - it's not coming
  *                        soon, it's just demoted)
  * `status: 'soon'`     - not built yet; placeholder, clicks do nothing
  * `status: 'external'` - lives outside Helm (e.g. Lovable); opens in new tab
@@ -56,11 +57,6 @@ export type HelmModule = {
 
 export const HELM_MODULES: HelmModule[] = [
   // ── Active modules, in canonical number order ──────────────────────
-  // Inspections (was 03) is intentionally not a module: it has no
-  // standalone landing in the menu. An inspection is started from a
-  // button on the Turnovers page, and the run flow lives at
-  // /inspections/[id]. The /inspections route still exists as the
-  // start form + recent list, just not as a nav item.
   {
     id: 'financials',
     // Default landing for the Financials section is Revenue (the
@@ -105,6 +101,20 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'operations',
   },
+  // Inspections has no menu entry: a run is started from a button on the
+  // Turnovers page and the flow lives at /inspections/[id]. Registered here
+  // for search, surfaced in-context (hidden from menus).
+  {
+    id: 'inspections',
+    href: '/inspections',
+    number: '02a',
+    title: 'Inspections',
+    description: 'Start a property inspection and browse recent runs. The run flow itself lives at /inspections/[id].',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+  },
   // Field is a TAB inside Work (see WorkTabs). Hidden from the nav lists for
   // the same reason as Turnovers above; FieldTabs still handles its own
   // job-type/lens sub-navigation underneath.
@@ -114,6 +124,19 @@ export const HELM_MODULES: HelmModule[] = [
     number: '03',
     title: 'Field',
     description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+  },
+  // Roster is the Field section's Roster lens (see FieldTabs). Registered
+  // here for search, surfaced in-context (hidden from menus).
+  {
+    id: 'roster',
+    href: '/operations/contractors',
+    number: '03a',
+    title: 'Field Roster',
+    description: 'The 1099 contractor roster. Profiles, trades, rates, and standing for everyone who works the fleet.',
     status: 'active',
     primary: false,
     hidden: true,
@@ -133,6 +156,19 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'operations',
   },
+  // Creative is reached from the Operations surface, not the menus.
+  // Registered here for search, surfaced in-context (hidden from menus).
+  {
+    id: 'creative',
+    href: '/operations/creative',
+    number: '03c',
+    title: 'Creative Shoots & Pay',
+    description: 'The creative pay ledger. Log shoots and assets, review deliverables, approve and pay the crew.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+  },
   {
     id: 'work',
     href: '/work',
@@ -141,6 +177,20 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
     status: 'active',
     primary: true,
+    group: 'operations',
+  },
+  // The gear grid is reached from the Work board and the specialists'
+  // property-work board. Registered here for search, surfaced in-context
+  // (hidden from menus).
+  {
+    id: 'gear',
+    href: '/work/gear',
+    number: '04a',
+    title: 'Guest Gear Grid',
+    description: 'Which properties hold which guest gear. Pack-n-plays, high chairs, and where each one lives.',
+    status: 'active',
+    primary: false,
+    hidden: true,
     group: 'operations',
   },
   // Properties is a TAB inside Work (see WorkTabs), same reasoning as
@@ -156,6 +206,32 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'relationships',
+  },
+  // Listing Copy Studio is reached from the Properties surface.
+  // Registered here for search, surfaced in-context (hidden from menus).
+  {
+    id: 'listing-copy-studio',
+    href: '/properties/listing-copy-studio',
+    number: '05a',
+    title: 'Listing Copy Studio',
+    description: 'Review and rewrite the editorial copy on every Stay Cape Ann listing. Taglines, About, highlights.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
+  },
+  // Bedroom Photos is reached from the Properties surface.
+  // Registered here for search, surfaced in-context (hidden from menus).
+  {
+    id: 'bedroom-photos',
+    href: '/properties/bedroom-photos',
+    number: '05b',
+    title: 'Bedroom Photos',
+    description: 'Per-bedroom photo coverage across the fleet. Which rooms are shot, which still need the camera.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
   },
   // Prospects is now a TAB inside Properties (the Prospects tab at
   // /properties?view=prospects), same pattern as Statements / Revenue under
@@ -214,6 +290,20 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'relationships',
   },
+  // Contractor Messaging is a TAB inside Messaging (see MessagingTabs), same
+  // as Owner and Cleaner Messaging above. Registered here for search,
+  // surfaced in-context (hidden from menus).
+  {
+    id: 'contractor-messaging',
+    href: '/contractor-messaging',
+    number: '08d',
+    title: 'Contractor Messaging',
+    description: 'Reply drafts for field contractors. The Contractors tab of the Messaging section. Approve, reject, or coach the AI from Helm.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+  },
   {
     id: 'revenue',
     href: '/revenue',
@@ -233,6 +323,19 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
     status: 'active',
     primary: false,
+    group: 'growth',
+  },
+  // AirDNA is reached from the Marketing surface. Registered here for
+  // search, surfaced in-context (hidden from menus).
+  {
+    id: 'airdna',
+    href: '/marketing/airdna',
+    number: '11a',
+    title: 'AirDNA Market Data',
+    description: 'AirDNA market comps for the fleet. Upload the CSVs, read occupancy, ADR, and revenue benchmarks.',
+    status: 'active',
+    primary: false,
+    hidden: true,
     group: 'growth',
   },
   {
@@ -290,7 +393,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'growth',
   },
-  // Reviews is not a module of its own — it's the "Reviews" tab inside
+  // Reviews is not a module of its own - it's the "Reviews" tab inside
   // the Guests section (/guests?tab=reviews). /reviews redirects there.
   {
     id: 'competitors',
@@ -352,34 +455,15 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     group: 'operations',
   },
-  // ── Not built yet ──────────────────────────────────────────────────
-  {
-    id: 'guest-intel',
-    href: '#',
-    number: '08a',
-    title: 'Guest Intel',
-    description: 'Upcoming-guest dossiers. Reservation context, reasons for travel, special requests.',
-    status: 'soon',
-    primary: false,
-    group: 'soon',
-  },
-  {
-    id: 'admin',
-    href: '#',
-    number: '09',
-    title: 'Admin',
-    description: 'Settings, inspection templates, automation rules, team, roles.',
-    status: 'soon',
-    primary: false,
-    group: 'soon',
-  },
+  // No 'soon' placeholders at the moment. The status + group machinery
+  // stays: a future not-built entry renders dimmed and inert in the menus.
 ];
 
 /**
  * Display order for the primary masthead nav. Independent of HELM_MODULES
  * array order so the master list can stay in module-number order while the
  * nav shows the daily-flow tabs in the order Dotti reads them left-to-right:
- * Work (the persistent backlog board — now also home to the Turnovers/Field/
+ * Work (the persistent backlog board - now also home to the Turnovers/Field/
  * Properties/Today tabs, see WorkTabs) and Messaging (the guest-reply queue,
  * which carries a pending-count badge so she can see at a glance whether
  * anything's waiting).
@@ -398,7 +482,7 @@ export const PRIMARY_MODULES = HELM_MODULES
   });
 
 // The mobile menu (HelmMobileMenu) no longer keeps its own ranked list.
-// It renders the same PRIMARY_MODULES trio plus the same overflow set the
+// It renders the same PRIMARY_MODULES pair plus the same overflow set the
 // desktop "More" dropdown shows (HELM_MODULES minus primary minus hidden),
 // so the two surfaces stay congruent from a single source of truth.
 
@@ -436,7 +520,7 @@ export function getGroupedOverflowModules(): { group: HelmGroup; label: string; 
 // Pinned to the top of the "More" menu in this exact order, regardless of
 // group. Per Dotti: Financials leads; everything else follows in its
 // grouped order. (Properties and Field used to lead too, but both are now
-// tabs inside Work — see WorkTabs — so they've dropped out of the overflow
+// tabs inside Work - see WorkTabs - so they've dropped out of the overflow
 // list entirely.)
 const OVERFLOW_PRIORITY = ['financials'];
 

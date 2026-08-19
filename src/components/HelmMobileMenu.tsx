@@ -4,7 +4,7 @@
  * The mobile replacement for the horizontal HelmModuleNav strip.
  *
  * Mirrors the desktop nav's two-tier structure so the two feel congruent:
- * the same three primary modules (Turnovers, Work, Messaging) sit at the
+ * the same two primary modules (Work, Messaging) sit at the
  * top as the daily-use set, then everything else lives under a "More"
  * section that is the identical overflow set the desktop "More" dropdown
  * shows (HELM_MODULES minus the primary tabs minus the Financials
@@ -40,10 +40,10 @@ export function HelmMobileMenu({ current }: Props) {
   const [open, setOpen] = useState(false);
 
   // Same split the desktop nav uses (HelmModuleNav + HelmModuleNavMore):
-  // the primary trio, then everything else minus the hidden Financials
+  // the primary pair, then everything else minus the hidden Financials
   // sub-tabs. Uses the same grouping helper for ORDER (Money -> Operations
   // -> Growth -> Relationships -> Reference -> Soon clusters related items)
-  // but renders flat, mirroring the desktop dropdown — visible section
+  // but renders flat, mirroring the desktop dropdown - visible section
   // headers were burning vertical space without improving wayfinding.
   const overflow: HelmModule[] = getOverflowModulesFlat();
 
@@ -126,7 +126,7 @@ export function HelmMobileMenu({ current }: Props) {
           </div>
 
           <nav className="rt-mobile-menu-list" aria-label="Modules">
-            {/* Primary trio: the daily-use tabs, same as desktop. */}
+            {/* Primary pair: the daily-use tabs, same as desktop. */}
             {PRIMARY_MODULES.map((m) => (
               <ModuleItem
                 key={m.id}
