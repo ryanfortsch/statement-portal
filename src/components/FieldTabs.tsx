@@ -9,16 +9,20 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * whole section to that trade via ?trade=.
  *
  * Row 2 (lens) is the function within a job: Packets (the priced work board),
- * Roster (the people), Hiring (the applicant pipeline). Packets only shows for
- * trades that use the packet machinery — creative work is paid per delivered
- * asset, so it has no packet board.
+ * Shoots & Pay (creative's money surface), Roster (the people), Hiring (the
+ * applicant pipeline). Packets only shows for trades that use the packet
+ * machinery - creative work is paid per delivered asset, so its board is
+ * Shoots & Pay instead.
  *
  * Plain server-rendered links, no client state (mirrors FinancialsTabs). The
- * masthead separately highlights "Field" (each page passes current="field").
+ * masthead separately highlights "Work" (each page passes current="work").
  */
 
-const LENS_HREF: Record<'packets' | 'contractors' | 'hiring', string> = {
+type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring';
+
+const LENS_HREF: Record<FieldLens, string> = {
   packets: '/operations/packets',
+  shoots: '/operations/creative',
   contractors: '/operations/contractors',
   hiring: '/operations/contractors/applicants',
 };
@@ -27,23 +31,28 @@ export function FieldTabs({
   current,
   trade = 'inspection',
 }: {
-  current: 'packets' | 'contractors' | 'hiring';
+  current: FieldLens;
   trade?: ContractorTrade;
 }) {
   // A job-type tab keeps you on the same lens where that lens exists for the
   // target trade; if you're on Packets and switch to a packet-less trade
-  // (creative), land on its Roster instead of a dead board.
+  // (creative), land on its Roster instead of a dead board. Same fallback for
+  // Shoots & Pay when the target trade has no shoot board.
   const jobHref = (t: ContractorTrade) => {
-    const lens = current === 'packets' && !TRADE_META[t].hasPackets ? 'contractors' : current;
+    const lens =
+      (current === 'packets' && !TRADE_META[t].hasPackets) || (current === 'shoots' && !TRADE_META[t].hasShoots)
+        ? 'contractors'
+        : current;
     return `${LENS_HREF[lens]}?trade=${t}`;
   };
 
   const lenses = (
     [
       TRADE_META[trade].hasPackets ? { id: 'packets', label: 'Packets' } : null,
+      TRADE_META[trade].hasShoots ? { id: 'shoots', label: 'Shoots & Pay' } : null,
       { id: 'contractors', label: 'Roster' },
       { id: 'hiring', label: 'Hiring' },
-    ].filter(Boolean) as { id: 'packets' | 'contractors' | 'hiring'; label: string }[]
+    ].filter(Boolean) as { id: FieldLens; label: string }[]
   ).map((l) => ({ ...l, href: `${LENS_HREF[l.id]}?trade=${trade}` }));
 
   return (

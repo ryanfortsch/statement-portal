@@ -1,13 +1,14 @@
 import Link from 'next/link';
+import { NavTabCount } from '@/components/NavTabCount';
 
 /**
- * Sub-navigation tab strip for the Work section. Work, Turnovers, Field,
- * Properties, and Today used to sit as separate top-level modules; they're
- * five lenses on the same day-to-day operating rhythm, so this strip renders
- * at the top of all five and lets the masthead collapse to a single "Work"
- * tab. Same pattern FinancialsTabs uses for Statements / Revenue / Forecast /
- * Cost Analysis / Books, and MessagingTabs uses for Guests / Owners /
- * Cleaners / Contractors.
+ * Sub-navigation tab strip for the Work section. Work, Maintenance, Gear,
+ * Turnovers, Field, Properties, and Today used to sit as separate top-level
+ * modules; they're lenses on the same day-to-day operating rhythm, so this
+ * strip renders at the top of each and lets the masthead collapse to a single
+ * "Work" tab. Same pattern FinancialsTabs uses for Statements / Revenue /
+ * Forecast / Cost Analysis / Books, and MessagingTabs uses for Guests /
+ * Owners / Cleaners / Contractors.
  *
  * Plain link nav, server-rendered, no client state. The top module nav
  * separately highlights "Work" on every page in this group (each passes
@@ -17,11 +18,12 @@ import Link from 'next/link';
 export function WorkTabs({
   current,
 }: {
-  current: 'work' | 'maintenance' | 'turnovers' | 'field' | 'properties' | 'today';
+  current: 'work' | 'maintenance' | 'gear' | 'turnovers' | 'field' | 'properties' | 'today';
 }) {
   const tabs = [
     { id: 'work', label: 'Work', href: '/work' },
     { id: 'maintenance', label: 'Maintenance', href: '/work/maintenance' },
+    { id: 'gear', label: 'Gear', href: '/work/gear' },
     { id: 'turnovers', label: 'Turnovers', href: '/operations' },
     { id: 'field', label: 'Field', href: '/operations/packets' },
     { id: 'properties', label: 'Properties', href: '/properties' },
@@ -51,6 +53,7 @@ export function WorkTabs({
               }}
             >
               {t.label}
+              {t.id === 'field' && <NavTabCount kind="fieldPackets" />}
             </Link>
           );
         })}

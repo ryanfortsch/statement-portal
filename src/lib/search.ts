@@ -50,11 +50,14 @@ function searchPages(q: string, limit = 6): PageMatch[] {
   if (!ql) return [];
   const hits: PageMatch[] = [];
   for (const m of HELM_MODULES) {
-    if (m.status !== 'active') continue;
+    // Parked modules are real routes, just demoted in the nav, so search
+    // still finds them (with a visible marker). Soon/external stay out.
+    if (m.status !== 'active' && m.status !== 'parked') continue;
     const title = m.title.toLowerCase();
     const desc = m.description.toLowerCase();
     if (title.includes(ql) || desc.includes(ql) || m.id.includes(ql)) {
-      hits.push({ id: m.id, title: m.title, description: m.description, href: m.href });
+      const description = m.status === 'parked' ? `${m.description} · parked` : m.description;
+      hits.push({ id: m.id, title: m.title, description, href: m.href });
     }
   }
   // Title matches rank higher than description matches.

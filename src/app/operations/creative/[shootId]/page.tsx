@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
@@ -63,6 +64,7 @@ export default async function ShootDetail({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
+      <FieldTabs current="shoots" trade="creative" />
       <section className="max-w-[860px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <Link href="/operations/creative" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Creative</Link>
 

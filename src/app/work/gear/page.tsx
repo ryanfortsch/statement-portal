@@ -16,7 +16,7 @@ export default async function GearPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead current="work" />
-      <WorkTabs current="work" />
+      <WorkTabs current="gear" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <Link href="/work" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← The board</Link>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Guest gear</div>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { loadActiveProperties } from './actions';
@@ -659,7 +660,8 @@ function UploadPageInner() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="statements" />
+      <HelmMasthead current="financials" />
+      <FinancialsTabs current="statements" />
       <HelmHero
         eyebrow="Step"
         title={result ? 'Processed' : 'Upload'}

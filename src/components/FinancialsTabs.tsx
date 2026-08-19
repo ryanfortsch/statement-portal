@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { NavTabCount } from '@/components/NavTabCount';
 
 /**
  * Sub-navigation tab strip for the Financials section. Statements,
@@ -48,6 +49,7 @@ export function FinancialsTabs({
               }}
             >
               {t.label}
+              {t.id === 'statements' && <NavTabCount kind="statementsReview" />}
             </Link>
           );
         })}

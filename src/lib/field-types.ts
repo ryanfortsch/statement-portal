@@ -12,15 +12,17 @@ export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning' | 'creat
  * shows as a job-type tab (cleaning stays valid but hidden — turnovers run
  * through Cape Ann Elite, not this portal). `hasPackets` gates the packet/route
  * machinery: creative work is paid per delivered asset, so it has no packets.
+ * `hasShoots` gates the shoots-and-pay board (/operations/creative), creative's
+ * money surface in place of packets.
  */
 export const TRADE_META: Record<
   ContractorTrade,
-  { label: string; singular: string; role: string; hasPackets: boolean; nav: boolean }
+  { label: string; singular: string; role: string; hasPackets: boolean; hasShoots: boolean; nav: boolean }
 > = {
-  inspection: { label: 'Inspectors', singular: 'inspector', role: 'Vacation Rental Specialist', hasPackets: true, nav: true },
-  maintenance: { label: 'Handymen', singular: 'handyman', role: 'Maintenance Tech', hasPackets: true, nav: true },
-  creative: { label: 'Creative', singular: 'contributor', role: 'Social Media Contributor', hasPackets: false, nav: true },
-  cleaning: { label: 'Cleaners', singular: 'cleaner', role: 'Turnover Cleaner', hasPackets: true, nav: false },
+  inspection: { label: 'Inspectors', singular: 'inspector', role: 'Vacation Rental Specialist', hasPackets: true, hasShoots: false, nav: true },
+  maintenance: { label: 'Handymen', singular: 'handyman', role: 'Maintenance Tech', hasPackets: true, hasShoots: false, nav: true },
+  creative: { label: 'Creative', singular: 'contributor', role: 'Social Media Contributor', hasPackets: false, hasShoots: true, nav: true },
+  cleaning: { label: 'Cleaners', singular: 'cleaner', role: 'Turnover Cleaner', hasPackets: true, hasShoots: false, nav: false },
 };
 
 /** Job-type tabs, in nav order. */

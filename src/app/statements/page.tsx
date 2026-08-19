@@ -1027,6 +1027,37 @@ function Insight({ label, value, sub, accent, last }: { label: string; value: st
   );
 }
 
+/**
+ * One clickable segment of the month review strip. Clicking expands every
+ * affected property card and jumps to the first one, so close-out review
+ * never starts with an expand-and-hunt through twelve cards.
+ */
+function ReviewSegment({ count, label, sub, onOpen }: {
+  count: number;
+  label: string;
+  sub?: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Expand the affected property cards"
+      style={{
+        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+        display: 'flex', alignItems: 'baseline', gap: 7, textAlign: 'left',
+      }}
+    >
+      <span className="font-mono tabular-nums" style={{ fontSize: 15, color: 'var(--signal)' }}>{count}</span>
+      <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{label}</span>
+      {sub && <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{sub}</span>}
+      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+        Open →
+      </span>
+    </button>
+  );
+}
+
 function EditorialButton({
   onClick, disabled, busy, label, meta, icon,
 }: {
@@ -1122,6 +1153,7 @@ function PropertyCard({
   ownerActionCount,
   onRefresh,
   reviewRefresh = 0,
+  forceExpand = 0,
 }: {
   prop: PropertyStatement;
   month: string;
@@ -1130,8 +1162,16 @@ function PropertyCard({
   // Bumped by the dashboard on every period reload so the deposit-review
   // queue refetches (syncs can land new pending rows).
   reviewRefresh?: number;
+  // Broadcast token from the month review strip. Nonzero means "open this
+  // card now"; it increments on every strip click so a re-click after a
+  // manual collapse re-opens the card.
+  forceExpand?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (forceExpand > 0) setExpanded(true);
+  }, [forceExpand]);
   const [generating, setGenerating] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -1161,9 +1201,12 @@ function PropertyCard({
 
   return (
     <div
+      id={'stmt-' + prop.property_id}
       style={{
         background: 'var(--paper)',
         borderTop: '1px solid var(--ink)',
+        // Anchor target for the month review strip; clear the sticky masthead.
+        scrollMarginTop: 72,
       }}
     >
       {/* Card Header -- editorial row */}
@@ -1848,6 +1891,43 @@ function DashboardContent() {
   // Incremented on every period (re)load; threads into BankDepositReview
   // so the pending queue refetches after syncs land new rows.
   const [reviewRefresh, setReviewRefresh] = useState(0);
+  // Aggregate pending count per property for the bank review queue --
+  // unattributed deposits, unattributed debits, and parked vendor refunds
+  // (source='vendor-refund') all live in bank_deposit_attributions, so one
+  // property_id-only query covers the whole queue. The per-card
+  // BankDepositReview still owns the row-level fetch.
+  const [depositReviewCounts, setDepositReviewCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!selectedMonth) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error: e } = await supabase
+        .from('bank_deposit_attributions')
+        .select('property_id')
+        .eq('month', selectedMonth)
+        .eq('status', 'pending');
+      if (cancelled) return;
+      if (e) { setDepositReviewCounts({}); return; }  // table may not exist yet; strip stays quiet
+      const counts: Record<string, number> = {};
+      (data || []).forEach((r: { property_id: string }) => {
+        counts[r.property_id] = (counts[r.property_id] || 0) + 1;
+      });
+      setDepositReviewCounts(counts);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedMonth, reviewRefresh]);
+  // Broadcast from the month review strip: expand these property cards and
+  // jump to the first. The token forces a re-expand on repeat clicks.
+  const [cardExpand, setCardExpand] = useState<{ token: number; ids: string[] }>({ token: 0, ids: [] });
+  const focusCards = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setCardExpand(prev => ({ token: prev.token + 1, ids }));
+    // Card headers are always in the DOM (only the detail is conditional),
+    // so the anchor exists before the expand state lands.
+    requestAnimationFrame(() => {
+      document.getElementById('stmt-' + ids[0])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
   const [stripeSyncResult, setStripeSyncResult] = useState<
     | {
         properties: number;
@@ -3033,6 +3113,60 @@ function DashboardContent() {
         })()}
       </section>
 
+      {/* ─── MONTH REVIEW STRIP ─── the aggregate close-review queue.
+           Everything that used to require expanding cards one by one:
+           pending bank-review rows (deposits, debits, parked vendor
+           refunds), open data gaps, statements not yet sent. Each segment
+           expands the affected property cards and scrolls to the first,
+           so review starts from one line instead of a hunt. */}
+      {props.length > 0 && (() => {
+        const depositIds = props.filter(p => (depositReviewCounts[p.property_id] || 0) > 0).map(p => p.property_id);
+        const depositCount = depositIds.reduce((s, id) => s + (depositReviewCounts[id] || 0), 0);
+        const gapIds = props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).map(p => p.property_id);
+        const unsentIds = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).map(p => p.property_id);
+        const clear = depositCount === 0 && totalGaps === 0 && unsentIds.length === 0;
+        return (
+          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20 }}>
+            <div className="rule-top rule-bottom flex items-baseline flex-wrap" style={{ padding: '12px 0', gap: 26 }}>
+              <span className="eyebrow" style={{ color: clear ? 'var(--ink-4)' : 'var(--signal)' }}>
+                Close review
+              </span>
+              {clear ? (
+                <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
+                  Month is clear &middot; every queue empty, every statement sent.
+                </span>
+              ) : (
+                <>
+                  {depositCount > 0 && (
+                    <ReviewSegment
+                      count={depositCount}
+                      label={`bank row${depositCount === 1 ? '' : 's'} to review`}
+                      sub={`${depositIds.length} propert${depositIds.length === 1 ? 'y' : 'ies'}`}
+                      onOpen={() => focusCards(depositIds)}
+                    />
+                  )}
+                  {totalGaps > 0 && (
+                    <ReviewSegment
+                      count={totalGaps}
+                      label={`open data gap${totalGaps === 1 ? '' : 's'}`}
+                      sub={`${gapIds.length} propert${gapIds.length === 1 ? 'y' : 'ies'}`}
+                      onOpen={() => focusCards(gapIds)}
+                    />
+                  )}
+                  {unsentIds.length > 0 && (
+                    <ReviewSegment
+                      count={unsentIds.length}
+                      label={`statement${unsentIds.length === 1 ? '' : 's'} not yet sent`}
+                      onOpen={() => focusCards(unsentIds)}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* ─── CLOSE-OUT NOTES ─── per-month freeform notepad the operator
            drops context into throughout the month (cancellations, refunds,
            weird charges, follow-ups) so it's all in one place at close-out.
@@ -3843,6 +3977,7 @@ function DashboardContent() {
                 ownerActionCount={ownerActionCounts[prop.property_id] ?? 0}
                 onRefresh={() => loadPeriod(selectedMonth)}
                 reviewRefresh={reviewRefresh}
+                forceExpand={cardExpand.ids.includes(prop.property_id) ? cardExpand.token : 0}
               />
             ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />
