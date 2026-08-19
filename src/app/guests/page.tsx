@@ -41,7 +41,7 @@ export default async function GuestPage({
   if (sp.tab === 'agreements') {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="marketing" />
+        <HelmMasthead />
         <MarketingTabs current="guests" />
         <HelmHero
           eyebrow="Helm · Guests"
@@ -63,7 +63,7 @@ export default async function GuestPage({
   if (sp.tab !== 'contacts') {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="marketing" />
+        <HelmMasthead />
         <MarketingTabs current="guests" />
         {/* No hero headline on Reviews — straight to the work. Keep the eyebrow so the section stays labeled. */}
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 20, width: '100%' }}>
@@ -98,7 +98,7 @@ export default async function GuestPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="marketing" />
+      <HelmMasthead />
       <MarketingTabs current="guests" />
 
       {/* HERO */}

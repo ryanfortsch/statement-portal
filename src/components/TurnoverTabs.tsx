@@ -1,29 +1,23 @@
 import Link from 'next/link';
-import { NavTabCount } from '@/components/NavTabCount';
 
 /**
- * Sub-navigation tab strip for the Financials section. Statements,
- * Revenue, Forecast, and Cost Analysis are four lenses on the same
- * money. Each remains its own route (URLs unchanged), but the strip
- * renders at the top of all four so they read as tabs of one
- * "Financials" section. Plain link nav -- server-rendered, no client
- * state -- mirroring GuestsTabBar.
+ * Sub-navigation tab strip for the Turnovers section. Pipeline is the
+ * living turnover rail; Inspections finally gets a standing tab instead
+ * of a whisper link (the full history view is a later phase). Same
+ * pattern FinancialsTabs uses for the Money section.
  *
- * `current` highlights the active tab; the masthead tab for this section
- * now reads "Money" and lights by pathname (the section id stays
- * "financials").
+ * Plain link nav, server-rendered, no client state. The masthead
+ * highlights "Turnovers" for this group on its own, derived from the
+ * pathname.
  */
-export function FinancialsTabs({
+export function TurnoverTabs({
   current,
 }: {
-  current: 'statements' | 'revenue' | 'forecast' | 'cost-analysis' | 'books';
+  current: 'pipeline' | 'inspections';
 }) {
   const tabs = [
-    { id: 'statements', label: 'Statements', href: '/statements' },
-    { id: 'revenue', label: 'Revenue', href: '/revenue' },
-    { id: 'forecast', label: 'Forecast', href: '/forecast' },
-    { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },
-    { id: 'books', label: 'LLC Accounting', href: '/books' },
+    { id: 'pipeline', label: 'Pipeline', href: '/operations' },
+    { id: 'inspections', label: 'Inspections', href: '/inspections' },
   ] as const;
 
   return (
@@ -49,7 +43,6 @@ export function FinancialsTabs({
               }}
             >
               {t.label}
-              {t.id === 'statements' && <NavTabCount kind="statementsReview" />}
             </Link>
           );
         })}

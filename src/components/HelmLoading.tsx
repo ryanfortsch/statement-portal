@@ -13,8 +13,6 @@
 import { HelmMasthead } from './HelmMasthead';
 
 type Props = {
-  /** Module nav highlight, matches the active page's `current` prop. */
-  current?: string;
   /** Eyebrow text (matches the page's HelmHero eyebrow). */
   eyebrow?: string;
   /** Approximate width of the hero headline placeholder. */
@@ -27,7 +25,6 @@ type Props = {
 };
 
 export function HelmLoading({
-  current,
   eyebrow = 'Loading…',
   headlineWidth = 380,
   contentRows = 4,
@@ -37,7 +34,7 @@ export function HelmLoading({
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current={current} />
+      <HelmMasthead />
 
       {/* HERO placeholder */}
       <section

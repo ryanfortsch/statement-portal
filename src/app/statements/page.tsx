@@ -2790,7 +2790,6 @@ function DashboardContent() {
           Period dropdown rides in the rightContent slot. The bespoke close-
           of-month actions strip below is its own non-sticky section. */}
       <HelmMasthead
-        current="financials"
         rightContent={
           <select
             value={selectedMonth}

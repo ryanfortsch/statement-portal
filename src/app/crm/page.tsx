@@ -93,7 +93,7 @@ export default async function CrmPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="crm" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow="Helm · CRM"

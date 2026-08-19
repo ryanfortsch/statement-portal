@@ -64,7 +64,7 @@ export default async function ChannelsPropertyPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="channels" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow={`Helm · Channels · ${property.name}`}

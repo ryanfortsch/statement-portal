@@ -1,26 +1,25 @@
 import Link from 'next/link';
 
 /**
- * Sub-navigation tab strip for the Marketing section. Guests (the
- * guest-facing subscriber list, reviews, and agreements) used to sit as its
- * own top-level module; it's a second lens on the same audience-growth work
- * Marketing already covers, so this strip renders at the top of both and
- * lets the masthead collapse to a single "Marketing" tab. Same pattern
- * FinancialsTabs / MessagingTabs / WorkTabs use for their own sections.
+ * Sub-navigation tab strip for the Growth section. Marketing, Guests, and
+ * Competitors are siblings: three lenses on the same audience-growth work.
+ * This strip renders at the top of all three so they read as tabs of one
+ * section; the masthead tab above reads "Growth" via navLabel and lights
+ * by pathname. Same pattern FinancialsTabs / MessagingTabs use for their
+ * own sections.
  *
- * Plain link nav, server-rendered, no client state. The top module nav
- * separately highlights "Marketing" on both pages (each passes
- * current="marketing" to HelmMasthead). Guests keeps its own GuestsTabBar
- * (Reviews / Contacts / Agreements) underneath this strip.
+ * Plain link nav, server-rendered, no client state. Guests keeps its own
+ * GuestsTabBar (Reviews / Contacts / Agreements) underneath this strip.
  */
 export function MarketingTabs({
   current,
 }: {
-  current: 'marketing' | 'guests';
+  current: 'marketing' | 'guests' | 'competitors';
 }) {
   const tabs = [
     { id: 'marketing', label: 'Marketing', href: '/marketing' },
     { id: 'guests', label: 'Guests', href: '/guests' },
+    { id: 'competitors', label: 'Competitors', href: '/competitors' },
   ] as const;
 
   return (

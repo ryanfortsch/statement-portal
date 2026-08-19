@@ -15,7 +15,7 @@ export default function ContractorMessagingLoading() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="messaging" />
+      <HelmMasthead />
       <MessagingTabs current="contractors" />
 
       <QueueSkeleton />

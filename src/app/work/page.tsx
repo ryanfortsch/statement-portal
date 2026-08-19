@@ -108,7 +108,7 @@ export default async function WorkQueuePage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
       <WorkTabs current="work" />
 
       {/* Quiet utility shelf above the board (the guest-gear matrix lives on

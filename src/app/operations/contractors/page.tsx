@@ -84,7 +84,7 @@ export default async function ContractorsPage({
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-        <HelmMasthead current="work" />
+        <HelmMasthead />
         <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <p style={{ color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
         </section>
@@ -151,7 +151,7 @@ export default async function ContractorsPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
       <FieldTabs current="contractors" trade={trade} />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>

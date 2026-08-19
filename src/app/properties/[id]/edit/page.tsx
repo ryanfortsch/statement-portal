@@ -62,7 +62,7 @@ export default async function PropertyEditPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
 
       <div className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
         <Link

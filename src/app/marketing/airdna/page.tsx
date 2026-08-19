@@ -327,7 +327,7 @@ export default function AirDnaPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--paper)", color: "var(--ink)" }}>
-      <HelmMasthead current="marketing" />
+      <HelmMasthead />
 
       <HelmHero
         eyebrow="Helm · Marketing · AirDNA"

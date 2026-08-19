@@ -4,12 +4,13 @@
  * The mobile replacement for the horizontal HelmModuleNav strip.
  *
  * Mirrors the desktop nav's two-tier structure so the two feel congruent:
- * the same two primary modules (Work, Messaging) sit at the
- * top as the daily-use set, then everything else lives under a "More"
- * section that is the identical overflow set the desktop "More" dropdown
- * shows (HELM_MODULES minus the primary tabs minus the Financials
- * sub-tabs). Both surfaces read from the same source, which is what keeps
- * them in sync.
+ * the same seven primary sections (Work, Turnovers, Field, Messaging,
+ * Properties, Money, Growth) sit at the top as the daily-use set, then the
+ * Library lives under a "More" section that is the identical overflow set
+ * the desktop "More" dropdown shows (HELM_MODULES minus the primary tabs
+ * minus the hidden sub-tabs). Both surfaces read from the same source,
+ * which is what keeps them in sync. The active module id derives from the
+ * pathname, same as desktop.
  *
  * Unlike desktop, the More set isn't collapsed behind a click: a phone's
  * menu is already a dedicated full-screen sheet with room to scroll, so
@@ -28,23 +29,21 @@
  */
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { PRIMARY_MODULES, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
+import { PRIMARY_MODULES, activeModuleIdForPathname, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
 
-type Props = {
-  current?: string;
-};
-
-export function HelmMobileMenu({ current }: Props) {
+export function HelmMobileMenu() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const active = activeModuleIdForPathname(pathname ?? '');
 
   // Same split the desktop nav uses (HelmModuleNav + HelmModuleNavMore):
-  // the primary pair, then everything else minus the hidden Financials
-  // sub-tabs. Uses the same grouping helper for ORDER (Money -> Operations
-  // -> Growth -> Relationships -> Reference -> Soon clusters related items)
-  // but renders flat, mirroring the desktop dropdown - visible section
-  // headers were burning vertical space without improving wayfinding.
+  // the seven primary sections, then the Library shelf minus the hidden
+  // sub-tabs. Uses the same grouping helper for ORDER but renders flat,
+  // mirroring the desktop dropdown - visible section headers were burning
+  // vertical space without improving wayfinding.
   const overflow: HelmModule[] = getOverflowModulesFlat();
 
   // Lock body scroll + listen for Escape while the sheet is open.
@@ -126,25 +125,25 @@ export function HelmMobileMenu({ current }: Props) {
           </div>
 
           <nav className="rt-mobile-menu-list" aria-label="Modules">
-            {/* Primary pair: the daily-use tabs, same as desktop. */}
+            {/* Primary sections: the daily-use tabs, same as desktop. */}
             {PRIMARY_MODULES.map((m) => (
               <ModuleItem
                 key={m.id}
                 module={m}
-                active={m.id === current}
+                active={m.id === active}
                 prominent
                 onPick={() => setOpen(false)}
               />
             ))}
 
-            {/* Everything else, demoted under a single "More" divider.
+            {/* The Library, demoted under a single "More" divider.
                 Mirrors the flat desktop dropdown. */}
             <div className="rt-mobile-menu-group-label">More</div>
             {overflow.map((m) => (
               <ModuleItem
                 key={m.id}
                 module={m}
-                active={m.id === current}
+                active={m.id === active}
                 onPick={() => setOpen(false)}
               />
             ))}
@@ -178,7 +177,7 @@ function ModuleItem({
   // match the desktop More dropdown - the canonical module numbers only
   // make sense on the home page where the full set reads as a table of
   // contents. Here every row is just title + status badge. Primary rows
-  // render a touch larger so the daily-use trio reads as the lead tier.
+  // render a touch larger so the seven primary sections read as the lead tier.
   const content = (
     <div
       className="rt-mobile-menu-row"
@@ -200,7 +199,7 @@ function ModuleItem({
             lineHeight: 1.2,
           }}
         >
-          {m.title}
+          {m.navLabel ?? m.title}
           {badge}
           {m.status === 'soon' && (
             <span

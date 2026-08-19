@@ -16,7 +16,7 @@ export default function OwnerMessagingLoading() {
       className="min-h-screen flex flex-col"
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead current="messaging" />
+      <HelmMasthead />
       <MessagingTabs current="owners" />
 
       <HelmHero

@@ -38,7 +38,7 @@ export default async function PlaybookEntryPage({ params }: { params: Promise<{ 
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="playbook" />
+      <HelmMasthead />
 
       <article className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 36, paddingBottom: 64 }}>
         {/* Back + actions */}

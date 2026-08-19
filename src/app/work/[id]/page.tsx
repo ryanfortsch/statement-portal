@@ -111,7 +111,7 @@ export default async function WorkSlipDetailPage({
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
       <WorkTabs current="work" />
 
       {/* BACK — returns to the board as you left it (filter/tab/expanded

@@ -5,20 +5,20 @@ import { UserMenu } from './UserMenu';
 import { CommandPaletteTrigger } from './CommandPaletteTrigger';
 
 type Props = {
-  current?: string;
   rightContent?: React.ReactNode;
 };
 
 /**
- * The standard Helm masthead: logo + Helm wordmark + module nav. Pages can
- * pass `current` to highlight their module, and `rightContent` to put a
- * period selector / action button on the right.
+ * The standard Helm masthead: logo + Helm wordmark + module nav. The active
+ * module is derived from the pathname inside the nav components, so pages
+ * pass nothing to highlight themselves; `rightContent` puts a period
+ * selector / action button on the right.
  *
  * Every module renders this shell, /statements included (its Period
  * dropdown rides in the rightContent slot). New modules should default
  * to it too.
  */
-export function HelmMasthead({ current, rightContent }: Props) {
+export function HelmMasthead({ rightContent }: Props) {
   return (
     <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
       <div className="max-w-[1100px] mx-auto px-10">
@@ -54,12 +54,12 @@ export function HelmMasthead({ current, rightContent }: Props) {
               style={{ width: 1, height: 14, background: 'var(--rule)' }}
               aria-hidden="true"
             />
-            <HelmModuleNav current={current} />
+            <HelmModuleNav />
           </div>
           <div className="flex items-center" style={{ gap: 10, flexShrink: 0 }}>
             <CommandPaletteTrigger />
             {rightContent}
-            <HelmMobileMenu current={current} />
+            <HelmMobileMenu />
             <UserMenu />
           </div>
         </div>

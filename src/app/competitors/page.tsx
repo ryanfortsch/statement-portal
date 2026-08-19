@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, listCompetitors, summarizeCompetitor } from '@/lib/competitors';
@@ -20,7 +21,8 @@ export default async function CompetitorsIndex() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="competitors" />
+      <HelmMasthead />
+      <MarketingTabs current="competitors" />
 
       <HelmHero
         eyebrow="Helm · Competitors"

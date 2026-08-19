@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
@@ -88,7 +89,8 @@ export default async function InspectionsPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead current="work" />
+      <HelmMasthead />
+      <TurnoverTabs current="inspections" />
 
       <HelmHero
         eyebrow="Helm · Inspections"
