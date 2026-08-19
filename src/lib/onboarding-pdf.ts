@@ -48,10 +48,19 @@ export async function renderOnboardingPdf(args: {
     }
 
     const response = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
-    // The page 404s on a bad/missing token; archiving a rendered 404 to
-    // Drive would look like success, so fail loudly instead.
+    // The page denies bad/missing tokens with notFound(). Archiving that
+    // to Drive would look like success, so fail loudly instead. The
+    // status check alone isn't enough: /projections has a loading.tsx
+    // boundary, so Next streams a 200 shell before notFound() throws and
+    // the denial arrives in-stream as the not-found UI. The reliable
+    // tell is the intake document root, which every authorized render
+    // includes (even a not-yet-submitted intake renders inside .ob-doc).
     if (response && !response.ok()) {
       throw new Error(`onboarding-render returned ${response.status()} — token rejected?`);
+    }
+    const hasDoc = await page.$('.ob-doc');
+    if (!hasDoc) {
+      throw new Error('onboarding-render did not render the intake document — token rejected?');
     }
     await page.evaluate(() => (document as Document & { fonts: { ready: Promise<void> } }).fonts.ready);
     await page.emulateMediaType('print');
