@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import type { GuestAgreementRow } from '@/lib/agreement-types';
 import { AgreementForm } from '../../AgreementForm';
@@ -27,6 +28,7 @@ export default async function EditAgreementPage({ params }: { params: Promise<{ 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <MarketingTabs current="guests" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>

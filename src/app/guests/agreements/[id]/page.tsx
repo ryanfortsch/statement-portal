@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   AGREEMENT_KIND_LABEL,
@@ -40,6 +41,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <MarketingTabs current="guests" />
 
       {/* Header */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 24, width: '100%' }}>

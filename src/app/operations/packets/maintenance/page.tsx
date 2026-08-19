@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadOpenMaintenance } from '@/lib/field-packets';
@@ -29,9 +29,9 @@ export default async function MaintenancePage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <FieldTabs current="packets" trade="maintenance" />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Inspection packets</Link>
-        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Maintenance jobs</div>
+        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Maintenance jobs</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 24, maxWidth: 620 }}>
           Open, unassigned maintenance work slips. Pick the ones a contractor can knock out on one trip, set a
           day and a price, then send it to your maintenance contractors to claim.

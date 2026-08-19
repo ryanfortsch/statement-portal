@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { importContactsFromCsv } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -9,6 +10,7 @@ export default function GuestImportPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <MarketingTabs current="guests" />
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
@@ -73,7 +75,7 @@ export default function GuestImportPage() {
                 cursor: 'pointer',
               }}
             />
-            <Link href="/guests" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            <Link href="/guests?tab=contacts" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
               Cancel
             </Link>
           </div>

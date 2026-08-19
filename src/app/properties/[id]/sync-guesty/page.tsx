@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { SyncGuestyClient } from './SyncGuestyClient';
 
@@ -35,21 +35,15 @@ export default async function SyncGuestyPage({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <Link
-          href={`/properties/${p.id}?tab=growth`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← {p.name}
-        </Link>
+      <HelmBreadcrumb
+        trail={[
+          { label: p.name, href: `/properties/${p.id}?tab=growth` },
+          { label: 'Guesty listing fields' },
+        ]}
+      />
 
-        <div className="eyebrow" style={{ marginTop: 20, marginBottom: 12 }}>Guesty · Listing fields</div>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Guesty · Listing fields</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
           Fill Guesty from <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Helm</em>.
         </h1>

@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { NoticeEditorForm } from '@/components/properties/NoticeEditorForm';
 import { createPropertyNotice } from '@/app/properties/actions';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
@@ -39,20 +39,14 @@ export default async function NewPropertyNoticePage({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
-        <Link
-          href={`/properties/${p.id}?tab=records`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← {p.name}
-        </Link>
+      <HelmBreadcrumb
+        trail={[
+          { label: p.name, href: `/properties/${p.id}?tab=records` },
+          { label: 'New notice' },
+        ]}
+      />
 
+      <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
         <h1 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', margin: '18px 0 6px', color: 'var(--ink)' }}>
           New <em>notice.</em>
         </h1>

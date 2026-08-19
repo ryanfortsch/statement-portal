@@ -1,7 +1,5 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { WorkTabs } from '@/components/WorkTabs';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
@@ -107,10 +105,7 @@ export default async function WorkQueuePage() {
   const myEmail = session?.user?.email ?? '';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <WorkTabs current="work" />
-
+    <>
       {/* Quiet utility shelf above the board (the guest-gear matrix lives on
           its own page so the board stays the board). */}
       <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
@@ -131,6 +126,6 @@ export default async function WorkQueuePage() {
       />
 
       <HelmFooter module="Work Queue" right="Source: Helm" />
-    </div>
+    </>
   );
 }

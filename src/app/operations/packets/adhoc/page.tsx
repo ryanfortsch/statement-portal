@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadFieldProperties } from '@/lib/field-packets';
@@ -31,9 +31,9 @@ export default async function AdhocPacketPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <FieldTabs current="packets" trade="inspection" />
       <section className="max-w-[720px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Field packets</Link>
-        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Send a one-off job</div>
+        <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Send a one-off job</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 24, maxWidth: 560 }}>
           A single task at a home (drop something off, meet a vendor, grab a photo, swap a bulb). Done by the same
           specialists, on its own claim → do → approve → pay. Set the pay now; you can adjust it after the visit from

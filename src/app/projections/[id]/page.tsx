@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { SubmitButton } from '@/components/SubmitButton';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
@@ -211,13 +212,16 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
+      <HelmBreadcrumb
+        trail={[
+          { label: 'Prospects', href: '/properties?view=prospects' },
+          { label: projection.property_address },
+        ]}
+      />
+
       {/* ─── Identity strip ─────────────────────────────────────────────── */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 36, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 40, paddingBottom: 36, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/properties?view=prospects" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
-            ← Prospects
-          </Link>
-          {' · '}
           <span>{fmtMonthYear(projection.presentation_month)}</span>
           {' · '}
           <span style={{ color: promoted ? 'var(--positive)' : projection.status === 'sent' ? 'var(--positive)' : 'var(--ink-4)' }}>

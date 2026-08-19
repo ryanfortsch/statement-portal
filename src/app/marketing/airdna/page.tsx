@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { HelmMasthead } from "@/components/HelmMasthead";
+import { MarketingTabs } from "@/components/MarketingTabs";
 import { HelmHero } from "@/components/HelmHero";
 import {
   detectAirDnaCsvFormat,
@@ -328,6 +329,7 @@ export default function AirDnaPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--paper)", color: "var(--ink)" }}>
       <HelmMasthead />
+      <MarketingTabs current="marketing" />
 
       <HelmHero
         eyebrow="Helm · Marketing · AirDNA"

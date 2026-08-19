@@ -1,6 +1,4 @@
-import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
-import { WorkTabs } from '@/components/WorkTabs';
 import type { RunsBoardData } from '@/lib/work-types';
 import { loadMaintenanceRunsBoard } from '@/lib/maintenance-runs';
 import { RunsRail } from '../RunsRail';
@@ -20,15 +18,12 @@ export default async function MaintenancePage() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <WorkTabs current="maintenance" />
-
+    <>
       <div style={{ flex: 1 }}>
         <RunsRail data={runsBoard} standalone />
       </div>
 
       <HelmFooter module="Maintenance Runs" right="Source: Helm" />
-    </div>
+    </>
   );
 }
