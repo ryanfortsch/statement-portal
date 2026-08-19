@@ -8,14 +8,22 @@ import puppeteer, { Browser } from 'puppeteer-core';
  * intake view), waits for fonts + network, prints to PDF. Used to
  * archive the submitted intake to the Rising Tide shared Drive.
  *
+ * The render page self-guards (Helm session OR the projection's
+ * onboarding_token — it shows WiFi passwords and lock codes), so the
+ * headless request must carry `token`. The caller reads it off the
+ * projections row it already fetched.
+ *
  * Mirrors src/lib/pdf.ts / inspection-pdf.ts.
  */
 export async function renderOnboardingPdf(args: {
   projectionId: string;
   origin: string;
+  token: string;
 }): Promise<Buffer> {
-  const { projectionId, origin } = args;
-  const url = `${origin}/projections/${encodeURIComponent(projectionId)}/onboarding-render`;
+  const { projectionId, origin, token } = args;
+  const url =
+    `${origin}/projections/${encodeURIComponent(projectionId)}/onboarding-render` +
+    `?token=${encodeURIComponent(token)}`;
 
   const localChrome = process.env.CHROME_EXECUTABLE_PATH;
   const executablePath = localChrome || (await chromium.executablePath());
@@ -39,7 +47,12 @@ export async function renderOnboardingPdf(args: {
       });
     }
 
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
+    const response = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
+    // The page 404s on a bad/missing token; archiving a rendered 404 to
+    // Drive would look like success, so fail loudly instead.
+    if (response && !response.ok()) {
+      throw new Error(`onboarding-render returned ${response.status()} — token rejected?`);
+    }
     await page.evaluate(() => (document as Document & { fonts: { ready: Promise<void> } }).fonts.ready);
     await page.emulateMediaType('print');
 

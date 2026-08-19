@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 
@@ -8,9 +9,14 @@ export const dynamic = 'force-dynamic';
  * Printable owner-onboarding intake document at
  * /projections/<id>/onboarding-render. This is the deliverable the Drive
  * archiver (and a future "download intake" button) renders to PDF — the
- * owner's submitted answers laid out as a clean record. Public via
- * proxy.ts so headless Chromium can reach it; the editor pages stay
- * auth-gated.
+ * owner's submitted answers laid out as a clean record. Reachable without
+ * a session via proxy.ts so headless Chromium can hit it, but the page
+ * SELF-GUARDS: it renders only for Helm staff (session) or a request
+ * carrying `?token=<onboarding_token>` — the same "Helm auth OR onboarding
+ * token" contract as /api/projection-pdf. The intake includes WiFi
+ * passwords, lock codes, and key locations, so UUID knowledge alone must
+ * never be enough. Denials render notFound() so an unauthorized probe
+ * can't distinguish a real projection id from a bogus one.
  *
  * Same editorial system as the other Helm deliverables: paper ground,
  * Fraunces display, grouped key/value sections. Empty fields are
@@ -128,10 +134,23 @@ function buildGroups(d: OnboardingData): Group[] {
   ];
 }
 
-export default async function OnboardingRenderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OnboardingRenderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ token?: string }>;
+}) {
   const { id } = await params;
+  const { token } = await searchParams;
   const projection = await getProjection(id);
   if (!projection) notFound();
+
+  const session = await auth();
+  const hasStaffAuth = !!session?.user?.email;
+  const hasValidToken =
+    !!token && !!projection.onboarding_token && token === projection.onboarding_token;
+  if (!hasStaffAuth && !hasValidToken) notFound();
 
   const data = projection.onboarding_data;
   const ownerName = projection.prospect_full_legal || projection.prospect_name || 'Owner';
