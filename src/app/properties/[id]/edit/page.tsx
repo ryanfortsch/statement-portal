@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import { updatePropertyWithState } from '@/app/properties/actions';
@@ -64,20 +64,12 @@ export default async function PropertyEditPage({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <div className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
-        <Link
-          href={`/properties/${p.id}`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← {p.name}
-        </Link>
-      </div>
+      <HelmBreadcrumb
+        trail={[
+          { label: p.name, href: `/properties/${p.id}` },
+          { label: 'Edit operational data' },
+        ]}
+      />
 
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Edit operational data</div>

@@ -33,6 +33,15 @@ export function parseTrade(v: string | null | undefined): ContractorTrade {
   return v === 'maintenance' || v === 'cleaning' || v === 'creative' ? v : 'inspection';
 }
 
+/**
+ * Clamp a trade to one FieldTabs can light. Non-nav trades (cleaning) have
+ * no tab in the strip, so surfaces that render the strip fall back to the
+ * inspection tab rather than showing no active trade at all.
+ */
+export function navTrade(t: ContractorTrade): ContractorTrade {
+  return TRADE_META[t].nav ? t : 'inspection';
+}
+
 export type PacketStatus =
   | 'draft'
   | 'published'

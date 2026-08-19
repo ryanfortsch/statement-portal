@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SectionTabs } from './SectionTabs';
 import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types';
 
 /**
@@ -6,17 +7,15 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  *
  * Row 1 (job type) is the primary axis: Inspectors, Handymen, Creative. Each is
  * its own hiring track, roster, and paid-work stream. Picking one scopes the
- * whole section to that trade via ?trade=.
+ * whole section to that trade via ?trade=. It renders through SectionTabs, the
+ * shared strip primitive, with `current` passed explicitly because the trade
+ * lives in the query string and the pathname cannot derive it.
  *
  * Row 2 (lens) is the function within a job: Packets (the priced work board),
  * Shoots & Pay (creative's money surface), Roster (the people), Hiring (the
  * applicant pipeline). Packets only shows for trades that use the packet
  * machinery - creative work is paid per delivered asset, so its board is
- * Shoots & Pay instead.
- *
- * Plain server-rendered links, no client state (mirrors FinancialsTabs). The
- * masthead highlights "Field" for this section on its own, derived from the
- * pathname.
+ * Shoots & Pay instead. It rides in the primitive's secondRow slot.
  */
 
 type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring';
@@ -57,58 +56,34 @@ export function FieldTabs({
   ).map((l) => ({ ...l, href: `${LENS_HREF[l.id]}?trade=${trade}` }));
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20 }}>
-      {/* Row 1 — job type */}
-      <div className="flex items-baseline" style={{ gap: 26, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
-        {NAV_TRADES.map((t) => {
-          const isActive = t === trade;
-          return (
-            <Link
-              key={t}
-              href={jobHref(t)}
-              style={{
-                fontSize: 14,
-                letterSpacing: '.03em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                color: isActive ? 'var(--ink)' : 'var(--ink-4)',
-                textDecoration: 'none',
-                paddingBottom: 12,
-                borderBottom: isActive ? '2px solid var(--signal)' : '2px solid transparent',
-                marginBottom: -1,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {TRADE_META[t].label}
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Row 2 — lens within the active job */}
-      <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
-        {lenses.map((l, i) => {
-          const isActive = l.id === current;
-          return (
-            <span key={l.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-              {i > 0 && <span style={{ color: 'var(--rule)', fontSize: 12 }}>·</span>}
-              <Link
-                href={l.href}
-                style={{
-                  fontSize: 12,
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive ? 'var(--ink)' : 'var(--ink-4)',
-                  textDecoration: 'none',
-                }}
-              >
-                {l.label}
-              </Link>
-            </span>
-          );
-        })}
-      </div>
-    </section>
+    <SectionTabs
+      current={trade}
+      tabs={NAV_TRADES.map((t) => ({ id: t, label: TRADE_META[t].label, href: jobHref(t) }))}
+      secondRow={
+        <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
+          {lenses.map((l, i) => {
+            const isActive = l.id === current;
+            return (
+              <span key={l.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
+                {i > 0 && <span style={{ color: 'var(--rule)', fontSize: 12 }}>·</span>}
+                <Link
+                  href={l.href}
+                  style={{
+                    fontSize: 12,
+                    letterSpacing: '.06em',
+                    textTransform: 'uppercase',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? 'var(--ink)' : 'var(--ink-4)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  {l.label}
+                </Link>
+              </span>
+            );
+          })}
+        </div>
+      }
+    />
   );
 }

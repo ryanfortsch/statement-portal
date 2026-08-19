@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { HelmHero } from '@/components/HelmHero';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
@@ -67,14 +67,12 @@ export default async function StayCapeAnnLaunchPage({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
-        <Link
-          href={`/properties/${id}?tab=growth`}
-          style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.04em' }}
-        >
-          ← {property.name}
-        </Link>
-      </div>
+      <HelmBreadcrumb
+        trail={[
+          { label: property.name, href: `/properties/${id}?tab=growth` },
+          { label: 'Stay Cape Ann launch' },
+        ]}
+      />
 
       <HelmHero
         eyebrow="Helm · Properties"

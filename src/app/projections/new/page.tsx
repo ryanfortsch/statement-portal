@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { createProjection } from '../actions';
 
@@ -10,12 +10,14 @@ export default function NewProjectionPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <section className="max-w-[860px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/properties?view=prospects" style={{ color: 'var(--ink-4)', textDecoration: 'none' }}>
-            ← Prospects
-          </Link>
-        </div>
+      <HelmBreadcrumb
+        trail={[
+          { label: 'Prospects', href: '/properties?view=prospects' },
+          { label: 'New prospect' },
+        ]}
+      />
+
+      <section className="max-w-[860px] mx-auto px-10" style={{ paddingTop: 40, paddingBottom: 28, width: '100%' }}>
         <h1
           className="font-serif"
           style={{

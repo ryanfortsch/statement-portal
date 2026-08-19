@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { supabase, isConfigured } from '@/lib/supabase';
 import { PROPERTIES } from '@/lib/properties';
 import { saveMarketing } from './actions';
@@ -37,10 +38,11 @@ export default async function MarketingMemoryPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <MarketingTabs current="guests" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 24, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/guests" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
+          <Link href="/guests?tab=contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
         </div>
         <h1 className="font-serif" style={{ fontSize: 36, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)' }}>
           Marketing memory

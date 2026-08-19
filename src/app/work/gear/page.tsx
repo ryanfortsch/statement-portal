@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { WorkTabs } from '@/components/WorkTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { GearGrid } from '@/components/GearGrid';
 import { loadGearGrid, GEAR_ITEMS } from '@/lib/property-gear';
@@ -14,9 +12,7 @@ export const dynamic = 'force-dynamic';
 export default async function GearPage() {
   const rows = await loadGearGrid();
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <WorkTabs current="gear" />
+    <>
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <Link href="/work" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← The board</Link>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400, marginTop: 12 }}>Guest gear</div>
@@ -27,6 +23,6 @@ export default async function GearPage() {
         <GearGrid items={GEAR_ITEMS} rows={rows} save={saveGearCellOffice} />
       </section>
       <HelmFooter module="Work" right="Guest gear" />
-    </div>
+    </>
   );
 }

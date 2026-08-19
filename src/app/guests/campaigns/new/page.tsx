@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { MarketingTabs } from '@/components/MarketingTabs';
 import { listSegments } from '@/lib/guests';
 import { TONE_OPTIONS } from '@/lib/ai/brand-voice';
 import { createDraftFromBrief, createDraftCampaign } from '../actions';
@@ -14,6 +15,7 @@ export default async function NewCampaignPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <MarketingTabs current="guests" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>

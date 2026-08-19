@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
@@ -14,7 +15,7 @@ import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type Pack
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor } from '../actions';
 import { StopList } from './StopList';
-import { canClaim, fmtVisitTime, type ContractorRow } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, parseTrade, navTrade, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
@@ -196,9 +197,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      {/* parseTrade guards legacy rows whose stored trade predates the enum;
+          non-nav trades (cleaning) would light no tab, so clamp to inspection. */}
+      <FieldTabs current="packets" trade={navTrade(parseTrade(packet.trade))} />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        <Link href="/operations/packets" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← All packets</Link>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginTop: 12, borderBottom: '1px solid var(--ink)', paddingBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, borderBottom: '1px solid var(--ink)', paddingBottom: 16, flexWrap: 'wrap' }}>
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>{packet.title}</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

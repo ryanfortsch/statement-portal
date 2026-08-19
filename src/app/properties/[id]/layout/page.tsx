@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { loadPropertyDeckItemIds } from '@/lib/inspection-cards';
@@ -85,20 +85,12 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <div className="max-w-[820px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
-        <Link
-          href={`/properties/${property.id}?tab=operations`}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← {property.name}
-        </Link>
-      </div>
+      <HelmBreadcrumb
+        trail={[
+          { label: property.name, href: `/properties/${property.id}?tab=operations` },
+          { label: 'Inspection layout' },
+        ]}
+      />
 
       <section className="max-w-[820px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 10, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>

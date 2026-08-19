@@ -1,58 +1,31 @@
-import Link from 'next/link';
+import { SectionTabs } from './SectionTabs';
 import { MessagingTabCount } from './MessagingTabCount';
 
 /**
- * Sub-navigation tab strip for the Messaging section. Guests and Owners are
- * two queues backed by the same Stay Concierge approval flow; previously they
- * sat as two separate top-level modules ("Messaging" + "Owner Messaging") that
- * read as parallel destinations. This strip renders at the top of both pages
- * so they read as two tabs of one section -- the same pattern FinancialsTabs
- * uses for Statements / Revenue / Forecast / Cost Analysis / Books.
+ * Sub-navigation tab strip for the Messaging section. Guests, Owners,
+ * Cleaners, and Contractors are queues backed by the same Stay Concierge
+ * approval flow; this strip renders at the top of all four pages so they
+ * read as tabs of one section. Each tab carries a MessagingTabCount pill
+ * so the operator can see which queue has drafts waiting.
  *
- * Plain link nav, server-rendered, no client state. The top module nav
- * separately highlights "Messaging" on both pages (each passes
- * current="messaging" to HelmMasthead).
+ * Thin wrapper over SectionTabs, the shared strip primitive. `current`
+ * stays required here: the four routes share no common prefix, so the
+ * caller names its own tab.
  */
 export function MessagingTabs({
   current,
 }: {
   current: 'guests' | 'owners' | 'cleaners' | 'contractors';
 }) {
-  const tabs = [
-    { id: 'guests', label: 'Guests', href: '/messaging' },
-    { id: 'owners', label: 'Owners', href: '/owner-messaging' },
-    { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging' },
-    { id: 'contractors', label: 'Contractors', href: '/contractor-messaging' },
-  ] as const;
-
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
-      <div className="flex items-baseline" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
-        {tabs.map((t) => {
-          const isActive = t.id === current;
-          return (
-            <Link
-              key={t.id}
-              href={t.href}
-              style={{
-                fontSize: 13,
-                letterSpacing: '.04em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                color: isActive ? 'var(--ink)' : 'var(--ink-4)',
-                textDecoration: 'none',
-                paddingBottom: 12,
-                borderBottom: isActive ? '2px solid var(--signal)' : '2px solid transparent',
-                marginBottom: -1,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t.label}
-              <MessagingTabCount category={t.id} />
-            </Link>
-          );
-        })}
-      </div>
-    </section>
+    <SectionTabs
+      current={current}
+      tabs={[
+        { id: 'guests', label: 'Guests', href: '/messaging', badge: <MessagingTabCount category="guests" /> },
+        { id: 'owners', label: 'Owners', href: '/owner-messaging', badge: <MessagingTabCount category="owners" /> },
+        { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging', badge: <MessagingTabCount category="cleaners" /> },
+        { id: 'contractors', label: 'Contractors', href: '/contractor-messaging', badge: <MessagingTabCount category="contractors" /> },
+      ]}
+    />
   );
 }

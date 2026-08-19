@@ -8,6 +8,10 @@
  * the actual page resolves, Next.js swaps this content out; because
  * the masthead markup is identical in both, it stays visible without
  * a layout reset.
+ *
+ * A loading.tsx that lives INSIDE a section layout (which already
+ * renders the masthead and strip around its children) passes `bare`
+ * so the skeleton doesn't stack a second masthead under the real one.
  */
 
 import { HelmMasthead } from './HelmMasthead';
@@ -22,19 +26,29 @@ type Props = {
    * Default 4 reads as a stat strip; bump higher for list-heavy pages.
    */
   contentRows?: number;
+  /**
+   * Skip the HelmMasthead render. For loading.tsx files inside section
+   * layouts that already provide the masthead (a segment's loading UI
+   * renders inside its layout, so the chrome is already on screen).
+   */
+  bare?: boolean;
 };
 
 export function HelmLoading({
   eyebrow = 'Loading…',
   headlineWidth = 380,
   contentRows = 4,
+  bare = false,
 }: Props) {
+  // Inside a section layout (bare) the shell already provides the viewport
+  // height and background; a second min-h-screen here would push a full
+  // extra viewport of skeleton below the fold.
   return (
     <div
-      className="min-h-screen flex flex-col"
-      style={{ background: 'var(--paper)', color: 'var(--ink)' }}
+      className={bare ? 'flex-1 flex flex-col' : 'min-h-screen flex flex-col'}
+      style={bare ? { color: 'var(--ink)' } : { background: 'var(--paper)', color: 'var(--ink)' }}
     >
-      <HelmMasthead />
+      {!bare && <HelmMasthead />}
 
       {/* HERO placeholder */}
       <section

@@ -1,59 +1,33 @@
-import Link from 'next/link';
+import { SectionTabs } from './SectionTabs';
 import { NavTabCount } from '@/components/NavTabCount';
 
 /**
  * Sub-navigation tab strip for the Financials section. Statements,
- * Revenue, Forecast, and Cost Analysis are four lenses on the same
- * money. Each remains its own route (URLs unchanged), but the strip
- * renders at the top of all four so they read as tabs of one
- * "Financials" section. Plain link nav -- server-rendered, no client
- * state -- mirroring GuestsTabBar.
+ * Revenue, Forecast, Cost Analysis, and LLC Accounting are five lenses
+ * on the same money. Each remains its own route (URLs unchanged), but
+ * the strip renders at the top of all five so they read as tabs of one
+ * section; the masthead tab above reads "Money" and lights by pathname.
+ * Statements carries the review-queue pill.
  *
- * `current` highlights the active tab; the masthead tab for this section
- * now reads "Money" and lights by pathname (the section id stays
- * "financials").
+ * Thin wrapper over SectionTabs, the shared strip primitive. `current`
+ * stays required here: the five routes share no common prefix, so the
+ * caller names its own tab.
  */
 export function FinancialsTabs({
   current,
 }: {
   current: 'statements' | 'revenue' | 'forecast' | 'cost-analysis' | 'books';
 }) {
-  const tabs = [
-    { id: 'statements', label: 'Statements', href: '/statements' },
-    { id: 'revenue', label: 'Revenue', href: '/revenue' },
-    { id: 'forecast', label: 'Forecast', href: '/forecast' },
-    { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },
-    { id: 'books', label: 'LLC Accounting', href: '/books' },
-  ] as const;
-
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
-      <div className="flex items-baseline" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
-        {tabs.map((t) => {
-          const isActive = t.id === current;
-          return (
-            <Link
-              key={t.id}
-              href={t.href}
-              style={{
-                fontSize: 13,
-                letterSpacing: '.04em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                color: isActive ? 'var(--ink)' : 'var(--ink-4)',
-                textDecoration: 'none',
-                paddingBottom: 12,
-                borderBottom: isActive ? '2px solid var(--signal)' : '2px solid transparent',
-                marginBottom: -1,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t.label}
-              {t.id === 'statements' && <NavTabCount kind="statementsReview" />}
-            </Link>
-          );
-        })}
-      </div>
-    </section>
+    <SectionTabs
+      current={current}
+      tabs={[
+        { id: 'statements', label: 'Statements', href: '/statements', badge: <NavTabCount kind="statementsReview" /> },
+        { id: 'revenue', label: 'Revenue', href: '/revenue' },
+        { id: 'forecast', label: 'Forecast', href: '/forecast' },
+        { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },
+        { id: 'books', label: 'LLC Accounting', href: '/books' },
+      ]}
+    />
   );
 }
