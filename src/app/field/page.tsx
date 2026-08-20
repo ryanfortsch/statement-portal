@@ -78,7 +78,7 @@ const NARRATIVE: Record<
     mission: React.ReactNode;
     /** "Who we are" second paragraph: what the on-site role is. */
     role: string;
-    steps: Array<[string, string]>;
+    steps: Array<[title: string, desc?: string]>;
   }
 > = {
   inspection: {
@@ -100,12 +100,7 @@ const NARRATIVE: Record<
     ),
     role:
       "You are the fix-it hands for it. When a home needs a repair we bundle the jobs, price them up front, and hand you everything: what's wrong, where it sits in the home, what to bring, and how to get in. Fix it right and the next guest never knows anything was broken.",
-    steps: [
-      ['Claim a packet', 'A bundle of repair jobs at our homes near you, priced up front. First come, first served.'],
-      ['Read the jobs', 'Every job carries the problem, photos, where it is in the home, and a bring list for parts and tools.'],
-      ['Fix it and photo it', 'Do the repair, leave the space guest-ready, and photo-document the finished work.'],
-      ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
-    ],
+    steps: [['Claim a packet'], ['Read the jobs'], ['Fix it and photo it'], ['Submit and get paid']],
   },
 };
 
@@ -570,14 +565,14 @@ export default async function FieldHome({
     const sampled = samples.length > 0;
     const teaser = (sampled ? samples : available).slice(0, 3);
 
-    const numbered = (rows: Array<[string, string]>, accent: string) => (
+    const numbered = (rows: Array<[title: string, desc?: string]>, accent: string) => (
       <div>
         {rows.map(([t, d], i) => (
           <div key={t} style={{ display: 'flex', gap: 14, paddingTop: i === 0 ? 0 : 16, marginTop: i === 0 ? 0 : 16, borderTop: i === 0 ? 'none' : '1px solid var(--rule-soft)' }}>
             <span className="font-mono" style={{ fontSize: 13, color: accent, fontWeight: 600, flexShrink: 0, width: 18 }}>{i + 1}</span>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{t}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55 }}>{d}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: d ? 2 : 0 }}>{t}</div>
+              {d && <div style={{ fontSize: 13.5, color: 'var(--ink-3)', lineHeight: 1.55 }}>{d}</div>}
             </div>
           </div>
         ))}

@@ -27,7 +27,7 @@ const INSPECTION_PILLARS = [
 const MAINTENANCE_PILLARS = [
   {
     title: 'Fixed right',
-    desc: "No patch jobs. Do it the way you'd do it in your own house, so the same call never comes twice.",
+    desc: "No patch jobs. Do it the way you'd do it in your own house.",
   },
   {
     title: 'Guest-ready when you leave',
@@ -35,7 +35,7 @@ const MAINTENANCE_PILLARS = [
   },
   {
     title: 'Eyes open',
-    desc: "You're inside homes we can't visit every day. Flag anything else that's worn, leaking, or about to break and we'll queue it up.",
+    desc: "You're inside homes we can't visit every day. Flag anything else that's worn, leaking, or about to break.",
   },
 ];
 
