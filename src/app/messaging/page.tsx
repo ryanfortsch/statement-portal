@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
+import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import {
@@ -45,9 +46,11 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function NotReachable({ message }: { message: string }) {
+function NotReachable({ message, retry = false }: { message: string; retry?: boolean }) {
+  // `retry` distinguishes a transient upstream failure (self-heals via
+  // RetryRefresh) from missing env config (refreshing forever won't set it).
   return (
-    <Section title="Service not reachable" eyebrow="Setup required">
+    <Section title="Service not reachable" eyebrow={retry ? 'Auto-retrying' : 'Setup required'}>
       <div
         style={{
           borderTop: '1px solid var(--ink)',
@@ -58,7 +61,13 @@ function NotReachable({ message }: { message: string }) {
         }}
       >
         {message}
+        {retry && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)' }}>
+            Retrying automatically.
+          </div>
+        )}
       </div>
+      {retry && <RetryRefresh />}
     </Section>
   );
 }
@@ -67,7 +76,7 @@ function NotReachable({ message }: { message: string }) {
 // fast queue call so it is never held hostage by the slower aggregations.
 async function QueueSection() {
   const pending = await listApprovals();
-  if (!pending.ok) return <NotReachable message={explainError(pending.error)} />;
+  if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
   return (
     <>
       <MessagingQueue initialPending={pending.data.approvals} />
