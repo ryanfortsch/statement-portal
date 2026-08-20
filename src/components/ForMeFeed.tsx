@@ -703,8 +703,12 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  * touched, matching how the other loaders here fail.
  */
 async function loadQueueCards(): Promise<QueueCard[]> {
-  const cards = await Promise.all([loadCreativeQueue(), loadPacketQueue(), loadStatementQueue()]);
-  return cards.filter((c): c is QueueCard => !!c);
+  const [creative, packets, statements] = await Promise.all([
+    loadCreativeQueue(),
+    loadPacketQueue(),
+    loadStatementQueue(),
+  ]);
+  return [creative, ...packets, statements].filter((c): c is QueueCard => !!c);
 }
 
 /**
@@ -738,23 +742,40 @@ async function loadCreativeQueue(): Promise<QueueCard | null> {
 /**
  * Field packets sitting in 'submitted' - the one packet status that waits on
  * the operator (approve, or request changes). Same vocabulary as the
- * "Awaiting approval" strip on /fieldwork/packets.
+ * "Awaiting approval" strip on /fieldwork/packets. One row PER packet linking
+ * straight to its detail page (the second-most-visited page in the app per
+ * the Aug 2026 click-history audit, ~340 visits/month), oldest submission
+ * first so the longest-waiting contractor surfaces on top; past the cap the
+ * rest fold into one board link.
  */
-async function loadPacketQueue(): Promise<QueueCard | null> {
-  if (!isFieldConfigured) return null;
+const PACKET_QUEUE_CAP = 3;
+
+async function loadPacketQueue(): Promise<QueueCard[]> {
+  if (!isFieldConfigured) return [];
   try {
-    const { count } = await fieldDb()
+    const { data, count } = await fieldDb()
       .from('inspection_packets')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'submitted');
-    if (!count) return null;
-    return {
-      id: 'queue-packets',
-      href: '/fieldwork/packets',
-      text: `Field: ${count} packet${count === 1 ? '' : 's'} awaiting approval`,
-    };
+      .select('id, title, stop_count, submitted_at', { count: 'exact' })
+      .eq('status', 'submitted')
+      .order('submitted_at', { ascending: true })
+      .limit(PACKET_QUEUE_CAP);
+    if (!data || data.length === 0) return [];
+    const cards: QueueCard[] = data.map((p) => ({
+      id: `queue-packet-${p.id}`,
+      href: `/fieldwork/packets/${p.id}`,
+      text: `Field: approve ${p.title}${p.stop_count ? ` · ${p.stop_count} stop${p.stop_count === 1 ? '' : 's'}` : ''}`,
+    }));
+    const more = (count ?? data.length) - data.length;
+    if (more > 0) {
+      cards.push({
+        id: 'queue-packets-more',
+        href: '/fieldwork/packets',
+        text: `Field: ${more} more packet${more === 1 ? '' : 's'} awaiting approval`,
+      });
+    }
+    return cards;
   } catch {
-    return null;
+    return [];
   }
 }
 
