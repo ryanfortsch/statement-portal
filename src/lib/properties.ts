@@ -179,6 +179,18 @@ export const PROPERTIES: Record<string, Property> = {
     fee_pct: 25, bank_last4: '1229', listing_match: '225 washington',
     tax_cert_id: null,
   },
+  // Seeded 2026-08-20 from the Helm properties row. External title
+  // "Stay at Windward Point", launched on Stay Cape Ann 2026-08-04,
+  // Guesty listing 6a6d0e71a37391009dab9abb. Second Moynahan property
+  // (alongside 73 Rocky Neck) at a negotiated 18% fee -- not a typo.
+  // No tax cert recorded yet; backfill here and in the DB row.
+  '3_windward_pt': {
+    id: '3_windward_pt', name: '3 Windward', address: '3 Windward Point', city: 'Gloucester, MA',
+    owner_last: 'Moynahan', owner_full: 'Matt Moynahan', owner_greeting: 'Matt and Laila',
+    owner_emails: ['matthewmoynahan@yahoo.com'],
+    fee_pct: 18, bank_last4: '1232', listing_match: '3 windward',
+    tax_cert_id: null,
+  },
 };
 
 // 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
