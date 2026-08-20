@@ -50,6 +50,16 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
       sub: s.pay.settlesOn ? `bonus counting · settles ${fmtSettles(s.pay.settlesOn)}` : 'bonus counting',
     };
   }
+  // Delivered reels still waiting their turn to post (weeks or months on
+  // RT's schedule) hold the shoot open — say how many are left.
+  const toPost = s.pay.assets.filter((p) => p.counts && p.kind === 'reel' && p.stalled).length;
+  if (toPost > 0) {
+    return {
+      text: sum.paidCents > 0 ? `${dollars(sum.paidCents)} paid` : 'Delivered',
+      tone: 'var(--ink)',
+      sub: `${toPost} reel${toPost === 1 ? '' : 's'} to post`,
+    };
+  }
   if (sum.paidCents > 0) return { text: `${dollars(sum.paidCents)} paid`, tone: 'var(--ink)', sub: 'in flight' };
   return { text: s.pay.state === 'empty' ? 'No posts yet' : 'Awaiting posts', tone: 'var(--ink-4)', sub: null };
 }
