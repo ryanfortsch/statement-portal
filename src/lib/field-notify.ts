@@ -546,6 +546,57 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
   });
 }
 
+/**
+ * Dotti's lock-the-views reminder: reels whose countDays window has closed
+ * (or closes today) and whose views were never read + locked. One email to
+ * Dotti per morning, only when nonempty — each line links the shoot page
+ * (where Read views lives) and the IG post itself. Uses the same per-shoot
+ * pay math as the board, so a disqualified or over-cap reel never nags.
+ */
+export async function sendCreativeCountsDue(): Promise<boolean> {
+  const { loadShootBoard } = await import('@/lib/creative-shoots');
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const fmt = (d: string) => {
+    try {
+      return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch {
+      return d;
+    }
+  };
+  const board = await loadShootBoard();
+  const due: Array<{ shootId: string; shoot: string; reel: string; locksOn: string; postUrl: string | null }> = [];
+  for (const s of board) {
+    for (const p of s.pay.assets) {
+      if (!(p.counts && p.kind === 'reel' && p.locksOn && !p.locked && p.locksOn <= today)) continue;
+      const a = s.assets.find((x) => x.id === p.assetId);
+      due.push({ shootId: s.shoot.id, shoot: s.shoot.title, reel: a?.title || 'Reel', locksOn: p.locksOn, postUrl: a?.post_url ?? null });
+    }
+  }
+  if (due.length === 0) return false;
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rows = due
+    .map((d) => {
+      const when = d.locksOn === today ? 'count closes today' : `count closed ${fmt(d.locksOn)}`;
+      const ig = d.postUrl ? ` &middot; <a href="${d.postUrl}" style="color:#4e7c9e;">IG post</a>` : '';
+      return `<li style="margin:0 0 8px;"><strong>${esc(d.shoot)}</strong> — ${esc(d.reel)}: ${when}. <a href="${fieldBaseUrl()}/operations/creative/${d.shootId}" style="color:#4e7c9e;">Read + lock views</a>${ig}</li>`;
+    })
+    .join('');
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">View counts to lock</h1>
+    <p style="font-size:14px;margin:0 0 12px;">Open the post, note the play count, and lock it on the shoot page — that releases the bonus (or closes it under the rung) and the shoot can settle.</p>
+    <ul style="padding-left:18px;margin:0 0 8px;">${rows}</ul>
+    ${btn(`${fieldBaseUrl()}/operations/creative`, 'Open the creative board')}
+  `);
+  return sendTransactionalViaResend({
+    to: 'dotti@risingtidestr.com',
+    subject: `Creative: ${due.length} view count${due.length === 1 ? '' : 's'} to lock`,
+    fromName: FROM_NAME,
+    html,
+    text: due.map((d) => `${d.shoot} — ${d.reel}: ${d.locksOn === today ? 'count closes today' : `count closed ${d.locksOn}`}${d.postUrl ? ` (${d.postUrl})` : ''}`).join('\n'),
+  });
+}
+
 /** A contractor tapped "Send a note" in the portal. Goes to Ryan (cc office),
  *  with reply-to set to the contractor so Ryan can answer straight from his
  *  inbox, and their phone surfaced for a quick text back. */

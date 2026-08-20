@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest } from '@/lib/field-notify';
+import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest, sendCreativeCountsDue } from '@/lib/field-notify';
 
 export const maxDuration = 300;
 
@@ -32,7 +32,9 @@ export async function GET(request: NextRequest) {
     const renotified = await renotifyDuePackets();
     const reminded = await remindClaimedVisitsToday().catch(() => 0);
     const digest = await sendOfficeFieldDigest().catch(() => false);
-    return NextResponse.json({ ok: true, renotified, reminded, digest });
+    // Dotti's lock-the-views nag: reels whose count window has closed unread.
+    const countsDue = await sendCreativeCountsDue().catch(() => false);
+    return NextResponse.json({ ok: true, renotified, reminded, digest, countsDue });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/does not exist|relation .* does not exist/i.test(msg)) {
