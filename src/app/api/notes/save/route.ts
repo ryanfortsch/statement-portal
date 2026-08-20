@@ -1,6 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { PROPERTIES } from '@/lib/properties';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Persist a confirmed reservation note. Called after the AddNoteModal's
@@ -20,9 +20,6 @@ import { PROPERTIES } from '@/lib/properties';
  * correct an earlier note without manually deleting the old one.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 const ATTACHMENT_BUCKET = 'reservation-note-attachments';
 

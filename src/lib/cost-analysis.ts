@@ -27,12 +27,10 @@
  * populates once the data is tagged.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME } from '@/lib/bank-charges';
 import { canonicalVendor } from '@/lib/overhead-categories';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export type CostCell = {
   propertyId: string;
@@ -73,8 +71,8 @@ function round2(n: number): number {
 
 export async function getCostAnalysis(): Promise<CostAnalysis> {
   const empty: CostAnalysis = { months: [], properties: [], cells: [], byMonth: {}, hasLinenData: false };
-  if (!supabaseUrl || !supabaseKey) return empty;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  if (!isServiceConfigured) return empty;
+  const supabase = supabaseAdmin;
 
   // Periods -> month lookup.
   const { data: periods } = await supabase
@@ -251,8 +249,8 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
     categories: [], byMonthCategory: {}, byMonthTotal: {}, categoryTotals: {},
     total: 0, detail: [], insights: [], latestTxnDate: null, daysSinceLatest: null, hasData: false,
   };
-  if (!supabaseUrl || !supabaseKey) return empty;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  if (!isServiceConfigured) return empty;
+  const supabase = supabaseAdmin;
 
   // Page through all rows (Supabase caps a single select at 1000).
   const rows: OverheadRow[] = [];

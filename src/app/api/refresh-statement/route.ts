@@ -1,6 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -22,9 +22,6 @@ import { loadAddOnTotals } from '@/lib/statement-addons';
  * statement (matched by confirmation_code) are skipped.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

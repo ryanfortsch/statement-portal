@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Resolve a data gap via an inline action -- no file upload, no re-ingest.
@@ -15,9 +15,6 @@ import { NextRequest, NextResponse } from 'next/server';
  * More resolution types can be added as new switch branches.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

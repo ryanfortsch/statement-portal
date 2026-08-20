@@ -1,5 +1,4 @@
 import React from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 
@@ -10,9 +9,11 @@ import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 // guest until the next deploy or until the cache organically expires.
 export const dynamic = 'force-dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Service role, not the anon key: this is a server component (never
+// bundled to the browser), and the statements-cluster tables no longer
+// carry anon policies. Public access to this print page stays gated by
+// the statement UUID in the URL, same as the projections deliverables.
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 // Display details for the statement header. Used to be a hardcoded
 // const matching only the legacy 10 properties — new prospect-promoted

@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   listMessages,
@@ -12,6 +11,7 @@ import {
 } from '@/lib/quo';
 import { matchPropertyFromCleanerText } from '@/lib/properties';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -22,12 +22,6 @@ import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 // each phone-number-of-ours, and pipe results through the same
 // in-memory dispatcher the webhook uses.
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 type ContactRow = {
   id: string;

@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { PROPERTIES } from '@/lib/properties';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * LLM extraction step for the "Add note" UI.
@@ -31,9 +31,6 @@ import { PROPERTIES } from '@/lib/properties';
  * either alone is worse than chaining them.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 const ExtractedNote = z.object({
   guest_name_match: z.string().describe(

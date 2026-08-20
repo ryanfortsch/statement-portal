@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
@@ -6,6 +5,7 @@ import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDO
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -13,9 +13,6 @@ import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 // works today, but a future maintainer adding an UPDATE call would hit
 // the same PostgREST-200-with-zero-rows-changed silent failure we saw
 // in /api/fill-gap.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Property config is now sourced from public.properties at the start of
 // each POST (see getActivePropertyForStatements). Promoting a prospect

@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Cross-property Stripe sync. The "Sync Stripe" button on the dashboard
@@ -20,9 +20,6 @@ import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
  * through Rising Tide's Stripe accounts.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(request: NextRequest) {
   try {

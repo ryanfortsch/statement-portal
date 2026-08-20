@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 import { getProperty } from '@/lib/properties';
 
@@ -15,13 +15,8 @@ import { getProperty } from '@/lib/properties';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-let _sb: SupabaseClient | null = null;
-function getSupabase(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  _sb = createClient(url, key);
-  return _sb;
+function getSupabase() {
+  return supabaseAdmin;
 }
 
 export async function GET(request: NextRequest) {
