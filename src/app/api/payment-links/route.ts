@@ -12,12 +12,25 @@ import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/li
  *   { property_id, label, amount_cents, guest_name?, request_key }
  *
  * Naming contract with lib/stripe-sync.ts (the statements ingest):
- *   - Product name is "<label> - <guest name> - <property name>". It must
- *     NEVER begin with "Stay at" (dropped as an SCA principal payment) nor
- *     with a Guesty-code-shaped token (HM.../HA-/GY-/BC-). The guest's full
- *     name in the text drives the suggested-reservation preselect; label
- *     keywords (early check-in / late checkout / extra night / pet) drive
- *     the default label chip.
+ *   - Product name is "<label> - <guest name> - <external title>". The
+ *     guest SEES this on the checkout page, so the property segment is the
+ *     marketing title (properties.title, "Stay at Rocky Neck"), never the
+ *     internal id or street address (policy 2026-08-20: street addresses
+ *     never reach a guest before day-before-check-in). Titles collide
+ *     across properties (two "Stay at Good Harbor Beach"s), which is fine:
+ *     property identity rides on Stripe METADATA (helm_property_id +
+ *     helm_request_key, stamped on the product, the link, AND the eventual
+ *     PaymentIntent/charge via payment_intent_data), and the sync runs
+ *     per-property Stripe account anyway. Nothing may parse property from
+ *     the name text.
+ *   - The name must NEVER begin with "Stay at" (dropped as an SCA
+ *     principal payment) nor with a Guesty-code-shaped token
+ *     (HM.../HA-/GY-/BC-); label is required and leads, and the guard
+ *     below backstops. The guest's full name drives the
+ *     suggested-reservation preselect (metadata-first in the sync, name
+ *     text as fallback for pre-metadata links); label keywords (early
+ *     check-in / late checkout / extra night / pet) drive the default
+ *     label chip.
  *   - Payment Link charges often carry no charge.description; the sync
  *     recovers the Checkout Session line-item name, so the Product name IS
  *     the description for queueing purposes.
@@ -246,9 +259,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });
   }
 
+  // Guest-facing property text = the external marketing title, never the
+  // internal id / street (policy 2026-08-20). No title row -> omit the
+  // property segment entirely rather than leak the address form.
+  let propertyTitle = '';
+  const { data: propRow } = await supabase
+    .from('properties')
+    .select('title')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (propRow?.title && String(propRow.title).trim()) {
+    propertyTitle = String(propRow.title).trim();
+  }
+
   // Product name = the statements-facing description. Guard the two prefixes
   // the ingest treats specially (SCA principal / Guesty code shapes).
-  let productName = [label, guestName, propertyId.replace(/_/g, ' ')].filter(Boolean).join(' - ');
+  let productName = [label, guestName, propertyTitle].filter(Boolean).join(' - ');
   if (/^stay at\b/i.test(productName) || /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]/.test(productName)) {
     productName = `Add-on: ${productName}`;
   }
@@ -257,6 +283,8 @@ export async function POST(req: Request) {
     'unit_amount': String(amountCents),
     'currency': 'usd',
     'product_data[name]': productName.slice(0, 250),
+    'product_data[metadata][helm_property_id]': propertyId,
+    'product_data[metadata][helm_request_key]': requestKey,
   });
   if (!price.ok) {
     const permission = price.status === 401 || price.status === 403;
@@ -266,11 +294,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // Link-level metadata identifies the link object itself;
+  // payment_intent_data propagates the same keys onto the PaymentIntent and
+  // its charge, which is what lib/stripe-sync.ts reads when classifying
+  // charges (a helm_request_key on a charge = bridge-minted add-on, routed
+  // to the extras queue, never matched as a stay's principal payment).
   const link = await stripePost(stripeKey, 'payment_links', {
     'line_items[0][price]': String(price.data.id),
     'line_items[0][quantity]': '1',
     'metadata[helm_request_key]': requestKey,
     'metadata[helm_property_id]': propertyId,
+    'payment_intent_data[metadata][helm_request_key]': requestKey,
+    'payment_intent_data[metadata][helm_property_id]': propertyId,
   });
   if (!link.ok) {
     const permission = link.status === 401 || link.status === 403;

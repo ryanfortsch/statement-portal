@@ -430,7 +430,14 @@ export async function syncPropertyStripe(opts: {
     // "Stay" pile and defeat the amount-based fallback below. Keep those
     // atomic by using the charge id as the grouping key.
     const GUESTY_CODE = /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]+/;
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean };
+    // helmRequestKey: stamped on the charge (payment_intent_data metadata) by
+    // /api/payment-links. Its presence means "bridge-minted add-on link":
+    // that money belongs to the extras review queue by construction, so the
+    // stay-payment fallbacks below must never consume it, and the queue's
+    // reservation preselect can resolve the guest from payment_link_requests
+    // instead of parsing the description. Pre-metadata links (minted before
+    // 2026-08-20) have null here and keep the description-parsing paths.
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean; helmRequestKey: string | null };
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
@@ -453,7 +460,7 @@ export async function syncPropertyStripe(opts: {
       const label = desc || `(no description) …${charge.id.slice(-8)}`;
       const displayLabel = looksLikeCode ? firstToken : (label.length > 48 ? label.slice(0, 45) + '…' : label);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false, helmRequestKey: (charge.metadata?.helm_request_key || '').trim() || null };
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
@@ -687,7 +694,11 @@ export async function syncPropertyStripe(opts: {
         const a = byCodeAgg.get(code);
         return !!a && a.grossCents > 0 && a.refundedCents >= a.grossCents;
       };
-      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1 && !isFullyRefunded(o.code));
+      // Bridge-minted add-on links (helm_request_key metadata) are excluded:
+      // an early check-in fee that happens to equal a stay's expected gross
+      // must queue as an add-on, not get consumed as the stay's payment.
+      const isHelmAddOn = (code: string) => !!byCodeAgg.get(code)?.helmRequestKey;
+      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1 && !isFullyRefunded(o.code) && !isHelmAddOn(o.code));
       if (candidates.length !== 1) continue;
       const orphan = candidates[0];
       const agg = byCodeAgg.get(orphan.code);
@@ -753,6 +764,7 @@ export async function syncPropertyStripe(opts: {
       const hits = orphanCodes.filter(o => {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) return false;
+        if (agg.helmRequestKey) return false; // bridge-minted add-on: extras-queue money, never a stay payment
         if (agg.grossCents > 0 && agg.refundedCents >= agg.grossCents) return false; // fully refunded: not the payment
         const m = DATE_RANGE_RE.exec(agg.fullDesc);
         return !!m && m[1] === r.check_in && m[2] === r.check_out;
@@ -935,6 +947,29 @@ export async function syncPropertyStripe(opts: {
     try {
       const queueRows: Record<string, unknown>[] = [];
       const staleRefundedDepositKeys: string[] = [];
+      // Metadata-first guest resolution for the reservation preselect: a
+      // bridge-minted charge names its payment_link_requests row via
+      // helm_request_key, and that row's guest_name is authoritative --
+      // the description now ends with the property's external title
+      // ("Stay at ..."), whose words must never feed name matching.
+      // Old links without metadata keep the description-parsing fallback.
+      const helmKeys = [...new Set(
+        orphanCodes.map(o => byCodeAgg.get(o.code)?.helmRequestKey).filter((k): k is string => !!k),
+      )];
+      const guestByRequestKey = new Map<string, string>();
+      if (helmKeys.length > 0) {
+        const { data: linkRows } = await supabase
+          .from('payment_link_requests')
+          .select('request_key, guest_name')
+          .in('request_key', helmKeys);
+        for (const lr of linkRows || []) {
+          if ((lr.guest_name || '').trim()) guestByRequestKey.set(lr.request_key, String(lr.guest_name).trim());
+        }
+      }
+      const preselectText = (agg: Agg): string => {
+        const metaGuest = agg.helmRequestKey ? guestByRequestKey.get(agg.helmRequestKey) : undefined;
+        return metaGuest || agg.fullDesc;
+      };
       for (const o of orphanCodes) {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) continue;
@@ -943,8 +978,10 @@ export async function syncPropertyStripe(opts: {
         // drift, split charges) it's still a STAY payment, never an
         // add-on -- queueing it would invite double-counting revenue the
         // Guesty PDF already carries. The missing-charge gap on the
-        // reservation flags it instead.
-        if (/^stay at\b/i.test(agg.fullDesc)) continue;
+        // reservation flags it instead. A helm_request_key overrides the
+        // text test: bridge-minted charges are add-ons by construction,
+        // whatever their description says.
+        if (!agg.helmRequestKey && /^stay at\b/i.test(agg.fullDesc)) continue;
         const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
         if (createdIso.slice(0, 7) !== month) continue;
         if (agg.refundedCents >= agg.grossCents) {
@@ -1013,7 +1050,7 @@ export async function syncPropertyStripe(opts: {
                 amount: keptFee,
                 description: `Stripe fee kept on refunded charge: ${agg.fullDesc} ($${refundedGross.toFixed(2)} refunded)`.slice(0, 300),
                 source: 'stripe_charge',
-                suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
+                suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, preselectText(agg)),
                 dedupe_key: `stripe:${o.code}:refundfee`,
               });
             }
@@ -1032,7 +1069,7 @@ export async function syncPropertyStripe(opts: {
           amount: round2(netCents / 100),
           description: `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote})`.slice(0, 300),
           source: 'stripe_charge',
-          suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, agg.fullDesc),
+          suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, preselectText(agg)),
           dedupe_key: `stripe:${o.code}`,
         });
       }
