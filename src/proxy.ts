@@ -60,6 +60,8 @@ const PUBLIC_PATH_PREFIXES = [
  *   /api/backfill-owner-phones } wifi/parking/notes into the guest AI's KB)
  *   /api/work-slips          } (work-slips: approved guest gear requests
  *                            } become prep slips on /work)
+ *   /api/achieved-rates      } (achieved-rates: transacted nightly rates
+ *                            } from statements, for far-future quoting)
  *   /api/markets/airdna/...  town-level AirDNA snapshots for the
  *                            risingtidestr.com /markets pages (public
  *                            aggregate data, read-only)
@@ -100,6 +102,10 @@ const PUBLIC_API_PREFIXES = [
   // watcher) writes CRM lead contacts + touches. Self-guards via
   // STAY_CONCIERGE_KEY.
   "/api/prospects",
+  // Stay-concierge bridge: achieved nightly rates from the statements data
+  // (read-only), the rate source for far-future book-now quoting. Self-guards
+  // via STAY_CONCIERGE_KEY (header only).
+  "/api/achieved-rates",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",
