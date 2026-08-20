@@ -23,11 +23,9 @@
  * w9OnFile=false. The cost data is unaffected.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { canonicalVendor } from '@/lib/overhead-categories';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const IRS_1099_THRESHOLD = 600;
 
@@ -65,8 +63,8 @@ function inYear(iso: string | null | undefined, y: number): boolean {
 export async function getVendor1099Report(year?: number): Promise<Vendor1099Report> {
   const y = year || new Date().getUTCFullYear();
   const empty: Vendor1099Report = { year: y, rows: [], totals: { vendors: 0, over600: 0, over600WithoutW9: 0, spendOver600: 0 } };
-  if (!supabaseUrl || !supabaseKey) return empty;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  if (!isServiceConfigured) return empty;
+  const supabase = supabaseAdmin;
 
   type Accum = { displayName: string; total: number; count: number; sources: Set<'cleaning' | 'repairs' | 'overhead'> };
   const by = new Map<string, Accum>();

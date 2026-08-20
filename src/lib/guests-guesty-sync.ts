@@ -18,7 +18,7 @@
  * Returns a structured result for the caller to log + display.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   getGuestyToken,
   guestyGet,
@@ -27,17 +27,8 @@ import {
 import { isProxyEmail, type GuestStatus } from './guests-types';
 import { recordSyncFailure, recordSyncSuccess } from './sync-status';
 
-let _sb: SupabaseClient | null = null;
-function sb(): SupabaseClient {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    '';
-  if (!url || !key) throw new Error('Supabase env not configured');
-  _sb = createClient(url, key);
-  return _sb;
+function sb() {
+  return supabaseAdmin;
 }
 
 type ReservationRow = {

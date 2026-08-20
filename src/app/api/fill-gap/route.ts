@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -40,9 +40,6 @@ import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDO
 // bank_deposit_amount, and the anon key's RLS policy silently no-ops UPDATEs
 // (returns 200 with zero rows changed, no error). Service role bypasses RLS.
 // This is safe on a server route -- the key never reaches the client.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ── shared helpers (duplicated from /api/ingest so a refactor of the ingest
 // route doesn't risk breaking this flow, and vice versa) ────────────────────
