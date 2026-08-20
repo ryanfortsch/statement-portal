@@ -367,7 +367,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
           Email…
         </button>
         <Link
-          href={`/operations/packets/${run.packetId}`}
+          href={`/fieldwork/packets/${run.packetId}`}
           prefetch={false}
           style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
         >

@@ -811,7 +811,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Run the field setup packet',
     description: 'Setup packet created, claimed, and completed: staging, stocking, placards hung.',
     why: 'The setup visit rides the contractor rail with per-claim door codes, priced by bedroom count at $40 an hour.',
-    href: '/operations/packets/setup',
+    href: '/fieldwork/packets/setup',
     hrefLabel: 'Open packet setup',
   },
 

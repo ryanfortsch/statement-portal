@@ -89,14 +89,14 @@ export function createAskTools() {
           prospect_name: string | null;
           status: string | null;
         }>) {
-          addSource(pr.property_address, `/projections/${pr.id}`);
+          addSource(pr.property_address, `/prospects/${pr.id}`);
           matches.push({
             kind: 'prospect',
             id: pr.id,
             label: pr.property_address,
             prospectName: pr.prospect_name,
             status: pr.status,
-            href: `/projections/${pr.id}`,
+            href: `/prospects/${pr.id}`,
           });
         }
 
@@ -441,7 +441,7 @@ export function createAskTools() {
           .limit(50);
         if (error) return { error: error.message };
         const rows = (data ?? []) as Array<{ id: string; property_address: string }>;
-        for (const p of rows) addSource(p.property_address, `/projections/${p.id}`);
+        for (const p of rows) addSource(p.property_address, `/prospects/${p.id}`);
         return { count: rows.length, prospects: rows };
       },
     }),
@@ -469,7 +469,7 @@ export function createAskTools() {
           inspectionDone: t.inspectionStatus === 'complete',
           openWorkSlips: t.openWorkSlipsCount,
         }));
-        if (turnovers.length > 0) addSource('Turnover pipeline', '/operations');
+        if (turnovers.length > 0) addSource('Turnover pipeline', '/turnovers');
         return {
           checkInsInWindow: data.totalCount,
           inspectionsDone: data.inspectionDoneCount,

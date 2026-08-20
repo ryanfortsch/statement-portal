@@ -158,8 +158,8 @@ export async function importContactsFromCsv(formData: FormData): Promise<void> {
     },
   });
 
-  revalidatePath('/guests');
-  redirect(`/guests?tab=contacts&imported=${inserted}`);
+  revalidatePath('/guests/contacts');
+  redirect(`/guests/contacts?imported=${inserted}`);
 }
 
 export async function unsubscribeContact(formData: FormData): Promise<void> {
@@ -197,7 +197,7 @@ export async function unsubscribeContact(formData: FormData): Promise<void> {
     metadata: { reason, by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/contacts');
   revalidatePath(`/guests/${id}`);
 }
 
@@ -224,7 +224,7 @@ export async function resubscribeContact(formData: FormData): Promise<void> {
     metadata: { by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/contacts');
   revalidatePath(`/guests/${id}`);
 }
 
@@ -243,9 +243,9 @@ export async function syncFromGuesty(): Promise<void> {
     },
   });
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/contacts');
   redirect(
-    `/guests?tab=contacts&synced=${result.inserted}&updated=${result.updated}&scanned=${result.unique_guests}`,
+    `/guests/contacts?synced=${result.inserted}&updated=${result.updated}&scanned=${result.unique_guests}`,
   );
 }
 
@@ -306,5 +306,5 @@ export async function manuallyAddContact(formData: FormData): Promise<void> {
     metadata: { by: session.user.email, source: 'helm_ui' },
   });
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/contacts');
 }

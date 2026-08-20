@@ -105,6 +105,96 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+
+      // ─── IA rename (2026-08-20): URL honesty pass ───────────────────
+      // /operations became /turnovers, the contractor-facing lenses moved
+      // under /fieldwork, and the prospect workroom moved from /projections
+      // to /prospects. Permanent because the old URLs live in SMS and email
+      // history (field-notify links, the morning brief, owner emails); the
+      // statements-domain incident proved external callers keep hitting old
+      // URLs for months. Never remove these.
+      //
+      // NOT redirected on purpose: /projections/:id/(render|guide|contract|
+      // onboarding-render) are public deliverable surfaces with external
+      // callers (proxy allowlist + Puppeteer). They stay at their old URLs.
+      // The single-segment '/projections/:id' source below cannot match
+      // those two-segment paths, so they render in place.
+      {
+        source: '/operations',
+        destination: '/turnovers',
+        permanent: true,
+      },
+      {
+        source: '/operations/packets/:path*',
+        destination: '/fieldwork/packets/:path*',
+        permanent: true,
+      },
+      {
+        source: '/operations/contractors/applicants',
+        destination: '/fieldwork/hiring',
+        permanent: true,
+      },
+      {
+        source: '/operations/contractors/rate-card',
+        destination: '/fieldwork/rate-card',
+        permanent: true,
+      },
+      {
+        source: '/operations/contractors/hiring-package',
+        destination: '/fieldwork/hiring-package',
+        permanent: true,
+      },
+      {
+        source: '/operations/contractors',
+        destination: '/fieldwork/roster',
+        permanent: true,
+      },
+      {
+        source: '/operations/creative/:path*',
+        destination: '/fieldwork/shoots/:path*',
+        permanent: true,
+      },
+      {
+        source: '/projections/new',
+        destination: '/prospects/new',
+        permanent: true,
+      },
+      {
+        source: '/projections/:id/readiness',
+        destination: '/prospects/:id/readiness',
+        permanent: true,
+      },
+      {
+        source: '/projections/:id/readiness/print',
+        destination: '/prospects/:id/readiness/print',
+        permanent: true,
+      },
+      {
+        source: '/projections/:id',
+        destination: '/prospects/:id',
+        permanent: true,
+      },
+
+      // Query-param tabs promoted to real routes. Bare /guests stays the
+      // Reviews lens; the Contacts and Agreements tabs get honest URLs.
+      {
+        source: '/guests',
+        has: [{ type: 'query', key: 'tab', value: 'contacts' }],
+        destination: '/guests/contacts',
+        permanent: true,
+      },
+      {
+        source: '/guests',
+        has: [{ type: 'query', key: 'tab', value: 'agreements' }],
+        destination: '/guests/agreements',
+        permanent: true,
+      },
+      {
+        source: '/properties',
+        has: [{ type: 'query', key: 'view', value: 'prospects' }],
+        destination: '/properties/prospects',
+        permanent: true,
+      },
     ];
   },
 };

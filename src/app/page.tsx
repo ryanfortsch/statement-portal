@@ -59,7 +59,7 @@ type DashboardStats = {
 
 /** Operations data for the home page, fetched once and shared by the
  *  inspections tile (turnover counts) and the occupancy calendar under
- *  Today's Signals. '7d' matches the /operations default calendar window. */
+ *  Today's Signals. '7d' matches the /turnovers default calendar window. */
 type HomeOps = Awaited<ReturnType<typeof loadOperationsData>> | null;
 
 async function loadHomeOps(): Promise<HomeOps> {
@@ -158,7 +158,7 @@ async function getOperationalStats(ops: HomeOps) {
     ]);
 
     // Inspection counts come from the shared loadHomeOps fetch — the same
-    // source /operations uses, so the home tile and the operations page
+    // source /turnovers uses, so the home tile and the turnovers page
     // agree. Counting plan rows directly under-counts because most
     // check-ins don't have a plan row yet (the plan is created when
     // someone clicks Plan a walk).
@@ -312,7 +312,7 @@ export default async function HelmHome() {
             label="Upcoming Inspections"
             value={stats.inspectionsPlanned != null ? String(stats.inspectionsPlanned) : '—'}
             sub="next 7 days"
-            href="/operations"
+            href="/turnovers"
             size="hero"
           />
           <Stat
@@ -390,7 +390,7 @@ export default async function HelmHome() {
           >
             <div className="eyebrow">On the calendar</div>
             <Link
-              href="/operations"
+              href="/turnovers"
               style={{
                 fontSize: 11,
                 letterSpacing: '.16em',

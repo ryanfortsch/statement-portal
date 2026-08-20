@@ -10,7 +10,7 @@ import { fieldDb } from '@/lib/field-db';
  * The definitions mirror the pages' own filters (statementsReview is scoped
  * to the latest statement period, which is the dashboard's default month):
  *
- * - fieldPackets: /operations/packets' "awaiting approval" slice, i.e.
+ * - fieldPackets: /fieldwork/packets' "awaiting approval" slice, i.e.
  *   inspection_packets with status='submitted'. That is the one packet state
  *   waiting on the OPERATOR; published/claimed/in_progress wait on the
  *   contractor and draft is the operator's own backlog, not an ask.

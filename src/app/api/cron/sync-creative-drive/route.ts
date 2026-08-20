@@ -10,7 +10,7 @@ import { syncCreativeDrive } from '@/lib/creative-drive';
  * Scans each open creative shoot's Drive folder ("Creative Assets - <name>" /
  * per-shoot subfolder), mirrors the files into creative_drive_files, and
  * auto-logs/links creative_assets — so the delivery base shows up as due on
- * /operations/creative the moment a contributor uploads, with no one checking
+ * /fieldwork/shoots the moment a contributor uploads, with no one checking
  * the folder by hand. Never pays anything; paying stays a click on the board.
  */
 async function handle(request: NextRequest) {

@@ -30,7 +30,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
       {/* HEADER */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/guests?tab=contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
+          <Link href="/guests/contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
         </div>
         <h1 className="font-serif" style={{
           fontSize: 36,

@@ -19,7 +19,7 @@
  *      the house is empty -- no occupied night, no check-in, not calendar
  *      blocked -- and lay a DRAFT trade='maintenance' packet on it through
  *      the existing createMaintenancePacket flow. The draft appears on the
- *      Work board's Maintenance Runs rail and in /operations/packets, where
+ *      Work board's Maintenance Runs rail and in /fieldwork/packets, where
  *      publishing it offers it to the maintenance-trade contractors.
  *
  *      Suggested drafts are ephemeral: keyed 'maintrun:<property>:<date>',

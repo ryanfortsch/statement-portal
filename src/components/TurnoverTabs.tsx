@@ -18,7 +18,7 @@ export function TurnoverTabs({
     <SectionTabs
       current={current}
       tabs={[
-        { id: 'pipeline', label: 'Pipeline', href: '/operations' },
+        { id: 'pipeline', label: 'Pipeline', href: '/turnovers' },
         { id: 'inspections', label: 'Inspections', href: '/inspections' },
       ]}
     />

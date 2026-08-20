@@ -164,7 +164,7 @@ export async function createGuestAgreement(formData: FormData): Promise<void> {
     .single();
   if (error) throw new Error(error.message);
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
   redirect(`/guests/agreements/${data.id}`);
 }
 
@@ -187,7 +187,7 @@ export async function updateGuestAgreement(formData: FormData): Promise<void> {
   const { error } = await supabaseAdmin.from('guest_agreements').update(payload).eq('id', id);
   if (error) throw new Error(error.message);
 
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
   revalidatePath(`/guests/agreements/${id}`);
   redirect(`/guests/agreements/${id}`);
 }
@@ -214,7 +214,7 @@ export async function sendAgreementToGuest(formData: FormData): Promise<void> {
     .eq('id', id);
 
   revalidatePath(`/guests/agreements/${id}`);
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
 }
 
 /** Stamp sent_at without emailing — for links shared by text/WhatsApp. */
@@ -228,7 +228,7 @@ export async function markAgreementSent(formData: FormData): Promise<void> {
     .eq('id', id)
     .is('sent_at', null);
   revalidatePath(`/guests/agreements/${id}`);
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
 }
 
 /**
@@ -382,7 +382,7 @@ export async function countersignAgreement(formData: FormData): Promise<void> {
   }
 
   revalidatePath(`/guests/agreements/${id}`);
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
 }
 
 /** Void an agreement (superseded / cancelled). The signing link stops working. */
@@ -395,7 +395,7 @@ export async function voidAgreement(formData: FormData): Promise<void> {
     .update({ voided_at: new Date().toISOString() })
     .eq('id', id);
   revalidatePath(`/guests/agreements/${id}`);
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
 }
 
 export async function unvoidAgreement(formData: FormData): Promise<void> {
@@ -404,5 +404,5 @@ export async function unvoidAgreement(formData: FormData): Promise<void> {
   if (!id) throw new Error('Missing agreement id');
   await supabaseAdmin.from('guest_agreements').update({ voided_at: null }).eq('id', id);
   revalidatePath(`/guests/agreements/${id}`);
-  revalidatePath('/guests');
+  revalidatePath('/guests/agreements');
 }

@@ -283,7 +283,7 @@ function ProspectRow({ p }: { p: BriefProspect }) {
     >
       <div className="flex justify-between items-baseline gap-4">
         <Link
-          href={`/projections/${p.id}`}
+          href={`/prospects/${p.id}`}
           className="text-sm font-medium hover:underline underline-offset-2"
           style={{ color: 'var(--ink)' }}
         >
@@ -346,7 +346,7 @@ export default async function TodayPage() {
   ) {
     sections.push(
       <section key="checkins" className="mb-12">
-        <SectionHead number={num()} title="Check-ins today" href="/operations" />
+        <SectionHead number={num()} title="Check-ins today" href="/turnovers" />
         <ul>
           {brief.checkinsToday.map((s, i) => (
             <StayRow
@@ -495,7 +495,7 @@ export default async function TodayPage() {
             </span>
           </div>
           <Link
-            href="/properties?view=prospects"
+            href="/properties/prospects"
             className="text-[11px] uppercase tracking-[0.14em] hover:underline"
             style={{ color: 'var(--signal)' }}
           >

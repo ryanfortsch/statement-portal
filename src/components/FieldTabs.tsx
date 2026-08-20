@@ -21,10 +21,10 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
 type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring';
 
 const LENS_HREF: Record<FieldLens, string> = {
-  packets: '/operations/packets',
-  shoots: '/operations/creative',
-  contractors: '/operations/contractors',
-  hiring: '/operations/contractors/applicants',
+  packets: '/fieldwork/packets',
+  shoots: '/fieldwork/shoots',
+  contractors: '/fieldwork/roster',
+  hiring: '/fieldwork/hiring',
 };
 
 export function FieldTabs({

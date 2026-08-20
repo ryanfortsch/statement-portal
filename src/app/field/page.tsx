@@ -230,7 +230,7 @@ function PreviewBar({ trade, stage, sampled }: { trade: ContractorTrade; stage: 
           {TRADE_META[trade].singular} sees at this stage. Buttons are disabled, nothing is live
           {sampled ? ', and the work shown is sample data' : ''}. No invite goes out from here.
         </span>
-        <Link href={`/operations/contractors?trade=${trade}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        <Link href={`/fieldwork/roster?trade=${trade}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
           ← Back to the roster
         </Link>
       </div>

@@ -6,10 +6,7 @@ import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } fr
 import type { HelmPropertyRow } from '@/lib/properties';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
-import { ProspectsPanel } from '@/components/projections/ProspectsPanel';
-import { SubmitButton } from '@/components/SubmitButton';
-import { createProspectProperty } from './actions';
-import type { ReactNode } from 'react';
+import { PropertiesTabBar } from './PropertiesTabBar';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -63,124 +60,23 @@ async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
   }
 }
 
-export default async function PropertiesPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ view?: string }>;
-}) {
-  // The Properties index is two tabs over the same lifecycle: Properties (the
-  // managed roster + map) and Prospects (the deal funnel, reused verbatim from
-  // the standalone /projections page). Tab state lives in ?view= so each tab
-  // is deep-linkable and only the active tab's data is fetched.
-  const view = (await searchParams)?.view === 'prospects' ? 'prospects' : 'properties';
-
-  let heroEmphasis = 'properties.';
-  let heroDescription: string | undefined;
-  let body: ReactNode;
-
-  if (view === 'prospects') {
-    heroEmphasis = 'prospects.';
-    heroDescription = 'The prospect funnel, in one place.';
-    body = <ProspectsPanel />;
-  } else {
-    const [{ properties, error }, workCounts] = await Promise.all([
-      getProperties(),
-      getWorkCountsByProperty(),
-    ]);
-    const active = properties.filter((p) => p.is_active);
-    // Non-managed work locations (HQ, prospect homes) ride is_active=false but
-    // aren't "inactive rentals" — count them by what they are.
-    const inactive = properties.filter((p) => !p.is_active);
-    const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
-    const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
-    heroDescription = !error
-      ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}. Helm-native data.`
-      : undefined;
-    body = (
-      <>
-        {/* Cross-listing Stay Cape Ann tools. */}
-        <div
-          className="max-w-[1100px] mx-auto px-10 w-full"
-          style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
-        >
-          <Link
-            href="/properties/listing-copy-studio"
-            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-          >
-            Stay Cape Ann listing copy →
-          </Link>
-          <Link
-            href="/properties/bedroom-photos"
-            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-          >
-            Bedroom photos →
-          </Link>
-        </div>
-
-        {/* MAP — geographic portfolio view above the list. Click a pin to
-            surface a card with property name + slip count + Open link. */}
-        {!error && active.length > 0 && (
-          <section
-            className="max-w-[1100px] mx-auto px-10"
-            style={{ width: '100%', paddingBottom: 28 }}
-          >
-            <PropertiesMap properties={active} workCounts={workCounts} />
-          </section>
-        )}
-
-        {/* LIST */}
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-          {error ? (
-            <ErrorBlock error={error} />
-          ) : properties.length === 0 ? (
-            <EmptyBlock />
-          ) : (
-            <>
-              {/* Single column. The 2-column md:grid-cols-2 layout looked
-                  tidy in theory but PropertyRow's internal 5-col grid
-                  (64px 1fr auto auto auto) was designed for the full
-                  container width - at half width the auto cols squeezed
-                  the subtitle and meta into truncated, wrapping mess. The
-                  map up top is doing the portfolio overview job; the
-                  list below just needs to be a clean lookup with room
-                  to breathe. */}
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {active.map((p, i) => (
-                  <PropertyRow
-                    key={p.id}
-                    property={p}
-                    number={String(i + 1).padStart(2, '0')}
-                    workCounts={workCounts[p.id]}
-                  />
-                ))}
-              </div>
-
-              {inactive.length > 0 && (
-                <div style={{ marginTop: 56 }}>
-                  <div className="eyebrow" style={{ marginBottom: 18 }}>
-                    {inactive.some((p) => p.kind !== 'managed') ? 'Prospects, HQ & inactive' : 'Inactive'}
-                  </div>
-                  <div style={{ borderTop: '1px solid var(--rule)' }}>
-                    {inactive.map((p, i) => (
-                      <PropertyRow
-                        key={p.id}
-                        property={p}
-                        number={String(i + 1).padStart(2, '0')}
-                        workCounts={workCounts[p.id]}
-                        dimmed
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <AddProspectForm />
-            </>
-          )}
-        </section>
-      </>
-    );
-  }
+export default async function PropertiesPage() {
+  // The Properties index is the managed roster + map. Its sibling route
+  // /properties/prospects carries the deal funnel; the tab bar below
+  // switches between the two real URLs.
+  const [{ properties, error }, workCounts] = await Promise.all([
+    getProperties(),
+    getWorkCountsByProperty(),
+  ]);
+  const active = properties.filter((p) => p.is_active);
+  // Non-managed work locations (HQ, prospect homes) ride is_active=false but
+  // aren't "inactive rentals" — count them by what they are.
+  const inactive = properties.filter((p) => !p.is_active);
+  const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
+  const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
+  const heroDescription = !error
+    ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}. Helm-native data.`
+    : undefined;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -189,55 +85,93 @@ export default async function PropertiesPage({
       <HelmHero
         eyebrow="Helm · Properties"
         title="All Rising Tide"
-        emphasis={heroEmphasis}
+        emphasis="properties."
         description={heroDescription}
       />
 
-      <PropertiesTabBar active={view} />
+      <PropertiesTabBar active="properties" />
 
-      {body}
+      {/* Cross-listing Stay Cape Ann tools. */}
+      <div
+        className="max-w-[1100px] mx-auto px-10 w-full"
+        style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
+      >
+        <Link
+          href="/properties/listing-copy-studio"
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+        >
+          Stay Cape Ann listing copy →
+        </Link>
+        <Link
+          href="/properties/bedroom-photos"
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+        >
+          Bedroom photos →
+        </Link>
+      </div>
+
+      {/* MAP — geographic portfolio view above the list. Click a pin to
+          surface a card with property name + slip count + Open link. */}
+      {!error && active.length > 0 && (
+        <section
+          className="max-w-[1100px] mx-auto px-10"
+          style={{ width: '100%', paddingBottom: 28 }}
+        >
+          <PropertiesMap properties={active} workCounts={workCounts} />
+        </section>
+      )}
+
+      {/* LIST */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
+        {error ? (
+          <ErrorBlock error={error} />
+        ) : properties.length === 0 ? (
+          <EmptyBlock />
+        ) : (
+          <>
+            {/* Single column. The 2-column md:grid-cols-2 layout looked
+                tidy in theory but PropertyRow's internal 5-col grid
+                (64px 1fr auto auto auto) was designed for the full
+                container width - at half width the auto cols squeezed
+                the subtitle and meta into truncated, wrapping mess. The
+                map up top is doing the portfolio overview job; the
+                list below just needs to be a clean lookup with room
+                to breathe. */}
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              {active.map((p, i) => (
+                <PropertyRow
+                  key={p.id}
+                  property={p}
+                  number={String(i + 1).padStart(2, '0')}
+                  workCounts={workCounts[p.id]}
+                />
+              ))}
+            </div>
+
+            {inactive.length > 0 && (
+              <div style={{ marginTop: 56 }}>
+                <div className="eyebrow" style={{ marginBottom: 18 }}>
+                  {inactive.some((p) => p.kind !== 'managed') ? 'Prospects, HQ & inactive' : 'Inactive'}
+                </div>
+                <div style={{ borderTop: '1px solid var(--rule)' }}>
+                  {inactive.map((p, i) => (
+                    <PropertyRow
+                      key={p.id}
+                      property={p}
+                      number={String(i + 1).padStart(2, '0')}
+                      workCounts={workCounts[p.id]}
+                      dimmed
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       <HelmFooter module="Properties" right="Source: Helm" />
     </div>
-  );
-}
-
-/** Two-tab switch over the Properties index: the managed roster and the
- *  prospect funnel. Server-rendered Links (no client JS) so each tab is a
- *  plain deep-linkable URL. Styled to match the property detail tab bar. */
-function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' }) {
-  const tabs = [
-    { id: 'properties' as const, label: 'Properties', href: '/properties' },
-    { id: 'prospects' as const, label: 'Prospects', href: '/properties?view=prospects' },
-  ];
-  return (
-    <nav aria-label="Properties sections" style={{ borderBottom: '1px solid var(--ink)', marginBottom: 28 }}>
-      <div className="max-w-[1100px] mx-auto px-10" style={{ display: 'flex', gap: 4 }}>
-        {tabs.map((t) => {
-          const on = t.id === active;
-          return (
-            <Link
-              key={t.id}
-              href={t.href}
-              aria-current={on ? 'page' : undefined}
-              style={{
-                borderBottom: on ? '2px solid var(--ink)' : '2px solid transparent',
-                margin: '0 0 -1px',
-                padding: '14px 14px 12px',
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                fontWeight: on ? 600 : 500,
-                color: on ? 'var(--ink)' : 'var(--ink-3)',
-                textDecoration: 'none',
-              }}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
   );
 }
 
@@ -400,46 +334,5 @@ function EmptyBlock() {
         Helm&apos;s Supabase SQL Editor to seed the table.
       </p>
     </div>
-  );
-}
-
-/** Quiet create form for a PROSPECT property: a home we may sign, so the office
- *  can point Field packets and work slips at it before onboarding. Lands on the
- *  new property's page (add photos, coords tweaks, notes there). Invisible to
- *  statements / owners / operations until real onboarding activates it. */
-function AddProspectForm() {
-  const lbl: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
-  const inp: React.CSSProperties = {
-    font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)',
-    border: '1px solid var(--rule)', padding: '8px 10px', minWidth: 170, borderRadius: 6,
-  };
-  return (
-    <details style={{ marginTop: 44, maxWidth: 640 }}>
-      <summary style={{ cursor: 'pointer', fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 }}>
-        + Add a prospective property
-      </summary>
-      <form
-        action={createProspectProperty}
-        style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}
-      >
-        <label style={lbl}>
-          Name
-          <input name="name" required placeholder="12 Marmion" style={inp} />
-        </label>
-        <label style={lbl}>
-          Address
-          <input name="address" required placeholder="12 Marmion Way" style={inp} />
-        </label>
-        <label style={lbl}>
-          Town
-          <input name="city" placeholder="Rockport" style={inp} />
-        </label>
-        <SubmitButton label="Add prospect" busyLabel="Adding…" style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '10px 18px', borderRadius: 6 }} />
-        <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, width: '100%' }}>
-          A home we may sign. You can point Field packets and work slips at it right away; it stays out of
-          statements, owner tools, and the turnover board until it&apos;s onboarded for real.
-        </div>
-      </form>
-    </details>
   );
 }

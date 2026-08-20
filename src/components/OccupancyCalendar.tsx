@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
-import { CalendarCellTooltip } from '@/app/operations/CalendarCellTooltip';
+import { CalendarCellTooltip } from '@/app/turnovers/CalendarCellTooltip';
 import { channelAccent } from '@/lib/channel-style';
 import type { CalendarData } from '@/lib/operations';
 
@@ -13,7 +13,7 @@ import type { CalendarData } from '@/lib/operations';
  * a checkout is a bar ending mid-cell, not an empty square that looks like
  * a plain vacancy. A same-day turnover shows both halves of one cell filled
  * (departing guest left, arriving guest right). Hover any bar for details.
- * Server-rendered. Shared by the /operations (Turnovers) page and the home
+ * Server-rendered. Shared by the /turnovers page and the home
  * dashboard so both stay in lockstep.
  *
  * Renders the channel legend + a sideways-scroll hint + the grid. The

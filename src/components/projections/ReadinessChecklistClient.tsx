@@ -28,7 +28,7 @@ import type { ReadinessState } from '@/lib/projections-types';
  *     flush on blur, so a brief pause persists without an explicit Save.
  *   - All writes are optimistic (UI updates immediately) and rolled back
  *     if the server action throws. No revalidatePath — keeps the page
- *     from flashing the parent /projections/loading.tsx mid-tap.
+ *     from flashing the parent prospects loading.tsx mid-tap.
  *
  * Outstanding-items summary at the bottom of the page lists everything
  * with have < need, so the walkthrough produces a natural "shopping
@@ -229,7 +229,7 @@ export function ReadinessChecklistClient({
         {/* ─── Sticky header with progress + actions ──────────────── */}
         <header className="rt-rc-head">
           <div className="rt-rc-head-top">
-            <Link href={`/projections/${projectionId}`} className="rt-rc-back">
+            <Link href={`/prospects/${projectionId}`} className="rt-rc-back">
               ← Prospect
             </Link>
             <Link href={printHref} target="_blank" className="rt-rc-print">
