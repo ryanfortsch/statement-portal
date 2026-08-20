@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import { CommandPalette } from "@/components/CommandPalette";
 import { VersionGuard } from "@/components/VersionGuard";
 import { Providers } from "@/components/Providers";
@@ -73,6 +74,10 @@ export default function RootLayout({
           {children}
           <CommandPalette />
           <VersionGuard />
+          {/* Page-view analytics so IA questions are answered by data Helm
+              owns (route patterns, not query strings). No-ops locally and
+              until Web Analytics is enabled on the Vercel project. */}
+          <Analytics />
         </Providers>
       </body>
     </html>
