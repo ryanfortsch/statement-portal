@@ -56,7 +56,11 @@ export default async function ShootDetail({
   // climbing bonus is still $0 — the delivery already happened, so this
   // state must never read "Awaiting delivery".
   const onClock = pay.assets.some((p) => p.counts && p.locksOn && !p.locked);
-  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 || onClock ? 'In flight' : 'Awaiting delivery';
+  // A delivered reel that hasn't posted yet also keeps the shoot In flight:
+  // posting happens on RT's schedule (weeks or months later), and settled
+  // means every reel posted AND its count locked.
+  const toPost = pay.assets.some((p) => p.counts && p.kind === 'reel' && p.stalled);
+  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 || onClock || toPost ? 'In flight' : 'Awaiting delivery';
 
   const reels = detail.assets.filter((a) => a.kind === 'reel');
   const carousels = detail.assets.filter((a) => a.kind === 'carousel');

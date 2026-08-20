@@ -189,7 +189,7 @@ export type ShootPaySummary = {
   owedCents: number; // delivered-unpaid bases + reel bonuses ready to pay (posted, views locked, >0)
   owedBaseCents: number; // just the delivered-unpaid base portion of owedCents
   pendingCents: number; // reel bonuses still counting (base paid, posted, views not locked)
-  fullySettled: boolean; // >=1 counting post, every base paid, every POSTED reel's bonus resolved
+  fullySettled: boolean; // >=1 counting post, every base paid, every counting REEL posted + count locked + bonus resolved (carousels settle at base)
   baseDue: number; // delivered posts awaiting their base payment
   topupDue: number; // posted reels whose view bonus is ready to pay
 };
@@ -228,12 +228,19 @@ export function shootPaySummary(
       assetSettled = false;
     }
     // View bonus — reels only, and only once the reel has been POSTED (its clock
-    // running) AND its delivery base is paid. An un-posted reel earns no bonus
-    // yet; a posted reel whose base isn't paid waits on the base first.
-    // ap.locked (not the raw views column) so an office-decided bonus reads as
-    // settled money, not a climbing one.
-    if (a.kind === 'reel') {
-      if (!a.topup_paid_at && a.posted_at && a.base_paid_at) {
+    // running) AND its delivery base is paid. A posted reel whose base isn't
+    // paid waits on the base first. ap.locked (not the raw views column) so an
+    // office-decided bonus reads as settled money, not a climbing one.
+    if (a.kind === 'reel' && !a.topup_paid_at) {
+      if (!a.posted_at) {
+        // Delivered but not posted yet: posting happens on RT's schedule,
+        // weeks or months later, and only then does the count run — so the
+        // shoot STAYS OPEN. It owes nothing and counts nothing, it just
+        // isn't finished. (Dotti 2026-08-20: settled means every reel
+        // posted AND its view count locked; supersedes #1153's
+        // dormant-bonus-reads-settled call.)
+        assetSettled = false;
+      } else if (a.base_paid_at) {
         if (ap.locked) {
           if (ap.topupCents > 0) { owedCents += ap.topupCents; topupDue++; assetSettled = false; }
           // locked under the first rung → no bonus, nothing left to pay
