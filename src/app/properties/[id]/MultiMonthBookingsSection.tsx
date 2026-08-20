@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { loadMultiMonthData, dismissInstallmentSuggestion, restoreInstallmentSuggestion } from './installment-actions';
 import { InstallmentEditor, type CrossMonthBooking } from '@/components/InstallmentEditor';
 import type { Installment } from '@/lib/installments';
 import { effectiveCommission } from '@/lib/revenue-math';
@@ -98,39 +98,22 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
   const [editingCode, setEditingCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const todayIso = new Date().toISOString().slice(0, 10);
-    const { data: rows } = await supabase
-      .from('guesty_reservations')
-      .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
-      .eq('property_id', propertyId)
-      .gte('check_out', todayIso)
-      .order('check_in', { ascending: true });
-    const filtered = ((rows || []) as GuestyRow[])
+    const { rows, installments, dismissedCodes: dismissed } = await loadMultiMonthData(propertyId);
+    const filtered = (rows as GuestyRow[])
       .filter(r => qualifiesForInstallment(r.check_in, r.check_out, r.nights));
     setBookings(filtered);
 
     if (filtered.length > 0) {
-      const codes = filtered.map(r => r.confirmation_code).filter(Boolean);
-      const [{ data: installRows }, { data: dismissRows }] = await Promise.all([
-        supabase
-          .from('reservation_installments')
-          .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at')
-          .in('confirmation_code', codes),
-        supabase
-          .from('installment_suggestion_dismissals')
-          .select('confirmation_code')
-          .in('confirmation_code', codes),
-      ]);
+      const codes = new Set(filtered.map(r => r.confirmation_code).filter(Boolean));
       const m = new Map<string, Installment[]>();
-      ((installRows || []) as Installment[]).forEach(r => {
+      (installments as unknown as Installment[]).forEach(r => {
+        if (!codes.has(r.confirmation_code)) return;
         const list = m.get(r.confirmation_code) || [];
         list.push(r);
         m.set(r.confirmation_code, list);
       });
       setSplitsByCode(m);
-      setDismissedCodes(
-        new Set(((dismissRows || []) as { confirmation_code: string }[]).map(d => d.confirmation_code)),
-      );
+      setDismissedCodes(new Set(dismissed.filter(c => codes.has(c))));
     }
   }, [propertyId]);
 
@@ -140,9 +123,7 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
   // reconcile.
   const dismiss = useCallback(async (code: string) => {
     setDismissedCodes(prev => new Set(prev).add(code));
-    await supabase
-      .from('installment_suggestion_dismissals')
-      .upsert({ confirmation_code: code, property_id: propertyId }, { onConflict: 'confirmation_code' });
+    await dismissInstallmentSuggestion(code, propertyId);
     load();
   }, [propertyId, load]);
 
@@ -152,7 +133,7 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
       next.delete(code);
       return next;
     });
-    await supabase.from('installment_suggestion_dismissals').delete().eq('confirmation_code', code);
+    await restoreInstallmentSuggestion(code);
     load();
   }, [load]);
 

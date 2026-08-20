@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { loadBankDepositReview } from '@/app/statements/actions';
 
 /**
  * Per-property review queue for unattributed bank deposits found during
@@ -83,18 +83,14 @@ export function BankDepositReview({
     // Pull pending + attributed (skip dismissed). Pending → review queue;
     // attributed → "Already attributed · N" history block with an Undo
     // button so a mis-attribution can be reverted without a DB hack.
-    const { data, error: e } = await supabase
-      .from('bank_deposit_attributions')
-      .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction, status, attributed_reservation_code, label')
-      .eq('property_id', propertyId)
-      .eq('month', month)
-      .in('status', ['pending', 'attributed'])
-      .order('deposit_date', { ascending: true });
+    const res = await loadBankDepositReview(propertyId, month);
+    const e = 'error' in res ? res.error : null;
     if (e && e.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|direction/i.test(e.message || '')) {
       setError(e.message);
       return;
     }
-    setItems(((data || []) as Deposit[]).map(d => ({ ...d, direction: d.direction || 'deposit' })));
+    const data = 'rows' in res ? res.rows : [];
+    setItems(((data || []) as unknown as Deposit[]).map(d => ({ ...d, direction: d.direction || 'deposit' })));
   }, [propertyId, month, refreshToken]);
 
   // Initial load + refresh when month/property changes. eslint disable here

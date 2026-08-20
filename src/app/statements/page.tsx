@@ -2,8 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
-import { loadOwnerConfig, loadTaxCerts, loadOwnerActionCounts as loadOwnerActionCountsAction } from './actions';
+import {
+  loadOwnerConfig, loadTaxCerts, loadOwnerActionCounts as loadOwnerActionCountsAction,
+  loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap,
+  loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
+  loadGuestyRowsByCodes,
+} from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
@@ -1944,17 +1948,8 @@ function DashboardContent() {
     if (!selectedMonth) return;
     let cancelled = false;
     (async () => {
-      const { data, error: e } = await supabase
-        .from('bank_deposit_attributions')
-        .select('property_id')
-        .eq('month', selectedMonth)
-        .eq('status', 'pending');
+      const counts = await loadDepositReviewCounts(selectedMonth);
       if (cancelled) return;
-      if (e) { setDepositReviewCounts({}); return; }  // table may not exist yet; strip stays quiet
-      const counts: Record<string, number> = {};
-      (data || []).forEach((r: { property_id: string }) => {
-        counts[r.property_id] = (counts[r.property_id] || 0) + 1;
-      });
       setDepositReviewCounts(counts);
     })();
     return () => { cancelled = true; };
@@ -2103,56 +2098,13 @@ function DashboardContent() {
     // a Sync Stripe / ingest run may have queued new one-off charges.
     setReviewRefresh(n => n + 1);
     try {
-      const { data: periodData, error: periodError } = await supabase
-        .from('statement_periods').select('*').eq('month', month).single();
-      if (periodError) throw periodError;
-
-      const { data: props, error: propsError } = await supabase
-        .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
-      if (propsError) throw propsError;
-
-      // Compute the month range once, used to detect "drift" -- paid bookings
-      // that have appeared in guesty_reservations since this property's
-      // statement was last ingested.
-      const monthStart = `${month}-01`;
-      const [_y, _m] = month.split('-').map(Number);
-      const monthEndExclusive = new Date(Date.UTC(_y, _m, 1)).toISOString().slice(0, 10);
-
-      const enrichedProps = await Promise.all(
-        (props || []).map(async (prop: PropertyStatement) => {
-          const [resResult, cleanResult, repairResult, gapResult, guestyResResult] = await Promise.all([
-            supabase.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
-            supabase.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
-            supabase.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
-            supabase.from('data_gaps').select('*').eq('property_statement_id', prop.id),
-            // Drift detection: paid bookings (total_paid > 0) for this property
-            // that checked out within the statement month. Compare to the
-            // reservations we already have on the statement -- any
-            // confirmation_code that's missing is a "new booking".
-            supabase
-              .from('guesty_reservations')
-              .select('confirmation_code, guest_name, check_out, total_paid')
-              .eq('property_id', prop.property_id)
-              .gte('check_out', monthStart)
-              .lt('check_out', monthEndExclusive)
-              .gt('total_paid', 0),
-          ]);
-          const existingCodes = new Set(
-            (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
-          );
-          const driftBookings = (guestyResResult.data || []).filter(
-            (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
-          );
-          return {
-            ...prop,
-            reservations: resResult.data || [],
-            cleaning_events: cleanResult.data || [],
-            repair_events: repairResult.data || [],
-            data_gaps: gapResult.data || [],
-            drift_bookings: driftBookings,
-          };
-        })
-      );
+      // Period row + statements + per-property enrichment (reservations,
+      // cleaning, repairs, gaps, drift probe) all happen server-side now --
+      // same queries, one round trip, service role instead of the anon key.
+      const res = await loadPeriodData(month);
+      if ('error' in res) throw new Error(res.error);
+      const periodData = res.period as unknown as StatementPeriod;
+      const enrichedProps = res.props as unknown as PropertyStatement[];
 
       setPeriod({ ...periodData, property_statements: enrichedProps });
       setSelectedMonth(month);
@@ -2169,27 +2121,21 @@ function DashboardContent() {
   }, []);
 
   const loadLastSync = useCallback(async () => {
-    const { data } = await supabase.from('sync_status').select('source, last_synced_at');
-    const map: Record<string, string> = {};
-    (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
-    setLastSync(map);
+    setLastSync(await loadLastSyncMap());
   }, []);
 
   const loadCloseState = useCallback(async (periodId: string, month: string) => {
-    const [{ data: tasks }, { data: periodRow }] = await Promise.all([
-      supabase.from('close_tasks').select('*').eq('period_id', periodId),
-      supabase.from('statement_periods').select('funds_sent_date').eq('id', periodId).single(),
-    ]);
+    const { tasks, funds_sent_date } = await loadCloseStateAction(periodId);
     const map: Record<string, CloseTask> = {};
-    (tasks || []).forEach((t: CloseTask) => { map[t.property_id] = t; });
+    (tasks as unknown as CloseTask[]).forEach((t: CloseTask) => { map[t.property_id] = t; });
     setCloseTasks(map);
-    setFundsSentDate(periodRow?.funds_sent_date || defaultFundsSentDate(month));
+    setFundsSentDate(funds_sent_date || defaultFundsSentDate(month));
   }, []);
 
   async function saveFundsSentDate(iso: string) {
     setFundsSentDate(iso);
     if (!period) return;
-    await supabase.from('statement_periods').update({ funds_sent_date: iso }).eq('id', period.id);
+    await saveFundsSentDateAction(period.id, iso);
   }
 
   async function createGmailDraft(propertyId: string) {
@@ -2263,7 +2209,7 @@ function DashboardContent() {
       ...patch,
     };
     setCloseTasks(prev => ({ ...prev, [propertyId]: merged }));
-    await supabase.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });
+    await upsertCloseTask(merged as unknown as Record<string, unknown>);
   }
 
   /**
@@ -2313,12 +2259,9 @@ function DashboardContent() {
     (async () => {
       setLoading(true);
       try {
-        const { data, error: err } = await supabase
-          .from('statement_periods')
-          .select('month, status')
-          .order('month', { ascending: false })
-          .limit(24);
-        if (err) throw err;
+        const res = await loadPeriodsList();
+        if ('error' in res) throw new Error(res.error);
+        const data = res.periods;
         if (!data || data.length === 0) { setError('no_data'); setLoading(false); return; }
         setPeriods(data);
         await loadPeriod(selectedMonth || data[0].month);
@@ -2374,9 +2317,7 @@ function DashboardContent() {
       // Collect all reservation confirmation codes across this month's statements.
       const allCodes: string[] = [];
       props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
-      const { data: guestyRows } = allCodes.length
-        ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, channel_commission').in('confirmation_code', allCodes)
-        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null }> };
+      const guestyRows = await loadGuestyRowsByCodes(allCodes);
       const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
       (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
 
@@ -2441,9 +2382,7 @@ function DashboardContent() {
     try {
       const allCodes: string[] = [];
       props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
-      const { data: guestyRows } = allCodes.length
-        ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, channel_commission').in('confirmation_code', allCodes)
-        : { data: [] as Array<{ confirmation_code: string; total_paid: number | null; total_taxes: number | null; channel_commission: number | null }> };
+      const guestyRows = await loadGuestyRowsByCodes(allCodes);
       const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
       (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
 
