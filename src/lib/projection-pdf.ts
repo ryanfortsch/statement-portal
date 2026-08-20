@@ -33,13 +33,17 @@ const GEOMETRIES: Record<DeliverableType, Geometry> = {
   readiness: { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
 };
 
-const SLUGS: Record<DeliverableType, string> = {
-  projection: 'render',
-  guide: 'guide',
-  contract: 'contract',
+// Full path templates: the three owner deliverables stay on their stable
+// public /projections URLs (proxy-allowlisted, external callers), while the
+// readiness printable moved to /prospects with the workroom in the Phase 3
+// rename, so puppeteer must hit it directly rather than ride the 308.
+const PATHS: Record<DeliverableType, (id: string) => string> = {
+  projection: (id) => `/projections/${id}/render`,
+  guide: (id) => `/projections/${id}/guide`,
+  contract: (id) => `/projections/${id}/contract`,
   // /readiness is the interactive walkthrough view; /readiness/print is
   // the static printable mirror that puppeteer renders into the PDF.
-  readiness: 'readiness/print',
+  readiness: (id) => `/prospects/${id}/readiness/print`,
 };
 
 export async function renderProjectionPdf(args: {
@@ -49,7 +53,7 @@ export async function renderProjectionPdf(args: {
 }): Promise<Buffer> {
   const { projectionId, type, origin } = args;
   const geo = GEOMETRIES[type];
-  const url = `${origin}/projections/${encodeURIComponent(projectionId)}/${SLUGS[type]}`;
+  const url = `${origin}${PATHS[type](encodeURIComponent(projectionId))}`;
 
   const localChrome = process.env.CHROME_EXECUTABLE_PATH;
   const executablePath = localChrome || (await chromium.executablePath());

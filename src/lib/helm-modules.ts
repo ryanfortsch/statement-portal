@@ -109,7 +109,7 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'operations',
-    href: '/operations',
+    href: '/turnovers',
     number: '02',
     title: 'Turnovers',
     description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
@@ -135,19 +135,24 @@ export const HELM_MODULES: HelmModule[] = [
   // FieldTabs still handles the job-type/lens sub-navigation underneath.
   {
     id: 'field',
-    href: '/operations/packets',
+    href: '/fieldwork/packets',
     number: '03',
     title: 'Field',
     description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
     status: 'active',
     primary: true,
     group: 'operations',
+    // Catch-all so lens routes without their own registry entry
+    // (/fieldwork/rate-card, /fieldwork/hiring-package) still light the
+    // Field tab; the longer per-lens prefixes above and below win where
+    // they exist.
+    routePrefixes: ['/fieldwork'],
   },
   // Roster is the Field section's Roster lens (see FieldTabs). Registered
   // here for search, surfaced in-context (hidden from menus).
   {
     id: 'roster',
-    href: '/operations/contractors',
+    href: '/fieldwork/roster',
     number: '03a',
     title: 'Field Roster',
     description: 'The 1099 contractor roster. Profiles, trades, rates, and standing for everyone who works the fleet.',
@@ -159,7 +164,7 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'hiring',
-    href: '/operations/contractors/applicants',
+    href: '/fieldwork/hiring',
     number: '03b',
     title: 'Hiring',
     description: 'Applicant pipeline. Review applications, invite or decline, track source channels.',
@@ -176,7 +181,7 @@ export const HELM_MODULES: HelmModule[] = [
   // Registered here for search, surfaced in-context (hidden from menus).
   {
     id: 'creative',
-    href: '/operations/creative',
+    href: '/fieldwork/shoots',
     number: '03c',
     title: 'Creative Shoots & Pay',
     description: 'The creative pay ledger. Log shoots and assets, review deliverables, approve and pay the crew.',
@@ -251,14 +256,14 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'properties',
   },
   // Prospects is now a TAB inside Properties (the Prospects tab at
-  // /properties?view=prospects), same pattern as Statements / Revenue under
+  // /properties/prospects), same pattern as Statements / Revenue under
   // Financials. Hidden from the nav lists so it doesn't duplicate the
-  // Properties entry; the prospect detail/create routes (/projections/[id],
-  // /projections/new) still resolve and Cmd+K search still finds it. The
+  // Properties entry; the prospect detail/create routes (/prospects/[id],
+  // /prospects/new) still resolve and Cmd+K search still finds it. The
   // standalone /projections index redirects to the Properties tab.
   {
     id: 'projections',
-    href: '/properties?view=prospects',
+    href: '/properties/prospects',
     number: '06',
     title: 'Prospects',
     description: 'The prospect funnel. One record per prospect generates a projection deck, a partnership guide, and a management contract, all from the same shared inputs.',
@@ -267,9 +272,11 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'growth',
     section: 'properties',
-    // The href carries a query string, so the detail/create routes at
-    // /projections/... need their own prefix to light the Properties tab.
-    routePrefixes: ['/projections'],
+    // The workroom lives at /prospects/...; /projections/... still hosts
+    // the public deliverable surfaces (render, guide, contract,
+    // onboarding-render) plus the legacy redirect stub, so both prefixes
+    // light the Properties tab.
+    routePrefixes: ['/prospects', '/projections'],
   },
   {
     id: 'messaging',
@@ -418,6 +425,33 @@ export const HELM_MODULES: HelmModule[] = [
     number: '13',
     title: 'Guests',
     description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
+    section: 'marketing',
+  },
+  // Contacts and Agreements are the other two Guests lenses, now real
+  // routes under /guests. Registered here for search, surfaced in-context
+  // (hidden from menus).
+  {
+    id: 'guest-contacts',
+    href: '/guests/contacts',
+    number: '13a',
+    title: 'Guest Contacts',
+    description: 'The guest contact list. Subscribers, segments, and per-guest history behind the campaigns.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
+    section: 'marketing',
+  },
+  {
+    id: 'agreements',
+    href: '/guests/agreements',
+    number: '13b',
+    title: 'Guest Agreements',
+    description: 'Stay Cape Ann rental agreements. Send, track signatures, countersign, archive the PDF.',
     status: 'active',
     primary: false,
     hidden: true,

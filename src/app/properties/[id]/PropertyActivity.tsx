@@ -305,7 +305,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
       actor: pl.planned_by_email,
       label: `planned an inspection for ${pl.planned_for_date ?? '(no date)'}${inspectorBit}`,
       secondary: `check-in ${pl.checkin_date}`,
-      href: '/operations',
+      href: '/turnovers',
     });
   }
 

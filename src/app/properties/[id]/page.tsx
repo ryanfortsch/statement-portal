@@ -1333,7 +1333,7 @@ export default async function PropertyDetailPage({
               {ownerPortfolio.prospects.map((op) => (
                 <Link
                   key={op.id}
-                  href={`/projections/${op.id}`}
+                  href={`/prospects/${op.id}`}
                   style={{
                     fontSize: 12,
                     color: 'var(--ink)',
@@ -1694,7 +1694,7 @@ export default async function PropertyDetailPage({
             </Link>
             {(!contractFacts.termStart || !contractFacts.termEnd) && (
               <Link
-                href={`/projections/${p.projection_id}`}
+                href={`/prospects/${p.projection_id}`}
                 style={{
                   fontSize: 11,
                   fontWeight: 500,
@@ -1729,7 +1729,7 @@ export default async function PropertyDetailPage({
       <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <Link
-            href={`/operations?property=${p.id}`}
+            href={`/turnovers?property=${p.id}`}
             title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
             style={primaryActionStyle}
           >

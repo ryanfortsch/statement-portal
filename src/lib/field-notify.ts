@@ -253,7 +253,7 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New inspector signed up: ${contractor.full_name}</h1>
     <p>${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) finished setup. Two things before they can claim work:</p>
     <p>1. <strong>Run their background check</strong>, then mark it <strong>cleared</strong> on the roster (we send people into owners' homes, so claiming is gated on it).<br/>2. Collect their W-9 into QuickBooks and hit <strong>mark W-9 on file</strong> so 1099 tracking stays current.</p>
-    ${btn(`${fieldBaseUrl()}/operations/contractors`, 'Open roster')}
+    ${btn(`${fieldBaseUrl()}/fieldwork/roster`, 'Open roster')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
@@ -275,7 +275,7 @@ export async function sendStreakBonusOfficeEmail(
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${contractor.full_name} hit a ${award.days}-day streak</h1>
     <p>${contractor.full_name} just submitted <strong>${packet.title}</strong>, their ${award.days}th day of field work in a row. A <strong>${amount} streak bonus</strong> was added to this packet automatically; it rides the normal approve-and-pay flow, so the payout you see at approval already includes it.</p>
-    ${btn(`${fieldBaseUrl()}/operations/packets/${packet.id}`, 'Review the packet')}
+    ${btn(`${fieldBaseUrl()}/fieldwork/packets/${packet.id}`, 'Review the packet')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
@@ -535,7 +535,7 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
       ${line(unclaimedSoon, 'unclaimed within 48h')}
       ${line(submitted, 'awaiting your approval')}
     </ul>
-    ${btn(`${fieldBaseUrl()}/operations/packets`, 'Open the board')}
+    ${btn(`${fieldBaseUrl()}/fieldwork/packets`, 'Open the board')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
@@ -592,7 +592,7 @@ export async function sendNewApplicantEmail(app: {
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New Field applicant</h1>
     <p style="font-size:14px;">${details}</p>
-    ${btn(`${fieldBaseUrl()}/operations/contractors/applicants`, 'Review in Helm')}
+    ${btn(`${fieldBaseUrl()}/fieldwork/hiring`, 'Review in Helm')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
@@ -600,7 +600,7 @@ export async function sendNewApplicantEmail(app: {
     fromName: FROM_NAME,
     cc: 'ryan@risingtidestr.com',
     html,
-    text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${fieldBaseUrl()}/operations/contractors/applicants`,
+    text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${fieldBaseUrl()}/fieldwork/hiring`,
   });
 }
 
@@ -611,7 +611,7 @@ export async function sendPacketSubmittedEmail(
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">Packet submitted for review</h1>
     <p><strong>${contractor.full_name}</strong> finished <strong>${packet.title}</strong> (${packet.visit_date}). Review the completed inspections in Helm before it counts as done.</p>
-    ${btn(`${fieldBaseUrl()}/operations/packets/${packet.id}`, 'Review in Helm')}
+    ${btn(`${fieldBaseUrl()}/fieldwork/packets/${packet.id}`, 'Review in Helm')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,

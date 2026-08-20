@@ -12,7 +12,7 @@ export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning' | 'creat
  * shows as a job-type tab (cleaning stays valid but hidden — turnovers run
  * through Cape Ann Elite, not this portal). `hasPackets` gates the packet/route
  * machinery: creative work is paid per delivered asset, so it has no packets.
- * `hasShoots` gates the shoots-and-pay board (/operations/creative), creative's
+ * `hasShoots` gates the shoots-and-pay board (/fieldwork/shoots), creative's
  * money surface in place of packets.
  */
 export const TRADE_META: Record<

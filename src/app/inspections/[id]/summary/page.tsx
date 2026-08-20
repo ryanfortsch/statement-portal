@@ -302,7 +302,7 @@ export default async function InspectionSummaryPage({
               </span>
             )}
             {visit && isStaff && (
-              <Link href={`/operations/packets/${visit.packetId}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}>
+              <Link href={`/fieldwork/packets/${visit.packetId}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}>
                 {visit.packetTitle} →
               </Link>
             )}

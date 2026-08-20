@@ -26,7 +26,7 @@ export default async function NewAgreementPage() {
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/guests?tab=agreements" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>
+          <Link href="/guests/agreements" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>
             ← Agreements
           </Link>
         </div>

@@ -6,7 +6,7 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
 import { draftWorkOrderEmail } from '@/lib/work-order-email';
-import { publishPacket } from '@/app/operations/packets/actions';
+import { publishPacket } from '@/app/fieldwork/packets/actions';
 
 /** Plan runs on demand from the Work board.
  *

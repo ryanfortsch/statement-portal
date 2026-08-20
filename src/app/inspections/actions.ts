@@ -88,7 +88,7 @@ export async function deleteInspection(
   }
 
   revalidatePath('/inspections');
-  revalidatePath('/operations');
+  revalidatePath('/turnovers');
   return { ok: true };
 }
 

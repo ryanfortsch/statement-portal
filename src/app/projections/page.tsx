@@ -1,12 +1,13 @@
 import { redirect } from 'next/navigation';
 
 /**
- * The prospect funnel list now lives as the Prospects tab on the Properties
- * index (the same <ProspectsPanel> renders there). Consolidated 2026-06-29:
- * this standalone index redirects to that tab so there's a single home for
- * the list. The detail and create flows (/projections/[id], /projections/new)
- * are unchanged.
+ * The prospect funnel list lives at /properties/prospects (the same
+ * <ProspectsPanel> renders there). This standalone index redirects so
+ * there's a single home for the list. The workroom moved to /prospects
+ * (/prospects/[id], /prospects/new); only the public deliverable pages
+ * (/projections/[id]/render|guide|contract|onboarding-render) stay here
+ * because external callers (proxy allowlist + Puppeteer) hit those URLs.
  */
 export default function ProjectionsIndexRedirect() {
-  redirect('/properties?view=prospects');
+  redirect('/properties/prospects');
 }

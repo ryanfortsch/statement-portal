@@ -75,7 +75,7 @@ export default function GuestImportPage() {
                 cursor: 'pointer',
               }}
             />
-            <Link href="/guests?tab=contacts" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            <Link href="/guests/contacts" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
               Cancel
             </Link>
           </div>

@@ -1157,7 +1157,7 @@ export async function createProspectProperty(formData: FormData): Promise<void> 
   const name = String(formData.get('name') || '').trim().slice(0, 80);
   const address = String(formData.get('address') || '').trim().slice(0, 160);
   const city = String(formData.get('city') || '').trim().slice(0, 80) || 'Gloucester';
-  if (name.length < 2 || address.length < 3) redirect('/properties?prospect=err');
+  if (name.length < 2 || address.length < 3) redirect('/properties/prospects?prospect=err');
 
   const db = getServiceClient();
   const base =
@@ -1185,8 +1185,9 @@ export async function createProspectProperty(formData: FormData): Promise<void> 
     owner_greeting: '',
     management_fee_pct: 0,
   });
-  if (error) redirect('/properties?prospect=err');
+  if (error) redirect('/properties/prospects?prospect=err');
 
   revalidatePath('/properties');
+  revalidatePath('/properties/prospects');
   redirect(`/properties/${id}`);
 }

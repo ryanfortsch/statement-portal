@@ -80,7 +80,7 @@ function newOnboardingToken(): string {
 /**
  * Server actions for the Projections module.
  *
- * The form on /projections/new and /projections/[id] uses these to persist
+ * The form on /prospects/new and /prospects/[id] uses these to persist
  * inputs. All numeric form fields come in as strings; this layer parses and
  * coerces them. Percentages are entered as whole numbers in the UI (25 = 25%)
  * and stored as decimals in the DB (0.25).
@@ -231,7 +231,7 @@ export async function createProjection(formData: FormData) {
   if (error || !data) throw new Error(error?.message || 'Failed to create projection');
 
   revalidatePath('/properties');
-  redirect(`/projections/${data.id}`);
+  redirect(`/prospects/${data.id}`);
 }
 
 export async function updateProjection(id: string, formData: FormData) {
@@ -287,7 +287,7 @@ export async function updateProjection(id: string, formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 export async function deleteProjection(id: string) {
@@ -298,7 +298,7 @@ export async function deleteProjection(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  redirect('/properties?view=prospects');
+  redirect('/properties/prospects');
 }
 
 /**
@@ -328,7 +328,7 @@ export async function resetContractOverrides(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
   revalidatePath(`/projections/${id}/contract`);
   return { ok: true };
 }
@@ -350,7 +350,7 @@ export async function toggleMonthlyBreakdown(id: string, next: boolean) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
   revalidatePath(`/projections/${id}/render`);
 }
 
@@ -366,7 +366,7 @@ export async function markSent(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 /**
@@ -391,7 +391,7 @@ export async function markOnboardingDone(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 export async function unmarkOnboardingDone(id: string) {
@@ -406,7 +406,7 @@ export async function unmarkOnboardingDone(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 /**
@@ -432,7 +432,7 @@ export async function markContractDone(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 export async function unmarkContractDone(id: string) {
@@ -447,7 +447,7 @@ export async function unmarkContractDone(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 /**
@@ -478,14 +478,14 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
   if (error) throw new Error(error.message);
 
   revalidatePath('/properties');
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 // ─── Readiness checklist mutations ─────────────────────────────────────────
 // Each call does a read-merge-write on the single jsonb column. Critically,
 // these actions do NOT revalidatePath — the analyst is *on* the readiness
 // page during a walkthrough, and revalidating the current route triggers
-// the parent /projections/loading.tsx, which feels like the page froze.
+// the parent /prospects/loading.tsx, which feels like the page froze.
 // Readiness state is purely client-managed in-memory while the page is
 // mounted; the next navigation re-fetches because the route is
 // dynamic = 'force-dynamic'.
@@ -586,7 +586,7 @@ export async function requestReadinessReview(
   const projection = data as ProjectionRow;
 
   const origin = await getRequestOrigin();
-  const readinessUrl = `${origin}/projections/${projectionId}/readiness`;
+  const readinessUrl = `${origin}/prospects/${projectionId}/readiness`;
   const triggeredBy = session.user.name || session.user.email || null;
 
   return await sendReadinessReviewEmail({ projection, triggeredBy, readinessUrl });
@@ -770,7 +770,7 @@ export async function promoteToProperty(projectionId: string) {
     console.warn('[promoteToProperty] contract auto-file skipped:', err);
   }
 
-  revalidatePath(`/projections/${projectionId}`);
+  revalidatePath(`/prospects/${projectionId}`);
   revalidatePath('/properties');
   revalidatePath(`/properties/${propertyId}`);
   // First stop after promotion is the launch checklist — there's a stack of
@@ -915,7 +915,7 @@ export async function submitContractSignature(formData: FormData) {
   }
 
   revalidatePath(`/contract/${token}`);
-  revalidatePath(`/projections/${existing.id}`);
+  revalidatePath(`/prospects/${existing.id}`);
   redirect(`/contract/${token}/signed`);
 }
 
@@ -944,7 +944,7 @@ export async function countersignContract(formData: FormData): Promise<void> {
   if (!existing.contract_signed_at) throw new Error('Owner has not signed yet');
   if (existing.contract_countersigned_at) {
     // Already countersigned — nothing to do, just revalidate the page.
-    revalidatePath(`/projections/${id}`);
+    revalidatePath(`/prospects/${id}`);
     return;
   }
 
@@ -1020,7 +1020,7 @@ export async function countersignContract(formData: FormData): Promise<void> {
   if (existing.onboarding_token) {
     revalidatePath(`/contract/${existing.onboarding_token}`);
   }
-  revalidatePath(`/projections/${id}`);
+  revalidatePath(`/prospects/${id}`);
 }
 
 /**
@@ -1158,7 +1158,7 @@ export async function submitOnboarding(formData: FormData) {
           propertyAddress: (full as { property_address: string }).property_address,
           ownerName: (full as { prospect_name: string | null }).prospect_name,
           data,
-          helmUrl: `${origin}/projections/${(full as { id: string }).id}`,
+          helmUrl: `${origin}/prospects/${(full as { id: string }).id}`,
         });
         if (result.ok) {
           await supabase
@@ -1643,7 +1643,7 @@ export async function applyContractRedlines(
     .eq('id', projectionId);
   if (updateErr) return { ok: false, error: updateErr.message };
 
-  revalidatePath(`/projections/${projectionId}`);
+  revalidatePath(`/prospects/${projectionId}`);
   revalidatePath(`/projections/${projectionId}/contract`);
 
   // Dry-run the persisted overrides through the renderer's apply engine

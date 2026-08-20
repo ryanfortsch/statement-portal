@@ -160,7 +160,7 @@ export async function ForMeFeed() {
           {hasWalks && (
             <div style={{ marginBottom: 36 }}>
               <SectionHeaderLink
-                href="/operations"
+                href="/turnovers"
                 title="Planned walks"
                 eyebrow={`${plannedWalks.length} upcoming`}
               />
@@ -638,7 +638,7 @@ function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
 /**
  * Inspection plans assigned to this user, from today forward. Pulls a small
  * window so the feed shows the upcoming few without burying the rest of the
- * page; the full schedule lives on /operations. The previous /me page surfaced
+ * page; the full schedule lives on /turnovers. The previous /me page surfaced
  * these too -- this is where they live now.
  */
 async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
@@ -682,7 +682,7 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
   const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ?? 'upcoming';
   return (
     <Link
-      href="/operations"
+      href="/turnovers"
       style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
     >
       <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
@@ -710,7 +710,7 @@ async function loadQueueCards(): Promise<QueueCard[]> {
 /**
  * Creative pay pressure: shoots the office has to act on (views overdue to
  * read, or a locked payout awaiting send) plus the total owed now. Reads the
- * same board + rollup the /operations/creative page renders, so the numbers
+ * same board + rollup the /fieldwork/shoots page renders, so the numbers
  * can never drift from what the board shows.
  */
 async function loadCreativeQueue(): Promise<QueueCard | null> {
@@ -729,7 +729,7 @@ async function loadCreativeQueue(): Promise<QueueCard | null> {
       toApprove > 0 ? `${toApprove} shoot${toApprove === 1 ? '' : 's'} to act on` : null,
       owedCents > 0 ? `${dollars(owedCents)} owed` : null,
     ].filter(Boolean);
-    return { id: 'queue-creative', href: '/operations/creative', text: `Creative: ${bits.join(' · ')}` };
+    return { id: 'queue-creative', href: '/fieldwork/shoots', text: `Creative: ${bits.join(' · ')}` };
   } catch {
     return null;
   }
@@ -738,7 +738,7 @@ async function loadCreativeQueue(): Promise<QueueCard | null> {
 /**
  * Field packets sitting in 'submitted' - the one packet status that waits on
  * the operator (approve, or request changes). Same vocabulary as the
- * "Awaiting approval" strip on /operations/packets.
+ * "Awaiting approval" strip on /fieldwork/packets.
  */
 async function loadPacketQueue(): Promise<QueueCard | null> {
   if (!isFieldConfigured) return null;
@@ -750,7 +750,7 @@ async function loadPacketQueue(): Promise<QueueCard | null> {
     if (!count) return null;
     return {
       id: 'queue-packets',
-      href: '/operations/packets',
+      href: '/fieldwork/packets',
       text: `Field: ${count} packet${count === 1 ? '' : 's'} awaiting approval`,
     };
   } catch {

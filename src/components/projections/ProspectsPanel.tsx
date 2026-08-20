@@ -38,7 +38,7 @@ export async function ProspectsPanel() {
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <div className="rt-projections-cta" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
           <Link
-            href="/projections/new"
+            href="/prospects/new"
             className="rt-projections-cta-primary"
             style={{
               display: 'inline-block',
@@ -152,7 +152,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   }
 
   return (
-    <Link href={`/projections/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+    <Link href={`/prospects/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
       <div
         className="rt-projections-row"
         style={{

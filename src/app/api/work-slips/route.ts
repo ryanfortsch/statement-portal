@@ -174,7 +174,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
     revalidatePath('/work');
-    revalidatePath('/operations');
+    revalidatePath('/turnovers');
     return NextResponse.json({ ok: true, id: existing.id, deduped: true, reopened: reopen });
   }
 
@@ -216,6 +216,6 @@ export async function POST(req: Request) {
   }
 
   revalidatePath('/work');
-  revalidatePath('/operations');
+  revalidatePath('/turnovers');
   return NextResponse.json({ ok: true, id: (insert.data as { id: string }).id, deduped: false });
 }

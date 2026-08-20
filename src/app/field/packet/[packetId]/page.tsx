@@ -480,7 +480,7 @@ export default async function PacketPage({
 
   // Load masked first (no addresses) to determine ownership safely.
   let packet = await loadPacketDetail(packetId, { revealIdentity: false });
-  if (!packet) redirect(preview ? '/operations/packets' : '/field');
+  if (!packet) redirect(preview ? '/fieldwork/packets' : '/field');
 
   // Whose eyes: the awarded inspector's when someone holds the packet, else a
   // synthetic vetted-and-eligible inspector (what any claimable browser sees).
@@ -650,7 +650,7 @@ export default async function PacketPage({
             <strong>Office preview</strong>: exactly what{' '}
             {packet.awarded_contractor_id ? contractor.full_name : 'an eligible inspector'} sees. Buttons are disabled.
           </span>
-          <Link href={`/operations/packets/${packetId}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          <Link href={`/fieldwork/packets/${packetId}`} style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
             ← Back to the office view
           </Link>
         </div>

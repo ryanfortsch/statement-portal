@@ -303,7 +303,7 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
       actor: pl.planned_by_email,
       property: propertyMap.get(pl.property_id) ?? '(property)',
       label: `planned an inspection${inspectorBit} for ${pl.planned_for_date ?? '(no date)'} at`,
-      href: '/operations',
+      href: '/turnovers',
     });
   }
 

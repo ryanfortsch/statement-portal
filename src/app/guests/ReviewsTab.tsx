@@ -15,8 +15,8 @@ import {
  * This is the former standalone /reviews page body, lifted into a
  * component so Guests and Reviews live as two tabs of one section
  * rather than two top-level menu items. All filter links and the
- * filter form point back at /guests?tab=reviews so navigating within
- * the tab keeps you on the tab. /reviews now redirects here.
+ * filter form point back at bare /guests so navigating within the
+ * tab keeps you on the tab. /reviews now redirects here.
  */
 
 // Reviews is the default lens, so its links are the bare /guests path.

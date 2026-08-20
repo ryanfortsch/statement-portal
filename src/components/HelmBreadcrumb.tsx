@@ -22,7 +22,7 @@ export function HelmBreadcrumb({ trail }: { trail: { label: string; href?: strin
 
   const crumbs = [
     // The section href keeps any query it carries (e.g. Financials lands
-    // on /revenue, Prospects on /properties?view=prospects).
+    // on /revenue, Prospects on /properties/prospects).
     ...(section ? [{ label: section.navLabel ?? section.title, href: section.href }] : []),
     ...trail,
   ];

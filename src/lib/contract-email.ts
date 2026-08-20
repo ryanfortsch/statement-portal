@@ -6,7 +6,7 @@
  *      `sendOwnerSignedEmail` sends them a copy of the partially-signed
  *      contract (owner row signed, PM row blank) with a "we'll countersign
  *      shortly" note. Allie is CC'd.
- *   2. After Allie countersigns from /projections/<id>, `sendExecutedEmail`
+ *   2. After Allie countersigns from /prospects/<id>, `sendExecutedEmail`
  *      sends the fully-executed PDF (both rows signed) with a "welcome
  *      aboard" note. Allie is CC'd.
  *
@@ -227,7 +227,7 @@ export async function sendCountersignNotification(args: {
   if (STAFF_NOTIFY.length === 0) {
     return { ok: false, reason: 'no staff recipients configured' };
   }
-  const helmUrl = `${origin}/projections/${projection.id}`;
+  const helmUrl = `${origin}/prospects/${projection.id}`;
   const signerName = projection.contract_signed_name || projection.prospect_name || 'the owner';
   const signedAtPretty = projection.contract_signed_at
     ? new Date(projection.contract_signed_at).toLocaleString('en-US', {

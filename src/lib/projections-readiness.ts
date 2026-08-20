@@ -18,7 +18,7 @@ import type { ProjectionRow } from './projections-types';
  *   3. exports a single `computeReadiness(projection)` that returns the
  *      groups + per-item quantities ready for the renderer.
  *
- * Same data drives the on-screen checklist at /projections/<id>/readiness
+ * Same data drives the on-screen checklist at /prospects/<id>/readiness
  * and the puppeteer-printed PDF.
  */
 
