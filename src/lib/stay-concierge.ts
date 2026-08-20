@@ -360,11 +360,14 @@ export async function listRecentApprovals(hours = 24) {
 export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean }) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
     method: 'POST',
-    // Only travels when the card carries an addon; JSON.stringify drops the
-    // undefined so ordinary approvals keep their empty-body shape.
+    // Only travels when the card carries an addon; ordinary approvals keep
+    // their empty-body shape. Pass the RAW object: request() stringifies,
+    // and pre-stringifying here double-encoded the body into a JSON string,
+    // which FastAPI rejected with a 422 on every addon-carrying approve
+    // (Leah / 3 Locust EV fee, 2026-08-20).
     body:
       opts && opts.sendAddonSms !== undefined
-        ? JSON.stringify({ send_addon_sms: opts.sendAddonSms })
+        ? { send_addon_sms: opts.sendAddonSms }
         : undefined,
   });
 }
@@ -1035,5 +1038,10 @@ export function explainError(error: StayConciergeError): string {
   // keep the message generic to the service rather than implying a draft action.
   if (error.status === 502 || error.status === 504)
     return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
-  return `Service error (${error.status}): ${error.detail}`;
+  // detail can be a FastAPI validation payload (an array of error objects);
+  // plain interpolation rendered it as "[object Object]", which is what the
+  // operator saw instead of the actual 422 cause. Stringify non-strings.
+  const detail =
+    typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+  return `Service error (${error.status}): ${detail}`;
 }
