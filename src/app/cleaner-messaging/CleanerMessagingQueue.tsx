@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
+import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import type { CleanerApproval } from '@/lib/stay-concierge';
 import {
   approveCleanerDraft,
@@ -35,23 +36,11 @@ const REFRESH_MS = 15_000;
 const SLIP_TONE = '#1f5e6b';
 
 export function CleanerMessagingQueue({ initialPending, properties }: Props) {
-  const router = useRouter();
-  // Refresh inside a transition. A bare router.refresh() re-suspends the
-  // queue's Suspense boundary, which swaps in the skeleton and UNMOUNTS
-  // everything below it -- including the proactive-message form, erasing
-  // whatever the operator was mid-typing (the exact bug the guest queue
-  // shipped and fixed). A transition keeps the current UI mounted while the
-  // new payload streams, so client state survives.
-  const [, startTransition] = useTransition();
-  const softRefresh = useCallback(
-    () => startTransition(() => router.refresh()),
-    [router],
-  );
-
-  useEffect(() => {
-    const t = setInterval(softRefresh, REFRESH_MS);
-    return () => clearInterval(t);
-  }, [softRefresh]);
+  // Shared refresh brain (QueueRefreshControl): transition-wrapped
+  // router.refresh on a jittered, visibility-gated interval (the #1236
+  // stampede fix, which this queue never got), plus a tick the header chip
+  // resets its "Updated Xs ago" timer on.
+  const { softRefresh, refreshTick } = useQueueRefresh(REFRESH_MS);
 
   // Queued (scheduled) cards float to the top, ordered by when they fire;
   // pending drafts stay in newest-first order below (guest-queue pattern).
@@ -70,8 +59,7 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
   return (
     <Section
       title={title}
-      eyebrow={`refreshes every ${REFRESH_MS / 1000}s`}
-      right={<RefreshChip onClick={softRefresh} />}
+      right={<QueueRefreshControl onRefresh={softRefresh} refreshTick={refreshTick} />}
       empty={initialPending.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
@@ -86,43 +74,6 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
         ))}
       </div>
     </Section>
-  );
-}
-
-function RefreshChip({ onClick }: { onClick: () => void }) {
-  // Track elapsed seconds since mount, rather than a Date snapshot. Keeps
-  // render pure. setInterval ticks every second; the ref is set during the
-  // effect (never read during render) so the chip resets when the parent
-  // remounts after a router.refresh.
-  const mountedAt = useRef<number>(0);
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    mountedAt.current = Date.now();
-    const t = setInterval(() => {
-      setSeconds(Math.max(0, Math.round((Date.now() - mountedAt.current) / 1000)));
-    }, 1_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const label = seconds < 60 ? `${seconds}s ago` : `${Math.round(seconds / 60)} min ago`;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        fontSize: 10,
-        letterSpacing: '0.16em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        color: 'var(--ink-3)',
-        background: 'transparent',
-        border: '1px solid var(--rule)',
-        padding: '6px 10px',
-        cursor: 'pointer',
-      }}
-    >
-      Refresh · {label}
-    </button>
   );
 }
 
