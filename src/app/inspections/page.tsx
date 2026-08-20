@@ -44,13 +44,19 @@ async function getProperties(): Promise<PropertyOption[]> {
   return ((data ?? []) as PropertyOption[]).sort((a, b) => collator.compare(a.name, b.name));
 }
 
-async function getRecentInspections(): Promise<RecentInspection[]> {
+const PAGE_SIZE = 10;
+
+async function getRecentInspections(page: number): Promise<{ rows: RecentInspection[]; hasOlder: boolean }> {
+  const offset = (page - 1) * PAGE_SIZE;
+  // Fetch one row past the page so we know whether an "Older" page exists
+  // without a second query. range() is inclusive on both ends.
   const { data } = await supabase
     .from('inspections')
     .select('id, property_id, inspector_name, started_at, completed_at, total_items, pass_count, issue_count, na_count, properties!inner(name, title)')
     .order('started_at', { ascending: false })
-    .limit(10);
-  return (data ?? []).map((row: {
+    .range(offset, offset + PAGE_SIZE);
+  const hasOlder = (data ?? []).length > PAGE_SIZE;
+  const rows = (data ?? []).slice(0, PAGE_SIZE).map((row: {
     id: string;
     property_id: string;
     inspector_name: string;
@@ -76,13 +82,28 @@ async function getRecentInspections(): Promise<RecentInspection[]> {
       property_name: property?.name || property?.title || row.property_id,
     };
   });
+  return { rows, hasOlder };
 }
 
-export default async function InspectionsPage() {
+async function getInspectionCount(): Promise<number> {
+  const { count } = await supabase
+    .from('inspections')
+    .select('id', { count: 'exact', head: true });
+  return count ?? 0;
+}
+
+export default async function InspectionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const session = await auth();
-  const [properties, recents] = await Promise.all([
+  const params = await searchParams;
+  const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
+  const [properties, { rows: recents, hasOlder }, totalCount] = await Promise.all([
     getProperties(),
-    getRecentInspections(),
+    getRecentInspections(page),
+    getInspectionCount(),
   ]);
 
   const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || 'inspector';
@@ -161,8 +182,14 @@ export default async function InspectionsPage() {
       {/* RECENTS */}
       <Section
         title="Recent Inspections"
-        eyebrow={recents.length > 0 ? `last ${recents.length}` : undefined}
-        empty={recents.length === 0}
+        eyebrow={
+          totalCount > 0
+            ? page > 1
+              ? `page ${page} · ${totalCount} total`
+              : `last ${recents.length} · ${totalCount} total`
+            : undefined
+        }
+        empty={totalCount === 0}
         emptyMessage="No inspections yet. Start one above."
         paddingBottom={80}
       >
@@ -171,10 +198,50 @@ export default async function InspectionsPage() {
             <RecentRow key={r.id} inspection={r} />
           ))}
         </div>
+        {(page > 1 || hasOlder) && (
+          <HistoryPager page={page} hasOlder={hasOlder} />
+        )}
       </Section>
 
       <HelmFooter module="Inspections" right="Source: Helm" />
     </div>
+  );
+}
+
+function HistoryPager({ page, hasOlder }: { page: number; hasOlder: boolean }) {
+  const linkStyle = {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase' as const,
+    color: 'var(--ink-3)',
+    textDecoration: 'none',
+  };
+  return (
+    <nav
+      aria-label="Inspection history pages"
+      style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0' }}
+    >
+      <span>
+        {page > 1 && (
+          <Link
+            href={page === 2 ? '/inspections' : `/inspections?page=${page - 1}`}
+            rel="prev"
+            prefetch={false}
+            style={linkStyle}
+          >
+            ← Newer
+          </Link>
+        )}
+      </span>
+      <span>
+        {hasOlder && (
+          <Link href={`/inspections?page=${page + 1}`} rel="next" prefetch={false} style={linkStyle}>
+            Older →
+          </Link>
+        )}
+      </span>
+    </nav>
   );
 }
 
