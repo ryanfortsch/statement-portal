@@ -377,7 +377,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           under your finger when its count drops to zero), plus the All
           reset. On a typical day 5 of 7 filters are empty - rendering
           them as full pill buttons was visual weight that didn't earn
-          its keep. */}
+          its keep. Snoozed is the one exception: it switches to a
+          separate server-side bucket that this pill is the only door to,
+          so it always renders (dimmed at zero) instead of self-hiding. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 28, width: '100%' }}>
         <div className="flex items-center gap-2 flex-wrap">
           <Pill active={filter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
@@ -396,9 +398,14 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           {(counts.ownerAction > 0 || filter === 'owner-action') && (
             <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
           )}
-          {(counts.snoozed > 0 || filter === 'snoozed') && (
-            <Pill active={filter === 'snoozed'} onClick={() => setFilter('snoozed')} label="Snoozed" count={counts.snoozed} accent="var(--tide-deep)" />
-          )}
+          <Pill
+            active={filter === 'snoozed'}
+            onClick={() => setFilter('snoozed')}
+            label="Snoozed"
+            count={counts.snoozed}
+            accent="var(--tide-deep)"
+            dimmed={counts.snoozed === 0}
+          />
         </div>
       </section>
 
@@ -412,7 +419,13 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           </div>
 
           {slipsByProperty.length === 0 ? (
-            <EmptyBlock message="No work slips match this filter." />
+            <EmptyBlock
+              message={
+                filter === 'snoozed'
+                  ? 'Nothing snoozed. Snooze a slip from its detail page.'
+                  : 'No work slips match this filter.'
+              }
+            />
           ) : (
             <CollapsibleList
               items={slipsByProperty}
@@ -597,21 +610,27 @@ function Pill({
   label,
   count,
   accent,
+  dimmed,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count: number;
   accent?: string;
+  dimmed?: boolean;
 }) {
+  // Dimmed = empty-but-still-a-door (the Snoozed bucket). Quiet, no
+  // count badge, but fully clickable so the bucket stays reachable.
+  const isDim = dimmed && !active;
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       style={{
         background: active ? (accent ?? 'var(--ink)') : 'transparent',
-        color: active ? 'var(--paper)' : (accent ?? 'var(--ink-3)'),
-        border: `1px solid ${accent ?? 'var(--rule)'}`,
+        color: active ? 'var(--paper)' : isDim ? 'var(--ink-4)' : (accent ?? 'var(--ink-3)'),
+        border: `1px solid ${isDim ? 'var(--rule)' : (accent ?? 'var(--rule)')}`,
         padding: '6px 14px',
         fontSize: 11,
         letterSpacing: '.14em',
@@ -620,7 +639,8 @@ function Pill({
         cursor: 'pointer',
       }}
     >
-      {label} <span style={{ opacity: 0.7, marginLeft: 4 }}>{count}</span>
+      {label}
+      {!isDim && <span style={{ opacity: 0.7, marginLeft: 4 }}>{count}</span>}
     </button>
   );
 }

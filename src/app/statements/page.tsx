@@ -1425,7 +1425,37 @@ function PropertyCard({
                   {reservations.map((r) => (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
                       <td style={{ padding: '10px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{r.guest_name}</td>
-                      <td style={{ padding: '10px 6px', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{fmtDate(r.check_in)} → {fmtDate(r.check_out)}</td>
+                      <td style={{ padding: '10px 6px', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                        {fmtDate(r.check_in)} → {fmtDate(r.check_out)}
+                        {(() => {
+                          // Mirror the splitter's own qualification (see
+                          // MultiMonthBookingsSection.qualifiesForInstallment):
+                          // the LAST PAID NIGHT decides the span (checkout
+                          // morning is not a paid night, so an Aug 2 -> Sep 1
+                          // stay does not span), 30+ nights, and the guest has
+                          // not already checked out (the splitter's query
+                          // filters check_out >= today, so a chip on a
+                          // checked-out stay would dead-end).
+                          if (!r.check_out || !r.nights || r.nights < 30) return null;
+                          const lastNight = new Date(new Date(`${r.check_out}T00:00:00Z`).getTime() - 86400000)
+                            .toISOString()
+                            .slice(0, 7);
+                          if (lastNight <= month) return null;
+                          if (r.check_out < new Date().toISOString().slice(0, 10)) return null;
+                          return (
+                            // Splitter lives on the property page above its tabs,
+                            // so a bare /properties/<id> link lands right on it.
+                            <Link
+                              href={`/properties/${prop.property_id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              title="This stay runs past the statement month. Open the installment splitter on the property page to spread its revenue across the months it spans."
+                              style={{ marginLeft: 8, fontSize: 10, color: 'var(--tide)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                            >
+                              Spans into {monthLong(lastNight)} · installment splitter →
+                            </Link>
+                          );
+                        })()}
+                      </td>
                       <td style={{ padding: '10px 6px', textAlign: 'center', color: 'var(--ink-3)' }}>{r.nights}</td>
                       <td style={{ padding: '10px 6px', textAlign: 'center' }}><PlatformBadge platform={r.platform} /></td>
                       <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--ink-3)' }}>{fmt(r.guesty_rental_income)}</td>
@@ -1813,6 +1843,19 @@ function PropertyCard({
               }}
             >
               Re-upload Data
+            </Link>
+            <Link
+              href={`/properties/${prop.property_id}`}
+              title="Open the installment splitter on the property page. It lists upcoming 30-night-plus bookings that span statement months."
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                background: 'transparent', color: 'var(--ink-3)',
+                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
+                padding: '10px 18px',
+                border: '1px solid var(--rule)',
+              }}
+            >
+              Multi-month bookings →
             </Link>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { CalendarMonthSelect } from './CalendarMonthSelect';
+import { PropertyFilterSelect } from './PropertyFilterSelect';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
 import { lifecycleOf, STAGE_HUES } from './turnover-format';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
@@ -48,6 +49,30 @@ async function readPropertyName(propertyId: string): Promise<string | null> {
     return (data as { name: string } | null)?.name ?? null;
   } catch {
     return null;
+  }
+}
+
+// Mirrors NON_OPERATIONS_PROPERTY_IDS in lib/operations.ts (module-private
+// there): out-of-region homes Rising Tide doesn't turn over stay out of the
+// filter options, exactly as they stay out of the pipeline and calendar.
+const NON_OPERATIONS_PROPERTY_IDS = new Set<string>(['65_calderwood', '3246_ne_27th']);
+
+/** Options for the header's property filter. Queried directly (not derived
+ *  from the calendar rows) because loadOperationsData narrows its property
+ *  list to the active filter, which would leave the select with only the
+ *  property already chosen. */
+async function readPropertyOptions(): Promise<{ value: string; label: string }[]> {
+  try {
+    const { data } = await supabase
+      .from('properties')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name');
+    return ((data ?? []) as { id: string; name: string }[])
+      .filter((p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id))
+      .map((p) => ({ value: p.id, label: p.name }));
+  } catch {
+    return [];
   }
 }
 
@@ -137,11 +162,12 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions] = await Promise.all([
     readSyncStatus(),
     loadOperationsData(range, calRange, propertyFilter, calOffset, calMonth),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
+    readPropertyOptions(),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -359,6 +385,17 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                 </Link>
               );
             })}
+            <span aria-hidden style={{ color: 'var(--rule)', fontSize: 12 }}>|</span>
+            {/* Property filter: ?property= always worked, but the only way in
+                was a handoff link from another page. This gives the filter a
+                visible home in the controls row; opsHref keeps the rest of
+                the URL state intact. */}
+            <PropertyFilterSelect
+              properties={propertyOptions}
+              value={propertyFilter ?? ''}
+              propertyHrefTemplate={opsHref({ property: '__P__' })}
+              clearHref={opsHref({ property: null })}
+            />
           </nav>
         </div>
 
@@ -453,6 +490,16 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>
+
+      {/* Chevron turn needs a media query inline styles can't express (the
+          row hover tint already comes from globals.css). The reduced-motion
+          guard kills the spin transition, not the state change. */}
+      <style>{`
+        .rt-tn-chev { transition: transform 0.15s ease; }
+        @media (prefers-reduced-motion: reduce) {
+          .rt-tn-chev { transition: none; }
+        }
+      `}</style>
 
       {/* TURNOVER LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>

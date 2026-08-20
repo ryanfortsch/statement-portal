@@ -1054,12 +1054,46 @@ export default async function PropertyDetailPage({
 
         {/* ════════════ OPERATIONS ════════════ */}
         <TabSection tab="operations">
-          <TabActions>
-            <ActionLink href={`/channels/${p.id}`}>Channels →</ActionLink>
-            <ActionLink href={`/properties/${p.id}/layout`}>Inspection layout →</ActionLink>
-            <ActionLink href={`/properties/${p.id}/edit`} primary>Edit operational data</ActionLink>
-            <PropertyBackfillButton propertyId={p.id} />
-          </TabActions>
+          {/* Launcher tiles, same grammar as the Growth tab's grid, replacing
+              the old right-aligned ghost-link row: each tool gets a card with
+              its one-line pitch instead of a bare label. Backfill is a true
+              one-shot server action (not a destination), so its tile hosts
+              the button + its result panel rather than an Open link. */}
+          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 36, width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              <GrowthTile
+                eyebrow="Data"
+                title="Edit operational data"
+                description="Wi-Fi, utilities, access, emergency contact, safety gear: the fields every deliverable and checklist on this page draws from."
+                href={`/properties/${p.id}/edit`}
+              />
+              <GrowthTile
+                eyebrow="Distribution"
+                title="Channels"
+                description="Where this property is listed: per-channel listings, bookings, and its iCal export feed."
+                href={`/channels/${p.id}`}
+              />
+              <GrowthTile
+                eyebrow="Inspections"
+                title="Inspection layout"
+                description="The room-by-room card deck a field inspection walks through at this property."
+                href={`/properties/${p.id}/layout`}
+              />
+              <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="eyebrow">Integrations</div>
+                <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                  Fill blanks from Guesty
+                </h3>
+                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                  Pulls bedrooms, bathrooms, property type, and coordinates from the live listing.
+                  Fills empty fields only, never overwrites.
+                </p>
+                <div style={{ marginTop: 'auto' }}>
+                  <PropertyBackfillButton propertyId={p.id} />
+                </div>
+              </div>
+            </div>
+          </section>
 
       <CollapsibleSection
         title="Climate automation"
@@ -1090,16 +1124,22 @@ export default async function PropertyDetailPage({
           if (open === total) return `${total} note${total === 1 ? '' : 's'}`;
           return `${open} open · ${total - open} resolved`;
         })()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        headerAction={
           <Link href={`/properties/${p.id}/notes/new`} style={primaryActionStyle}>
             + Add note
           </Link>
-        </div>
+        }
+      >
         {propertyNotes.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
             Nothing captured yet. The first note for {p.name} could be the smart-thermostat
-            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.
+            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.{' '}
+            <Link
+              href={`/properties/${p.id}/notes/new`}
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Add the first note
+            </Link>
           </div>
         ) : (
           // Hairline rows, the same list language as every other list on
@@ -1455,7 +1495,15 @@ export default async function PropertyDetailPage({
         <TabSection tab="records">
       {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
           Information Note. */}
-      <CollapsibleSection title="Guest Deliverables" summary={deliverablesSummary}>
+      <CollapsibleSection
+        title="Guest Deliverables"
+        summary={deliverablesSummary}
+        headerAction={
+          <Link href={`/properties/${p.id}/notices/new`} style={primaryActionStyle}>
+            + New notice
+          </Link>
+        }
+      >
         <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
           (WiFi, parking, climate, safety equipment, etc). Edit operational data in the Operations tab to refresh.
@@ -1889,10 +1937,9 @@ const primaryActionStyle: React.CSSProperties = {
   gap: 6,
 };
 
-/** Quiet "ghost" action link for secondary per-tab actions (Channels,
- *  Inspection layout, Draft listing, Bedroom photos). No border — reads
- *  as a row of editorial links rather than a wall of boxed pills.
- *  Hover/active darken handled by the .rt-action-link class. */
+/** Quiet "ghost" action link base for per-tab header actions (today only
+ *  the Today tab's launch-checklist chip, which spreads this and adds its
+ *  own border). Hover/active darken handled by the .rt-action-link class. */
 const actionLinkStyle: React.CSSProperties = {
   fontSize: 11,
   letterSpacing: '.16em',
@@ -1922,8 +1969,9 @@ function pillStyle(color: string, solid = false): React.CSSProperties {
   };
 }
 
-/** Bordered launcher tile for the Listing & Growth tab — same tile grammar
- *  as the Guest Deliverables grid so the two workbench tabs read alike. */
+/** Bordered launcher tile shared by the Listing & Growth and Operations
+ *  tabs, same tile grammar as the Guest Deliverables grid so the workbench
+ *  tabs read alike. */
 function GrowthTile({
   eyebrow,
   title,
@@ -1959,29 +2007,6 @@ function GrowthTile({
         </Link>
       </div>
     </div>
-  );
-}
-
-function ActionLink({
-  href,
-  children,
-  title,
-  primary = false,
-}: {
-  href: string;
-  children: React.ReactNode;
-  title?: string;
-  primary?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      title={title}
-      className="rt-action-link"
-      style={primary ? primaryActionStyle : actionLinkStyle}
-    >
-      {children}
-    </Link>
   );
 }
 

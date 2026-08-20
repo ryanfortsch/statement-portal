@@ -204,6 +204,27 @@ export function CompactTurnoverRow({
         <PrimaryAction t={t} isDone={isDone} due={due} myEmail={myEmail} />
       </div>
 
+      {/* Expand affordance: rows have opened on click since the compact
+          redesign, but nothing on the line SAID so. The chevron turns to
+          point down when open; its transition (and the reduced-motion
+          guard) lives in the page's rt-tn-chev style block, since inline
+          styles can't carry the media query. Screen readers already get
+          the state from aria-expanded on the row. */}
+      <span
+        className="rt-tn-chev"
+        aria-hidden
+        style={{
+          flex: '0 0 auto',
+          display: 'inline-block',
+          fontSize: 14,
+          lineHeight: 1,
+          color: 'var(--ink-4)',
+          transform: open ? 'rotate(90deg)' : 'none',
+        }}
+      >
+        &rsaquo;
+      </span>
+
       {open && (
         <div className="rt-tn-exp" onClick={(e) => e.stopPropagation()}>
           <TurnoverRail

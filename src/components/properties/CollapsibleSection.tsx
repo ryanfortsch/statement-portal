@@ -13,6 +13,14 @@ type Props = {
   id?: string;
   /** Tone for the small expand affordance. */
   affordance?: 'show' | 'expand' | 'open';
+  /**
+   * Action rendered at the right edge of the header row, visible whether
+   * the section is open or closed (e.g. the "+ Add note" entry link). It
+   * lives OUTSIDE the <details>/<summary> pair, so clicking it never
+   * toggles the section and it stays its own tab stop; the summary keeps
+   * its native Enter/Space toggle.
+   */
+  headerAction?: ReactNode;
   children: ReactNode;
 };
 
@@ -50,6 +58,7 @@ export function CollapsibleSection({
   defaultOpen = false,
   id,
   affordance = 'show',
+  headerAction,
   children,
 }: Props) {
   const [closedLabel, openLabel] = AFFORDANCE_LABELS[affordance];
@@ -58,73 +67,93 @@ export function CollapsibleSection({
     <>
       <style>{css}</style>
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-        <details
-          id={id}
-          open={defaultOpen}
-          className="rt-collapsible"
-          style={{ borderTop: '1px solid var(--ink)' }}
+        {/* The hairline rule lives on this wrapper (not the <details>) so
+            the headerAction can sit beside the <details> as a sibling flex
+            item on the same header row. It cannot go inside <summary>:
+            there a click would both follow the link and toggle the section,
+            and this stays a server component (no stopPropagation). */}
+        <div
+          style={{
+            borderTop: '1px solid var(--ink)',
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 14,
+            flexWrap: 'wrap',
+          }}
         >
-          <summary
-            style={{
-              padding: '14px 0 12px',
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              gap: 14,
-              flexWrap: 'wrap',
-            }}
+          <details
+            id={id}
+            open={defaultOpen}
+            className="rt-collapsible"
+            style={{ flex: 1, minWidth: 0 }}
           >
-            <h2
-              className="font-serif rt-collapsible-title"
+            <summary
               style={{
-                fontSize: 22,
-                fontWeight: 400,
-                letterSpacing: '-0.01em',
-                color: 'var(--ink)',
-                margin: 0,
+                padding: '14px 0 12px',
                 display: 'flex',
                 alignItems: 'baseline',
-                gap: 12,
-                transition: 'color 0.15s ease',
-              }}
-            >
-              <span className="rt-chev" aria-hidden="true" style={{ fontSize: 14, color: 'var(--ink-3)' }}>▸</span>
-              {title}
-            </h2>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'baseline',
+                justifyContent: 'space-between',
                 gap: 14,
                 flexWrap: 'wrap',
-                rowGap: 4,
               }}
             >
-              {summary != null && (
-                // Quiet lowercase meta, not an uppercase eyebrow — six of
-                // these stack per tab, and "7 OF 49 FIELDS POPULATED" in
-                // small caps read as a page full of shouting.
-                <span style={{ fontSize: 12, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
-                  {summary}
-                </span>
-              )}
-              <span
-                aria-hidden="true"
+              <h2
+                className="font-serif rt-collapsible-title"
                 style={{
-                  fontSize: 10,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink-4)',
-                  fontWeight: 500,
+                  fontSize: 22,
+                  fontWeight: 400,
+                  letterSpacing: '-0.01em',
+                  color: 'var(--ink)',
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 12,
+                  transition: 'color 0.15s ease',
                 }}
               >
-                <span className="rt-collapsible-when-closed">{closedLabel}</span>
-                <span className="rt-collapsible-when-open">{openLabel}</span>
+                <span className="rt-chev" aria-hidden="true" style={{ fontSize: 14, color: 'var(--ink-3)' }}>▸</span>
+                {title}
+              </h2>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'baseline',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                  rowGap: 4,
+                }}
+              >
+                {summary != null && (
+                  // Quiet lowercase meta, not an uppercase eyebrow - six of
+                  // these stack per tab, and "7 OF 49 FIELDS POPULATED" in
+                  // small caps read as a page full of shouting.
+                  <span style={{ fontSize: 12, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
+                    {summary}
+                  </span>
+                )}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-4)',
+                    fontWeight: 500,
+                  }}
+                >
+                  <span className="rt-collapsible-when-closed">{closedLabel}</span>
+                  <span className="rt-collapsible-when-open">{openLabel}</span>
+                </span>
               </span>
+            </summary>
+            <div style={{ paddingTop: 6, paddingBottom: 22 }}>{children}</div>
+          </details>
+          {headerAction != null && (
+            <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'baseline' }}>
+              {headerAction}
             </span>
-          </summary>
-          <div style={{ paddingTop: 6, paddingBottom: 22 }}>{children}</div>
-        </details>
+          )}
+        </div>
       </section>
     </>
   );
@@ -142,7 +171,7 @@ export function CollapsibleSubSection({
   defaultOpen = false,
   id,
   children,
-}: Omit<Props, 'affordance'>) {
+}: Omit<Props, 'affordance' | 'headerAction'>) {
   return (
     <>
       <style>{css}</style>
