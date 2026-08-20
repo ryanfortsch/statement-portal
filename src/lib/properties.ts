@@ -165,6 +165,20 @@ export const PROPERTIES: Record<string, Property> = {
     fee_pct: 25, bank_last4: null, listing_match: '84 thatcher',
     tax_cert_id: null,
   },
+  // Seeded 2026-08-20 from the Helm properties row. External title is
+  // "Stay in Central Gloucester" (note "in", not "at" -- neighborhood
+  // name), launched on Stay Cape Ann 2026-08-13, Guesty listing
+  // 6a79f91a320f1200145873de. The DB row is the source of truth; this
+  // static fallback is kept in sync. No MassTaxConnect cert recorded in
+  // tax_cert_id yet (the DB row's str_registration_id C0526381070 may
+  // be it -- confirm before backfilling here and in the DB).
+  '225_washington': {
+    id: '225_washington', name: '225 Washington', address: '225 Washington Street', city: 'Gloucester, MA',
+    owner_last: 'Babson', owner_full: 'Matthew Babson, Mad Dog Realty, LLC', owner_greeting: 'Matthew Babson, and Donna',
+    owner_emails: ['matt@wheelerspoint.net'],
+    fee_pct: 25, bank_last4: '1229', listing_match: '225 washington',
+    tax_cert_id: null,
+  },
 };
 
 // 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
