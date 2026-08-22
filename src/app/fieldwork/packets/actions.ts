@@ -247,9 +247,50 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   const visitTime = String(formData.get('visit_time') || '');
   const priceDollars = Number(formData.get('price_dollars') || 0);
   const scope = String(formData.get('scope') || '');
-  const publish = String(formData.get('mode') || 'publish') !== 'draft';
+  const mode = String(formData.get('mode') || 'publish');
   const supplyRun = formData.get('supply_run') === 'on';
   if (!propertyId || !visitDate) return;
+
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+
+  // RECORD mode: the setup already happened on a past (or today's) date and
+  // the office forgot to put it in - create it submitted, awarded to whoever
+  // did it, straight into the approve queue. Never published, never texted.
+  const doneBy = String(formData.get('done_by') || '');
+  if (mode === 'record') {
+    if (!doneBy || visitDate > today) return;
+    const packetId = await createSetupPacket({
+      propertyId,
+      visitDate,
+      visitTime: visitTime || undefined,
+      priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+      scope,
+      supplyRun: false,
+      createdByEmail: email,
+      publish: false,
+      recordDoneBy: doneBy,
+    });
+    if (!packetId) return;
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      contractor_id: doneBy,
+      actor_email: email,
+      event_type: 'recorded_past_visit',
+      payload: { visit_date: visitDate },
+    });
+    // A backfilled worked day can legitimately complete a streak run - the
+    // award is idempotent and computed from the data, so let it catch up now.
+    await maybeAwardStreakBonus(packetId).catch(() => {});
+    revalidatePath('/fieldwork/packets');
+    redirect(`/fieldwork/packets/${packetId}`);
+  }
+
+  // Fat-finger guard on the normal path: publishing a PAST date would list an
+  // already-gone day on the marketplace and SMS-blast inspectors about it (and
+  // the morning cron would re-text them daily until someone cancels). Land it
+  // as a draft instead - the office sees it pinned in Drafts and can fix the
+  // date or use Record.
+  const publish = mode !== 'draft' && visitDate >= today;
 
   const packetId = await createSetupPacket({
     propertyId,

@@ -1,7 +1,7 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
-import { isFieldConfigured } from '@/lib/field-db';
+import { isFieldConfigured, fieldDb } from '@/lib/field-db';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { setupPriceCents, setupMinutes } from '@/lib/field-pricing';
 import { createSetupPacketAction } from '../actions';
@@ -24,6 +24,14 @@ export default async function SetupPacketPage() {
   }
 
   const properties = (await loadFieldProperties()).sort((a, b) => a.name.localeCompare(b.name));
+  // For the record-a-past-visit mode: who could have done the work.
+  const { data: cData } = await fieldDb()
+    .from('contractors')
+    .select('id, full_name')
+    .eq('trade', 'inspection')
+    .eq('status', 'active')
+    .order('full_name');
+  const contractors = (cData ?? []) as { id: string; full_name: string }[];
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -81,6 +89,31 @@ export default async function SetupPacketPage() {
             <button type="submit" name="mode" value="publish" style={btnDark}>Publish to contractors</button>
             <button type="submit" name="mode" value="draft" style={btnGhost}>Save as draft</button>
           </div>
+
+          {/* The forgot-to-put-one-in path: the setup already happened and the
+              office is recording it after the fact. Lands SUBMITTED, awarded
+              to whoever did it, straight in the approve queue - never
+              published, no texts, no door codes. */}
+          <details style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
+            <summary style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, cursor: 'pointer' }}>
+              Already happened? Record a past setup ▾
+            </summary>
+            <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: '10px 0 12px', maxWidth: 520, lineHeight: 1.5 }}>
+              For a setup that was done but never put in: pick the day it happened above (today or earlier), choose who
+              did it, and it lands directly in your approve queue - ready for final pay and mark-paid. Nothing is
+              published and nobody gets texted.
+            </p>
+            <label style={lbl}>
+              Done by *
+              <select name="done_by" defaultValue="" style={inp}>
+                <option value="" disabled>Who did the work…</option>
+                {contractors.map((c) => (
+                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" name="mode" value="record" style={btnGhost}>Record past visit</button>
+          </details>
         </form>
       </section>
       <HelmFooter module="Field" right="Property setup" />
