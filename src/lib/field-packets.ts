@@ -1698,6 +1698,14 @@ export async function createSetupPacket(args: {
   supplyRun?: boolean;
   createdByEmail: string;
   publish: boolean;
+  /** RECORD mode: the visit already happened (a forgotten past day). The
+   *  contractor id who did the work. Creates the packet directly SUBMITTED and
+   *  awarded to them, stop complete, never published - no marketplace listing,
+   *  no SMS, no door codes - so it lands straight in the approve queue.
+   *  claimed_at/submitted_at carry the visit day itself, so reliability
+   *  scoring reads the work as on-time rather than punishing the contractor
+   *  for the office's late bookkeeping. */
+  recordDoneBy?: string;
 }): Promise<string | null> {
   const properties = await loadFieldProperties();
   const prop = properties.find((p) => p.id === args.propertyId);
@@ -1730,11 +1738,17 @@ export async function createSetupPacket(args: {
   if (slipErr || !slip) return null;
   const slipId = (slip as { id: string }).id;
 
+  // Record mode stamps sit inside the visit day (9 AM / 7 PM ET): the visit
+  // is a fact being recorded, not work happening now.
+  const record = !!args.recordDoneBy;
+  const recordClaimedAt = `${args.visitDate}T13:00:00.000Z`;
+  const recordSubmittedAt = `${args.visitDate}T23:00:00.000Z`;
+
   const { data: packet, error } = await fieldDb()
     .from('inspection_packets')
     .insert({
       title: `Set up ${prop.name}`,
-      status: args.publish ? 'published' : 'draft',
+      status: record ? 'submitted' : args.publish ? 'published' : 'draft',
       trade: 'inspection',
       kind: 'setup',
       supply_run: !!args.supplyRun,
@@ -1751,7 +1765,10 @@ export async function createSetupPacket(args: {
       auto_generated: false,
       suggestion_key: null,
       created_by_email: args.createdByEmail,
-      published_at: args.publish ? new Date().toISOString() : null,
+      published_at: !record && args.publish ? new Date().toISOString() : null,
+      ...(record
+        ? { awarded_contractor_id: args.recordDoneBy, claimed_at: recordClaimedAt, submitted_at: recordSubmittedAt }
+        : {}),
     })
     .select('id')
     .single();
@@ -1770,6 +1787,7 @@ export async function createSetupPacket(args: {
     next_checkin: null,
     base_price_cents: posted,
     walk_order: 0,
+    ...(record ? { status: 'complete', completed_at: recordSubmittedAt } : {}),
   });
   if (stopErr) {
     await fieldDb().from('inspection_packets').delete().eq('id', packetId);
