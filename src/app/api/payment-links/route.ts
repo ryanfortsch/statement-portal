@@ -202,6 +202,33 @@ export async function GET(req: Request) {
     });
   }
 
+  // ?scopes=1: live per-property scope probe. Two READ-ONLY list calls per
+  // key (checkout sessions + payment intents, limit 1) - nothing is created
+  // or mutated. Answers "which restricted keys can actually run the
+  // saved-card flow": sessions read powers paid detection, payment-intents
+  // read powers the card-id expand. PaymentIntents WRITE (the off-session
+  // balance charge itself) cannot be probed without creating a real object,
+  // so it verifies at first charge; a key that fails the read probes
+  // certainly lacks it. Stripe's error text names the missing permission
+  // and the dashboard URL to fix it.
+  if (searchParams.get('scopes')) {
+    const keys = getStripeKeysMap();
+    const out: Record<string, { checkout_sessions_read: string; payment_intents_read: string }> = {};
+    for (const [propId, key] of Object.entries(keys)) {
+      const result = { checkout_sessions_read: 'ok', payment_intents_read: 'ok' };
+      const sErr: { status?: number; message?: string } = {};
+      if (!(await stripeGetJson(key, 'checkout/sessions', { limit: '1' }, sErr))) {
+        result.checkout_sessions_read = `${sErr.status ?? ''} ${sErr.message ?? 'error'}`.trim();
+      }
+      const pErr: { status?: number; message?: string } = {};
+      if (!(await stripeGetJson(key, 'payment_intents', { limit: '1' }, pErr))) {
+        result.payment_intents_read = `${pErr.status ?? ''} ${pErr.message ?? 'error'}`.trim();
+      }
+      out[propId] = result;
+    }
+    return NextResponse.json({ probed: Object.keys(out).length, scopes: out });
+  }
+
   const probe = (name: string) => {
     const raw = process.env[name] || '';
     if (!raw.trim()) return { present: false, parses: false, ids: [] as string[] };
