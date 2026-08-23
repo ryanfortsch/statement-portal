@@ -923,6 +923,23 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
 export async function publishPacket(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
+  // Same fat-finger guard as the setup form (#1265), and the backstop for the
+  // nightly expiry loop: never (re)list a day that already happened. Without
+  // this, the expired draft's own Publish button would put the dead listing
+  // right back on the marketplace and SMS-blast the roster about it. The board
+  // and detail page swap Publish for a re-date affordance on past dates; this
+  // holds server-side regardless.
+  const { data: pk } = await fieldDb()
+    .from('inspection_packets')
+    .select('visit_date')
+    .eq('id', packetId)
+    .maybeSingle();
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  if (!pk || (pk as { visit_date: string }).visit_date < todayEt) {
+    revalidatePath(`/fieldwork/packets/${packetId}`);
+    revalidatePath('/fieldwork/packets');
+    return;
+  }
   // Re-check against current bookings/blocks before it goes live: a guest may
   // have moved into one of these properties since the packet was suggested.
   // Stale stops are dropped (and the packet cancelled if none survive, in
@@ -991,14 +1008,25 @@ export async function releasePacket(formData: FormData): Promise<void> {
   // signal (a claim that fell through pre-start) and the update nulls the field.
   const { data: pre } = await fieldDb()
     .from('inspection_packets')
-    .select('awarded_contractor_id')
+    .select('awarded_contractor_id, visit_date')
     .eq('id', packetId)
     .eq('status', 'claimed')
     .maybeSingle();
-  const releasedContractorId = (pre as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id ?? null;
+  const preRow = pre as { awarded_contractor_id: string | null; visit_date: string } | null;
+  const releasedContractorId = preRow?.awarded_contractor_id ?? null;
+  // Releasing a claim on a visit day that already passed must NOT put the dead
+  // listing back on the marketplace (it would re-text the roster about a gone
+  // day, and expire again overnight anyway). It lands as a hand-owned draft
+  // instead, pinned on the board to re-date or dismiss.
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const toMarketplace = !!preRow && preRow.visit_date >= todayEt;
   const { data } = await fieldDb()
     .from('inspection_packets')
-    .update({ status: 'published', awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+    .update(
+      toMarketplace
+        ? { status: 'published', awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() }
+        : { status: 'draft', published_at: null, auto_generated: false, awarded_contractor_id: null, claimed_at: null, updated_at: new Date().toISOString() },
+    )
     .eq('id', packetId)
     .eq('status', 'claimed')
     .select('id')
@@ -1013,7 +1041,9 @@ export async function releasePacket(formData: FormData): Promise<void> {
       const { data: pk } = await fieldDb().from('inspection_packets').select('title').eq('id', packetId).maybeSingle();
       if (rc && pk) await sendReassignedEmail(rc as ContractorRow, pk as { title: string }).catch(() => {});
     }
-    notifyContractorsOfPacket(packetId).catch(() => {});
+    // Only a still-current listing goes back out to the roster; a past-dated
+    // release parked in Drafts must stay silent.
+    if (toMarketplace) notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/fieldwork/packets');
   revalidatePath(`/fieldwork/packets/${packetId}`);

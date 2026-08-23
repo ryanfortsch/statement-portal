@@ -32,6 +32,9 @@ function fmtDate(d: string): string {
     return d;
   }
 }
+function todayET(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
 function windowLabel(s: PacketStopDetail): string {
   if (s.window_basis === 'checkout_day') return `after ${s.prior_checkout ?? 'morning'} checkout`;
   if (s.window_basis === 'pre_checkin') return `before ${s.next_checkin ?? ''} check-in`;
@@ -408,10 +411,19 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
                     <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
                   </form>
-                  <form action={publishPacket}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" style={btnDark} />
-                  </form>
+                  {packet.visit_date < todayET() ? (
+                    // Expired (or otherwise past-dated) draft: publishPacket
+                    // refuses past dates server-side, so don't offer a button
+                    // that would no-op. Move date / time below relists it.
+                    <span style={{ fontSize: 12, color: '#7a5512', fontWeight: 600 }}>
+                      Visit day has passed. Set a new date under Move date / time, then publish.
+                    </span>
+                  ) : (
+                    <form action={publishPacket}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" style={btnDark} />
+                    </form>
+                  )}
                 </>
               )}
               {readyToClose && (

@@ -422,7 +422,15 @@ export async function renotifyDuePackets(): Promise<number> {
     .from('inspection_packets')
     .select('id')
     .eq('status', 'published')
-    .lte('claim_deadline', `${today}T23:59:59`);
+    .lte('claim_deadline', `${today}T23:59:59`)
+    // Hard floor: NEVER re-text about a visit day that already passed. Since
+    // claim_deadline always equals visit_date, deadline-arrived + this floor
+    // means exactly "the visit is today and no one has claimed it" - one final
+    // call. Stale listings used to re-blast the whole in-radius roster every
+    // morning until someone cancelled by hand (the same runaway-SMS class that
+    // got team texts killed 2026-08-20). The 1:15 AM sweep drafts them; this
+    // floor holds even if that cron fails.
+    .gte('visit_date', today);
   let n = 0;
   for (const r of (data ?? []) as { id: string }[]) {
     const sent = await notifyContractorsOfPacket(r.id).catch(() => 0);
@@ -524,7 +532,20 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
   ).length;
   const unclaimedSoon = rows.filter((p) => p.status === 'published' && p.visit_date >= today && p.visit_date <= soonStr).length;
   const submitted = rows.filter((p) => p.status === 'submitted').length;
-  if (outToday + atRisk + unclaimedSoon + submitted === 0) return false;
+
+  // Expired work sitting in Drafts: listings the nightly sweep pulled back
+  // (plus any hand-saved draft whose day slipped by). That inspection never
+  // happened; it stays on this digest until the office re-dates, records, or
+  // dismisses it. Same hand-owned filter as the board's Drafts section, so
+  // the retired auto-suggester's fossils never count.
+  const { count: expiredCount } = await fieldDb()
+    .from('inspection_packets')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'draft')
+    .eq('auto_generated', false)
+    .lt('visit_date', today);
+  const expired = expiredCount ?? 0;
+  if (outToday + atRisk + unclaimedSoon + submitted + expired === 0) return false;
 
   const line = (n: number, label: string) => (n > 0 ? `<li><strong>${n}</strong> ${label}</li>` : '');
   const html = shell(`
@@ -533,16 +554,17 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
       ${line(atRisk, 'claimed but not started (at risk)')}
       ${line(outToday, 'out today')}
       ${line(unclaimedSoon, 'unclaimed within 48h')}
+      ${line(expired, 'expired unclaimed, in Drafts to reschedule')}
       ${line(submitted, 'awaiting your approval')}
     </ul>
     ${btn(`${fieldBaseUrl()}/fieldwork/packets`, 'Open the board')}
   `);
   return sendTransactionalViaResend({
     to: OFFICE_CC,
-    subject: `Field today: ${atRisk ? `${atRisk} at risk · ` : ''}${submitted ? `${submitted} to approve · ` : ''}${unclaimedSoon} unclaimed soon`,
+    subject: `Field today: ${atRisk ? `${atRisk} at risk · ` : ''}${submitted ? `${submitted} to approve · ` : ''}${expired ? `${expired} expired · ` : ''}${unclaimedSoon} unclaimed soon`,
     fromName: FROM_NAME,
     html,
-    text: `Field today — at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, awaiting approval: ${submitted}.`,
+    text: `Field today - at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, expired needing reschedule: ${expired}, awaiting approval: ${submitted}.`,
   });
 }
 

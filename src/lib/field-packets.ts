@@ -614,6 +614,11 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
     .select('id')
     .eq('status', 'published')
     .eq('trade', contractor.trade) // only show work this contractor's trade does
+    // Date floor: a visit day that already passed is not claimable work. The
+    // nightly sweep drafts these at 1:15 AM ET; the floor covers the gap in
+    // between (and any night the cron misses). Today stays listed - a same-day
+    // turnover is the most urgent claim there is.
+    .gte('visit_date', todayStr())
     .order('visit_date', { ascending: true });
   const { data: mineData } = await fieldDb()
     .from('inspection_packets')
@@ -769,6 +774,55 @@ export async function revalidatePublishedPackets(): Promise<{ checked: number; c
     if (r.removed > 0 || r.emptied) changed++;
   }
   return { checked: ids.length, changed };
+}
+
+/**
+ * Nightly sweep: a published packet whose visit day has passed with no claim
+ * is a dead listing, and every surface that still sees it misfires - the
+ * morning claim-deadline cron re-texts the whole in-radius roster about it
+ * daily, the marketplace lists it, the claim button accepts it, and door-code
+ * programming computes an ends-before-starts window Seam rejects. Pull it
+ * back to a hand-owned draft (with an 'expired' event for the audit trail) so
+ * the office finds it pinned in Drafts to re-date, record, or dismiss.
+ *
+ * Claimed / in-progress packets are deliberately NOT touched: that is a
+ * contractor's agreed work, surfaced as "at risk" on the board for a human to
+ * release or cancel - never silently unwound by a cron.
+ */
+export async function expireStalePackets(): Promise<{ expired: number }> {
+  const today = todayStr();
+  const { data } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, visit_date')
+    .eq('status', 'published')
+    .lt('visit_date', today);
+  const rows = (data ?? []) as { id: string; visit_date: string }[];
+  let expired = 0;
+  for (const p of rows) {
+    const { data: upd } = await fieldDb()
+      .from('inspection_packets')
+      .update({
+        status: 'draft',
+        published_at: null,
+        // The board's Drafts section shows only hand-owned rows
+        // (auto_generated=false). An expired listing needs eyes, so it becomes
+        // the office's draft; whoever published it owns rescheduling it.
+        auto_generated: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', p.id)
+      .eq('status', 'published') // race guard: skip if claimed since the select
+      .select('id')
+      .maybeSingle();
+    if (!upd) continue;
+    await fieldDb().from('packet_events').insert({
+      packet_id: p.id,
+      event_type: 'expired',
+      payload: { visit_date: p.visit_date, expired_on: today },
+    });
+    expired++;
+  }
+  return { expired };
 }
 
 // ── Turnover integration ──────────────────────────────────────────────
@@ -989,6 +1043,36 @@ export type WorkItem = {
 export type WorkDay = { date: string; items: WorkItem[] };
 
 /**
+ * Booking ids whose turnover a packet genuinely accounts for. Finished work
+ * (submitted / approved) covers its booking for good; unfinished work
+ * (published / claimed / in_progress) only counts while the visit day hasn't
+ * passed. Without the date rule, a MISSED packet kept its booking marked
+ * covered forever - the uninspected upcoming turnover disappeared from the
+ * work board, the calendar, and the bundle guard. One rule, shared by all
+ * three, so they can never disagree.
+ */
+async function coveredBookingIds(): Promise<Set<string>> {
+  const { data } = await fieldDb()
+    .from('packet_stops')
+    .select('booking_id, inspection_packets!inner(status, visit_date)')
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved'])
+    .not('booking_id', 'is', null);
+  const today = todayStr();
+  type Row = { booking_id: string | null; inspection_packets: { status: string; visit_date: string } };
+  return new Set(
+    ((data ?? []) as unknown as Row[])
+      .filter(
+        (r) =>
+          r.inspection_packets.status === 'submitted' ||
+          r.inspection_packets.status === 'approved' ||
+          r.inspection_packets.visit_date >= today,
+      )
+      .map((r) => r.booking_id)
+      .filter((b): b is string => !!b),
+  );
+}
+
+/**
  * The work-first board's primary data: upcoming inspections that need
  * covering, one row per property at its earliest feasible day, grouped by
  * day, with proximity hints + an auto-cluster id. Properties already out to
@@ -1005,15 +1089,7 @@ export async function loadInspectionWorkItems(
   // Exclude only the SPECIFIC turnovers a live packet already covers (by
   // booking), NOT the whole property — a property can be in one packet and
   // still have other upcoming turnovers that need inspecting.
-  const { data: activeStops } = await fieldDb()
-    .from('packet_stops')
-    .select('booking_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
-  const coveredBookings = new Set(
-    ((activeStops ?? []) as { booking_id: string | null }[])
-      .map((s) => s.booking_id)
-      .filter((b): b is string => !!b),
-  );
+  const coveredBookings = await coveredBookingIds();
 
   // One row per UNCOVERED turnover (booking), on its earliest inspectable day.
   const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
@@ -1188,13 +1264,7 @@ export async function createPacketFromProperties(args: {
   // Guard against double-booking a turnover: drop any selected property whose
   // booking is already in a live packet (a bundle race / double-submit beyond
   // the client button guard). Bail if nothing valid remains.
-  const { data: activeStops } = await fieldDb()
-    .from('packet_stops')
-    .select('booking_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
-  const coveredBookings = new Set(
-    ((activeStops ?? []) as { booking_id: string | null }[]).map((s) => s.booking_id).filter((b): b is string => !!b),
-  );
+  const coveredBookings = await coveredBookingIds();
   const usable = sel.filter((p) => {
     const c = candByProp.get(p.id);
     return c && (!c.bookingId || !coveredBookings.has(c.bookingId));
@@ -2227,13 +2297,7 @@ export async function loadInspectionCalendar(
     ((blkData ?? []) as { property_id: string; date: string }[]).map((b) => `${b.property_id}:${b.date}`),
   );
 
-  const { data: activeStops } = await fieldDb()
-    .from('packet_stops')
-    .select('booking_id, inspection_packets!inner(status)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
-  const coveredBookings = new Set(
-    ((activeStops ?? []) as { booking_id: string | null }[]).map((s) => s.booking_id).filter((b): b is string => !!b),
-  );
+  const coveredBookings = await coveredBookingIds();
 
   const byProp = new Map<string, BookingRaw[]>();
   for (const b of bookings) {
