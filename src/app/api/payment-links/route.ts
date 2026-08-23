@@ -139,11 +139,24 @@ export async function GET(req: Request) {
     if (!stripeKey) {
       return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });
     }
-    const sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
+    let sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
       payment_link: String(row.stripe_link_id),
       limit: '10',
       'expand[]': 'data.payment_intent',
     });
+    if (!sessions) {
+      // Some restricted keys lack PaymentIntents READ and refuse the expand
+      // outright (verified live on 17_beach_rd, 2026-08-23). Paid detection
+      // must never regress on those properties: retry plain, and the card
+      // ids simply come back '' (the concierge then keeps the mint-a-link
+      // flow). Fix per property: add PaymentIntents read+write to the
+      // restricted key - write is required for the off-session balance
+      // charge anyway.
+      sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
+        payment_link: String(row.stripe_link_id),
+        limit: '10',
+      });
+    }
     if (!sessions) {
       return NextResponse.json({ ok: false, error: 'stripe_error' }, { status: 200 });
     }
