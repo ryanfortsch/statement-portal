@@ -184,8 +184,8 @@ export const PROPERTIES: Record<string, Property> = {
   // Guesty listing 6a6d0e71a37391009dab9abb. Second Moynahan property
   // (alongside 73 Rocky Neck) at a negotiated 18% fee -- not a typo.
   // No tax cert recorded yet; backfill here and in the DB row.
-  '3_windward_pt': {
-    id: '3_windward_pt', name: '3 Windward', address: '3 Windward Point', city: 'Gloucester, MA',
+  '3_windward': {
+    id: '3_windward', name: '3 Windward', address: '3 Windward Point', city: 'Gloucester, MA',
     owner_last: 'Moynahan', owner_full: 'Matt Moynahan', owner_greeting: 'Matt and Laila',
     owner_emails: ['matthewmoynahan@yahoo.com'],
     fee_pct: 18, bank_last4: '1232', listing_match: '3 windward',
