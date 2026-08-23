@@ -443,7 +443,11 @@ async function fillPlatformGap(args: {
   const managementFee = round2((totalRevenue + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
   const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
   const ownerPayout = round2(totalRevenue + addOnsRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback);
+  // num_stays counts a booking ONCE on its checkout month -- synthetic
+  // cross-month installment rows (check_out in a later month) carry
+  // revenue here but are counted as a stay on their final statement.
   const numStays = reservations.filter(r => {
+    if ((r.check_out || '').slice(0, 7) !== month) return false;
     const ch = changes.find(c => c.id === r.id);
     const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
     return adjusted > 0;

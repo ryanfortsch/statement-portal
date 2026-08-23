@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
     // Recompute statement totals from the freshest reservations.
     const { data: allRes } = await supabase
       .from('reservations')
-      .select('adjusted_revenue, nights')
+      .select('adjusted_revenue, nights, check_out')
       .eq('property_statement_id', stmt.id);
     const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
     // Attributed add-ons / debits stay in the equation (canonical formula,
@@ -185,7 +185,12 @@ export async function POST(request: NextRequest) {
     const newOwnerPayout = round2(
       newRentalRev + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback,
     );
-    const newNumStays = (allRes || []).filter(r => (r.adjusted_revenue || 0) > 0).length;
+    // num_stays counts a booking ONCE on its checkout month -- synthetic
+    // cross-month installment rows (check_out in a later month) carry
+    // revenue here but are counted as a stay on their final statement.
+    const newNumStays = (allRes || []).filter(
+      r => (r.adjusted_revenue || 0) > 0 && (r.check_out || '').slice(0, 7) === month,
+    ).length;
     const newNightsBooked = (allRes || []).reduce((s, r) => s + (r.nights || 0), 0);
 
     await supabase
