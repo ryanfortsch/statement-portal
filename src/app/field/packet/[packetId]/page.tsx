@@ -458,7 +458,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string; resetblocked?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string; resetblocked?: string; expired?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -576,7 +576,12 @@ export default async function PacketPage({
   const allComplete = packet.stops.length > 0 && doneCount === packet.stops.length;
   // Office bounced the packet back: the verdict every signal must agree with.
   const changesRequested = isMine && packet.status === 'in_progress' && !!packet.notes;
-  const claimable = !isMine && packet.status === 'published' && canClaim(contractor);
+  // A published packet whose visit day has passed (a morning SMS link opened
+  // after midnight, or before the 1:15 AM sweep drafts it) is view-only: no
+  // claim button, a banner instead. claimPacket re-checks server-side.
+  const visitPassed =
+    packet.visit_date < new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const claimable = !isMine && packet.status === 'published' && !visitPassed && canClaim(contractor);
   // While actively working a claimed packet, show it as a job to finish, not an
   // open-ended errand: a progress bar + live per-stop status.
   const working = isMine && (isWorkingStatus(packet.status)) && packet.stops.length > 0;
@@ -747,6 +752,12 @@ export default async function PacketPage({
       {sp.stale && (
         <Alert tone="warn">
           A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
+        </Alert>
+      )}
+      {(sp.expired || (!isMine && packet.status === 'published' && visitPassed)) && (
+        <Alert tone="warn">
+          This packet&apos;s visit day has passed, so it can&apos;t be claimed. Current work near you is on the{' '}
+          <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       )}
       {isMine && packet.status === 'in_progress' && packet.notes && (
@@ -1116,7 +1127,7 @@ export default async function PacketPage({
           "Finish all stops to submit" button to the bottom of every scroll —
           the progress bar up top already tells that story. */}
       {(claimable ||
-        (!isMine && packet.status === 'published' && !canClaim(contractor)) ||
+        (!isMine && packet.status === 'published' && !visitPassed && !canClaim(contractor)) ||
         (isMine && (packet.status === 'submitted' || packet.status === 'approved')) ||
         (isMine && packet.status !== 'submitted' && packet.status !== 'approved' && allComplete)) && (
         <div
@@ -1153,7 +1164,7 @@ export default async function PacketPage({
               />
             </form>
           )}
-          {!isMine && packet.status === 'published' && !canClaim(contractor) && (
+          {!isMine && packet.status === 'published' && !visitPassed && !canClaim(contractor) && (
             onboardingComplete(contractor) ? (
               <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
                 Your background check hasn&apos;t started yet. You&apos;ll be able to claim as soon as the office kicks it off.

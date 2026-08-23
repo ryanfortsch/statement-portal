@@ -177,7 +177,12 @@ export default async function PacketsBoard({
   // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
   const atRiskPackets = packets.filter(packetAtRisk);
-  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0;
+  // Expired: the nightly sweep pulled an unclaimed listing back to Drafts (or a
+  // hand-saved draft's day slipped by). That visit never happened; it needs a
+  // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
+  // Drafts list below.
+  const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
+  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0 || expiredDrafts.length > 0;
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
   // the office can watch a visit move stop-by-stop on the board.
@@ -251,6 +256,9 @@ export default async function PacketsBoard({
             )}
             {unclaimedSoon.length > 0 && (
               <TodayStat n={unclaimedSoon.length} label="unclaimed within 48h" tone="#7a5512" />
+            )}
+            {expiredDrafts.length > 0 && (
+              <TodayStat n={expiredDrafts.length} label="expired, in Drafts to reschedule" tone="#7a5512" />
             )}
           </div>
         )}
@@ -362,18 +370,30 @@ function TodayStat({ n, label, sub, tone }: { n: number; label: string; sub?: st
 }
 
 function DraftRow({ p }: { p: PacketRow }) {
+  // A past-dated draft (the nightly sweep's expired listing, or a saved draft
+  // whose day slipped by) can't be published as-is; publishPacket refuses past
+  // dates server-side. Swap Publish for Re-date, which lands on the detail
+  // page's Move date / time control.
+  const expired = daysUntilET(p.visit_date) < 0;
   return (
     <div style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
       <Link href={`/fieldwork/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 3 }}>
+          {expired && <span style={{ color: '#7a5512', fontWeight: 600 }}>Expired · </span>}
           {fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'} · {dollars(p.posted_price_cents)}
         </div>
       </Link>
-      <form action={publishPacket} style={{ margin: 0 }}>
-        <input type="hidden" name="packet_id" value={p.id} />
-        <SubmitButton label="Publish" busyLabel="Publishing…" style={btnDark} />
-      </form>
+      {expired ? (
+        <Link href={`/fieldwork/packets/${p.id}`} style={{ ...btnDark, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
+          Re-date
+        </Link>
+      ) : (
+        <form action={publishPacket} style={{ margin: 0 }}>
+          <input type="hidden" name="packet_id" value={p.id} />
+          <SubmitButton label="Publish" busyLabel="Publishing…" style={btnDark} />
+        </form>
+      )}
       <form action={cancelPacket} style={{ margin: 0 }} title="Dismiss this suggestion">
         <input type="hidden" name="packet_id" value={p.id} />
         <SubmitButton label="Dismiss" busyLabel="Dismissing…" style={btnGhost} spinnerTone="ink" />

@@ -361,6 +361,21 @@ export async function claimPacket(formData: FormData) {
   if (!contractor) redirect('/field');
   if (!canClaim(contractor)) redirect('/field/onboarding');
 
+  // A visit day that already passed is not claimable work: confirming it would
+  // text the contractor about a day that already happened and program a door
+  // code whose window ends before it starts (Seam rejects it, so the PIN shown
+  // on the packet would never open the door). The nightly sweep drafts these;
+  // this guards the gap until it runs and any morning-SMS link to a stale one.
+  const { data: pkDate } = await fieldDb()
+    .from('inspection_packets')
+    .select('visit_date')
+    .eq('id', packetId)
+    .maybeSingle();
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  if (pkDate && (pkDate as { visit_date: string }).visit_date < todayEt) {
+    redirect(`/field/packet/${packetId}?expired=1`);
+  }
+
   // Throttle a contractor whose reliability has genuinely cratered — but only
   // once there's enough history to be fair (a rough patch for a proven worker,
   // not a new inspector). Real no-show/rework pattern → can't claim new work

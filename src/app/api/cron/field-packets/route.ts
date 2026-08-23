@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
+import { expireStalePackets, revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
 import { planMaintenanceRuns } from '@/lib/maintenance-runs';
 
 export const maxDuration = 300;
@@ -26,6 +26,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // FIRST: pull expired listings (published, visit day passed, never
+    // claimed) back to draft. Runs before the 12:00 UTC field-morning cron,
+    // so its claim-deadline re-text can never pick up a dead listing and
+    // blast the roster about a day that already happened.
+    const expired = await expireStalePackets();
     const revalidated = await revalidatePublishedPackets();
     // Heal stale packet->booking links: re-point live packets' stops to the
     // current nearest upcoming check-in, so a turnover that gained a nearer
@@ -37,7 +42,7 @@ export async function GET(request: NextRequest) {
     const maintenanceRuns = await planMaintenanceRuns().catch((err) => ({
       error: err instanceof Error ? err.message : String(err),
     }));
-    return NextResponse.json({ ok: true, revalidated, resynced, maintenanceRuns });
+    return NextResponse.json({ ok: true, expired, revalidated, resynced, maintenanceRuns });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
