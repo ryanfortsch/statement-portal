@@ -106,6 +106,11 @@ const PUBLIC_API_PREFIXES = [
   // (read-only), the rate source for far-future book-now quoting. Self-guards
   // via STAY_CONCIERGE_KEY (header only).
   "/api/achieved-rates",
+  // Stay-concierge bridge: registers a saved-card balance charge when a
+  // far-future booking deposit turns paid (the operator later fires the
+  // off-session charge from /statements/balance-charges). Self-guards via
+  // STAY_CONCIERGE_KEY.
+  "/api/balance-charges",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",

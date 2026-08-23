@@ -9,7 +9,11 @@ import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/li
  * extras queue (bank_deposit_attributions) with zero extra plumbing.
  *
  * POST /api/payment-links?key=<STAY_CONCIERGE_KEY>
- *   { property_id, label, amount_cents, guest_name?, request_key }
+ *   { property_id, label, amount_cents, guest_name?, request_key, save_card? }
+ *
+ * save_card is set ONLY by the far-future booking-deposit mints: the link
+ * saves the guest's card for the off-session balance charge (see the link
+ * params below and /api/balance-charges). Ordinary add-on links never set it.
  *
  * Naming contract with lib/stripe-sync.ts (the statements ingest):
  *   - Product name is "<label> - <guest name> - <external title>". The
@@ -111,6 +115,13 @@ export async function GET(req: Request) {
   // Resolves the minted link via payment_link_requests, then asks the
   // property's own Stripe for the link's checkout sessions - any session
   // with payment_status 'paid' means the guest completed the page.
+  //
+  // For save_card links (far-future booking deposits) the paid response also
+  // carries customer_id + payment_method_id: the checkout attached the card
+  // to a Customer in the property's own account (setup_future_usage=
+  // off_session), and the concierge stores both ids so the January balance
+  // can be charged off-session via /api/balance-charges. The one-level
+  // payment_intent expand keeps payment_method a plain pm_ id string.
   const statusKey = searchParams.get('status_key');
   if (statusKey) {
     if (!isConfigured) {
@@ -131,16 +142,29 @@ export async function GET(req: Request) {
     const sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
       payment_link: String(row.stripe_link_id),
       limit: '10',
+      'expand[]': 'data.payment_intent',
     });
     if (!sessions) {
       return NextResponse.json({ ok: false, error: 'stripe_error' }, { status: 200 });
     }
-    const list = (sessions.data as { payment_status?: string; created?: number }[] | undefined) ?? [];
+    const list = (sessions.data as {
+      payment_status?: string;
+      created?: number;
+      customer?: string | null;
+      payment_intent?: { payment_method?: string | null } | string | null;
+    }[] | undefined) ?? [];
     const paidSession = list.find((s) => s.payment_status === 'paid');
+    const pi = paidSession?.payment_intent;
+    const paymentMethodId =
+      pi && typeof pi === 'object' && typeof pi.payment_method === 'string'
+        ? pi.payment_method
+        : '';
     return NextResponse.json({
       ok: true,
       paid: !!paidSession,
       paid_at: paidSession?.created ? new Date(paidSession.created * 1000).toISOString() : '',
+      customer_id: typeof paidSession?.customer === 'string' ? paidSession.customer : '',
+      payment_method_id: paymentMethodId,
       sessions_seen: list.length,
     });
   }
@@ -194,6 +218,7 @@ export async function POST(req: Request) {
     guest_name?: string;
     request_key?: string;
     deactivate_link_id?: string;
+    save_card?: boolean;
   };
   try {
     body = await req.json();
@@ -226,6 +251,7 @@ export async function POST(req: Request) {
   const label = (body.label || '').trim();
   const guestName = (body.guest_name || '').trim();
   const requestKey = (body.request_key || '').trim();
+  const saveCard = body.save_card === true;
   const amountCents = Math.round(Number(body.amount_cents));
   if (!propertyId || !label || !requestKey || !Number.isFinite(amountCents)) {
     return NextResponse.json(
@@ -299,14 +325,28 @@ export async function POST(req: Request) {
   // its charge, which is what lib/stripe-sync.ts reads when classifying
   // charges (a helm_request_key on a charge = bridge-minted add-on, routed
   // to the extras queue, never matched as a stay's principal payment).
-  const link = await stripePost(stripeKey, 'payment_links', {
+  //
+  // save_card (far-future booking deposits ONLY): setup_future_usage=
+  // off_session makes Stripe's checkout page show its card-save
+  // authorization and attach the card for later merchant-initiated charges;
+  // customer_creation=always gives the card a Customer to attach to in the
+  // property's own account (payment links default to no Customer). The paid
+  // deposit then carries customer + payment_method ids on the status lookup
+  // above, and the January balance charges off-session from
+  // /statements/balance-charges - no second link, no guest chasing.
+  const linkParams: Record<string, string> = {
     'line_items[0][price]': String(price.data.id),
     'line_items[0][quantity]': '1',
     'metadata[helm_request_key]': requestKey,
     'metadata[helm_property_id]': propertyId,
     'payment_intent_data[metadata][helm_request_key]': requestKey,
     'payment_intent_data[metadata][helm_property_id]': propertyId,
-  });
+  };
+  if (saveCard) {
+    linkParams['customer_creation'] = 'always';
+    linkParams['payment_intent_data[setup_future_usage]'] = 'off_session';
+  }
+  const link = await stripePost(stripeKey, 'payment_links', linkParams);
   if (!link.ok) {
     const permission = link.status === 401 || link.status === 403;
     return NextResponse.json(
@@ -329,6 +369,7 @@ export async function POST(req: Request) {
     amount_cents: amountCents,
     stripe_link_id: linkId,
     url,
+    save_card: saveCard,
   });
   if (insErr && insErr.code === '23505') {
     const { data: winner } = await supabase
