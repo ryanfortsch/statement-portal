@@ -35,6 +35,75 @@ const ALLOWED_STATUSES = new Set([
 
 const FORWARD_EXCLUDED = new Set(['cancelled', 'canceled', 'inquiry', 'declined', 'expired']);
 
+/**
+ * Channel mix. Four buckets, matching the statement page's chLabel():
+ * Airbnb, VRBO (HomeAway), Booking.com, and Stay Cape Ann (Guesty's
+ * Direct/Manual channel -- RT's own direct-booking brand).
+ */
+export const CHANNELS = ['airbnb', 'vrbo', 'booking', 'sca'] as const;
+export type ChannelKey = (typeof CHANNELS)[number];
+
+export const CHANNEL_LABEL: Record<ChannelKey, string> = {
+  airbnb: 'Airbnb',
+  vrbo: 'VRBO',
+  booking: 'Booking.com',
+  sca: 'Stay Cape Ann',
+};
+
+export type ChannelAgg = { revenue: number; stays: number; nights: number };
+export type ChannelMix = Record<ChannelKey, ChannelAgg>;
+
+export function emptyChannelMix(): ChannelMix {
+  return {
+    airbnb: { revenue: 0, stays: 0, nights: 0 },
+    vrbo: { revenue: 0, stays: 0, nights: 0 },
+    booking: { revenue: 0, stays: 0, nights: 0 },
+    sca: { revenue: 0, stays: 0, nights: 0 },
+  };
+}
+
+/**
+ * Accepts both guesty_reservations.channel values (Airbnb, VRBO,
+ * Booking.com, Direct) and statements-module reservations.platform values
+ * (Airbnb, HomeAway, Booking.com, Manual), plus the raw Guesty ids
+ * (airbnb2, homeaway2, bookingCom, manual) for safety. Unknown / empty
+ * falls to 'sca', matching channelFromGuesty's Direct default.
+ */
+function normalizeChannel(raw: string | null | undefined): ChannelKey {
+  const c = (raw || '').toLowerCase();
+  if (c.startsWith('airbnb')) return 'airbnb';
+  if (c.startsWith('homeaway') || c === 'vrbo') return 'vrbo';
+  if (c.startsWith('booking')) return 'booking';
+  return 'sca';
+}
+
+function addToMix(
+  mix: ChannelMix,
+  ch: ChannelKey,
+  revenue: number,
+  nights: number,
+  stays: number,
+): void {
+  mix[ch].revenue += revenue;
+  mix[ch].nights += nights;
+  mix[ch].stays += stays;
+}
+
+/** Add src into target. revenueFactor scales revenue only (pacing multiplies
+ * revenue, never stays/nights -- mirrors the headline metric treatment). */
+function mergeMix(target: ChannelMix, src: ChannelMix, revenueFactor = 1): void {
+  for (const ch of CHANNELS) {
+    target[ch].revenue += src[ch].revenue * revenueFactor;
+    target[ch].nights += src[ch].nights;
+    target[ch].stays += src[ch].stays;
+  }
+}
+
+function roundMix(mix: ChannelMix): ChannelMix {
+  for (const ch of CHANNELS) mix[ch].revenue = round2(mix[ch].revenue);
+  return mix;
+}
+
 export type PropertyRevenueMetrics = {
   staysCount: number;
   nightsSold: number;
@@ -89,6 +158,13 @@ export type PropertySnapshot = {
   turnoversNext30: number;
   /** Where the metrics came from. */
   source: SnapshotSource;
+  /**
+   * Revenue / stays / nights split by booking channel. Follows the same
+   * per-month layering as the headline metrics: closed statement months
+   * use the statement's own reservation rows (exact), pacing months scale
+   * revenue by the month multiplier, everything else is booked actuals.
+   */
+  channelMix: ChannelMix;
 };
 
 export type SnapshotsResponse = {
@@ -96,6 +172,8 @@ export type SnapshotsResponse = {
   rangeEnd: string;
   snapshots: PropertySnapshot[];
   portfolio: PortfolioTotals;
+  /** Portfolio-wide channel mix (sum of every property's channelMix). */
+  channelMix: ChannelMix;
   /** Set when the entire range is the current calendar month. */
   pacing: PacingInfo | null;
 };
@@ -132,6 +210,7 @@ type ReservationRow = {
   check_in: string | null;
   check_out: string | null;
   status: string | null;
+  channel: string | null;
   host_payout: number | null;
   owner_net_revenue_guesty: number | null;
   total_paid: number | null;
@@ -258,6 +337,12 @@ type PropertyMonthBuckets = {
    * denominator of occupancy and pacing, not just ignored.
    */
   blockedNightsByMonth: Map<string, number>;
+  /**
+   * Channel split of the checkout-attributed money metrics, per month.
+   * Mirrors revenueByMonth / nightsByMonth / staysByMonth so the post-pass
+   * can swap closed statement months and scale pacing months per channel.
+   */
+  channelByMonth: Map<string, ChannelMix>;
 };
 
 /**
@@ -403,7 +488,7 @@ export async function computeRevenueSnapshot(
 
   const { data: resData, error: resErr } = await supabase
     .from('guesty_reservations')
-    .select('property_id, listing_id, confirmation_code, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
+    .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid')
     .lt('check_in', periodEndExclusive)
     .gt('check_out', rangeStart);
 
@@ -513,6 +598,7 @@ export async function computeRevenueSnapshot(
         metrics: empty,
         turnoversNext30: forwardCountByProperty.get(prop.id) ?? 0,
         source: 'computed',
+        channelMix: emptyChannelMix(),
       };
     }
 
@@ -542,6 +628,15 @@ export async function computeRevenueSnapshot(
     const nightsByMonth = new Map<string, number>();
     const staysByMonth = new Map<string, number>();
     const cleaningByMonth = new Map<string, number>();
+    const channelByMonth = new Map<string, ChannelMix>();
+    const channelBucket = (mKey: string): ChannelMix => {
+      let m = channelByMonth.get(mKey);
+      if (!m) {
+        m = emptyChannelMix();
+        channelByMonth.set(mKey, m);
+      }
+      return m;
+    };
 
     // Calendar-attributed nights, kept separately from the checkout-
     // attributed money metrics. Pacing % and the displayed occupancy % are
@@ -644,6 +739,7 @@ export async function computeRevenueSnapshot(
       // NEVER also checkout-attributes its full value.
       if (hasInstallments) {
         if (prop.activated_at && prop.activated_at.slice(0, 10) > checkOut) continue;
+        const instChannel = normalizeChannel(r.channel);
         for (const slice of instRows as Installment[]) {
           const [sy, sm] = slice.month.split('-').map(Number);
           if (!sy || !sm) continue;
@@ -655,6 +751,7 @@ export async function computeRevenueSnapshot(
           nightsSold += sliceNights;
           revenueByMonth.set(slice.month, (revenueByMonth.get(slice.month) ?? 0) + sliceRev);
           nightsByMonth.set(slice.month, (nightsByMonth.get(slice.month) ?? 0) + sliceNights);
+          addToMix(channelBucket(slice.month), instChannel, sliceRev, sliceNights, slice.is_final_month ? 1 : 0);
           if (slice.is_final_month) {
             staysCount += 1;
             cleaningCost += cleaningPerStay;
@@ -683,6 +780,7 @@ export async function computeRevenueSnapshot(
       nightsByMonth.set(coKey, (nightsByMonth.get(coKey) ?? 0) + totalNights);
       staysByMonth.set(coKey, (staysByMonth.get(coKey) ?? 0) + 1);
       cleaningByMonth.set(coKey, (cleaningByMonth.get(coKey) ?? 0) + cleaningPerStay);
+      addToMix(channelBucket(coKey), normalizeChannel(r.channel), fullPayout, totalNights, 1);
     }
 
     // Stash the per-month buckets on the snapshot so the post-pass layer
@@ -696,6 +794,7 @@ export async function computeRevenueSnapshot(
       calendarNightsByMonth,
       calendarNightsInRange,
       blockedNightsByMonth,
+      channelByMonth,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
@@ -734,6 +833,13 @@ export async function computeRevenueSnapshot(
       },
       turnoversNext30: forwardCountByProperty.get(prop.id) ?? 0,
       source: 'computed',
+      // Plain sum of the month buckets; the post-pass rebuilds this with
+      // statement swaps + pacing scaling applied.
+      channelMix: (() => {
+        const mix = emptyChannelMix();
+        for (const m of channelByMonth.values()) mergeMix(mix, m);
+        return mix;
+      })(),
     };
   });
 
@@ -776,6 +882,12 @@ export async function computeRevenueSnapshot(
 
   const avgADR = totalNights > 0 ? totalRevenueP / totalNights : null;
 
+  // Portfolio channel mix: straight sum of the (already post-passed)
+  // per-property mixes.
+  const portfolioChannelMix = emptyChannelMix();
+  for (const s of snapshots) mergeMix(portfolioChannelMix, s.channelMix);
+  roundMix(portfolioChannelMix);
+
   // Occupancy denominator = every active property's available nights in the
   // period (respecting activation date), whether or not it has bookings.
   // Empty units count as 0% so portfolio occupancy is honest and reconciles
@@ -810,6 +922,7 @@ export async function computeRevenueSnapshot(
     rangeEnd,
     snapshots,
     pacing,
+    channelMix: portfolioChannelMix,
     portfolio: {
       propertyCount: snapshots.length,
       totalStays,
@@ -864,6 +977,7 @@ async function applyStatementsAndPacing(
   // in JS. (Mirror of get_statements in lib/ask/tools.ts.)
   const monthKeys = segments.map((s) => s.monthKey);
   const stmtByMonthAndProperty = new Map<string, StatementRow>();
+  const monthByStatementId = new Map<string, string>();
 
   const { data: periodData, error: periodErr } = await supabase
     .from('statement_periods')
@@ -880,7 +994,7 @@ async function applyStatementsAndPacing(
   if (monthByPeriod.size > 0) {
     const { data: stmtData, error: stmtErr } = await supabase
       .from('property_statements')
-      .select('period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, tax_remittance, owner_payout')
+      .select('id, period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, tax_remittance, owner_payout')
       .in('period_id', Array.from(monthByPeriod.keys()));
     if (stmtErr) {
       throw new Error(`Failed to load property statements: ${stmtErr.message}`);
@@ -891,6 +1005,75 @@ async function applyStatementsAndPacing(
       const month = monthByPeriod.get(row.period_id);
       if (!month) continue;
       stmtByMonthAndProperty.set(`${month}|${row.property_id}`, row);
+      if (row.id) monthByStatementId.set(row.id, month);
+    }
+  }
+
+  // Exact channel mix for statement months, from the statements-module
+  // reservation rows (platform + adjusted_revenue sum to the statement's
+  // rental_revenue to the cent -- verified across every statement on file).
+  // Best-effort: on error or empty (e.g. anon key + RLS in local dev) the
+  // per-property loop falls back to the guesty-derived mix scaled to the
+  // statement revenue.
+  const stmtMixByStatementId = new Map<string, ChannelMix>();
+  {
+    const stmtIds = Array.from(
+      new Set(Array.from(stmtByMonthAndProperty.values()).map((s) => s.id).filter(Boolean)),
+    );
+    if (stmtIds.length > 0) {
+      // Paginate: a single select caps at 1000 rows (same reason
+      // cost-analysis.ts pages its reads) and a full_year range across the
+      // fleet can cross that. A partially-fetched statement would wear a
+      // truthy-but-wrong "exact" mix, so on any error degrade EVERY
+      // statement to the scaled guesty fallback instead of mixing exact
+      // and missing.
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data: stmtResData, error: stmtResErr } = await supabase
+          .from('reservations')
+          .select('property_statement_id, platform, adjusted_revenue, nights, check_out')
+          .in('property_statement_id', stmtIds)
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (stmtResErr) {
+          stmtMixByStatementId.clear();
+          break;
+        }
+        const rows = (stmtResData ?? []) as Array<{
+          property_statement_id: string;
+          platform: string | null;
+          adjusted_revenue: number | null;
+          nights: number | null;
+          check_out: string | null;
+        }>;
+        for (const row of rows) {
+          const rev = Number(row.adjusted_revenue ?? 0);
+          if (rev === 0) continue; // homeowner stays carry no mix
+          let mix = stmtMixByStatementId.get(row.property_statement_id);
+          if (!mix) {
+            mix = emptyChannelMix();
+            stmtMixByStatementId.set(row.property_statement_id, mix);
+          }
+          // Mirror the ingest's header math. Revenue: every non-zero row,
+          // negatives included, so the mix sums to rental_revenue (an
+          // all-rows sum). Stays: num_stays counts a booking once, on its
+          // checkout month, positive rows only -- a cross-month installment
+          // booking's synthetic rows have checkout outside the statement
+          // month. Nights: positive rows only (synthetic rows carry their
+          // month-slice nights, matching nights_booked).
+          const stmtMonth = monthByStatementId.get(row.property_statement_id);
+          const staysHere =
+            rev > 0 && stmtMonth && (row.check_out || '').slice(0, 7) === stmtMonth ? 1 : 0;
+          addToMix(
+            mix,
+            normalizeChannel(row.platform),
+            rev,
+            rev > 0 ? Number(row.nights ?? 0) : 0,
+            staysHere,
+          );
+        }
+        if (rows.length < PAGE) break;
+      }
     }
   }
 
@@ -997,9 +1180,14 @@ async function applyStatementsAndPacing(
     let usedPacing = false;
     let usedBooked = false;
 
+    // Rebuilt per-month with the same three branches as the money deltas,
+    // so the mix always sums (approximately) to the displayed revenue.
+    const channelMix = emptyChannelMix();
+
     for (const seg of segments) {
       const isClosed = seg.monthKey < todayYM;
       const isCurrentOrFuture = seg.monthKey >= todayYM;
+      const monthMix = buckets.channelByMonth.get(seg.monthKey);
 
       // (a) Full closed month with Statement -> swap in Statement values.
       if (seg.fullMonth && isClosed) {
@@ -1011,6 +1199,21 @@ async function applyStatementsAndPacing(
           cleaningDelta += (Number(stmt.cleaning_total) || 0) - (buckets.cleaningByMonth.get(seg.monthKey) ?? 0);
           repairsTaxDelta += (Number(stmt.repairs_total) || 0) + (Number(stmt.tax_remittance) || 0);
           usedStatement = true;
+          const stmtMix = stmt.id ? stmtMixByStatementId.get(stmt.id) : undefined;
+          if (stmtMix) {
+            mergeMix(channelMix, stmtMix);
+          } else if (monthMix) {
+            // Statement reservation rows unavailable: keep the guesty-
+            // derived split, scaled so the month's mix revenue matches the
+            // statement revenue that replaced it. With nothing meaningful
+            // to scale (either side zero), skip entirely rather than merge
+            // ghost stays/nights at factor 0.
+            const monthRev = buckets.revenueByMonth.get(seg.monthKey) ?? 0;
+            const stmtRev = Number(stmt.rental_revenue) || 0;
+            if (monthRev > 0 && stmtRev > 0) {
+              mergeMix(channelMix, monthMix, stmtRev / monthRev);
+            }
+          }
           continue;
         }
       }
@@ -1022,11 +1225,22 @@ async function applyStatementsAndPacing(
         const monthRevenue = buckets.revenueByMonth.get(seg.monthKey) ?? 0;
         revenueDelta += monthRevenue * (mp.multiplier - 1);
         usedPacing = true;
+        if (monthMix) mergeMix(channelMix, monthMix, mp.multiplier);
         continue;
       }
 
       // (c) Otherwise: keep the booked/pro-rated contribution as-is.
       if (isCurrentOrFuture) usedBooked = true;
+      if (monthMix) mergeMix(channelMix, monthMix);
+    }
+
+    // Boundary stays: a checkout ON periodEndExclusive (the 1st of the
+    // month after the range) is included in the money totals by the base
+    // pass, but its bucket keys to a month no segment covers. Merge those
+    // leftover buckets so the mix keeps summing to the displayed revenue.
+    const segmentMonths = new Set(segments.map((seg) => seg.monthKey));
+    for (const [mKey, monthMix] of buckets.channelByMonth.entries()) {
+      if (!segmentMonths.has(mKey)) mergeMix(channelMix, monthMix);
     }
 
     const baseM = s.metrics;
@@ -1061,6 +1275,11 @@ async function applyStatementsAndPacing(
     return {
       ...s,
       source,
+      // Mirror the totalRevenue guard: when the headline resolves to
+      // null/zero (base pass saw no revenue at all), ship an empty mix
+      // too, or the Channel Mix strip could total more than the page shows.
+      channelMix:
+        newRevenue != null && newRevenue > 0 ? roundMix(channelMix) : emptyChannelMix(),
       metrics: {
         staysCount: newStays,
         nightsSold: newNights,
@@ -1081,6 +1300,7 @@ async function applyStatementsAndPacing(
 }
 
 type StatementRow = {
+  id: string;
   period_id: string;
   property_id: string;
   num_stays: number | null;

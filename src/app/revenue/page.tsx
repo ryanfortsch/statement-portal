@@ -17,6 +17,10 @@ import {
 } from '@/lib/revenue-date-range';
 import {
   computeRevenueSnapshot,
+  CHANNELS,
+  CHANNEL_LABEL,
+  type ChannelKey,
+  type ChannelMix,
   type PropertySnapshot,
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
@@ -211,6 +215,19 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         <PortfolioStrip totals={portfolio} prior={priorPortfolio} />
       </section>
 
+      {/* CHANNEL MIX */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+          <div className="eyebrow">Channel Mix</div>
+          {priorFull && (
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              vs prior {presetTitle.toLowerCase()}
+            </span>
+          )}
+        </div>
+        <ChannelMixStrip mix={current.channelMix} prior={priorFull?.channelMix ?? null} />
+      </section>
+
       {/* PROPERTY CARDS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
@@ -248,6 +265,211 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         }
         right={rangeLabel}
       />
+    </div>
+  );
+}
+
+// Same channel colors the editorial statement's donut uses, so the two
+// surfaces read as one system.
+const CHANNEL_COLOR: Record<ChannelKey, string> = {
+  airbnb: '#ff5a5f',
+  vrbo: '#245abc',
+  booking: '#003580',
+  sca: '#4a6b3a',
+};
+
+// Compact labels for the per-card legend line.
+const CHANNEL_SHORT: Record<ChannelKey, string> = {
+  airbnb: 'Airbnb',
+  vrbo: 'VRBO',
+  booking: 'B.com',
+  sca: 'SCA',
+};
+
+function mixTotal(mix: ChannelMix): number {
+  return CHANNELS.reduce((sum, ch) => sum + mix[ch].revenue, 0);
+}
+
+/** Channels ordered by revenue desc; zero-revenue channels keep canonical
+ * order at the end so the strip's cells never jump around arbitrarily. */
+function orderedChannels(mix: ChannelMix): ChannelKey[] {
+  return [...CHANNELS].sort((a, b) => mix[b].revenue - mix[a].revenue);
+}
+
+function ChannelDot({ ch, size = 7 }: { ch: ChannelKey; size?: number }) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: CHANNEL_COLOR[ch],
+        display: 'inline-block',
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+/** Proportional stacked bar. flexGrow carries the ratio so tiny shares
+ * still get their minWidth sliver instead of vanishing. */
+function ChannelStackBar({
+  mix,
+  height,
+  rounded = false,
+}: {
+  mix: ChannelMix;
+  height: number;
+  rounded?: boolean;
+}) {
+  const total = mixTotal(mix);
+  if (total <= 0) return null;
+  const entries = orderedChannels(mix).filter((ch) => mix[ch].revenue > 0);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        height,
+        overflow: 'hidden',
+        borderRadius: rounded ? height / 2 : 0,
+      }}
+    >
+      {entries.map((ch) => {
+        const pct = (mix[ch].revenue / total) * 100;
+        return (
+          <div
+            key={ch}
+            title={`${CHANNEL_LABEL[ch]} · ${fmtCurrency(mix[ch].revenue)} (${pct.toFixed(0)}%) · ${mix[ch].stays} ${mix[ch].stays === 1 ? 'stay' : 'stays'}`}
+            style={{
+              flex: `${mix[ch].revenue} 1 0%`,
+              minWidth: 3,
+              background: CHANNEL_COLOR[ch],
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ChannelMixStrip({ mix, prior }: { mix: ChannelMix; prior: ChannelMix | null }) {
+  const total = mixTotal(mix);
+
+  if (total <= 0) {
+    return (
+      <div
+        style={{
+          borderTop: '1px solid var(--ink)',
+          borderBottom: '1px solid var(--ink)',
+          padding: '20px 16px',
+          fontSize: 12,
+          color: 'var(--ink-4)',
+        }}
+      >
+        No channel revenue in range.
+      </div>
+    );
+  }
+
+  const order = orderedChannels(mix);
+
+  return (
+    <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
+      <ChannelStackBar mix={mix} height={10} />
+      <div
+        className="rt-helm-stat-strip"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          borderTop: '1px solid var(--rule)',
+        }}
+      >
+        {order.map((ch, i) => {
+          const agg = mix[ch];
+          const share = total > 0 ? (agg.revenue / total) * 100 : 0;
+          const delta = prior ? deltaPct(agg.revenue, prior[ch].revenue) : null;
+          const adr = agg.nights > 0 && agg.revenue > 0 ? agg.revenue / agg.nights : null;
+          const sub =
+            agg.stays > 0 || agg.nights > 0
+              ? `${agg.stays} ${agg.stays === 1 ? 'stay' : 'stays'} · ${agg.nights} ${agg.nights === 1 ? 'night' : 'nights'}${adr != null ? ` · ${fmtCurrency(adr)}/night` : ''}`
+              : agg.revenue > 0
+              ? 'Cross-month installment'
+              : 'No bookings in range';
+          return (
+            <div
+              key={ch}
+              className="rt-helm-stat"
+              style={{
+                padding: '20px 16px',
+                borderRight: i === order.length - 1 ? 'none' : '1px solid var(--rule)',
+              }}
+            >
+              <div className="eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ChannelDot ch={ch} />
+                {CHANNEL_LABEL[ch]}
+              </div>
+              <div className="flex items-baseline" style={{ gap: 8 }}>
+                <div
+                  className="font-serif tabular-nums rt-helm-stat-value"
+                  style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.05 }}
+                >
+                  {fmtCurrency(agg.revenue)}
+                </div>
+                <span
+                  className="font-mono tabular-nums"
+                  style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink-3)' }}
+                >
+                  {share.toFixed(0)}%
+                </span>
+                {delta != null && delta !== 0 && (
+                  <span
+                    className="font-mono tabular-nums"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: delta > 0 ? 'var(--positive)' : 'var(--negative)',
+                    }}
+                  >
+                    {delta > 0 ? '+' : ''}{delta.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Slim per-property mix: stacked bar + one legend line. Detail rides the
+ * bar segments' title tooltips. */
+function CardChannelBar({ mix }: { mix: ChannelMix }) {
+  const total = mixTotal(mix);
+  if (total <= 0) return null;
+  const entries = orderedChannels(mix).filter((ch) => mix[ch].revenue > 0);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <ChannelStackBar mix={mix} height={6} rounded />
+      <div
+        className="font-mono tabular-nums"
+        style={{
+          marginTop: 6,
+          fontSize: 10,
+          color: 'var(--ink-3)',
+          display: 'flex',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        {entries.map((ch) => (
+          <span key={ch} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <ChannelDot ch={ch} size={5} />
+            {CHANNEL_SHORT[ch]} {Math.round((mix[ch].revenue / total) * 100)}%
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -367,6 +589,7 @@ function PropertyCard({
           <Metric label="Owner Payout" value={fmtCurrency(m.projectedOwnerPayout)} accent />
         </dl>
       )}
+      {!noData && <CardChannelBar mix={snapshot.channelMix} />}
     </article>
   );
 }
