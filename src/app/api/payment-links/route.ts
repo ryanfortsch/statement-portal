@@ -60,12 +60,23 @@ async function stripeGetJson(
   key: string,
   path: string,
   params: Record<string, string>,
+  errOut?: { status?: number; message?: string },
 ): Promise<Record<string, unknown> | null> {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${STRIPE}/${path}?${qs}`, {
     headers: { Authorization: `Bearer ${key}` },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // Surface WHY Stripe refused (restricted-key scope gaps look identical
+    // to transient errors otherwise - 17_beach_rd's paid polling was dead
+    // for days with nothing but a bare 'stripe_error' to show for it).
+    if (errOut) {
+      const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      errOut.status = res.status;
+      errOut.message = data.error?.message || `HTTP ${res.status}`;
+    }
+    return null;
+  }
   return (await res.json().catch(() => null)) as Record<string, unknown> | null;
 }
 
@@ -145,20 +156,29 @@ export async function GET(req: Request) {
       'expand[]': 'data.payment_intent',
     });
     if (!sessions) {
-      // Some restricted keys lack PaymentIntents READ and refuse the expand
-      // outright (verified live on 17_beach_rd, 2026-08-23). Paid detection
-      // must never regress on those properties: retry plain, and the card
-      // ids simply come back '' (the concierge then keeps the mint-a-link
-      // flow). Fix per property: add PaymentIntents read+write to the
-      // restricted key - write is required for the off-session balance
-      // charge anyway.
-      sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
-        payment_link: String(row.stripe_link_id),
-        limit: '10',
-      });
-    }
-    if (!sessions) {
-      return NextResponse.json({ ok: false, error: 'stripe_error' }, { status: 200 });
+      // A restricted key without PaymentIntents READ refuses the expand
+      // outright. Paid detection must never depend on the expand: retry
+      // plain, and the card ids simply come back '' (the concierge then
+      // keeps the mint-a-link flow). Fix per property: add PaymentIntents
+      // read+write to the restricted key - write is required for the
+      // off-session balance charge anyway.
+      const errOut: { status?: number; message?: string } = {};
+      sessions = await stripeGetJson(
+        stripeKey,
+        'checkout/sessions',
+        { payment_link: String(row.stripe_link_id), limit: '10' },
+        errOut,
+      );
+      if (!sessions) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'stripe_error',
+            detail: `${errOut.status ?? ''} ${errOut.message ?? ''}`.trim(),
+          },
+          { status: 200 },
+        );
+      }
     }
     const list = (sessions.data as {
       payment_status?: string;
