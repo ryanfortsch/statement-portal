@@ -33,7 +33,7 @@ const LISTING_MATCH: Record<string, string> = {
   '16_waterman':   '16 waterman',
   '19_rackliffe':  '19 rackliffe',
   '84_thatcher':   '84 thatcher',
-  '3_windward_pt': '3 windward',
+  '3_windward':    '3 windward',
 };
 const NICKNAME_HINTS: Record<string, string> = {
   '3_south_st':    'old garden beach',
