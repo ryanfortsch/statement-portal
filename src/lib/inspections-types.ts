@@ -98,27 +98,16 @@ export type InspectionNoteRow = {
   updated_at: string;
 };
 
-// ─── Work slips (Phase 3 — table already exists in DB) ───────────────
-export type WorkSlipCategory = 'maintenance' | 'owner' | 'vendor' | 'other' | 'rising_tide';
-export type WorkSlipPriority = 'low' | 'normal' | 'high';
-export type WorkSlipStatus = 'open' | 'in_progress' | 'done' | 'scheduled' | 'blocked';
-
-export type WorkSlipRow = {
-  id: string;
-  property_id: string;
-  inspection_id: string | null;
-  inspection_item_id: string | null;
-  title: string;
-  description: string | null;
-  action_summary: string | null;
-  location: string | null;
-  category: WorkSlipCategory;
-  priority: WorkSlipPriority;
-  status: WorkSlipStatus;
-  created_by_email: string;
-  created_at: string;
-  updated_at: string;
-};
+// ─── Work slips ──────────────────────────────────────────────────────
+// Canonical work-slip types live in src/lib/work-types.ts. The inspection
+// flow imports them from here for historical reasons, so re-export rather
+// than duplicate — a local copy drifts silently when the enums grow.
+export type {
+  WorkSlipCategory,
+  WorkSlipPriority,
+  WorkSlipStatus,
+  WorkSlipRow,
+} from './work-types';
 
 // ─── Property-specific zones (Increment 1) ──────────────────────────────
 // Models each property as a sequence of physical zones (rooms / areas) in

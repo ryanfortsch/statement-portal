@@ -13,6 +13,7 @@ import {
   type WorkSlipCategory,
   type WorkSlipPriority,
 } from '@/lib/inspections-types';
+import { WORK_SLIP_CATEGORY_LABELS } from '@/lib/work-types';
 import { generateDeck } from '@/lib/inspection-deck';
 import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
@@ -425,7 +426,9 @@ export async function createWorkSlipFromInspection(args: {
   const title = args.title.trim();
   if (!title) return { ok: false, error: 'Title is required' };
 
-  const validCategories = ['maintenance', 'owner', 'vendor', 'other', 'rising_tide'] as const;
+  // Keyed off the canonical labels map so the guard can't drift when the
+  // category enum grows.
+  const validCategories = Object.keys(WORK_SLIP_CATEGORY_LABELS);
   const validPriorities = ['low', 'normal', 'high'] as const;
   if (!validCategories.includes(args.category)) {
     return { ok: false, error: `Invalid category: ${args.category}` };
