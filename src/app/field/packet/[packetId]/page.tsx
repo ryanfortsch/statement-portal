@@ -84,16 +84,25 @@ function fmtShortDate(d: string): string {
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
  *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
  *  the inspector goes after. Vacant homes are open from 11. */
-function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; first: string; urgent: boolean } {
-  // Two facts, no coaching: did a guest check out today, and when's the next
-  // check-in. Per Dotti, the per-stop line stays this simple (the old DayPlan
-  // banner that coached sequencing was removed at her request). `first` rides
-  // separately so the urgent same-day deadline can take its own line.
-  const first = s.window_basis === 'checkout_day' ? 'Checkout today' : 'Vacant';
-  if (!s.next_checkin) return { label: `${first} · no next check-in scheduled`, first, urgent: false };
-  const today = s.next_checkin === visitDate;
-  const when = today ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`;
-  return { label: `${first} · next check-in: ${when}`, first, urgent: today };
+function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; first: string; rest: string; urgent: boolean; open: boolean } {
+  // Two facts, no coaching: is the home open (and since when), and when's the
+  // next check-in. Per Dotti, the per-stop line stays this simple (the old
+  // DayPlan banner that coached sequencing was removed at her request).
+  // `first`/`rest` ride separately so the open state can render green and the
+  // urgent same-day deadline can take its own line. A home whose guest left
+  // on a PRIOR day is "Open now" — the inspector can start first thing, no
+  // waiting on an 11 AM checkout (Dotti, 2026-08-24: Delaney didn't know the
+  // empty-since-yesterday 20 Hammond was startable at 8 AM).
+  const open = s.window_basis !== 'checkout_day';
+  const first = !open
+    ? 'Checkout today'
+    : s.prior_checkout && s.prior_checkout < visitDate
+      ? `Open now · empty since ${fmtShortDate(s.prior_checkout)}`
+      : 'Open now';
+  const rest = !s.next_checkin
+    ? ' · no next check-in scheduled'
+    : ` · next check-in: ${s.next_checkin === visitDate ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`}`;
+  return { label: `${first}${rest}`, first, rest, urgent: s.next_checkin === visitDate, open };
 }
 
 /** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
@@ -723,8 +732,11 @@ export default async function PacketPage({
           the page (the old full-height card + shadow hovered over everything
           while she scrolled). Tap-to-copy stays — it's the code she punches at
           every keypad. */}
+      {/* Sticky top clears the iPhone notch: the layout uses viewportFit
+          cover, so without the safe-area max() the pinned pill wedges under
+          the status bar and content scrolling past reads as bleeding. */}
       {working && packet.entry_code && (
-        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 999, background: 'var(--paper)', padding: '7px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 8, zIndex: 20, boxShadow: '0 2px 8px rgba(11,37,69,0.08)' }}>
+        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 999, background: 'var(--paper)', padding: '7px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 'max(8px, env(safe-area-inset-top))', zIndex: 20, boxShadow: '0 2px 8px rgba(11,37,69,0.08)' }}>
           <span style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', flexShrink: 0 }}>
             Entry code
           </span>
@@ -1034,16 +1046,23 @@ export default async function PacketPage({
                             its own line instead of hiding at the end of a chain. */}
                         {!terminal && (() => {
                           const t = stopTiming(s, packet.visit_date);
+                          // "Open now" leads in green: the one glanceable fact
+                          // that tells the inspector they can start right away.
+                          const lead = (
+                            <span style={t.open ? { color: 'var(--positive)', fontWeight: 600 } : { color: 'var(--ink-4)' }}>
+                              {t.first}
+                            </span>
+                          );
                           if (!t.urgent) {
                             return (
                               <span style={{ color: 'var(--ink-4)' }}>
-                                {s.status === 'in_progress' ? ' · ' : ''}{t.label}
+                                {s.status === 'in_progress' ? ' · ' : ''}{lead}{t.rest}
                               </span>
                             );
                           }
                           return (
                             <>
-                              <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{t.first}</span>
+                              <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{lead}</span>
                               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--signal)', marginTop: 4 }}>
                                 Guest checks in today, 4 PM
                               </div>
@@ -1069,7 +1088,9 @@ export default async function PacketPage({
                           <div style={{ fontSize: 13, marginTop: 2, color: t.urgent ? 'var(--signal)' : 'var(--ink-3)', fontWeight: t.urgent ? 600 : 400 }}>
                             {/* The town is the drive-time signal a browser needs before
                                 claiming — even masked stops say where they are. */}
-                            {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}{t.label}
+                            {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}
+                            <span style={t.open && !t.urgent ? { color: 'var(--positive)', fontWeight: 600 } : undefined}>{t.first}</span>
+                            {t.rest}
                           </div>
                         );
                       })()
