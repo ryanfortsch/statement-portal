@@ -5,6 +5,7 @@ import { after } from 'next/server';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
+import { loadVendorTimesForDay } from '@/lib/vendor-schedule';
 import { newPortalToken } from '@/lib/field-auth';
 import { suggestPackets, persistSuggestions, revalidatePacket, pruneClosedSlipStops, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
@@ -708,6 +709,76 @@ export async function reorderPacketStops(packetId: string, orderedIds: string[])
   await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'stops_reordered' });
   revalidatePath(`/fieldwork/packets/${packetId}`);
   revalidatePath('/fieldwork/packets');
+}
+
+/**
+ * Reorder a packet's stops to follow Cape Ann Elite's booked cleaning times
+ * for the visit day, so the route runs in the order the houses actually
+ * free up.
+ *
+ * Why this is not just a nicety: Delaney's claimed 2026-08-25 packet was
+ * stored as 3 Locust, 73 Rocky Neck, 53 Rocky Neck Downstairs while the
+ * cleanings landed 12:00, 14:00, 13:00 -- the stored route sent him to 73
+ * Rocky Neck at the exact hour the cleaner was booked there, and to the
+ * downstairs unit an hour after it was ready.
+ *
+ * Rules:
+ *  - Stops already STARTED or COMPLETE never move. They keep the front of
+ *    the route in their existing order: the contractor has already walked
+ *    them, and renumbering finished work would rewrite history under them.
+ *  - Announced stops sort by cleaning time ascending.
+ *  - Unannounced stops (the vendor confirms ~2 days out) keep their current
+ *    relative order and follow the announced ones. Their time is never
+ *    guessed -- arrival is a position in that day's route, not a property
+ *    attribute.
+ *
+ * Delegates the write to reorderPacketStops so the status gate, permutation
+ * check, changed-rows-only update and packet_events audit line all stay in
+ * one place.
+ */
+export async function orderStopsByCleaningTime(formData: FormData): Promise<void> {
+  await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  if (!packetId) return;
+
+  const { data: pkt } = await fieldDb()
+    .from('inspection_packets')
+    .select('visit_date')
+    .eq('id', packetId)
+    .maybeSingle();
+  const visitDate = (pkt as { visit_date: string } | null)?.visit_date;
+  if (!visitDate) return;
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id, walk_order, status, started_at')
+    .eq('packet_id', packetId)
+    .order('walk_order', { ascending: true });
+  const stops = (sData ?? []) as Array<{
+    id: string;
+    property_id: string;
+    walk_order: number;
+    status: string | null;
+    started_at: string | null;
+  }>;
+  if (stops.length < 2) return;
+
+  const times = await loadVendorTimesForDay(fieldDb(), visitDate);
+  if (times.size === 0) return;
+
+  const touched = (s: (typeof stops)[number]) =>
+    !!s.started_at || s.status === 'complete' || s.status === 'skipped';
+
+  const pinned = stops.filter(touched);
+  const movable = stops.filter((s) => !touched(s));
+  const announced = movable
+    .filter((s) => times.get(s.property_id))
+    .sort((a, b) => times.get(a.property_id)!.localeCompare(times.get(b.property_id)!));
+  const rest = movable.filter((s) => !times.get(s.property_id));
+
+  const ordered = [...pinned, ...announced, ...rest].map((s) => s.id);
+  await reorderPacketStops(packetId, ordered);
+  revalidatePath(`/fieldwork/packets/${packetId}`);
 }
 
 /** Re-derive every stop's window from current bookings — fixes a stop stored as
