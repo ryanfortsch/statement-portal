@@ -403,17 +403,15 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   return (
     <>
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 24, width: '100%' }}>
-        <div className="flex items-baseline justify-between flex-wrap gap-4">
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Work Queue</div>
-            <h1
-              className="font-serif"
-              style={{ fontSize: 44, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)' }}
-            >
-              The board.
-            </h1>
-          </div>
+      {/* No masthead: the section strip above already says Work / Board, and
+          the tab row below names the list. What's left is the doing — the two
+          create buttons, and the quiet door to the guest-gear matrix, which
+          lives on its own page so the board stays the board. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20, width: '100%' }}>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <Link href="/work/gear" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            Guest gear grid →
+          </Link>
 
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => setShowTaskModal(true)} style={ghostBtn()}>
