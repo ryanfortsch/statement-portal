@@ -413,7 +413,8 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           can't vanish out from under your finger when its count hits zero),
           plus the All reset. Snoozed is the exception — it's the only door
           to a separate server-side bucket, so on Property Work it always
-          renders, dimmed at zero. */}
+          renders, dimmed at zero. The guest-gear matrix is reached by the
+          Gear tab in the strip above, not a second link down here. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 24, width: '100%' }}>
         <div className="flex items-end justify-between flex-wrap gap-4" style={{ marginBottom: 18 }}>
           <div className="flex items-end" style={{ gap: 24 }}>
@@ -452,42 +453,33 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           </div>
         </div>
 
-        <div className="flex items-center justify-between flex-wrap" style={{ gap: 12 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-            {(counts.mine > 0 || activeFilter === 'mine') && (
-              <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
-            )}
-            {(counts.high > 0 || activeFilter === 'high') && (
-              <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
-            )}
-            {(counts.dueToday > 0 || activeFilter === 'due-today') && (
-              <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
-            )}
-            {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
-              <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
-            )}
-            {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
-              <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
-            )}
-            {onSlips && (
-              <Pill
-                active={activeFilter === 'snoozed'}
-                onClick={() => setFilter('snoozed')}
-                label="Snoozed"
-                count={counts.snoozed}
-                accent="var(--tide-deep)"
-                dimmed={counts.snoozed === 0}
-              />
-            )}
-          </div>
-
-          {/* Quiet lens link: the guest-gear matrix lives on its own page so
-              the board stays the board. Rides the filter row rather than a
-              shelf of its own. */}
-          <Link href="/work/gear" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-            Guest gear grid →
-          </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+          {(counts.mine > 0 || activeFilter === 'mine') && (
+            <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
+          )}
+          {(counts.high > 0 || activeFilter === 'high') && (
+            <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
+          )}
+          {(counts.dueToday > 0 || activeFilter === 'due-today') && (
+            <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
+          )}
+          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
+            <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
+          )}
+          {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
+            <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
+          )}
+          {onSlips && (
+            <Pill
+              active={activeFilter === 'snoozed'}
+              onClick={() => setFilter('snoozed')}
+              label="Snoozed"
+              count={counts.snoozed}
+              accent="var(--tide-deep)"
+              dimmed={counts.snoozed === 0}
+            />
+          )}
         </div>
       </section>
 
