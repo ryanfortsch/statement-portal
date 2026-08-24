@@ -95,6 +95,18 @@ export async function updateWorkSlipStatus(args: {
     patch.closed_at = new Date().toISOString();
     patch.closed_by_email = session.user.email;
   }
+  // Reopening clears the close stamps AND any lingering snooze, matching
+  // the /api/work-slips reopen path — otherwise a reopened slip keeps a
+  // Completed date, and a pre-close snooze would keep it hidden from the
+  // active queue despite "Reopen puts it back in the queue."
+  if (args.status === 'open') {
+    patch.completed_at = null;
+    patch.closed_at = null;
+    patch.closed_by_email = null;
+    patch.snoozed_until = null;
+    patch.snoozed_by_email = null;
+    patch.snoozed_at = null;
+  }
 
   const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
   if (error) return { ok: false, error: error.message };
@@ -165,6 +177,9 @@ export async function updateWorkSlipResolution(args: {
   id: string;
   resolution_notes: string;
   status?: WorkSlipStatus;
+  /** Pass so a close from the detail page also revalidates the property's
+   *  Open Work list and the /properties count badges. */
+  propertyId?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -178,6 +193,12 @@ export async function updateWorkSlipResolution(args: {
       patch.completed_at = new Date().toISOString();
       patch.closed_by_email = session.user.email;
     }
+    // Same stamping contract as updateWorkSlipStatus: dismissal gets
+    // closed_at but never completed_at.
+    if (args.status === 'dismissed') {
+      patch.closed_at = new Date().toISOString();
+      patch.closed_by_email = session.user.email;
+    }
   }
 
   const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
@@ -185,6 +206,12 @@ export async function updateWorkSlipResolution(args: {
 
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
+  // A status change feeds the property surfaces too, same as
+  // updateWorkSlipStatus.
+  if (args.status) {
+    revalidatePath('/properties');
+    if (args.propertyId) revalidatePath(`/properties/${args.propertyId}`);
+  }
   return { ok: true };
 }
 

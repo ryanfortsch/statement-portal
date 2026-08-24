@@ -12,8 +12,9 @@ type Props = {
 /**
  * Office authoring of a slip's "what to bring" — the materials a contractor
  * needs to complete the job. Rolled into the packet's 85 Eastern supply-run
- * pick list. Inline edit with optimistic save + rollback, matching the other
- * slip editors. Always editable (even when empty) so it's easy to add.
+ * pick list. Only 1-in-30 slips has one, so when empty this renders as a
+ * single quiet "+ Supply run" line; the content stays prominent whenever
+ * something is actually listed.
  */
 export function SlipBringListEditor({ slipId, initialBringList }: Props) {
   const softRefresh = useSoftRefresh();
@@ -55,10 +56,30 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
     });
   }
 
+  // Collapsed: nothing listed, not editing — one quiet line.
+  if (!value && !editing) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={beginEdit}
+          disabled={pending}
+          style={quietLinkStyle(pending)}
+        >
+          {pending ? 'Saving…' : '+ Supply run'}
+          <span style={{ marginLeft: 8, letterSpacing: 0, textTransform: 'none', color: 'var(--ink-4)', fontWeight: 400 }}>
+            what the inspector should bring
+          </span>
+        </button>
+        {err && <ErrorStrip message={err} />}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-        <div className="eyebrow" style={{ color: 'var(--signal)' }}>What to bring</div>
+        <div className="eyebrow" style={{ color: 'var(--signal)' }}>Supply run · what to bring</div>
         {!editing && (
           <button
             type="button"
@@ -66,7 +87,7 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
             disabled={pending}
             style={{ background: 'none', border: '1px solid var(--rule)', padding: '4px 10px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: pending ? 'wait' : 'pointer' }}
           >
-            {pending ? 'Saving…' : value ? 'Edit' : 'Add'}
+            {pending ? 'Saving…' : 'Edit'}
           </button>
         )}
       </div>
@@ -82,7 +103,7 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
               if (e.key === 'Escape') cancel();
             }}
             rows={2}
-            placeholder="Materials the inspector should grab to finish this — e.g. P-trap washer, plunger, 2 light bulbs"
+            placeholder="Materials the inspector should grab to finish this - e.g. P-trap washer, plunger, 2 light bulbs"
             aria-label="What to bring"
             style={{ width: '100%', font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 6, padding: '8px 10px', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
           />
@@ -92,17 +113,32 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>⌘+Enter to save</span>
           </div>
         </div>
-      ) : value ? (
-        <p style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{value}</p>
       ) : (
-        <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.5, margin: 0 }}>
-          Nothing listed. Add what the inspector needs to bring to finish this job — it shows up on their supply-closet stop.
-        </p>
+        <p style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{value}</p>
       )}
 
-      {err && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px' }}>{err}</div>
-      )}
+      {err && <ErrorStrip message={err} />}
     </div>
+  );
+}
+
+function quietLinkStyle(pending: boolean): React.CSSProperties {
+  return {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    fontSize: 11,
+    letterSpacing: '.16em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    color: 'var(--ink-3)',
+    cursor: pending ? 'wait' : 'pointer',
+    textAlign: 'left',
+  };
+}
+
+function ErrorStrip({ message }: { message: string }) {
+  return (
+    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px' }}>{message}</div>
   );
 }

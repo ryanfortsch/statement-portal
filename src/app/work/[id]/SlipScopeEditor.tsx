@@ -81,7 +81,7 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
             ? note
             : scope
               ? OPTIONS.find((o) => o.value === scope)?.hint
-              : 'Not triaged yet — the planner will classify it on its next pass.'}
+              : 'Not triaged yet. The planner will classify it on its next pass.'}
       </p>
     </div>
   );

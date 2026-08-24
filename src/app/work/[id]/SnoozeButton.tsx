@@ -17,10 +17,31 @@ const PRESETS: { id: string; label: string; daysFromNow: number }[] = [
   { id: 'next-month', label: 'Next month', daysFromNow: 30 },
 ];
 
-function plus(days: number): string {
+// Local calendar dates, not UTC — after ~8 PM Eastern the UTC day is
+// already tomorrow, which made "Tomorrow" compute two days out.
+function localDay(offsetDays: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
+  d.setDate(d.getDate() + offsetDays);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function utcDay(offsetDays: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().slice(0, 10);
+}
+
+// Every read path hides a slip only while snoozed_until > UTC "today"
+// (work board, home, properties, search), so a stored date at or below
+// UTC-today is a silent no-op. Snooze on the local calendar the operator
+// means, clamped up to UTC-tomorrow when the two calendars disagree
+// (evening Eastern).
+function snoozeDay(offsetDays: number): string {
+  const local = localDay(offsetDays);
+  const floor = utcDay(1);
+  return local >= floor ? local : floor;
 }
 
 /**
@@ -54,13 +75,14 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
   function apply(until: string | null) {
     setErr(null);
     setOpen(false);
+    const prev = snoozedUntil;
     setSnoozedUntil(until);
     startTransition(async () => {
       const res = await snoozeWorkSlip({ id: slipId, until });
       if (!res.ok) {
         setErr(res.error);
         // Roll back optimistic state on failure
-        setSnoozedUntil(initialSnoozedUntil);
+        setSnoozedUntil(prev);
         return;
       }
       softRefresh();
@@ -70,11 +92,14 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
   function handleCustom(e: React.FormEvent) {
     e.preventDefault();
     if (!customDate) return;
-    apply(customDate);
+    // Same UTC-tomorrow floor as the presets; the input's min enforces it
+    // in the picker but not against a hand-typed date.
+    const floor = utcDay(1);
+    apply(customDate >= floor ? customDate : floor);
     setCustomDate('');
   }
 
-  const isSnoozed = !!snoozedUntil && snoozedUntil > new Date().toISOString().slice(0, 10);
+  const isSnoozed = !!snoozedUntil && snoozedUntil > utcDay(0);
 
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
@@ -115,7 +140,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
             <button
               key={p.id}
               type="button"
-              onClick={() => apply(plus(p.daysFromNow))}
+              onClick={() => apply(snoozeDay(p.daysFromNow))}
               style={{
                 display: 'block',
                 width: '100%',
@@ -130,7 +155,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
             >
               {p.label}
               <span style={{ marginLeft: 6, color: 'var(--ink-4)', fontSize: 11 }}>
-                ({plus(p.daysFromNow)})
+                ({snoozeDay(p.daysFromNow)})
               </span>
             </button>
           ))}
@@ -140,7 +165,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
               type="date"
               value={customDate}
               onChange={(e) => setCustomDate(e.target.value)}
-              min={plus(1)}
+              min={snoozeDay(1)}
               style={{
                 flex: 1,
                 padding: '4px 8px',

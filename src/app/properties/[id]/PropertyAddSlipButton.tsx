@@ -162,9 +162,13 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
                 <div style={{ flex: 1 }}>
                   <Field label="Category">
                     <select value={category} onChange={(e) => setCategory(e.target.value as WorkSlipCategory)} style={selectStyle()}>
-                      {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][]).map(([v, l]) => (
-                        <option key={v} value={v}>{l}</option>
-                      ))}
+                      {/* Same trim as the work-board modal: vendor and
+                          ad_hoc have never been hand-filed. */}
+                      {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][])
+                        .filter(([v]) => v !== 'vendor' && v !== 'ad_hoc')
+                        .map(([v, l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
                     </select>
                   </Field>
                 </div>

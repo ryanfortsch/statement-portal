@@ -1446,11 +1446,14 @@ function WorkSlipModal({
                     onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
                     style={selectStyle()}
                   >
-                    {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][]).map(
-                      ([v, l]) => (
+                    {/* vendor and ad_hoc stay out of the picker: zero slips
+                        have ever been hand-filed under either (ad_hoc is set
+                        programmatically by packet creation). */}
+                    {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][])
+                      .filter(([v]) => v !== 'vendor' && v !== 'ad_hoc')
+                      .map(([v, l]) => (
                         <option key={v} value={v}>{l}</option>
-                      ),
-                    )}
+                      ))}
                   </select>
                 </Field>
               </div>

@@ -146,7 +146,7 @@ export async function POST(req: Request) {
       !!description && !!existing.description && existing.description.includes(description);
     // Reopen ONLY a completed slip, and only when the ask carries genuinely
     // new content — the gear needs doing again. 'dismissed' is an explicit
-    // operator "we're not doing this" and must stick (StatusChanger:
+    // operator "we're not doing this" and must stick (SlipClosePanel:
     // "a dismissed slip stays dismissed"); 'blocked' is active work waiting
     // on something and must not be silently flipped. A byte-identical
     // replay never changes anything.
