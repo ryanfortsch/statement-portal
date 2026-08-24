@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import type { RateCard } from '@/lib/creative-rates';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { syncCreativeDrive } from '@/lib/creative-drive';
-import { sendPaidEmail } from '@/lib/field-notify';
+import { sendPaidEmail, sendShootBrief } from '@/lib/field-notify';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -39,8 +39,61 @@ export async function createShoot(formData: FormData): Promise<void> {
     .select('id')
     .single();
   const id = (data as { id: string } | null)?.id;
+  // Logging an UPCOMING shoot BRIEFS the contributor: email + text with the
+  // portal brief link (address, arrival, entry, the listing to study).
+  // Logging after the fact (a past date — the ledger's usual flow) sends
+  // nothing: there is no day left to brief. Failures never block the log —
+  // the shoot page has a Send-brief control.
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  if (id && shootDate >= todayEt) {
+    await notifyShootBrief(id, contractorId, title, shootDate, propertyId).catch(() => {});
+  }
   revalidatePath('/fieldwork/shoots');
   if (id) redirect(`/fieldwork/shoots/${id}`);
+}
+
+async function notifyShootBrief(
+  shootId: string,
+  contractorId: string,
+  title: string,
+  shootDate: string,
+  propertyId: string | null,
+): Promise<{ emailed: boolean; texted: boolean }> {
+  const [{ data: c }, propertyName] = await Promise.all([
+    fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', contractorId).maybeSingle(),
+    propertyId
+      ? fieldDb().from('properties').select('name').eq('id', propertyId).maybeSingle().then((r) => (r.data as { name: string } | null)?.name ?? null)
+      : Promise.resolve(null),
+  ]);
+  const contractor = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
+  if (!contractor) return { emailed: false, texted: false };
+  return sendShootBrief(contractor, { id: shootId, title, shoot_date: shootDate }, propertyName);
+}
+
+/** Re-send the shoot brief (email + text) from the office shoot page. The
+ *  landing note tells the truth about what actually went out. */
+export async function resendShootBrief(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const { data: s } = await fieldDb()
+    .from('creative_shoots')
+    .select('id, title, shoot_date, property_id, contractor_id, status')
+    .eq('id', shootId)
+    .maybeSingle();
+  const shoot = s as { id: string; title: string; shoot_date: string; property_id: string | null; contractor_id: string; status: string } | null;
+  if (!shoot || shoot.status === 'cancelled') return;
+  const sent = await notifyShootBrief(shoot.id, shoot.contractor_id, shoot.title, shoot.shoot_date, shoot.property_id).catch(() => ({ emailed: false, texted: false }));
+  const note =
+    sent.emailed && sent.texted
+      ? 'ok:brief sent — email and text'
+      : sent.emailed
+        ? 'ok:brief emailed (no text went out)'
+        : sent.texted
+          ? 'ok:brief texted (no email went out)'
+          : 'err:brief did NOT send — nothing went out (check their contact info)';
+  revalidatePath(`/fieldwork/shoots/${shootId}`);
+  redirect(`/fieldwork/shoots/${shootId}?brief=${encodeURIComponent(note)}`);
 }
 
 export async function addAsset(formData: FormData): Promise<void> {

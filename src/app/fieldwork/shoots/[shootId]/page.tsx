@@ -7,7 +7,8 @@ import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief } from '../actions';
+import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -39,13 +40,14 @@ export default async function ShootDetail({
   searchParams,
 }: {
   params: Promise<{ shootId: string }>;
-  searchParams: Promise<{ drive?: string }>;
+  searchParams: Promise<{ drive?: string; brief?: string }>;
 }) {
   const { shootId } = await params;
   const [detail, sp] = await Promise.all([loadShootDetail(shootId), searchParams]);
   if (!detail) notFound();
   const driveFiles = await loadShootDriveFiles(shootId);
   const driveNote = sp.drive ?? null;
+  const briefNote = sp.brief ?? null;
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
   const sum = shootPaySummary(detail.assets, pay, shoot);
@@ -124,6 +126,19 @@ export default async function ShootDetail({
             {sum.pendingCents > 0 && <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(sum.pendingCents)} bonus counting</div>}
           </div>
         </div>
+
+        {/* The shoot's DAY: is the home actually free, and the contributor's
+            brief (the portal page the log-time email/text points at). Only for
+            days still ahead — a settled July shoot needs no briefing controls. */}
+        {active && shoot.shoot_date >= todayEtIso() && (
+          <ShootDayCard
+            shootId={shoot.id}
+            propertyId={shoot.property_id}
+            shootDate={shoot.shoot_date}
+            contractorFirst={detail.contractorName.split(' ')[0]}
+            note={briefNote}
+          />
+        )}
 
         {/* What this contributor is paid on — frozen once the first base is paid. */}
         <div style={{ marginTop: 16, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
@@ -492,6 +507,74 @@ export default async function ShootDetail({
         )}
       </section>
       <HelmFooter module="Field" right={shoot.title} />
+    </div>
+  );
+}
+
+/** The shoot day, checked against the home's real calendar (same day-clear
+ *  report the maintenance planner trusts), plus the contributor's brief:
+ *  preview it as they see it, or send it again. History (past dates) skips
+ *  the calendar verdict — the day already happened. */
+function todayEtIso(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+async function ShootDayCard({
+  shootId,
+  propertyId,
+  shootDate,
+  contractorFirst,
+  note,
+}: {
+  shootId: string;
+  propertyId: string | null;
+  shootDate: string;
+  contractorFirst: string;
+  note: string | null;
+}) {
+  const today = todayEtIso();
+  let verdict: DayClearInfo | null = null;
+  if (propertyId && shootDate >= today) {
+    try {
+      verdict = (await dayClearReport([propertyId], shootDate)).get(propertyId) ?? null;
+    } catch {
+      verdict = null;
+    }
+  }
+  return (
+    <div style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Shoot day</div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+          <a
+            href={`/field/shoot/${shootId}?office=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}
+          >
+            Preview {contractorFirst}&apos;s brief ↗
+          </a>
+          <form action={resendShootBrief} style={{ margin: 0 }}>
+            <input type="hidden" name="shoot_id" value={shootId} />
+            <PendingButton label="Send brief" busyLabel="Sending…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }} spinnerTone="ink" />
+          </form>
+        </div>
+      </div>
+      {verdict && (
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: verdict.clear ? 'var(--ink-3)' : 'var(--signal)' }}>
+          {verdict.clear
+            ? `Clear — the home is empty ${fmtShort(shootDate)}${verdict.priorCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
+            : `Not clear — ${verdict.reason}. The 8 AM day-of check will tell ${contractorFirst} to hold and email you.`}
+        </div>
+      )}
+      {!propertyId && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)' }}>No home attached — the brief covers date and deliverables only.</div>
+      )}
+      {note && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: note.startsWith('err:') ? 'var(--signal)' : 'var(--positive)' }}>
+          {note.replace(/^(ok|err):/, '')}
+        </div>
+      )}
     </div>
   );
 }
