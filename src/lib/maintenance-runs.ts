@@ -48,6 +48,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { fieldDb } from '@/lib/field-db';
 import { createMaintenancePacket, loadFieldProperties } from '@/lib/field-packets';
+import { getProperty } from '@/lib/properties';
 import type {
   MaintenanceRunCard,
   RunsBoardData,
@@ -89,10 +90,13 @@ function addDays(iso: string, days: number): string {
 
 type ClassifiableSlip = {
   id: string;
+  property_id: string | null;
   title: string;
+  action_summary: string | null;
   description: string | null;
   location: string | null;
   priority: string;
+  from_quo_message_id: string | null;
 };
 
 export type ClassifyResult = { scanned: number; classified: number; error?: string };
@@ -114,14 +118,18 @@ const ClassifySchema = z.object({
 
 /**
  * AI triage of open maintenance slips that have no run_scope yet. Writes
- * run_scope / run_scope_note / effort_minutes back onto each slip. Slips
- * the model drops stay NULL and get retried next pass. Fail-soft: a
- * gateway error classifies nothing and reports itself.
+ * run_scope / run_scope_note / effort_minutes back onto each slip, and for
+ * a slip auto-opened from a cleaner's SMS also promotes the triage line
+ * into the title (see smsHeadline). Slips the model drops stay NULL and
+ * get retried next pass. Fail-soft: a gateway error classifies nothing and
+ * reports itself.
  */
 export async function classifyOpenMaintenanceSlips(): Promise<ClassifyResult> {
   const { data } = await fieldDb()
     .from('work_slips')
-    .select('id, title, description, location, priority')
+    .select(
+      'id, property_id, title, action_summary, description, location, priority, from_quo_message_id',
+    )
     .eq('status', 'open')
     .eq('category', 'maintenance')
     .is('run_scope', null)
@@ -162,23 +170,55 @@ When a slip is vague, judge from what the fix most likely involves; lean 'handym
     };
   }
 
-  const valid = new Set(slips.map((s) => s.id));
+  const byId = new Map(slips.map((s) => [s.id, s]));
   let classified = 0;
   for (const c of object.classifications) {
-    if (!valid.has(c.slip_id)) continue;
+    const slip = byId.get(c.slip_id);
+    if (!slip) continue;
     const minutes = Math.max(10, Math.min(480, Math.round(c.effort_minutes)));
+    const note = c.note.trim();
     const { error } = await fieldDb()
       .from('work_slips')
       .update({
         run_scope: c.scope,
-        run_scope_note: c.note.trim() || null,
+        run_scope_note: note || null,
         effort_minutes: minutes,
+        ...(smsHeadline(slip, note) ?? {}),
       })
       .eq('id', c.slip_id)
       .is('run_scope', null);
     if (!error) classified += 1;
   }
   return { scanned: slips.length, classified };
+}
+
+/**
+ * A slip auto-opened from a cleaner's Quo text is titled with the raw
+ * message (quo-ingest truncates the body), so the card reads like a text:
+ * pasted schedule lines, CRLFs and all, with the actual problem cut off.
+ * Triage has just written a clean one-liner for the same slip, so promote
+ * it into the title the board leads with, and keep the cleaner's own words
+ * underneath as the summary with the line-break mess collapsed. The
+ * verbatim message stays in the description, so nothing is lost.
+ *
+ * Only rewrites while the title is still the machine's echo of the message
+ * (the post-prefix text appears verbatim in the description). Once an
+ * operator retitles the slip, the echo test fails and their words stand.
+ */
+function smsHeadline(
+  slip: ClassifiableSlip,
+  note: string,
+): { title: string; action_summary: string | null } | null {
+  if (!slip.from_quo_message_id || !note) return null;
+  const echoed = slip.title.split(': ').slice(1).join(': ').replace(/…$/, '').trim();
+  if (!echoed || !slip.description?.includes(echoed)) return null;
+  const name = slip.property_id ? getProperty(slip.property_id)?.name : undefined;
+  // The triage line usually names the property already; don't say it twice.
+  const prefix = name && !note.toLowerCase().includes(name.toLowerCase()) ? `${name}: ` : '';
+  return {
+    title: `${prefix}${note}`,
+    action_summary: (slip.action_summary ?? '').replace(/\s+/g, ' ').trim() || null,
+  };
 }
 
 // ─── planning ─────────────────────────────────────────────────────────
