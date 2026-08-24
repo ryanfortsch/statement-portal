@@ -36,6 +36,7 @@ import {
   addDays,
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
+import { loadVendorAppointments } from '@/lib/vendor-schedule';
 
 export type ScheduleRecipient = {
   phone: string;
@@ -78,9 +79,36 @@ function dayLabel(date: string): string {
   return `${pt} / ${en}`;
 }
 
-/** The SMS body for one schedule day, WITHOUT the per-recipient link
- *  (appended at send time, each recipient has their own token). */
-export function composeDigestBody(day: ScheduleDay): string {
+/** propertyId -> the cleaning time the vendor has committed to for this
+ *  day, when they have announced one. */
+export async function loadVendorTimes(
+  supabase: SupabaseClient,
+  date: string,
+): Promise<Map<string, string>> {
+  try {
+    const { rows } = await loadVendorAppointments(supabase, date, date);
+    return new Map(rows.filter((r) => r.service_date === date).map((r) => [r.property_id, r.service_time]));
+  } catch {
+    // The cross-check is an enhancement; a digest still has to compose
+    // without it.
+    return new Map();
+  }
+}
+
+/**
+ * The SMS body for one schedule day, WITHOUT the per-recipient link (that
+ * is appended at send time, since each cleaner has their own token).
+ *
+ * Ordered and led by the VENDOR's committed cleaning time wherever they
+ * have announced one, because that is the order the crew actually works
+ * (Dotti, 2026-08-24). Checkout times are frequently identical across the
+ * fleet -- four 11:00s on a Monday -- so sorting by them told the cleaners
+ * nothing about their route, while A-1's own times do. The checkout still
+ * rides along as `saida`, since that is when the house actually frees up,
+ * and a cleaning slotted BEFORE it is called out: that is a cleaner sent
+ * into an occupied house.
+ */
+export function composeDigestBody(day: ScheduleDay, vendorTimes?: Map<string, string>): string {
   const lines: string[] = [];
   lines.push(`Rising Tide - limpezas`);
   lines.push(dayLabel(day.date));
@@ -89,16 +117,40 @@ export function composeDigestBody(day: ScheduleDay): string {
     lines.push('Nenhum check-out neste dia.');
     return lines.join('\n');
   }
+  const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);
+  const ordered = [...day.rows].sort((a, b) => {
+    const ta = cleanTime(a.propertyId) ?? a.time;
+    const tb = cleanTime(b.propertyId) ?? b.time;
+    return ta.localeCompare(tb) || a.propertyName.localeCompare(b.propertyName);
+  });
+  const anyVendor = ordered.some((r) => cleanTime(r.propertyId));
+
   const sameDay = day.counts.sameDay;
   lines.push(`${day.rows.length} check-out${day.rows.length === 1 ? '' : 's'}${sameDay ? `, ${sameDay} mesmo dia` : ''}:`);
-  day.rows.forEach((r, i) => {
+  ordered.forEach((r, i) => {
+    const clean = cleanTime(r.propertyId);
     const tags: string[] = [];
+    if (clean) {
+      tags.push(clean < r.time ? `ATENCAO: saida so as ${r.time}` : `saida ${r.time}`);
+    }
     if (r.sameDayTurnover) tags.push(`MESMO DIA, prox. entrada ${r.nextCheckinTime}`);
     if (r.adjustment?.adjustedTime) tags.push(`mudou de ${r.defaultTime}`);
     if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('estadia estendida');
-    lines.push(`${i + 1}) ${r.time} - ${r.propertyName}${tags.length ? ` (${tags.join('; ')})` : ''}`);
+    lines.push(`${i + 1}) ${clean ?? r.time} - ${r.propertyName}${tags.length ? ` (${tags.join('; ')})` : ''}`);
   });
+  if (anyVendor) {
+    lines.push('');
+    lines.push('Horario = limpeza agendada. "saida" = hora que o hospede sai.');
+  }
   return lines.join('\n');
+}
+
+/** composeDigestBody with the vendor's times loaded for that day. */
+export async function composeDigestBodyLive(
+  supabase: SupabaseClient,
+  day: ScheduleDay,
+): Promise<string> {
+  return composeDigestBody(day, await loadVendorTimes(supabase, day.date));
 }
 
 // ─── draft upsert (cron + refresh) ────────────────────────────────────
@@ -111,7 +163,7 @@ export async function upsertDigestDraft(
   serviceDate: string,
 ): Promise<{ digest: DigestRow; day: ScheduleDay }> {
   const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-  const body = composeDigestBody(day);
+  const body = await composeDigestBodyLive(supabase, day);
   const stats = day.counts;
 
   const { data: existing } = await supabase

@@ -6,7 +6,8 @@ import {
   getOpenDigest,
   listScheduleRecipients,
   portalLink,
-  composeDigestBody,
+  digestBaseUrl,
+  composeDigestBodyLive,
   type DigestRow,
   type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
@@ -261,9 +262,10 @@ export async function ScheduleDigestCard({
   // live, so the textarea was the only thing lying. Recomposing here makes
   // what she reads and what Rosa receives the same string by construction,
   // and draftedBody carries it too so the unedited-check still holds.
-  const shownBody = pending && day ? composeDigestBody(day) : digest.body;
+  const shownBody = pending && day ? await composeDigestBodyLive(supabase, day) : digest.body;
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
-  const anyEnabled = recipients.some((r) => r.enabled);
+  const enabledList = recipients.filter((r) => r.enabled);
+  const anyEnabled = enabledList.length > 0;
 
   return (
     <Section
@@ -330,7 +332,34 @@ export async function ScheduleDigestCard({
               }}
             />
             <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
-              This is composed from the live schedule right now, and left untouched the send recomposes it again at that moment. Edited text goes verbatim. Each cleaner&rsquo;s text ends with their live-schedule link.
+              This is composed from the live schedule right now, and left untouched the send recomposes it again at that moment. Edited text goes verbatim.
+            </div>
+            {/* The live-schedule link is appended per recipient at send time
+                (each cleaner has their own token), so it never appears in the
+                editable body above -- which reads as though no link goes out
+                at all. Show the real thing instead of claiming it. */}
+            <div
+              style={{
+                margin: '0 0 12px',
+                padding: '8px 10px',
+                border: '1px dashed var(--rule)',
+                borderRadius: 5,
+                fontSize: 11,
+                color: 'var(--ink-4)',
+                lineHeight: 1.55,
+              }}
+            >
+              <span style={{ letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 700 }}>
+                Added to the end of each text
+              </span>
+              <div style={{ fontFamily: 'var(--font-mono), monospace', marginTop: 4, wordBreak: 'break-all', color: 'var(--ink-3)' }}>
+                Agenda ao vivo / live schedule:
+                <br />
+                {enabledList[0]
+                  ? portalLink(enabledList[0].portal_token, digest.service_date)
+                  : `${digestBaseUrl()}/clean/<each cleaner's own token>`}
+                {enabledList.length > 1 ? ` (${enabledList[0].display_name}; the others get their own)` : ''}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <SubmitButton

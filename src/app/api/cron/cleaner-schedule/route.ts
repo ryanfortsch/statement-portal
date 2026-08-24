@@ -84,9 +84,9 @@ async function handle(request: NextRequest) {
 
   if (dry) {
     const { buildCheckoutSchedule } = await import('@/lib/checkout-schedule');
-    const { composeDigestBody } = await import('@/lib/cleaner-digest');
+    const { composeDigestBodyLive } = await import('@/lib/cleaner-digest');
     const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-    return NextResponse.json({ ok: true, dry: true, serviceDate, counts: day.counts, body: composeDigestBody(day) });
+    return NextResponse.json({ ok: true, dry: true, serviceDate, counts: day.counts, body: await composeDigestBodyLive(supabase, day) });
   }
 
   const { digest, day } = await upsertDigestDraft(supabase, serviceDate);

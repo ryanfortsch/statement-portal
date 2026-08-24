@@ -16,7 +16,7 @@ import { insertAdjustment, normalizeTime } from '@/lib/checkout-schedule';
 import {
   upsertDigestDraft,
   sendDigest,
-  composeDigestBody,
+  composeDigestBodyLive,
   tomorrowET,
 } from '@/lib/cleaner-digest';
 import { buildCheckoutSchedule } from '@/lib/checkout-schedule';
@@ -59,7 +59,7 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
   let finalBody = body;
   if (body === draftedBody.trim() && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
     const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-    finalBody = composeDigestBody(day);
+    finalBody = await composeDigestBodyLive(supabase, day);
   }
 
   const res = await sendDigest(supabase, { digestId, body: finalBody, operatorEmail: email, kind: 'initial' });
@@ -77,7 +77,7 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
 
   // An update exists to carry CHANGED truth: always compose fresh.
   const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-  const body = `${composeDigestBody(day)}\n\n(atualizacao / updated schedule)`;
+  const body = `${await composeDigestBodyLive(supabase, day)}\n\n(atualizacao / updated schedule)`;
 
   const res = await sendDigest(supabase, { digestId, body, operatorEmail: email, kind: 'update' });
   revalidatePath(CARD);
