@@ -268,11 +268,19 @@ async function refreshListingMap(
       if (stampErr) console.warn('[sync-guesty] listing-id stamp skipped:', propId, stampErr.message);
     }
 
-    // Fill-empty the per-property default checkout / check-in times from the
-    // listing's own defaultCheckOutTime / defaultCheckInTime ("10:00" /
-    // "16:00" strings in Guesty). These feed the cleaner checkout schedule
-    // (lib/checkout-schedule.ts); an operator-set value on /turnovers/schedule
-    // is never overwritten, same contract as the listing-id stamp above.
+    // Fill-empty the per-property default CHECKOUT time from the listing's
+    // own defaultCheckOutTime ("10:00" / "11:00" strings in Guesty). This
+    // feeds the cleaner checkout schedule (lib/checkout-schedule.ts); an
+    // operator-set value on /turnovers/schedule is never overwritten, same
+    // contract as the listing-id stamp above.
+    //
+    // CHECK-IN is deliberately NOT synced. Guesty carries each listing's
+    // guest-facing arrival time (16:00 fleet-wide), but the cleaner schedule
+    // guides to 15:00 on purpose (Dotti, 2026-08-24): the home has to be
+    // ready BEFORE the guest lands, and the hour is the margin. Filling this
+    // column from Guesty put "next guest in at 4 PM" in front of the
+    // cleaners and silently reverted the 3 PM guidance once already, so the
+    // house rule lives in the DB and nothing here touches it.
     const timesByListing = new Map<string, { in: string | null; out: string | null }>();
     for (const l of all) {
       timesByListing.set(l._id, {
@@ -289,20 +297,12 @@ async function refreshListingMap(
       if (ids.length !== 1) continue;
       const t = timesByListing.get(ids[0]);
       const checkout = asHHMM(t?.out ?? null);
-      const checkin = asHHMM(t?.in ?? null);
       if (checkout) {
         await getSupabase()
           .from('properties')
           .update({ default_checkout_time: checkout })
           .eq('id', propId)
           .is('default_checkout_time', null);
-      }
-      if (checkin) {
-        await getSupabase()
-          .from('properties')
-          .update({ default_checkin_time: checkin })
-          .eq('id', propId)
-          .is('default_checkin_time', null);
       }
     }
   }
