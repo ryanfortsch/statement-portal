@@ -14,11 +14,13 @@ import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '
  * off-session PaymentIntent. Nothing in this route touches Stripe - it only
  * records the plan.
  *
- * Auth: STAY_CONCIERGE_KEY shared secret (query `key` or header
- * `x-stay-concierge-key`), same plane as /api/work-slips. Allowlisted in
- * src/proxy.ts PUBLIC_API_PREFIXES.
+ * Auth: STAY_CONCIERGE_KEY shared secret, HEADER ONLY
+ * (x-stay-concierge-key), same plane as /api/work-slips and matching
+ * /api/achieved-rates. No ?key= form: query-string secrets leak through URL
+ * logging (the 8/20 rotation was traced to exactly that in httpx).
+ * Allowlisted in src/proxy.ts PUBLIC_API_PREFIXES.
  *
- *   POST /api/balance-charges?key=K
+ *   POST /api/balance-charges     (secret in the x-stay-concierge-key header)
  *   { request_key, property_id, balance_cents, stripe_customer_id,
  *     stripe_payment_method_id, charge_after, guest_name?, guest_email?,
  *     window_start?, window_end?, slip_request_key? }
@@ -51,9 +53,7 @@ export async function POST(req: Request) {
   if (!expected) {
     return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
   }
-  const url = new URL(req.url);
-  const provided = url.searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
+  if (req.headers.get('x-stay-concierge-key') !== expected) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   if (!isConfigured) {
