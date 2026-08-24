@@ -66,6 +66,12 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     return { ok: false, error: "That home is past its 72-hour window now. Call the office and we'll add it." };
   }
 
+  // Out-of-pocket receipt: same $500 cap as the completion-time receipt rail.
+  // Rides the source visit's payout below; without a packet to ride it stays
+  // on the slip where the office slip page flags it for the next payout.
+  const expenseRaw = Number(formData.get('expense_dollars') || 0);
+  const expenseCents = Number.isFinite(expenseRaw) && expenseRaw > 0 ? Math.min(Math.round(expenseRaw * 100), 50_000) : 0;
+
   const { error } = await fieldDb().from('work_slips').insert({
     property_id: propertyId,
     title: title.slice(0, 200),
@@ -78,8 +84,15 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     created_by_email: contractor.email,
     reported_by_contractor_id: contractor.id,
     reported_from_packet_id: visit.packetId,
+    ...(expenseCents > 0 ? { expense_cents: expenseCents } : {}),
   });
   if (error) return { ok: false, error: 'Could not file that just now. Try again, or text the office.' };
+
+  // Fold the receipt into the visit's payout right away (recompute is
+  // idempotent and refuses to touch a paid packet).
+  if (expenseCents > 0 && visit.packetId) {
+    await recomputePacketExpenses(visit.packetId).catch(() => {});
+  }
 
   await logEvent({
     packetId: visit.packetId,
@@ -87,7 +100,7 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     actorEmail: contractor.email,
     propertyId,
     eventType: 'field_slip_reported',
-    payload: { title: title.slice(0, 200), priority },
+    payload: { title: title.slice(0, 200), priority, ...(expenseCents > 0 ? { expense_cents: expenseCents } : {}) },
   });
 
   // Refresh the report page + home so "Flag another" reflects the current
