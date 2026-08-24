@@ -23,6 +23,16 @@ const TABS: Array<{ href: string; label: string; match: (p: string) => boolean }
   },
 ];
 
+// Inspection trades only: the contractor's own claimed work by day, with
+// Cape Ann Elite's booked cleaning time beside each stop. Scoped to their
+// OWN packets on purpose -- a fleet-wide cleaning view would hand a 1099
+// contractor addresses for houses they were never awarded.
+const SCHEDULE_TAB = {
+  href: '/field/schedule',
+  label: 'Schedule',
+  match: (p: string) => p.startsWith('/field/schedule'),
+};
+
 // Office-granted only (work_board_access): the all-properties slip board.
 const PROPERTY_WORK_TAB = {
   href: '/field/property-work',
@@ -40,10 +50,12 @@ const RATES_TAB = {
 export function FieldNav({
   showPropertyWork = false,
   showRates = false,
+  showSchedule = false,
   homeLabel,
 }: {
   showPropertyWork?: boolean;
   showRates?: boolean;
+  showSchedule?: boolean;
   // Creative contributors land on a shoot list, not a packet board — so the
   // first tab reads "Shoots" for them.
   homeLabel?: string;
@@ -51,6 +63,7 @@ export function FieldNav({
   const path = usePathname() || '/field';
   const tabs = [
     homeLabel ? { ...TABS[0], label: homeLabel } : TABS[0],
+    ...(showSchedule ? [SCHEDULE_TAB] : []),
     ...(showPropertyWork ? [PROPERTY_WORK_TAB] : []),
     ...(showRates ? [RATES_TAB] : []),
     TABS[1],

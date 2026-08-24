@@ -28,6 +28,9 @@ export async function FieldShell({
   // home is a shoot list rather than a packet board.
   const isCreative = shellContractor?.trade === 'creative';
   const showRates = isCreative;
+  // Schedule is about turnovers, so it is for the inspection trades, not
+  // creative contributors (whose home is a shoot list).
+  const showSchedule = !!shellContractor && !isCreative;
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -97,7 +100,7 @@ export async function FieldShell({
           )}
         </div>
       </header>
-      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} homeLabel={isCreative ? 'Shoots' : undefined} />}
+      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} showSchedule={showSchedule} homeLabel={isCreative ? 'Shoots' : undefined} />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         {children}
       </main>
