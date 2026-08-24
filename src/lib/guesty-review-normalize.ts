@@ -146,13 +146,39 @@ function unescapeEntities(v: string | null): string | null {
   return v.replace(/&(amp|quot|#39|apos|lt|gt|nbsp);/g, (m) => ENTITIES[m] ?? m);
 }
 
+/**
+ * Booking.com asks for a positive and a negative half and requires an
+ * answer, so guests who have nothing to say for one of them type a
+ * non-answer. "Not applicable." then reads as part of their review on the
+ * card, and "nothing" reads as a complaint the slip classifier has to
+ * throw away. Exact matches only, after normalizing case and trailing
+ * punctuation: a real half that merely starts with one of these words
+ * ("nothing to complain about, we loved it") keeps every word.
+ */
+const NON_ANSWERS = new Set([
+  'n/a', 'na', 'nil', 'no', 'none', 'nothing', 'not applicable', 'nothing really',
+  'nothing at all', 'nothing much', 'everything was great', 'all good', '-', '.',
+]);
+
+function dropNonAnswer(v: string | null): string | null {
+  if (!v) return v;
+  const normalized = v.toLowerCase().replace(/[.!\s]+$/, '').trim();
+  return NON_ANSWERS.has(normalized) ? null : v;
+}
+
 function fromBookingCom(rw: Raw): NormalizedGuestyReview {
-  const headline = unescapeEntities(str(at(rw, 'content.headline')));
-  const positive = unescapeEntities(str(at(rw, 'content.positive')));
-  const negative = unescapeEntities(str(at(rw, 'content.negative')));
+  const headline = dropNonAnswer(unescapeEntities(str(at(rw, 'content.headline'))));
+  const positive = dropNonAnswer(unescapeEntities(str(at(rw, 'content.positive'))));
+  const negative = dropNonAnswer(unescapeEntities(str(at(rw, 'content.negative'))));
   return {
     overall_rating: toStars(num(at(rw, 'scoring.review_score'))),
-    public_review: joinParts([headline, positive]),
+    // Guests routinely retype the headline as the first words of the
+    // positive half ("amazing" / "amazing cottage in a quiet location"),
+    // which reads as a stutter once the two are joined.
+    public_review: joinParts([
+      headline && (!positive || !positive.toLowerCase().startsWith(headline.toLowerCase())) ? headline : null,
+      positive,
+    ]),
     private_feedback: negative,
     category_cleanliness: toStars(num(at(rw, 'scoring.clean'))),
     category_accuracy: toStars(num(at(rw, 'scoring.comfort'))),
