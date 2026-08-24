@@ -411,10 +411,8 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           pills take the second, scoped to whichever face is up: only the
           ones with > 0 matches render, plus the selected one (so a pill
           can't vanish out from under your finger when its count hits zero),
-          plus the All reset. Snoozed is the exception — it's the only door
-          to a separate server-side bucket, so on Property Work it always
-          renders, dimmed at zero. The guest-gear matrix is reached by the
-          Gear tab in the strip above, not a second link down here. */}
+          plus the All reset. The guest-gear matrix is reached by the Gear
+          tab in the strip above, not a second link down here. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 24, width: '100%' }}>
         <div className="flex items-end justify-between flex-wrap gap-4" style={{ marginBottom: 18 }}>
           <div className="flex items-end" style={{ gap: 24 }}>
@@ -470,14 +468,19 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
             <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
           )}
-          {onSlips && (
+          {/* Snoozed no longer rides the row. It renders only when you're
+              standing in the bucket — arriving from a snoozed slip's back
+              link, which carries &filter=snoozed — so you can see where you
+              are and click All to get out. Nothing is stranded there: a
+              snoozed slip rejoins the board on its own the day its snooze
+              runs out. */}
+          {activeFilter === 'snoozed' && (
             <Pill
-              active={activeFilter === 'snoozed'}
+              active
               onClick={() => setFilter('snoozed')}
               label="Snoozed"
               count={counts.snoozed}
               accent="var(--tide-deep)"
-              dimmed={counts.snoozed === 0}
             />
           )}
         </div>
@@ -697,18 +700,13 @@ function Pill({
   label,
   count,
   accent,
-  dimmed,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count: number;
   accent?: string;
-  dimmed?: boolean;
 }) {
-  // Dimmed = empty-but-still-a-door (the Snoozed bucket). Quiet, no
-  // count badge, but fully clickable so the bucket stays reachable.
-  const isDim = dimmed && !active;
   return (
     <button
       type="button"
@@ -716,8 +714,8 @@ function Pill({
       aria-pressed={active}
       style={{
         background: active ? (accent ?? 'var(--ink)') : 'transparent',
-        color: active ? 'var(--paper)' : isDim ? 'var(--ink-4)' : (accent ?? 'var(--ink-3)'),
-        border: `1px solid ${isDim ? 'var(--rule)' : (accent ?? 'var(--rule)')}`,
+        color: active ? 'var(--paper)' : (accent ?? 'var(--ink-3)'),
+        border: `1px solid ${accent ?? 'var(--rule)'}`,
         padding: '6px 14px',
         fontSize: 11,
         letterSpacing: '.14em',
@@ -727,7 +725,7 @@ function Pill({
       }}
     >
       {label}
-      {!isDim && <span style={{ opacity: 0.7, marginLeft: 4 }}>{count}</span>}
+      <span style={{ opacity: 0.7, marginLeft: 4 }}>{count}</span>
     </button>
   );
 }
