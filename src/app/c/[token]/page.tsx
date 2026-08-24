@@ -62,7 +62,9 @@ export default async function CleanerSchedulePage({
   searchParams: Promise<{ d?: string }>;
 }) {
   const { token } = await params;
-  if (!/^[a-f0-9]{32}$/.test(token)) notFound();
+  // 16 hex is the current issue; 32 is the original format, still honoured
+  // so any older link keeps working.
+  if (!/^[a-f0-9]{16}$|^[a-f0-9]{32}$/.test(token)) notFound();
   const { data: recipient } = await supabase
     .from('cleaner_schedule_recipients')
     .select('phone, display_name')
@@ -75,8 +77,29 @@ export default async function CleanerSchedulePage({
 
   const { d } = await searchParams;
   const inRange = d && days.some((x) => x.date === d);
-  // Default: today until mid-afternoon, then tomorrow (the digest's day).
-  const selectedDate = inRange ? d! : etHourNow() < 15 ? today : addDays(today, 1);
+  // The SMS link carries no date any more (every character counts), so the
+  // page has to work out which day the cleaner was texted about. The day of
+  // the most recently SENT digest is exactly that, and it beats guessing by
+  // clock: approving at 10am for tomorrow used to land the link on today.
+  // Falls back to the old rule when nothing has been sent.
+  let sentDay: string | null = null;
+  try {
+    const { data } = await supabase
+      .from('cleaner_schedule_digests')
+      .select('service_date')
+      .eq('status', 'sent')
+      .gte('service_date', today)
+      .order('service_date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const candidate = (data as { service_date: string } | null)?.service_date ?? null;
+    if (candidate && days.some((x) => x.date === candidate)) sentDay = candidate;
+  } catch {
+    // Never let the default-day lookup keep the schedule from rendering.
+  }
+  const selectedDate = inRange
+    ? d!
+    : sentDay ?? (etHourNow() < 15 ? today : addDays(today, 1));
   const selected: ScheduleDay = days.find((x) => x.date === selectedDate) ?? days[0];
 
   // Order by the cleaning times the vendor committed to, matching the daily

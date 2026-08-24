@@ -30,7 +30,7 @@
  *
  * Consumers: the daily digest cron (day-before SMS draft), the operator
  * schedule page (/turnovers/schedule), and Rosa's public mobile page
- * (/clean/<token>), which renders THIS live merge so the link in an
+ * (/c/<token>), which renders THIS live merge so the link in an
  * already-sent text never goes stale.
  */
 
