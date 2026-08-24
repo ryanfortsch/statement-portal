@@ -33,6 +33,10 @@ const LISTING_MATCH: Record<string, string> = {
   '16_waterman':   '16 waterman',
   '19_rackliffe':  '19 rackliffe',
   '84_thatcher':   '84 thatcher',
+  // Guesty listing 6a79f91a320f1200145873de, external title "Stay in
+  // Central Gloucester" (the only "Stay in" title). Missing from this map
+  // until 2026-08-24, so its reservations landed in `unmatched` every sync.
+  '225_washington': '225 washington',
   '3_windward':    '3 windward',
 };
 const NICKNAME_HINTS: Record<string, string> = {
@@ -48,6 +52,7 @@ const NICKNAME_HINTS: Record<string, string> = {
   '65_calderwood': 'black rock harbor',
   '3_locust':      'niles beach',
   '3246_ne_27th':  'lighthouse point',
+  '225_washington': 'central gloucester',
 };
 
 function channelFromGuesty(raw?: string): string {
