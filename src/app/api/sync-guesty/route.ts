@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
-import { normalizeGuestyReview } from '@/lib/guesty-review-normalize';
+import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-review-normalize';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -381,7 +381,11 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
   for (const r of reviews) {
     const propertyId = r.listingId ? listingMap[r.listingId] : undefined;
     if (!propertyId) { skipped++; continue; }
-    const guestName = r.guestId ? await resolveGuestName(r.guestId, token, nameCache) : null;
+    // Guesty's guest record wins when it exists; 42 of the VRBO reviews on
+    // file carry no guestId at all, and their payload names the guest.
+    const guestName =
+      (r.guestId ? await resolveGuestName(r.guestId, token, nameCache) : null) ||
+      guestNameFromRawReview(r.channelId, r.rawReview);
     // Guesty hands back the channel's own review payload verbatim and
     // normalizes nothing, so each channel needs its own reader. Parsing
     // Airbnb's shape alone is what left every VRBO and Booking.com review
