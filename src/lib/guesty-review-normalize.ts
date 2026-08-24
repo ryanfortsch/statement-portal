@@ -113,24 +113,47 @@ function fromAirbnb(rw: Raw): NormalizedGuestyReview {
 
 /**
  * Booking.com splits the guest's words into a `positive` and a `negative`
- * half plus a `headline`, and scores out of 10 under `scoring`. Both
- * halves are public on Booking.com, so both belong in public_review; the
- * negative half is labelled rather than dropped, because dropping it
- * would make a mixed review read as a rave on the statement and on the
- * Reviews page.
+ * half plus a `headline`, and scores out of 10 under `scoring`.
+ *
+ * The negative half goes in private_feedback, which on this table means
+ * "what the guest said beyond the headline review" rather than literally
+ * "unpublished" (Booking shows both halves publicly). That is the column
+ * reviews-to-slips watches, and Booking's negative half is the exact
+ * analogue of Airbnb's private feedback: a five-star guest naming one
+ * thing to fix. Folding it into public_review instead left 5 of the 7
+ * Booking reviews carrying a real complaint unable to open a slip,
+ * because the slip engine's candidate test is below-five OR private
+ * feedback and those reviews are all five stars. Surfaces label the line
+ * per channel, see feedbackLabel.
  */
+/**
+ * Booking.com sends its review text HTML-escaped, so "clean & comfortable"
+ * arrives as "clean &amp; comfortable" and renders that way on the card.
+ * Only the handful of entities their feed actually uses.
+ */
+const ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+  '&lt;': '<',
+  '&gt;': '>',
+  '&nbsp;': ' ',
+};
+
+function unescapeEntities(v: string | null): string | null {
+  if (!v) return v;
+  return v.replace(/&(amp|quot|#39|apos|lt|gt|nbsp);/g, (m) => ENTITIES[m] ?? m);
+}
+
 function fromBookingCom(rw: Raw): NormalizedGuestyReview {
-  const headline = str(at(rw, 'content.headline'));
-  const positive = str(at(rw, 'content.positive'));
-  const negative = str(at(rw, 'content.negative'));
+  const headline = unescapeEntities(str(at(rw, 'content.headline')));
+  const positive = unescapeEntities(str(at(rw, 'content.positive')));
+  const negative = unescapeEntities(str(at(rw, 'content.negative')));
   return {
     overall_rating: toStars(num(at(rw, 'scoring.review_score'))),
-    public_review: joinParts([
-      headline,
-      positive,
-      negative ? `Could be better: ${negative}` : null,
-    ]),
-    private_feedback: null,
+    public_review: joinParts([headline, positive]),
+    private_feedback: negative,
     category_cleanliness: toStars(num(at(rw, 'scoring.clean'))),
     category_accuracy: toStars(num(at(rw, 'scoring.comfort'))),
     category_checkin: null,
@@ -355,10 +378,20 @@ export function normalizeGuestyReview(
   const rw = rawReview as Raw;
   const channel = (channelId || '').toLowerCase();
 
-  if (channel.startsWith('airbnb')) return fromAirbnb(rw);
-  if (channel.startsWith('booking')) return fromBookingCom(rw);
-  if (channel.startsWith('homeaway') || channel === 'vrbo') return fromVrbo(rw);
-  return fromUnknownChannel(rw);
+  let parsed: NormalizedGuestyReview | null = null;
+  if (channel.startsWith('airbnb')) parsed = fromAirbnb(rw);
+  else if (channel.startsWith('booking')) parsed = fromBookingCom(rw);
+  else if (channel.startsWith('homeaway') || channel === 'vrbo') parsed = fromVrbo(rw);
+
+  // A known channel that suddenly reads as empty is either a genuinely
+  // blank review or a payload whose shape moved under us. Cheap insurance
+  // against the second: fall through to the tolerant reader rather than
+  // write another null row and wait for someone to notice. A truly empty
+  // payload has nothing for the tolerant reader to find either, so it
+  // still comes back empty.
+  if (parsed && hasReviewContent(parsed)) return parsed;
+  const scanned = fromUnknownChannel(rw);
+  return hasReviewContent(scanned) ? scanned : (parsed ?? scanned);
 }
 
 /** True when a parsed review carries something worth showing an owner. */
@@ -390,4 +423,17 @@ export function guestNameFromRawReview(
     if (s) return s;
   }
   return null;
+}
+
+/**
+ * What to call the private_feedback line for a given channel. Airbnb's is
+ * genuinely private, host-only. Booking.com's is the negative half of a
+ * publicly visible review, so calling it private would tell the team the
+ * guest kept it to themselves when the whole world can read it on
+ * Booking.com. VRBO never populates the column: Expedia's review model,
+ * which is what Guesty passes through for VRBO, has no host-only field
+ * at all, so a VRBO review can only reach the work queue on its rating.
+ */
+export function feedbackLabel(channel: string | null | undefined): string {
+  return /booking/i.test(channel || '') ? 'What could be better' : 'Private feedback';
 }

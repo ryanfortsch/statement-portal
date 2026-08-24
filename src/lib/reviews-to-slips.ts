@@ -31,6 +31,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { feedbackLabel } from './guesty-review-normalize';
 
 /** System sentinel for the NOT NULL created_by_email on auto-generated slips. */
 const REVIEWS_BOT_EMAIL = 'reviews@helm.system';
@@ -391,7 +392,9 @@ function buildDescription(r: ActionableReviewRow, actionSummary: string): string
   }
   if (r.private_feedback && r.private_feedback.trim()) {
     lines.push('');
-    lines.push('Private feedback:');
+    // Booking.com's half of this column is publicly visible on Booking;
+    // calling it private on the slip would misinform whoever works it.
+    lines.push(`${feedbackLabel(r.channel)}:`);
     lines.push(r.private_feedback.trim());
   }
   return lines.join('\n').trim();

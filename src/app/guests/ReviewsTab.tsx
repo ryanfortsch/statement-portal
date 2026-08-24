@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { feedbackLabel } from '@/lib/guesty-review-normalize';
 import { Stat } from '@/components/Stat';
 import { isServiceConfigured as isHelmConfigured, supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
@@ -284,7 +285,7 @@ function ReviewRow({
         )}
         {r.private_feedback && (
           <p style={{ marginTop: 6, fontSize: 12, fontStyle: 'italic', color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            Private feedback: {r.private_feedback}
+            {feedbackLabel(r.channel)}: {r.private_feedback}
           </p>
         )}
       </div>
