@@ -8,8 +8,16 @@ import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/li
  * Stripe account, so the eventual payment flows through the statements
  * extras queue (bank_deposit_attributions) with zero extra plumbing.
  *
- * POST /api/payment-links?key=<STAY_CONCIERGE_KEY>
+ * Auth: STAY_CONCIERGE_KEY shared secret, HEADER ONLY
+ * (x-stay-concierge-key), matching /api/achieved-rates. No ?key= form:
+ * query-string secrets leak through URL logging (the 8/20 rotation was
+ * traced to exactly that in httpx). Non-secret query params (?status_key=,
+ * ?scopes=1) still ride the query string.
+ *
+ * POST /api/payment-links     (secret in the x-stay-concierge-key header)
  *   { property_id, label, amount_cents, guest_name?, request_key, save_card? }
+ *   or { deactivate_link_id, property_id }         (turn one link off)
+ *   or { deactivate_request_key }                  (turn off by request_key)
  *
  * save_card is set ONLY by the far-future booking-deposit mints: the link
  * saves the guest's card for the off-session balance charge (see the link
@@ -116,11 +124,10 @@ export async function GET(req: Request) {
   if (!expected) {
     return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
   }
-  const { searchParams } = new URL(req.url);
-  const provided = searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
+  if (req.headers.get('x-stay-concierge-key') !== expected) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  const { searchParams } = new URL(req.url);
 
   // Paid-status lookup for the concierge poller: ?status_key=<request_key>.
   // Resolves the minted link via payment_link_requests, then asks the
@@ -262,9 +269,7 @@ export async function POST(req: Request) {
   if (!expected) {
     return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
   }
-  const { searchParams } = new URL(req.url);
-  const provided = searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
+  if (req.headers.get('x-stay-concierge-key') !== expected) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   if (!isConfigured) {
@@ -278,6 +283,7 @@ export async function POST(req: Request) {
     guest_name?: string;
     request_key?: string;
     deactivate_link_id?: string;
+    deactivate_request_key?: string;
     save_card?: boolean;
   };
   try {
@@ -307,6 +313,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, deactivated: linkId });
   }
 
+  // Deactivate-by-request_key: the concierge's stale-deposit-link sweep knows
+  // only the request_key it minted with, not the plink id. Resolve the link
+  // (and its property) from payment_link_requests, then turn it off. Used to
+  // retire a never-paid deposit link whose stay window has passed so a guest
+  // can't pay a dead booking. Idempotent: an already-inactive link re-POSTs
+  // active=false without error.
+  if (body.deactivate_request_key) {
+    const rk = body.deactivate_request_key.trim();
+    const { data: linkRow } = await supabase
+      .from('payment_link_requests')
+      .select('property_id, stripe_link_id')
+      .eq('request_key', rk)
+      .maybeSingle();
+    if (!linkRow?.stripe_link_id) {
+      return NextResponse.json({ ok: false, error: 'unknown_request_key' }, { status: 200 });
+    }
+    const key = getStripeKeysMap()[linkRow.property_id as string];
+    if (!key) return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });
+    const linkId = String(linkRow.stripe_link_id);
+    if (!/^plink_[A-Za-z0-9]+$/.test(linkId)) {
+      return NextResponse.json({ ok: false, error: 'bad_link_id' }, { status: 200 });
+    }
+    const res = await stripePost(key, `payment_links/${linkId}`, { active: 'false' });
+    if (!res.ok) {
+      return NextResponse.json(
+        { ok: false, error: 'stripe_error', detail: res.message },
+        { status: 200 },
+      );
+    }
+    return NextResponse.json({ ok: true, deactivated: linkId, request_key: rk });
+  }
+
   const propertyId = (body.property_id || '').trim();
   const label = (body.label || '').trim();
   const guestName = (body.guest_name || '').trim();
@@ -319,10 +357,14 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  // Sanity bounds: an add-on is a small fee, not a booking. Catches a
+  // Sanity bounds: an add-on is a small fee, not a booking - $2,000 catches a
   // mis-extracted amount (e.g. the AI reading a $4,500 stay total as the
-  // add-on) before a wrong link ever exists.
-  if (amountCents < 100 || amountCents > 200_000) {
+  // add-on) before a wrong link ever exists. A save_card booking deposit is a
+  // full 50% of a far-future stay, so it gets the same high ceiling the
+  // off-session balance charge uses ($100k, matching /api/balance-charges),
+  // still catching a 100x unit slip.
+  const maxCents = saveCard ? 10_000_000 : 200_000;
+  if (amountCents < 100 || amountCents > maxCents) {
     return NextResponse.json(
       { ok: false, error: 'amount_out_of_range', detail: `${amountCents} cents` },
       { status: 200 },

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
+import { isFutureStayPrincipal } from '@/lib/extras-markers';
 
 /**
  * Per-property review queue for unattributed bank deposits found during
@@ -238,6 +239,39 @@ export function BankDepositReview({
                 amounts are net of the real processing fee.
               </div>
               {deposits.map(dep => {
+                // Far-future stay deposit/balance: stay principal for the
+                // stay's OWN future statement, not add-on revenue for this
+                // month. Warn loudly and offer only Dismiss - attributing it
+                // here would double-count against the reservation's revenue.
+                if (isFutureStayPrincipal(dep.description)) {
+                  const busy = busyId === dep.id;
+                  return (
+                    <div key={dep.id} style={{
+                      padding: '10px 14px', marginBottom: 8, background: 'var(--paper-2)',
+                      borderLeft: '3px solid var(--negative, #b13b2a)', display: 'flex', flexDirection: 'column', gap: 8,
+                    }}>
+                      <div className="flex items-baseline flex-wrap" style={{ gap: 10, fontSize: 12, color: 'var(--ink-2)' }}>
+                        <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
+                        <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--negative, #b13b2a)', fontWeight: 700 }}>future-stay principal</span>
+                        <span className="font-serif tabular-nums" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtMoney(Number(dep.amount))}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink)', lineHeight: 1.5, maxWidth: 660 }} title={dep.description || ''}>
+                        {dep.description}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5, maxWidth: 660 }}>
+                        This is how a guest paid for a <strong>future</strong> stay (deposit or balance), not add-on
+                        revenue for this month. The stay&rsquo;s full rental income is recognized on its own
+                        statement via the reservation, so adding it here would double-count. Dismiss it.
+                      </div>
+                      <div>
+                        <button type="button" onClick={() => dismiss(dep)} disabled={busy}
+                          style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)', padding: '5px 10px', cursor: busy ? 'wait' : 'pointer' }}>
+                          {busy ? 'Dismissing…' : 'Dismiss (not this statement)'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
                 const d = draftFor(dep);
                 const busy = busyId === dep.id;
                 return (

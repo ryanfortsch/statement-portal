@@ -15,10 +15,16 @@ import { getStripeKeysMap } from '@/lib/stripe-sync';
  * no $2,000 link cap), in the PROPERTY'S OWN Stripe account, against the
  * customer + payment method captured at deposit checkout.
  *
- * Concurrency: an atomic scheduled->charging claim means a double click or
- * two operators can never fire two PaymentIntents; the Stripe Idempotency-Key
- * (row id + attempt counter) backstops a network retry of the same attempt
- * while letting an explicit operator retry be a fresh request.
+ * Concurrency / no-double-charge: an atomic scheduled->charging claim means a
+ * double click or two operators can never fire two PaymentIntents at once. The
+ * Stripe Idempotency-Key is STABLE per balance row (`helm-balance-<id>`, no
+ * attempt suffix), so a network retry OR a crash-recovery re-fire of the same
+ * row replays Stripe's original response instead of creating a second intent
+ * (Stripe retains idempotency results for 24h). And before re-charging a row
+ * left in 'charging' by a serverless death between Stripe succeeding and the
+ * DB write, we search Stripe for an already-succeeded intent on this
+ * request_key and reconcile it - covering the window past 24h. Together these
+ * close the "Stripe charged, DB didn't record, operator retried" double-charge.
  *
  * Outcomes land on the row (charged / failed with the decline detail) and as
  * an appended note on the concierge's balance work slip, so /work tells the
@@ -65,6 +71,28 @@ async function noteSlip(slipRequestKey: string, note: string): Promise<void> {
   }
 }
 
+/** Look for a PaymentIntent that ALREADY charged this balance row's
+ * request_key in the property's Stripe account. Used only on the 'charging'
+ * recovery path: if a serverless death recorded no outcome but Stripe did
+ * charge, this finds it so we reconcile instead of double-charging. Search is
+ * eventually consistent, so a null result is not proof nothing charged - the
+ * stable idempotency key is the primary guard within 24h; this extends it.
+ * Returns the intent id, or '' if none/none-yet/error. */
+async function findAlreadyChargedIntent(stripeKey: string, requestKey: string): Promise<string> {
+  try {
+    const q = `metadata['helm_request_key']:'${requestKey.replace(/['\\]/g, '')}'`;
+    const res = await fetch(`${STRIPE}/payment_intents/search?query=${encodeURIComponent(q)}&limit=10`, {
+      headers: { Authorization: `Bearer ${stripeKey}` },
+    });
+    if (!res.ok) return '';
+    const data = (await res.json().catch(() => ({}))) as { data?: { id?: string; status?: string }[] };
+    const hit = (data.data || []).find((pi) => pi.status === 'succeeded' || pi.status === 'processing');
+    return hit?.id || '';
+  } catch {
+    return '';
+  }
+}
+
 export async function chargeBalance(formData: FormData): Promise<void> {
   const session = await auth();
   const operatorEmail = session?.user?.email;
@@ -78,11 +106,12 @@ export async function chargeBalance(formData: FormData): Promise<void> {
   if (!row) redirect('/statements/balance-charges');
 
   // Chargeable states: scheduled (first attempt), failed (operator retry),
-  // charging (recovery from a crash mid-attempt - the page warns to check
-  // Stripe for a live PaymentIntent first).
+  // charging (recovery from a crash mid-attempt - a prior attempt may have
+  // already charged, so we search Stripe before re-firing, below).
   if (!['scheduled', 'failed', 'charging'].includes(row.status)) {
     redirect(`/statements/balance-charges#row-${id}`);
   }
+  const isRecovery = row.status === 'charging';
   const todayIso = new Date().toISOString().slice(0, 10);
   if (row.charge_after > todayIso) {
     redirect(`/statements/balance-charges?err=not_due#row-${id}`);
@@ -140,13 +169,31 @@ export async function chargeBalance(formData: FormData): Promise<void> {
   let piId = '';
   let failureCode = '';
   let failureMessage = '';
-  try {
+  let reconciled = false;
+
+  // Recovery: this row was stuck in 'charging'. Before firing a fresh intent,
+  // ask Stripe whether the prior attempt already succeeded for this
+  // request_key. If so, adopt it - no second charge.
+  if (isRecovery) {
+    const existingPi = await findAlreadyChargedIntent(stripeKey, row.request_key);
+    if (existingPi) {
+      outcome = 'charged';
+      piId = existingPi;
+      reconciled = true;
+    }
+  }
+
+  if (!reconciled) try {
     const res = await fetch(`${STRIPE}/payment_intents`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${stripeKey}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Idempotency-Key': `helm-balance-${id}-${attempt}`,
+        // STABLE per row (no attempt suffix): a retry replays Stripe's
+        // original result within its 24h idempotency window instead of
+        // creating a second PaymentIntent. This is the core double-charge
+        // guard; the recovery search above extends it past 24h.
+        'Idempotency-Key': `helm-balance-${id}`,
       },
       body: params.toString(),
     });
@@ -209,10 +256,14 @@ export async function chargeBalance(formData: FormData): Promise<void> {
     });
     await noteSlip(
       row.slip_request_key,
-      `--- Balance charged ---\n${amountUsd} charged to the card on file on ${todayIso} ` +
-        `by ${operatorEmail} (${piId}). Stripe receipt sent` +
-        (row.guest_email ? ` to ${row.guest_email}.` : '.') +
-        ` The payment will surface in the statements extras queue.`,
+      reconciled
+        ? `--- Balance reconciled ---\n${amountUsd} was ALREADY charged to the card on file ` +
+            `(${piId}); a prior attempt succeeded on Stripe but crashed before recording it. ` +
+            `Reconciled on ${todayIso} by ${operatorEmail} - no second charge fired.`
+        : `--- Balance charged ---\n${amountUsd} charged to the card on file on ${todayIso} ` +
+            `by ${operatorEmail} (${piId}). Stripe receipt sent` +
+            (row.guest_email ? ` to ${row.guest_email}.` : '.') +
+            ` The payment will surface in the statements extras queue.`,
     );
   } else {
     await supabase

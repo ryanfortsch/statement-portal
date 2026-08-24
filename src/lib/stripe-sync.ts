@@ -38,6 +38,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { loadAddOnTotals } from './statement-addons';
+import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
 
 export type StripeSyncResult = {
   property_id: string;
@@ -166,6 +167,20 @@ function suggestReservationForCharge(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * The statement period (YYYY-MM) a far-future deposit/balance charge really
+ * belongs to, parsed from its bridge request_key. The revenue is recognized
+ * at CHECKOUT, so we take the last ISO date in the key:
+ *   ffdeposit:<slug>:<check_in>:<check_out>:<cents>  -> check_out month
+ *   ffbalcharge:<slug>:<check_in>                    -> check_in month
+ * Returns '' when no date is present (unparseable / future-proofing).
+ */
+function futureStayPeriodFromKey(requestKey: string): string {
+  const dates = requestKey.match(/\d{4}-\d{2}-\d{2}/g);
+  const last = dates && dates.length ? dates[dates.length - 1] : '';
+  return last ? last.slice(0, 7) : '';
 }
 
 export function getStripeKeysMap(): Record<string, string> {
@@ -1062,14 +1077,30 @@ export async function syncPropertyStripe(opts: {
         const gross = round2(agg.grossCents / 100);
         const feeNote = agg.feeKnown ? `$${round2(agg.feeCents / 100).toFixed(2)} Stripe fee` : 'fee pending';
         const refundNote = agg.refundedCents > 0 ? `, $${round2(agg.refundedCents / 100).toFixed(2)} refunded` : '';
+        // Far-future booking deposit / balance (bridge-minted, ffdeposit: or
+        // ffbalcharge: request_key): this is stay PRINCIPAL for the stay's own
+        // future statement period, NOT an add-on for a stay in THIS month.
+        // Mark it so the extras-queue decision surface warns "do not apply
+        // here", and drop the same-month reservation preselect that would
+        // otherwise invite a wrong attribution. The stay's revenue is
+        // recognized on its own statement via the reservation; this charge is
+        // how the guest paid, not additive add-on revenue.
+        const futurePrincipal = /^(ffdeposit|ffbalcharge):/.test(agg.helmRequestKey || '');
+        const targetPeriod = futurePrincipal ? futureStayPeriodFromKey(agg.helmRequestKey || '') : '';
+        const baseDesc = `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote})`;
+        const description = futurePrincipal
+          ? `${FUTURE_STAY_PRINCIPAL_MARK} - do not apply to this statement${targetPeriod ? `; belongs to ${targetPeriod}` : ''}. ${baseDesc}`
+          : baseDesc;
         queueRows.push({
           property_id: propertyId,
           month,
           deposit_date: createdIso,
           amount: round2(netCents / 100),
-          description: `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote})`.slice(0, 300),
+          description: description.slice(0, 300),
           source: 'stripe_charge',
-          suggested_reservation_code: suggestReservationForCharge(reservations, createdIso, preselectText(agg)),
+          suggested_reservation_code: futurePrincipal
+            ? null
+            : suggestReservationForCharge(reservations, createdIso, preselectText(agg)),
           dedupe_key: `stripe:${o.code}`,
         });
       }
