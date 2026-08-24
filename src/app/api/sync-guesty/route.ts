@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
+import { normalizeGuestyReview } from '@/lib/guesty-review-normalize';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -370,12 +371,25 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
   const nameCache = new Map<string, string>();
   const rows: any[] = [];
   let skipped = 0;
+  // Reviews whose payload yielded no rating and no text, by channel. An
+  // empty row is normal (Guesty opens one when a stay completes, before
+  // the guest writes anything), but a channel that is ALL empties is the
+  // signature of a payload shape the normalizer does not speak yet, which
+  // is how VRBO went unnoticed for two years. Surfaced in sync_status.
+  const unparsedByChannel: Record<string, number> = {};
 
   for (const r of reviews) {
     const propertyId = r.listingId ? listingMap[r.listingId] : undefined;
     if (!propertyId) { skipped++; continue; }
     const guestName = r.guestId ? await resolveGuestName(r.guestId, token, nameCache) : null;
-    const rw = (r.rawReview || {}) as Record<string, unknown>;
+    // Guesty hands back the channel's own review payload verbatim and
+    // normalizes nothing, so each channel needs its own reader. Parsing
+    // Airbnb's shape alone is what left every VRBO and Booking.com review
+    // stored with a null rating and null text, invisible everywhere.
+    const parsed = normalizeGuestyReview(r.channelId, r.rawReview);
+    if (parsed.overall_rating === null && !parsed.public_review && !parsed.private_feedback) {
+      unparsedByChannel[r.channelId || 'unknown'] = (unparsedByChannel[r.channelId || 'unknown'] || 0) + 1;
+    }
 
     rows.push({
       guesty_review_id: r._id,
@@ -386,15 +400,8 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
       guest_name: guestName,
       channel: channelFromGuesty(r.channelId),
       guesty_channel_id: r.channelId || null,
-      overall_rating: toNumber(rw.overall_rating),
-      public_review: (rw.public_review as string) || null,
-      private_feedback: (rw.private_feedback as string) || null,
-      category_cleanliness: toNumber(rw.category_ratings_cleanliness),
-      category_accuracy: toNumber(rw.category_ratings_accuracy),
-      category_checkin: toNumber(rw.category_ratings_checkin),
-      category_communication: toNumber(rw.category_ratings_communication),
-      category_location: toNumber(rw.category_ratings_location),
-      category_value: toNumber(rw.category_ratings_value),
+      ...parsed,
+      raw_review: r.rawReview ?? null,
       review_created_at: r.createdAt,
       synced_at: new Date().toISOString(),
     });
@@ -412,7 +419,7 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
   // already-linked reviews stay put even if the contact changes name.
   await linkReviewsToContacts();
 
-  return { fetched: reviews.length, upserted: rows.length, skipped };
+  return { fetched: reviews.length, upserted: rows.length, skipped, unparsed_by_channel: unparsedByChannel };
 }
 
 /**

@@ -27,6 +27,8 @@ export type ReviewRow = {
   contact_id: string | null;
   guest_name: string | null;
   channel: string | null;
+  /** 'guesty-api' for the live feed, 'csv-fallback' for a reviews-export row. */
+  source: string | null;
   overall_rating: number | null;
   public_review: string | null;
   private_feedback: string | null;
@@ -95,12 +97,14 @@ export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats>
     const sinceISO = new Date(Date.now() - days * DAY_MS).toISOString();
     const { data, error } = await supabase
       .from('reviews')
-      .select('overall_rating')
+      .select('overall_rating, property_id, guest_name, source')
       .gte('review_created_at', sinceISO)
       .not('overall_rating', 'is', null)
       .in('property_id', propertyIds);
     if (error) throw error;
-    const rows = (data ?? []) as Array<{ overall_rating: number | null }>;
+    const rows = dropCsvTwins(
+      (data ?? []) as Array<{ overall_rating: number | null } & DedupableReview>,
+    );
     if (rows.length === 0) return empty;
 
     let total = 0;
@@ -124,6 +128,42 @@ export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats>
   } catch {
     return empty;
   }
+}
+
+/**
+ * A review can reach the table twice. The Guesty API sync writes the real
+ * record; the CSV fallback (/api/ingest-guesty-csv, used when the API is
+ * unavailable) writes its own row from the reviews export, keyed
+ * "csv:<code>" so it can never collide with a Mongo id, and with a rating
+ * of 5.0 inferred rather than read. Every one of the 68 CSV rows on file
+ * has an API twin, so once a channel's real payload parses, the same
+ * guest's words would render twice.
+ *
+ * The API row wins wherever both exist. There is no reservation id on a
+ * CSV row, so the twin test is property plus guest name, the only pair
+ * both sources carry.
+ */
+type DedupableReview = { source?: string | null; property_id: string | null; guest_name: string | null };
+
+function twinKey(r: DedupableReview): string | null {
+  const name = (r.guest_name || '').trim().toLowerCase();
+  if (!r.property_id || !name) return null;
+  return `${r.property_id}|${name}`;
+}
+
+function dropCsvTwins<T extends DedupableReview>(rows: T[]): T[] {
+  const apiKeys = new Set<string>();
+  for (const r of rows) {
+    if (r.source === 'csv-fallback') continue;
+    const k = twinKey(r);
+    if (k) apiKeys.add(k);
+  }
+  if (apiKeys.size === 0) return rows;
+  return rows.filter((r) => {
+    if (r.source !== 'csv-fallback') return true;
+    const k = twinKey(r);
+    return !k || !apiKeys.has(k);
+  });
 }
 
 export type ReviewListFilters = {
@@ -154,7 +194,7 @@ export async function listReviews(filters: ReviewListFilters = {}): Promise<Revi
     let q = supabase
       .from('reviews')
       .select(
-        'id, property_id, reservation_id, contact_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
+        'id, property_id, reservation_id, contact_id, guest_name, channel, source, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
       )
       .order('review_created_at', { ascending: false })
       .not('overall_rating', 'is', null)
@@ -187,7 +227,7 @@ export async function listReviews(filters: ReviewListFilters = {}): Promise<Revi
 
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []) as ReviewRow[];
+    return dropCsvTwins((data ?? []) as ReviewRow[]);
   } catch {
     return [];
   }
@@ -229,13 +269,13 @@ export async function listReviewsForContact(contactId: string, limit = 25): Prom
     const { data, error } = await supabase
       .from('reviews')
       .select(
-        'id, property_id, reservation_id, contact_id, guest_name, channel, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
+        'id, property_id, reservation_id, contact_id, guest_name, channel, source, overall_rating, public_review, private_feedback, category_cleanliness, category_accuracy, category_checkin, category_communication, category_location, category_value, review_created_at',
       )
       .eq('contact_id', contactId)
       .order('review_created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
-    return (data ?? []) as ReviewRow[];
+    return dropCsvTwins((data ?? []) as ReviewRow[]);
   } catch {
     return [];
   }
