@@ -543,10 +543,6 @@ export default async function PacketPage({
   const vendorTimes = isMine
     ? await loadVendorTimesForDay(fieldDb(), packet.visit_date)
     : new Map<string, string>();
-  const cleaningToday = packet.stops
-    .map((s) => ({ stop: s, time: vendorTimes.get(s.property_id) }))
-    .filter((x): x is { stop: typeof x.stop; time: string } => !!x.time)
-    .sort((a, b) => a.time.localeCompare(b.time));
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -580,6 +576,15 @@ export default async function PacketPage({
   if (isMine) {
     packet = (await loadPacketDetail(packetId, { revealAccess: canSeeAccess, revealIdentity: true }))!;
   }
+
+  // Derived AFTER the reveal above, and that ordering is the whole point:
+  // the first load is masked (maskIdentity blanks name and address), so a
+  // list built from the earlier `packet` captures name:'' and renders as a
+  // bare time with nothing after it. Read the revealed stops instead.
+  const cleaningToday = packet.stops
+    .map((s) => ({ stop: s, time: vendorTimes.get(s.property_id) }))
+    .filter((x): x is { stop: typeof x.stop; time: string } => !!x.time)
+    .sort((a, b) => a.time.localeCompare(b.time));
 
   // Which stops have a LIVE programmed smart-lock code, so we can say "your code
   // opens this door" (verified entry) instead of the static-code / call-office
@@ -871,7 +876,7 @@ export default async function PacketPage({
                   downstairs unit are one street address, and sending an
                   inspector to the wrong half of a two-unit house is the
                   same class of error the vendor matcher guards against. */}
-              {stop.property.name}
+              {stop.property.name || stop.property.address || 'Home on this trip'}
             </div>
           ))}
           <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, lineHeight: 1.5 }}>
