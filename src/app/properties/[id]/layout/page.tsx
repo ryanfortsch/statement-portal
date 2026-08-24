@@ -4,6 +4,7 @@ import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { loadPropertyDeckItemIds } from '@/lib/inspection-cards';
+import { PULLOUT_BED_ITEM_ID } from '@/lib/pullout-beds';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { LayoutEditor, type EditorCard } from './LayoutEditor';
 
@@ -18,6 +19,15 @@ type ItemRow = {
   category: string;
   property_id: string | null;
   sort_order: number;
+};
+
+/** Cards a condition adds on its own (lib/inspection-deck.ts), keyed to the
+ *  property fact that turns them on. They stay out of the editor for homes
+ *  the condition doesn't apply to; for the homes it does, the card is
+ *  offered so the operator can place it in walk order instead of taking
+ *  the default spot at the end. */
+const AUTO_CARD_APPLIES: Record<string, (p: HelmPropertyRow) => boolean> = {
+  [PULLOUT_BED_ITEM_ID]: (p) => p.has_pullout_bed === true,
 };
 
 async function getData(propertyId: string): Promise<{
@@ -51,7 +61,11 @@ async function getData(propertyId: string): Promise<{
     .eq('template_id', HELM_CORE_TEMPLATE_ID)
     .or(`property_id.is.null,property_id.eq.${propertyId}`);
 
-  const rows = (itemRows ?? []) as ItemRow[];
+  const prop = property as HelmPropertyRow;
+  const rows = ((itemRows ?? []) as ItemRow[]).filter((r) => {
+    const applies = AUTO_CARD_APPLIES[r.id];
+    return !applies || applies(prop);
+  });
   const byId = new Map(rows.map((r) => [r.id, r]));
   const toCard = (r: ItemRow): EditorCard => ({
     itemId: r.id,
@@ -72,7 +86,7 @@ async function getData(propertyId: string): Promise<{
     .sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title))
     .map(toCard);
 
-  return { property: property as HelmPropertyRow, deck, addable, isCustomized };
+  return { property: prop, deck, addable, isCustomized };
 }
 
 export default async function PropertyLayoutPage({ params }: { params: Promise<Params> }) {
@@ -113,6 +127,13 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
           These are the cards the inspection runs, in order. Drag to reorder, remove any you
           don&rsquo;t need, or add your own. Changes save automatically and apply to the next
           inspection at {property.name}.
+          {property.has_pullout_bed && (
+            <>
+              {' '}Because this home has a pullout bed, a <strong>Pullout Bed + Linens</strong> card
+              runs at the end of every walk whether or not it&rsquo;s laid out here, carrying the
+              linen location and any guest request to have it made up.
+            </>
+          )}
         </p>
       </section>
 

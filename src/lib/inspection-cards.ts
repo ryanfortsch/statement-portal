@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { PULLOUT_BED_ITEM_ID } from './pullout-beds';
 
 /**
  * Per-property inspection card layout — the source of truth for "which
@@ -17,6 +18,17 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  */
 
 export const DEFAULT_DECK_SIZE = 10;
+
+/**
+ * Cards a CONDITION puts in the deck, never a layout or a category.
+ * lib/inspection-deck.ts appends each one for the properties its condition
+ * applies to, so they must be held out of the default deck (and out of any
+ * other category-driven pick) no matter what item_category the row carries.
+ * Excluding them by id rather than by a fourth item_category value keeps
+ * this out of the inspection_item_category enum, which nothing else needs
+ * to know about.
+ */
+export const AUTO_CARD_ITEM_IDS: ReadonlySet<string> = new Set([PULLOUT_BED_ITEM_ID]);
 
 type ItemRow = {
   id: string;
@@ -41,7 +53,7 @@ export async function defaultDeckItemIds(
     .is('property_id', null)
     .order('sort_order', { ascending: true });
 
-  const items = (data ?? []) as ItemRow[];
+  const items = ((data ?? []) as ItemRow[]).filter((i) => !AUTO_CARD_ITEM_IDS.has(i.id));
   const everyTime = items.filter((i) => (i.item_category ?? 'EVERY_TIME') === 'EVERY_TIME');
   const niceToHave = items.filter((i) => i.item_category === 'NICE_TO_HAVE');
 

@@ -115,6 +115,8 @@ export default async function FieldInspectPage({
         zoneName: z?.name ?? null,
         zoneFloorLabel: z?.floor_label ?? null,
         walkOrder: z?.walk_order ?? null,
+        note: c.note ?? null,
+        noteLevel: c.noteLevel ?? 'info',
       };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);

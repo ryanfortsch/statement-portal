@@ -2211,9 +2211,17 @@ function operationalGroups(p: HelmPropertyRow) {
     {
       label: 'Guest gear on-site',
       value:
-        [p.has_pack_n_play ? 'Pack-n-play' : null, p.has_high_chair ? 'High chair' : null]
+        [
+          p.has_pack_n_play ? 'Pack-n-play' : null,
+          p.has_high_chair ? 'High chair' : null,
+          p.has_pullout_bed ? 'Pullout bed' : null,
+        ]
           .filter(Boolean)
           .join(', ') || null,
+    },
+    {
+      label: 'Pullout linens',
+      value: p.has_pullout_bed ? p.pullout_linens_location : null,
     },
   ];
   const utilities: OpRow[] = [
