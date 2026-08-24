@@ -193,3 +193,26 @@ export async function archiveContractToDrive(args: {
     folderPath: ['Contracts', args.year],
   });
 }
+
+/**
+ * Archive a proposal (projection deck) PDF to Helm Records / Proposals /
+ * <year>/. Thin wrapper over archiveToDrive, same shape as
+ * archiveContractToDrive, so markSent and the backfill route don't need to
+ * know the folder convention.
+ *
+ * The pre-Helm proposals live in Drive as hand-built PowerPoint decks under
+ * "Property Folders"; this puts the Helm-generated ones somewhere equally
+ * durable rather than leaving them only in Postgres.
+ */
+export async function archiveProposalToDrive(args: {
+  pdf: Buffer;
+  filename: string;
+  /** Calendar year for the sub-folder, e.g. "2026". */
+  year: string;
+}): Promise<{ ok: boolean; url?: string; reason?: string }> {
+  return archiveToDrive({
+    pdf: args.pdf,
+    filename: args.filename,
+    folderPath: ['Proposals', args.year],
+  });
+}
