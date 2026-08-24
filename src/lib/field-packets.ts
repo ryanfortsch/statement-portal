@@ -2349,6 +2349,11 @@ export type CalCell = {
   /** Open, but the next guest is already out to a contractor in a live
    *  packet — so this day is handled, not actionable. */
   covered: boolean;
+  /** Open, but a COMPLETED inspection since the prior guest left already
+   *  prepped the next arrival. Packets aren't the only way a home gets
+   *  inspected — a staff walk through /inspections counts too, and without
+   *  this the board kept begging for a home someone inspected this afternoon. */
+  inspected: boolean;
 };
 export type CalRow = {
   propertyId: string;
@@ -2414,6 +2419,35 @@ export async function loadInspectionCalendar(
 
   const coveredBookings = await coveredBookingIds();
 
+  // Completed inspections are the OTHER way a turnover gets prepped: a staff
+  // walk through /inspections never touches a packet, so before this the board
+  // kept begging for a home someone had already inspected.
+  const { data: iData } = await fieldDb()
+    .from('inspections')
+    .select('property_id, completed_at')
+    .in('property_id', propIds)
+    .not('completed_at', 'is', null)
+    .gte('completed_at', fetchStart);
+  const inspectedDays = new Map<string, string[]>();
+  for (const r of (iData ?? []) as { property_id: string; completed_at: string }[]) {
+    const arr = inspectedDays.get(r.property_id) ?? [];
+    arr.push(etDate(r.completed_at));
+    inspectedDays.set(r.property_id, arr);
+  }
+
+  /** Did a finished inspection prep THIS arrival? Only one done after the prior
+   *  guest walked out counts — an inspection from before that checkout prepped
+   *  the previous stay, not this one. With no prior checkout on record, fall
+   *  back to a two-week look-back so a routine check still counts. */
+  const preppedFor = (propertyId: string, pb: BookingRaw[], checkIn: string): boolean => {
+    const days = inspectedDays.get(propertyId);
+    if (!days?.length) return false;
+    const prior =
+      pb.filter((b) => isGuestStay(b) && b.check_out <= checkIn).map((b) => b.check_out).sort().at(-1) ??
+      addDays(checkIn, -14);
+    return days.some((d) => d >= prior && d <= checkIn);
+  };
+
   const byProp = new Map<string, BookingRaw[]>();
   for (const b of bookings) {
     const a = byProp.get(b.property_id) ?? [];
@@ -2427,7 +2461,12 @@ export async function loadInspectionCalendar(
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
     const uncovered = pb.filter(
-      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !isCoveredStay(coveredBookings, p.id, b.id, b.check_in),
+      (b) =>
+        isGuestStay(b) &&
+        b.check_in >= windowStart &&
+        b.check_in <= windowEnd &&
+        !isCoveredStay(coveredBookings, p.id, b.id, b.check_in) &&
+        !preppedFor(p.id, pb, b.check_in),
     );
     // A home whose next check-in falls just PAST the window still needs a row
     // when a guest checks out inside it: those open days are prime inspection
@@ -2438,7 +2477,13 @@ export async function loadInspectionCalendar(
       (b) => isGuestStay(b) && b.check_out >= windowStart && b.check_out <= windowEnd,
     );
     const uncoveredAfter = checkoutInWindow && uncovered.length === 0
-      ? pb.filter((b) => isGuestStay(b) && b.check_in > windowEnd && !isCoveredStay(coveredBookings, p.id, b.id, b.check_in))
+      ? pb.filter(
+          (b) =>
+            isGuestStay(b) &&
+            b.check_in > windowEnd &&
+            !isCoveredStay(coveredBookings, p.id, b.id, b.check_in) &&
+            !preppedFor(p.id, pb, b.check_in),
+        )
       : [];
     const anchor = uncovered.length > 0 ? uncovered : uncoveredAfter;
     if (anchor.length === 0) continue;
@@ -2462,9 +2507,11 @@ export async function loadInspectionCalendar(
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
       const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
       const nextCovered = !!next && isCoveredStay(coveredBookings, p.id, next.id, next.check_in);
-      const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
+      const nextPrepped = !!next && preppedFor(p.id, pb, next.check_in);
+      const inspectable = state === 'open' && D >= today && !!next && !nextCovered && !nextPrepped;
       const covered = state === 'open' && nextCovered;
-      return { date: D, state, checkIn, inspectable, covered };
+      const inspected = state === 'open' && !nextCovered && nextPrepped;
+      return { date: D, state, checkIn, inspectable, covered, inspected };
     });
     rows.push({
       propertyId: p.id,
