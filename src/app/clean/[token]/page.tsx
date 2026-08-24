@@ -7,6 +7,7 @@ import {
   addDays,
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
+import { loadVendorTimes } from '@/lib/cleaner-digest';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -78,6 +79,17 @@ export default async function CleanerSchedulePage({
   const selectedDate = inRange ? d! : etHourNow() < 15 ? today : addDays(today, 1);
   const selected: ScheduleDay = days.find((x) => x.date === selectedDate) ?? days[0];
 
+  // Order by the cleaning times the vendor committed to, matching the daily
+  // text exactly. Checkout times are often identical across the fleet, so
+  // they say nothing about the route; the vendor's own times do. Checkout
+  // still shows as "saida" because that is when the house frees up.
+  const vendorTimes = await loadVendorTimes(supabase, selected.date);
+  const rows = [...selected.rows].sort((a, b) => {
+    const ta = vendorTimes.get(a.propertyId) ?? a.time;
+    const tb = vendorTimes.get(b.propertyId) ?? b.time;
+    return ta.localeCompare(tb) || a.propertyName.localeCompare(b.propertyName);
+  });
+
   return (
     <>
       <style>{css}</style>
@@ -119,11 +131,14 @@ export default async function CleanerSchedulePage({
           </div>
         ) : (
           <ol className="rt-cl-list">
-            {selected.rows.map((r) => (
+            {rows.map((r) => {
+              const clean = vendorTimes.get(r.propertyId);
+              return (
               <li key={`${r.propertyId}|${r.checkIn}`} className="rt-cl-row">
                 <div className="rt-cl-time">
-                  {r.time}
-                  {r.adjustment?.adjustedTime && <div className="rt-cl-was">era {r.defaultTime}</div>}
+                  {clean ?? r.time}
+                  {clean && <div className="rt-cl-sub">saída {r.time}</div>}
+                  {!clean && r.adjustment?.adjustedTime && <div className="rt-cl-was">era {r.defaultTime}</div>}
                 </div>
                 <div className="rt-cl-body">
                   <div className="rt-cl-name">{r.propertyName}</div>
@@ -139,11 +154,15 @@ export default async function CleanerSchedulePage({
                     {r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut && (
                       <span className="rt-cl-tag">estadia estendida</span>
                     )}
+                    {clean && clean < r.time && (
+                      <span className="rt-cl-tag is-sameday">atenção: saída só às {r.time}</span>
+                    )}
                     {!r.sameDayTurnover && <span className="rt-cl-tag is-quiet">sem entrada no mesmo dia</span>}
                   </div>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
 
@@ -206,6 +225,7 @@ const css = `
     font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700;
     min-width: 86px; line-height: 1; padding-top: 2px; letter-spacing: -0.02em;
   }
+  .rt-cl-sub { font-size: 12px; font-weight: 500; color: var(--ink-4); margin-top: 6px; letter-spacing: 0.02em; }
   .rt-cl-was { font-size: 11px; font-weight: 500; color: var(--signal); margin-top: 6px; letter-spacing: 0.02em; text-decoration: line-through; text-decoration-color: var(--ink-4); text-decoration-thickness: 1px; }
   .rt-cl-body { flex: 1; min-width: 0; }
   .rt-cl-name {
