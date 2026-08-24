@@ -49,6 +49,7 @@ import { z } from 'zod';
 import { fieldDb } from '@/lib/field-db';
 import { createMaintenancePacket, loadFieldProperties } from '@/lib/field-packets';
 import { getProperty } from '@/lib/properties';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import type {
   MaintenanceRunCard,
   RunsBoardData,
@@ -740,21 +741,29 @@ export async function loadMaintenanceRunsBoard(): Promise<RunsBoardData> {
       .not('work_slip_id', 'is', null);
     const stopRows = (stops ?? []) as Array<{ packet_id: string; work_slip_id: string }>;
     const slipIds = [...new Set(stopRows.map((s) => s.work_slip_id))];
-    const slipById = new Map<string, { id: string; title: string; priority: string; property_id: string }>();
+    // status rides along: a run is planned off the OPEN pool, but a slip can
+    // be closed afterwards (a contractor fixes it on another visit, or the
+    // office marks it done). Nothing prunes the stop, so without this filter
+    // the card lists finished work as pending, the job count overstates the
+    // trip, and "Email…" sends a vendor a job that is already done.
+    const slipById = new Map<string, { id: string; title: string; priority: string; property_id: string; status: string }>();
     if (slipIds.length > 0) {
       const { data: slips } = await fieldDb()
         .from('work_slips')
-        .select('id, title, priority, property_id')
+        .select('id, title, priority, property_id, status')
         .in('id', slipIds);
-      for (const s of (slips ?? []) as Array<{ id: string; title: string; priority: string; property_id: string }>) {
+      for (const s of (slips ?? []) as Array<{ id: string; title: string; priority: string; property_id: string; status: string }>) {
         slipById.set(s.id, s);
       }
     }
+    const isActive = (status: string) => (ACTIVE_WORK_SLIP_STATUSES as string[]).includes(status);
     runs = packetRows.map((p) => {
-      const slips = stopRows
+      const onPacket = stopRows
         .filter((s) => s.packet_id === p.id)
         .map((s) => slipById.get(s.work_slip_id))
-        .filter((s): s is NonNullable<typeof s> => !!s)
+        .filter((s): s is NonNullable<typeof s> => !!s);
+      const slips = onPacket
+        .filter((s) => isActive(s.status))
         .map((s) => ({
           id: s.id,
           title: s.title,
@@ -769,8 +778,16 @@ export async function loadMaintenanceRunsBoard(): Promise<RunsBoardData> {
         suggested: !!p.suggestion_key?.startsWith(SUGGESTION_PREFIX) && p.status === 'draft',
         postedPriceCents: p.posted_price_cents,
         slips,
+        closedSlipCount: onPacket.length - slips.length,
       };
     });
+    // A SUGGESTED draft with nothing live left is a proposal that reality
+    // already answered, so hide it rather than offering a Publish button that
+    // would dispatch an empty trip. The next planner pass deletes it (the
+    // pool no longer holds its slips, so the plan can't match). Committed
+    // runs (hand-made drafts, published, claimed) stay visible even when
+    // emptied: someone has to decide what happens to them.
+    runs = runs.filter((r) => !(r.suggested && r.slips.length === 0));
   }
 
   const taken = await slipIdsOnLivePackets(true);

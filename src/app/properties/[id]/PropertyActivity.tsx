@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { displayNameForEmail } from '@/lib/team';
+import { stampActorNames } from '@/lib/actor-names';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 type ActivityKind =
@@ -19,6 +20,10 @@ export type ActivityEvent = {
   at: string;             // ISO timestamp
   kind: ActivityKind;
   actor: string | null;   // email — rendered as displayName
+  /** Resolved display name for `actor`, stamped by stampActorNames() at load
+   *  time. Actors are no longer team-only: a slip closed in the field portal
+   *  or by packet approval carries the contractor's address. */
+  actorName?: string | null;
   label: string;          // primary text, e.g. "Filed kitchen leak"
   secondary?: string;     // small grey text, e.g. "in_progress · high"
   href?: string;          // click target
@@ -131,7 +136,7 @@ function ActivityRow({ event: e }: { event: ActivityEvent }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)' }}>
           {e.actor && (
-            <span style={{ fontWeight: 500 }}>{displayNameForEmail(e.actor)} </span>
+            <span style={{ fontWeight: 500 }}>{e.actorName ?? displayNameForEmail(e.actor)} </span>
           )}
           {e.label}
         </div>
@@ -370,6 +375,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
   }
 
   events.sort((a, b) => b.at.localeCompare(a.at));
+  await stampActorNames(events);
   return events;
 }
 

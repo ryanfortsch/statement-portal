@@ -315,6 +315,11 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         {fmtDate(run.visitDate)}
         {run.postedPriceCents != null && <span> · {fmtPrice(run.postedPriceCents)}</span>}
         <span> · {run.slips.length} {run.slips.length === 1 ? 'job' : 'jobs'}</span>
+        {run.closedSlipCount > 0 && (
+          <span style={{ color: 'var(--ink-4)' }}>
+            {' '}· {run.closedSlipCount} already closed
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         {run.slips.slice(0, 4).map((s) => (
