@@ -18,7 +18,6 @@ import {
   explainError,
 } from '@/lib/stay-concierge';
 import { MessagingQueue } from './MessagingQueue';
-import { RemindersSection } from './RemindersSection';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
 
@@ -35,7 +34,7 @@ function Shell({ children }: { children: ReactNode }) {
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
       <HelmMasthead />
-      <MessagingTabs current="guests" />
+      <MessagingTabs current="guests" lens="inbox" />
 
       {children}
 
@@ -77,12 +76,10 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 async function QueueSection() {
   const pending = await listApprovals();
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
-  return (
-    <>
-      <MessagingQueue initialPending={pending.data.approvals} />
-      <RemindersSection />
-    </>
-  );
+  // Proactive scheduling moved to the Send lens (/messaging/send): the Inbox
+  // is for reacting to what came in, Send is for starting something. Keeping
+  // both here made the queue page a junk drawer.
+  return <MessagingQueue initialPending={pending.data.approvals} />;
 }
 
 // The Guesty-inbox replacement: every recent guest conversation, expandable

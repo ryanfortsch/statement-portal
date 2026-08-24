@@ -316,6 +316,22 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
+  // The Send lens of the Guests tab: pick a stay and write to them. Hidden
+  // from the nav lists (Messaging already carries the section) but registered
+  // so the command palette can jump straight here, which is the whole point
+  // of a surface used mid-turnover.
+  {
+    id: 'messaging-send',
+    href: '/messaging/send',
+    number: '08e',
+    title: 'Send a Guest Message',
+    description: 'Pick a stay and send a message: check-in notes, day-of updates, anything you start rather than reply to. The Send lens of the Messaging Guests tab.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
   // Owner Messaging is now a TAB inside Messaging (see MessagingTabs), same
   // pattern as Statements / Revenue / Forecast / Cost Analysis / Books sitting
   // under Financials. Hidden from the nav lists so it doesn't duplicate the

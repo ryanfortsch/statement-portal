@@ -14,6 +14,13 @@ import {
   type CreateRecurringInput,
 } from '@/lib/stay-concierge';
 
+// This file now backs TWO routes: the Send lens owns the scheduling UI, and
+// /messaging still renders whatever the queue needs. Revalidating both keeps
+// either page current no matter which one invoked the action (the three
+// sibling *-messaging/reminders-actions.ts files each serve a single page and
+// keep their own single-path const).
+const REVALIDATE_PAGES = ['/messaging', '/messaging/send'];
+
 async function requireSession(): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
@@ -59,7 +66,7 @@ export async function createReminderAction(
   }
   const res = await createRecurring(input);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  REVALIDATE_PAGES.forEach((path) => revalidatePath(path));
   return { ok: true };
 }
 
@@ -70,7 +77,7 @@ export async function endReminderAction(
   if (!sess.ok) return sess;
   const res = await endRecurring(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  REVALIDATE_PAGES.forEach((path) => revalidatePath(path));
   return { ok: true };
 }
 

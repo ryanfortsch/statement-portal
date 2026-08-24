@@ -20,7 +20,7 @@ export default function MessagingLoading() {
       style={{ background: 'var(--paper)', color: 'var(--ink)' }}
     >
       <HelmMasthead />
-      <MessagingTabs current="guests" />
+      <MessagingTabs current="guests" lens="inbox" />
 
       <HelmHero
         eyebrow="Module 08 · Messaging"
