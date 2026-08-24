@@ -39,6 +39,10 @@ const BG_TINT: Record<string, string> = {
   failed: '#c0392b',
 };
 
+// The DB keeps 'archived'; the office says "retired". Label-only mapping so
+// the stored value (and every guard that reads it) stays untouched.
+const STATUS_LABEL: Record<string, string> = { archived: 'retired' };
+
 const STATUS_TINT: Record<string, string> = {
   invited: 'var(--ink-4)',
   onboarding: 'var(--signal)',
@@ -139,6 +143,10 @@ export default async function ContractorsPage({
   const rankMap = new Map<string, number>();
   ranked.forEach((c, i) => rankMap.set(c.id, i + 1));
   const ordered = [...ranked, ...contractors.filter((c) => !rankMap.has(c.id))];
+  // Retired people keep their record (pay history, W-9, 1099 totals) but stop
+  // cluttering the working roster -- they live in their own folded section.
+  const working = ordered.filter((c) => c.status !== 'archived');
+  const retired = ordered.filter((c) => c.status === 'archived');
 
   // Active contractors still missing a W-9 (same on-file test the card uses:
   // an in-app W-9 or the books flag). The recurring pre-1099 chore, surfaced as
@@ -235,7 +243,7 @@ export default async function ContractorsPage({
         {contractors.length === 0 ? (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No {meta.label.toLowerCase()} yet.</p>
         ) : (
-          ordered.map((c) => (
+          working.map((c) => (
             <ContractorCard
               key={c.id}
               c={c}
@@ -254,6 +262,37 @@ export default async function ContractorsPage({
               }
             />
           ))
+        )}
+
+        {/* Retired: off the working roster, one click away. Their record stays
+            whole -- pay history, W-9, and books totals still feed the 1099. */}
+        {retired.length > 0 && (
+          <details style={{ marginTop: 18 }}>
+            <summary style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', cursor: 'pointer', padding: '6px 0' }}>
+              Retired · {retired.length}
+            </summary>
+            <div style={{ marginTop: 12 }}>
+              {retired.map((c) => (
+                <ContractorCard
+                  key={c.id}
+                  c={c}
+                  base={base}
+                  rating={ratings.get(c.id)}
+                  rank={rankMap.get(c.id)}
+                  rel={reliability.get(c.id)}
+                  ps={payStats.get(c.id)}
+                  w9={w9s.get(c.id)}
+                  pm={payMethods.get(c.id)}
+                  books={booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))}
+                  rate={
+                    trade === 'creative'
+                      ? { card: rateCards.byContractor.get(c.id) ?? rateCards.def, isCustom: rateCards.byContractor.has(c.id) }
+                      : null
+                  }
+                />
+              ))}
+            </div>
+          </details>
         )}
       </section>
       <HelmFooter module="Field" right={`${meta.label} roster`} />
@@ -301,8 +340,12 @@ function ContractorCard({
   const w9OnFile = !!w9 || !!books?.w9;
 
   return (
-    <div style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '16px 18px', marginBottom: 14 }}>
-      {/* Header: identity + state */}
+    <details style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', marginBottom: 14 }}>
+      {/* Collapsed by default: the summary carries the vital signs (money,
+          rating, reliability, W-9) so the whole roster scans in one screen.
+          Deliberately uncontrolled -- no `open` prop -- so a card the operator
+          expanded stays expanded when an action inside it revalidates. */}
+      <summary className="rt-fold-summary" style={{ padding: '16px 18px', cursor: 'pointer', listStyle: 'none' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
           <span style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--paper)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -323,12 +366,26 @@ function ContractorCard({
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Pill label={c.status} color={STATUS_TINT[c.status] ?? 'var(--ink-4)'} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+          <Pill label={STATUS_LABEL[c.status] ?? c.status} color={STATUS_TINT[c.status] ?? 'var(--ink-4)'} />
           <Pill label={`Check: ${BG_LABEL[c.background_check_status] ?? c.background_check_status}`} color={BG_TINT[c.background_check_status] ?? 'var(--ink-4)'} />
+          <span aria-hidden style={{ fontSize: 11, color: 'var(--ink-4)' }}>&#9662;</span>
         </div>
       </div>
+      {/* Vital signs while collapsed: the four numbers worth scanning. */}
+      <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        {earned && ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
+        {earned && ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
+        {!earned && <span>No approved work</span>}
+        {rating && rating.count > 0 && (
+          <span>&#9733; {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '\u2014'} <span style={{ color: 'var(--ink-4)' }}>({rating.count})</span></span>
+        )}
+        {!isCreative && rel && <span style={{ color: TIER_TINT[rel.tier] }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` \u00b7 ${rel.score}` : ''}</span>}
+        {!w9OnFile && c.status === 'active' && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>W-9 needed</span>}
+      </div>
+      </summary>
 
+      <div style={{ padding: '0 18px 16px' }}>
       {/* Metric ribbon */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 14 }}>
         <Stat label="Earnings">
@@ -500,15 +557,16 @@ function ContractorCard({
             <SubmitButton label="Rotate link" busyLabel="Rotating…" style={actBtn} spinnerTone="ink" />
           </form>
           {c.status !== 'archived' && (
-            <form action={setContractorStatus} style={{ margin: 0 }}>
+            <form action={setContractorStatus} style={{ margin: 0 }} title="Retire them: kills their portal link + sessions, pulls any live door codes, and releases work they were holding. Reversible with Reactivate.">
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="archived" />
-              <SubmitButton label="Archive" busyLabel="Archiving…" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }} spinnerTone="ink" />
+              <SubmitButton label="Retire" busyLabel="Retiring…" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }} spinnerTone="ink" />
             </form>
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </details>
   );
 }
 
