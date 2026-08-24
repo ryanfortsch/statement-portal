@@ -65,6 +65,10 @@ export type WorkSlipRow = {
    *  their 72h window) rather than the office or a formal inspection filing it. */
   reported_by_contractor_id: string | null;
   reported_from_packet_id: string | null;
+  /** Out-of-pocket receipt on this slip (completion-time or post-visit report).
+   *  Summed onto the packet's expenses_cents by recomputePacketExpenses when
+   *  the slip rides a live packet; otherwise the office slip page flags it. */
+  expense_cents: number | null;
   /** Idempotency key when mined by AI from a guest message thread
    *  ("guestmsg:<conversation_id>:<guest_message_id>"). One slip per
    *  reported issue, ever -- dismissed stays dismissed. */

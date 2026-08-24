@@ -88,6 +88,18 @@ export default async function WorkSlipDetailPage({
 
   const { slip, property, inspection, inspectionItem, comments } = data;
 
+  // A slip carrying an out-of-pocket receipt: say whether the money is riding
+  // a payout or still needs a home, so a contractor's reimbursement can never
+  // silently die in a description ("$27.60 TP holders", 2026-08-23).
+  const receiptPacket =
+    (slip.expense_cents ?? 0) > 0 && slip.reported_from_packet_id
+      ? ((await supabase
+          .from('inspection_packets')
+          .select('id, title, visit_date, paid_at')
+          .eq('id', slip.reported_from_packet_id)
+          .maybeSingle()).data as { id: string; title: string; visit_date: string; paid_at: string | null } | null)
+      : null;
+
   const priorityColor =
     slip.priority === 'high' ? 'var(--negative)' :
     slip.priority === 'low' ? 'var(--ink-4)' :
@@ -189,6 +201,28 @@ export default async function WorkSlipDetailPage({
               </p>
             </div>
           )}
+        </Section>
+      )}
+
+      {/* OUT-OF-POCKET RECEIPT — where the money stands, always. */}
+      {(slip.expense_cents ?? 0) > 0 && (
+        <Section title="Receipt" eyebrow="Out of pocket">
+          <div style={{ fontSize: 14.5, lineHeight: 1.6 }}>
+            <span className="font-mono" style={{ fontWeight: 600 }}>${((slip.expense_cents ?? 0) / 100).toFixed(2)}</span>
+            {receiptPacket && !receiptPacket.paid_at ? (
+              <span style={{ color: 'var(--positive)' }}>
+                {' '}· riding the payout for{' '}
+                <Link href={`/fieldwork/packets/${receiptPacket.id}`} style={{ color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
+                  {receiptPacket.title}
+                </Link>
+                {' '}— paid out with that visit.
+              </span>
+            ) : (
+              <span style={{ color: 'var(--signal)', fontWeight: 600 }}>
+                {' '}· not in any payout yet — add it at their next packet&apos;s approval (bonus or final).
+              </span>
+            )}
+          </div>
         </Section>
       )}
 

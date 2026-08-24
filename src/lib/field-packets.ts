@@ -2228,12 +2228,15 @@ export type StopReview = {
  *  expenses_cents. Idempotent recompute, never an increment, so retries and
  *  edits can't double-count. */
 export async function recomputePacketExpenses(packetId: string): Promise<void> {
-  const [{ data: stopSlips }, { data: attached }] = await Promise.all([
+  const [{ data: stopSlips }, { data: attached }, { data: reported }] = await Promise.all([
     fieldDb().from('packet_stops').select('work_slip_id').eq('packet_id', packetId).not('work_slip_id', 'is', null),
     fieldDb()
       .from('packet_stop_work_slips')
       .select('work_slip_id, packet_stops!inner(packet_id)')
       .eq('packet_stops.packet_id', packetId),
+    // Post-visit reports can carry an out-of-pocket receipt too ("bought TP
+    // holders at Marshall's") — they ride the visit they came from.
+    fieldDb().from('work_slips').select('id, expense_cents').eq('reported_from_packet_id', packetId).not('expense_cents', 'is', null),
   ]);
   const slipIds = [
     ...new Set([
@@ -2241,15 +2244,23 @@ export async function recomputePacketExpenses(packetId: string): Promise<void> {
       ...((attached ?? []) as unknown as { work_slip_id: string }[]).map((r) => r.work_slip_id),
     ]),
   ];
-  let total = 0;
+  // Dedupe by slip id across all three sources (the office can attach a
+  // reported slip back onto the very packet it was reported from).
+  const byId = new Map<string, number>();
   if (slipIds.length) {
-    const { data: w } = await fieldDb().from('work_slips').select('expense_cents').in('id', slipIds);
-    total = ((w ?? []) as { expense_cents: number | null }[]).reduce((a, r) => a + (r.expense_cents || 0), 0);
+    const { data: w } = await fieldDb().from('work_slips').select('id, expense_cents').in('id', slipIds);
+    for (const r of (w ?? []) as { id: string; expense_cents: number | null }[]) byId.set(r.id, r.expense_cents || 0);
   }
+  for (const r of (reported ?? []) as { id: string; expense_cents: number | null }[]) byId.set(r.id, r.expense_cents || 0);
+  const total = [...byId.values()].reduce((a, v) => a + v, 0);
+  // Never rewrite a PAID packet: its payout is a receipt. A late-arriving
+  // expense on a paid packet stays visible on the slip (the office work-slip
+  // page flags it for the next payout) instead of mutating settled money.
   await fieldDb()
     .from('inspection_packets')
     .update({ expenses_cents: total, updated_at: new Date().toISOString() })
-    .eq('id', packetId);
+    .eq('id', packetId)
+    .is('paid_at', null);
 }
 
 export async function loadPacketReview(packetId: string): Promise<StopReview[]> {
