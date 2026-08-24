@@ -409,6 +409,46 @@ export async function insertAdjustment(
     createdBy: string;
   },
 ): Promise<{ id: string; status: 'active' | 'proposed' } | null> {
+  // Idempotency FIRST, before anything is superseded. A derived source
+  // re-deriving the same key on its next pass must never destroy what it
+  // already established: the old order (supersede, then insert) killed the
+  // standing row and then lost the duplicate insert to the unique key,
+  // leaving the stay with NO adjustment at all. That silently un-did
+  // Stacey Grillo's extension on 2026-08-24, minutes after it landed.
+  if (input.minerKey) {
+    const { data: priorRow } = await supabase
+      .from('checkout_adjustments')
+      .select('id, status')
+      .eq('miner_key', input.minerKey)
+      .maybeSingle();
+    if (priorRow) {
+      const prior = priorRow as { id: string; status: string };
+      // Already in force, dismissed by a human, or still waiting on one:
+      // all three are correct states to leave alone.
+      if (prior.status !== 'superseded') return null;
+      // Superseded, and nothing else is in force for this stay: the fact is
+      // still true and no longer represented anywhere, so reinstate it. The
+      // unique key blocks a fresh row, and a plain no-op would leave the
+      // schedule wrong.
+      const { data: inForce } = await supabase
+        .from('checkout_adjustments')
+        .select('id')
+        .eq('property_id', input.propertyId)
+        .eq('stay_check_in', input.stayCheckIn)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (inForce) return null;
+      const { data: revived } = await supabase
+        .from('checkout_adjustments')
+        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .eq('id', prior.id)
+        .eq('status', 'superseded')
+        .select('id')
+        .maybeSingle();
+      return revived ? { id: prior.id, status: 'active' } : null;
+    }
+  }
+
   const { data: standing } = await supabase
     .from('checkout_adjustments')
     .select('id, source')
@@ -426,12 +466,16 @@ export async function insertAdjustment(
     status = input.confidence === 'high' && !operatorStanding ? 'active' : 'proposed';
   }
 
+  let supersededId: string | null = null;
   if (status === 'active' && standing) {
-    await supabase
+    const { data: bumped } = await supabase
       .from('checkout_adjustments')
       .update({ status: 'superseded', updated_at: new Date().toISOString() })
       .eq('id', standing.id)
-      .eq('status', 'active');
+      .eq('status', 'active')
+      .select('id')
+      .maybeSingle();
+    if (bumped) supersededId = standing.id;
   }
 
   const { data, error } = await supabase
@@ -454,9 +498,17 @@ export async function insertAdjustment(
     .single();
 
   if (error) {
-    // miner_key unique violation = this exact agreement was already mined
-    // (possibly later dismissed - dismissed stays dismissed). Also covers
-    // the one-active-per-stay race from a parallel run.
+    // The insert failed AFTER the previous row was superseded. Put it back,
+    // so a failure never leaves the stay with nothing in force (the same
+    // hole the key pre-check above closes on the happy path).
+    if (supersededId) {
+      await supabase
+        .from('checkout_adjustments')
+        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .eq('id', supersededId)
+        .eq('status', 'superseded');
+    }
+    // Unique violation from a parallel run: whatever it wrote stands.
     if (error.code === '23505') return null;
     throw new Error(`checkout_adjustments insert failed: ${error.message}`);
   }
