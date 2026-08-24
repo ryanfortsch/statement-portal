@@ -393,8 +393,11 @@ function CreativeShootCard({ s }: { s: ShootSummary }) {
     ? [reels ? `${reels} reel${reels === 1 ? '' : 's'}` : null, carousels ? `${carousels} carousel${carousels === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ')
     : 'no posts yet';
   const pay = contributorPay(s);
+  // The card opens the shoot BRIEF: date, address, arrival + parking, entry,
+  // and the listing to study — everything the day needs, one tap away.
   return (
-    <div
+    <Link
+      href={`/field/shoot/${s.shoot.id}`}
       style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -404,6 +407,8 @@ function CreativeShootCard({ s }: { s: ShootSummary }) {
         boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)',
         padding: '16px 20px',
         marginBottom: 14,
+        textDecoration: 'none',
+        color: 'inherit',
       }}
     >
       <div style={{ minWidth: 0 }}>
@@ -419,7 +424,7 @@ function CreativeShootCard({ s }: { s: ShootSummary }) {
         <div className="font-mono" style={{ fontSize: 20, lineHeight: 1, color: pay.tone }}>{pay.text}</div>
         {pay.sub && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>{pay.sub}</div>}
       </div>
-    </div>
+    </Link>
   );
 }
 
