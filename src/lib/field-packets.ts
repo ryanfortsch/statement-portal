@@ -1070,25 +1070,35 @@ export type WorkDay = { date: string; items: WorkItem[] };
  * work board, the calendar, and the bundle guard. One rule, shared by all
  * three, so they can never disagree.
  */
-async function coveredBookingIds(): Promise<Set<string>> {
+type StayCoverage = { ids: Set<string>; stays: Set<string> };
+const stayKey = (propertyId: string, checkIn: string | null | undefined) => `${propertyId}:${checkIn ?? ''}`;
+/** True when this turnover is on a live packet — by booking id OR by stay
+ *  (property + check-in). The stay match matters: Guesty imports routinely
+ *  leave the SAME stay as two bookings rows (a named one and an unnamed
+ *  "Reservation …" twin, neither marked duplicate_of), so the stop can cover
+ *  one row while a reader's `next` lookup finds the other. Id-only coverage
+ *  then lies: an already-claimed turnover paints "open" on the calendar and
+ *  gets re-suggested for bundling (3 Locust, 2026-08-25). */
+const isCoveredStay = (cov: StayCoverage, propertyId: string, bookingId: string | null | undefined, checkIn: string | null | undefined): boolean =>
+  (!!bookingId && cov.ids.has(bookingId)) || (!!checkIn && cov.stays.has(stayKey(propertyId, checkIn)));
+
+async function coveredBookingIds(): Promise<StayCoverage> {
   const { data } = await fieldDb()
     .from('packet_stops')
-    .select('booking_id, inspection_packets!inner(status, visit_date)')
-    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved'])
-    .not('booking_id', 'is', null);
+    .select('booking_id, property_id, next_checkin, inspection_packets!inner(status, visit_date)')
+    .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
   const today = todayStr();
-  type Row = { booking_id: string | null; inspection_packets: { status: string; visit_date: string } };
-  return new Set(
-    ((data ?? []) as unknown as Row[])
-      .filter(
-        (r) =>
-          r.inspection_packets.status === 'submitted' ||
-          r.inspection_packets.status === 'approved' ||
-          r.inspection_packets.visit_date >= today,
-      )
-      .map((r) => r.booking_id)
-      .filter((b): b is string => !!b),
+  type Row = { booking_id: string | null; property_id: string; next_checkin: string | null; inspection_packets: { status: string; visit_date: string } };
+  const live = ((data ?? []) as unknown as Row[]).filter(
+    (r) =>
+      r.inspection_packets.status === 'submitted' ||
+      r.inspection_packets.status === 'approved' ||
+      r.inspection_packets.visit_date >= today,
   );
+  return {
+    ids: new Set(live.map((r) => r.booking_id).filter((b): b is string => !!b)),
+    stays: new Set(live.filter((r) => !!r.next_checkin).map((r) => stayKey(r.property_id, r.next_checkin))),
+  };
 }
 
 /**
@@ -1112,7 +1122,7 @@ export async function loadInspectionWorkItems(
 
   // One row per UNCOVERED turnover (booking), on its earliest inspectable day.
   const candidates = (await deriveDayCandidates(withCoords, windowStart, windowEnd)).filter(
-    (c) => c.bookingId && !coveredBookings.has(c.bookingId),
+    (c) => c.bookingId && !isCoveredStay(coveredBookings, c.propertyId, c.bookingId, c.nextCheckin),
   );
   const earliestByBooking = new Map<string, DayCandidate>();
   for (const c of candidates) {
@@ -1288,7 +1298,7 @@ export async function createPacketFromProperties(args: {
   const coveredBookings = await coveredBookingIds();
   const usable = sel.filter((p) => {
     const c = candByProp.get(p.id);
-    return c && (!c.bookingId || !coveredBookings.has(c.bookingId));
+    return c && (!c.bookingId || !isCoveredStay(coveredBookings, c.propertyId, c.bookingId, c.nextCheckin));
   });
   if (usable.length === 0) return null;
 
@@ -2344,7 +2354,7 @@ export async function loadInspectionCalendar(
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
     const uncovered = pb.filter(
-      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !coveredBookings.has(b.id),
+      (b) => isGuestStay(b) && b.check_in >= windowStart && b.check_in <= windowEnd && !isCoveredStay(coveredBookings, p.id, b.id, b.check_in),
     );
     // A home whose next check-in falls just PAST the window still needs a row
     // when a guest checks out inside it: those open days are prime inspection
@@ -2355,7 +2365,7 @@ export async function loadInspectionCalendar(
       (b) => isGuestStay(b) && b.check_out >= windowStart && b.check_out <= windowEnd,
     );
     const uncoveredAfter = checkoutInWindow && uncovered.length === 0
-      ? pb.filter((b) => isGuestStay(b) && b.check_in > windowEnd && !coveredBookings.has(b.id))
+      ? pb.filter((b) => isGuestStay(b) && b.check_in > windowEnd && !isCoveredStay(coveredBookings, p.id, b.id, b.check_in))
       : [];
     const anchor = uncovered.length > 0 ? uncovered : uncoveredAfter;
     if (anchor.length === 0) continue;
@@ -2378,7 +2388,7 @@ export async function loadInspectionCalendar(
       const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied;
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
       const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
-      const nextCovered = !!next && coveredBookings.has(next.id);
+      const nextCovered = !!next && isCoveredStay(coveredBookings, p.id, next.id, next.check_in);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered;
       const covered = state === 'open' && nextCovered;
       return { date: D, state, checkIn, inspectable, covered };
