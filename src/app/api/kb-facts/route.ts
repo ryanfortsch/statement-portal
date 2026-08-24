@@ -39,6 +39,8 @@ type PropertyRow = {
   trash_notes: string | null;
   has_pack_n_play: boolean | null;
   has_high_chair: boolean | null;
+  default_checkin_time: string | null;
+  default_checkout_time: string | null;
 };
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
@@ -60,7 +62,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair',
+      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkin_time, default_checkout_time',
     )
     .eq('is_active', true);
   if (error) {
@@ -101,6 +103,15 @@ export async function GET(req: Request) {
       trash_day: clean(p.trash_day),
       recycling_day: clean(p.recycling_day),
       trash_notes: clean(p.trash_notes),
+      // Per-property check-in / checkout times, synced from each Guesty
+      // listing's own defaults by /api/sync-guesty. These are the reason
+      // this pair is here: the guest AI carries a portfolio-wide "checkout
+      // is 11 AM" fact, and on 2026-08-24 it quoted that as "the standard"
+      // to a guest at 3 Windward, whose real checkout is 10:00 -- handing
+      // over an hour the cleaning schedule had not planned for. Three homes
+      // (3 Windward, 3 South, 225 Washington) run 10:00, not 11:00.
+      check_in_time: clean(p.default_checkin_time),
+      check_out_time: clean(p.default_checkout_time),
       // On-site guest gear: lets the AI answer a pack-n-play / high-chair ask
       // with "it's already in the home" instead of promising to bring one.
       has_pack_n_play: p.has_pack_n_play === true,
